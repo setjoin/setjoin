@@ -62,14 +62,21 @@ CREATE OR REPLACE FUNCTION task_assignee_set_status(
   p_status  TEXT
 ) RETURNS JSONB AS $$
 DECLARE
-  v_row tasks%ROWTYPE;
+  v_row public.tasks%ROWTYPE;
 BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    IF p_user_id IS NULL
+       OR p_user_id IS DISTINCT FROM NULLIF(current_setting('app.current_user_id', true), '')::bigint THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   IF p_status IS NULL OR p_status NOT IN ('needs-action', 'in-progress', 'completed', 'cancelled') THEN
     RAISE EXCEPTION 'invalid task status %', p_status
       USING ERRCODE = 'BZ133', HINT = '{"type":"invalidArguments","detail":"invalid status"}';
   END IF;
 
-  UPDATE tasks SET
+  UPDATE public.tasks SET
     status = p_status,
     completed_at = CASE
       WHEN p_status = 'completed' AND status != 'completed' THEN now()
@@ -80,7 +87,7 @@ BEGIN
     jmap_state = jmap_state + 1
   WHERE id = p_task_id
     AND assignee_user_id = p_user_id
-    AND (list_id IS NULL OR task_list_role(list_id, p_user_id) IS NOT NULL)
+    AND (list_id IS NULL OR public.task_list_role(list_id, p_user_id) IS NOT NULL)
   RETURNING * INTO v_row;
 
   IF NOT FOUND THEN
@@ -88,18 +95,20 @@ BEGIN
       USING ERRCODE = 'BZ132', HINT = '{"type":"notFound"}';
   END IF;
 
-  INSERT INTO task_activity (task_id, mailbox_id, author_user_id, kind, meta)
+  INSERT INTO public.task_activity (task_id, mailbox_id, author_user_id, kind, meta)
   VALUES (p_task_id, v_row.mailbox_id, p_user_id, 'status_change',
           jsonb_build_object('old', NULL, 'new', v_row.status));
 
   -- The OWNER's personal view syncs via the task secondary seam (their own
   -- mailbox channel); a list task ALSO gets the list seam so every member's
   -- board re-fetches.
-  PERFORM notify_task_state(v_row.mailbox_id, 'task_updated', p_task_id);
+  PERFORM public.notify_task_state(v_row.mailbox_id, 'task_updated', p_task_id);
   IF v_row.list_id IS NOT NULL THEN
-    PERFORM notify_task_list_state(v_row.list_id, 'task_updated', p_task_id);
+    PERFORM public.notify_task_list_state(v_row.list_id, 'task_updated', p_task_id);
   END IF;
 
   RETURN jsonb_build_object('id', v_row.id::TEXT, 'status', v_row.status);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.task_assignee_set_status(bigint,bigint,text)'::regprocedure);

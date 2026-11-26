@@ -566,11 +566,11 @@ impl Authed<'_> {
         recording: Option<&str>,
         r: &mut Request<Body>,
     ) -> Result<Response<Body>, Response<Body>> {
-        let (exec, actor) = (self.exec, self.actor);
+        let (factory, user) = (self.factory, self.user);
         // Committed-state reads are never flag-gated; every local-capture route is
         // new intent behind feature.meet_local_recording (OFF is a plain 404).
         if !matches!(kind, Kind::SemPackage | Kind::SemReplay) {
-            match setjoin_meet::flag(exec, "feature.meet_local_recording", false).await {
+            match setjoin_meet::flag(factory, "feature.meet_local_recording", false).await {
                 Ok(true) => {}
                 Ok(false) => return Err(self.plain(404, "not found")),
                 Err(_) => return Err(self.plain(500, "internal error")),
@@ -584,9 +584,9 @@ impl Authed<'_> {
         match kind {
             Kind::SemPackage | Kind::SemReplay => {
                 let out = if kind == Kind::SemPackage {
-                    setjoin_meet::semantic_package(exec, actor, id, rid).await
+                    setjoin_meet::semantic_package(factory, user, id, rid).await
                 } else {
-                    setjoin_meet::semantic_replay(exec, actor, id, rid).await
+                    setjoin_meet::semantic_replay(factory, user, id, rid).await
                 };
                 match out {
                     Ok(raw) => Ok(self.json(200, &raw)),
@@ -656,8 +656,8 @@ impl Authed<'_> {
         );
         let raw = self.commit(
             setjoin_meet::local_lease_acquire(
-                self.exec,
-                self.actor,
+                self.factory,
+                self.user,
                 id,
                 &device,
                 &setjoin_admin_identity::go_escape(&surfaces_json),
@@ -695,8 +695,8 @@ impl Authed<'_> {
         };
         let raw = self.commit(
             setjoin_meet::local_lease_heartbeat(
-                self.exec,
-                self.actor,
+                self.factory,
+                self.user,
                 id,
                 rid,
                 generation,
@@ -730,8 +730,8 @@ impl Authed<'_> {
         }
         let raw = self.commit(
             setjoin_meet::local_lease_stop(
-                self.exec,
-                self.actor,
+                self.factory,
+                self.user,
                 id,
                 rid,
                 generation,
@@ -785,8 +785,8 @@ impl Authed<'_> {
         };
         let raw = self.commit(
             setjoin_meet::local_register(
-                self.exec,
-                self.actor,
+                self.factory,
+                self.user,
                 id,
                 rid,
                 &exact,
@@ -800,11 +800,12 @@ impl Authed<'_> {
 
 /// `GET /admin/meet/recordings`: Go's `drive.view`-gated, audited registry read.
 /// Shared authorization already passed; this is the permission, the filters and
-/// the worker-credential read.
+/// the RBAC-proved cross-tenant read.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn registry(
-    exec: &setjoin_pg::ScopedExecutor,
-    worker: &setjoin_pg::ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &setjoin_authz::principals::TxFactory,
+    auth: &setjoin_authz::Authorized,
+    client_ip: &str,
     r: &Request<Body>,
     c: &crate::RequestContext,
     id: String,
@@ -814,14 +815,30 @@ pub(super) async fn registry(
     let Some(operation) = crate::jmap::random() else {
         return super::plain(503, "service unavailable", c, id);
     };
-    let Ok(authority) = setjoin_admin_identity::authority(exec, actor).await else {
+    let Ok(user) = factory.mint_user_from_authorized(auth, client_ip).await else {
         return super::plain(500, "internal error", c, id);
     };
-    if !authority.allows_any(&["drive.view"]) {
-        let _ = setjoin_admin_identity::console_denied(exec, actor, path, "drive.view", operation)
-            .await;
+    let proof = if auth.context().signed_admin() {
+        match factory.mint_admin_from_authorized(auth, client_ip).await {
+            Ok(admin) => admin.require_permission("drive.view").ok(),
+            Err(setjoin_authz::principals::PrincipalError::Unavailable(_)) => {
+                return super::plain(500, "internal error", c, id);
+            }
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+    let Some(proof) = proof else {
+        let before = serde_json::json!({
+            "actor": user.audit_meta().email,
+            "target": path,
+            "missingPermission": "drive.view"
+        })
+        .to_string();
+        let _ = setjoin_meet::console_denied(factory, &user, &before, path, operation).await;
         return super::plain(403, "Forbidden", c, id);
-    }
+    };
     let query = r.uri().query().unwrap_or("");
     let value = |name: &str| query_value(query, name).filter(|v| !v.is_empty());
     let state = value("state");
@@ -832,13 +849,12 @@ pub(super) async fn registry(
             Err(_) => return super::problem(400, "invalid meetingId", path, c, id, language),
         },
     };
-    let rows = match setjoin_meet::registry_list(worker, state.as_deref(), meeting).await {
+    let rows = match setjoin_meet::registry_list(factory, &proof, state.as_deref(), meeting).await {
         Ok(rows) => rows,
         Err(_) => return super::problem(500, "request failed", path, c, id, language),
     };
     // Audited read; a failure only matters to Go's log, never to the caller.
-    let ip = c.identity.client_ip.to_string();
-    let _ = setjoin_meet::registry_audit(exec, actor, &ip, operation).await;
+    let _ = setjoin_meet::registry_audit(factory, &user, client_ip, operation).await;
     let text =
         |v: &str| setjoin_admin_identity::go_escape(&serde_json::to_string(v).expect("text"));
     let items: Vec<String> = rows

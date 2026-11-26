@@ -1773,6 +1773,7 @@ async fn routes(
     };
     let migration = setjoin_gateway::migration::MigrationRoute {
         exec: exec.clone(),
+        worker: compliance.worker.clone(),
         keys: keys.clone(),
         issuer: issuer.clone(),
         encryption_key: env("DB_ENCRYPTION_KEY").unwrap_or_default(),

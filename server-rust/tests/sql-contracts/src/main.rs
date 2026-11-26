@@ -40,6 +40,12 @@ const ALL_CONTRACTS: &[&[SqlContract]] = &[
     setjoin_office::SQL_CONTRACTS,
     setjoin_static::SQL_CONTRACTS,
     setjoin_devices::SQL_CONTRACTS,
+    setjoin_chat::SQL_CONTRACTS,
+    setjoin_drive::SQL_CONTRACTS,
+    setjoin_jmap::SQL_CONTRACTS,
+    setjoin_mail_security::SQL_CONTRACTS,
+    setjoin_mailboxes::SQL_CONTRACTS,
+    setjoin_meet::SQL_CONTRACTS,
 ];
 
 const FIRST_CUSTOM_OID: u32 = 16384;
@@ -106,6 +112,7 @@ struct MutantContractJson {
 fn parse_scope(raw: &str) -> Result<SqlScope, String> {
     match raw {
         "MailboxReadOnly" => Ok(SqlScope::MailboxReadOnly),
+        "MailboxAuditedRead" => Ok(SqlScope::MailboxAuditedRead),
         "MailboxReadWrite" => Ok(SqlScope::MailboxReadWrite),
         "UserScoped" => Ok(SqlScope::UserScoped),
         "AdminRead" => Ok(SqlScope::AdminRead),
@@ -241,7 +248,7 @@ fn swap_dsn_user(dsn: &str, new_user: &str) -> Result<String, String> {
     Ok(parts.join(" "))
 }
 
-fn resolve_dsns() -> Result<(String, String), String> {
+fn resolve_dsns() -> Result<(String, String, bool), String> {
     let base = env::var("TEST_DB_DSN")
         .ok()
         .filter(|v| !v.trim().is_empty())
@@ -258,13 +265,15 @@ fn resolve_dsns() -> Result<(String, String), String> {
             swap_dsn_user(base, "setjoin_app")
         })?;
 
-    let worker_dsn = env::var("DB_WORKER_DSN")
+    let explicit_worker = env::var("DB_WORKER_DSN")
         .ok()
-        .filter(|v| !v.trim().is_empty())
+        .filter(|v| !v.trim().is_empty());
+    let worker_explicit = explicit_worker.is_some();
+    let worker_dsn = explicit_worker
         .or(base)
         .ok_or_else(|| "DB_WORKER_DSN, TEST_DB_DSN, or DB_DSN is required".to_owned())?;
 
-    Ok((app_dsn, worker_dsn))
+    Ok((app_dsn, worker_dsn, worker_explicit))
 }
 
 async fn connect_pg(dsn: &str, label: &str) -> Result<Client, String> {
@@ -277,7 +286,11 @@ async fn connect_pg(dsn: &str, label: &str) -> Result<Client, String> {
     Ok(client)
 }
 
-async fn verify_roles(app: &Client, worker: &Client) -> Result<(String, i32, String), String> {
+async fn verify_roles(
+    app: &Client,
+    worker: &Client,
+    worker_explicit: bool,
+) -> Result<(String, i32, String), String> {
     let app_row = app
         .query_one(
             "SELECT current_user::text, r.rolsuper, r.rolbypassrls, \
@@ -315,7 +328,15 @@ async fn verify_roles(app: &Client, worker: &Client) -> Result<(String, i32, Str
     let worker_user: String = worker_row.get(0);
     let worker_super: bool = worker_row.get(1);
     let worker_bypass: bool = worker_row.get(2);
-    if !worker_super && !worker_bypass {
+    if worker_explicit {
+        if worker_super || !worker_bypass {
+            return Err(format!(
+                "PREFLIGHT_WORKER_ROLE_FORBIDDEN: explicit DB_WORKER_DSN role '{worker_user}' \
+                 must have rolsuper=false AND rolbypassrls=true \
+                 (got rolsuper={worker_super}, rolbypassrls={worker_bypass})"
+            ));
+        }
+    } else if !worker_super && !worker_bypass {
         return Err(format!(
             "PREFLIGHT_WORKER_ROLE_FORBIDDEN: worker role '{worker_user}' must have rolbypassrls=true OR rolsuper=true"
         ));
@@ -815,7 +836,7 @@ fn build_rls_probe_values(contract: &OwnedContract, fixture: &RlsFixture) -> Vec
         && (sql_lower.contains("r.id=$1") || sql_lower.contains("where id=$1"));
     let is_mailbox_scope = matches!(
         contract.scope,
-        SqlScope::MailboxReadOnly | SqlScope::MailboxReadWrite
+        SqlScope::MailboxReadOnly | SqlScope::MailboxAuditedRead | SqlScope::MailboxReadWrite
     );
     let mut vals = Vec::with_capacity(contract.params.len());
     for (idx, ty) in contract.params.iter().enumerate() {
@@ -900,7 +921,9 @@ async fn apply_scope_gucs(
     let mb = mailbox_id.map(|v| v.to_string()).unwrap_or_default();
     let uid = user_id.map(|v| v.to_string()).unwrap_or_default();
     let (mb_val, uid_val) = match scope {
-        SqlScope::MailboxReadOnly | SqlScope::MailboxReadWrite => (mb, uid),
+        SqlScope::MailboxReadOnly | SqlScope::MailboxAuditedRead | SqlScope::MailboxReadWrite => {
+            (mb, uid)
+        }
         SqlScope::UserScoped | SqlScope::AdminRead | SqlScope::AdminWrite => (String::new(), uid),
         SqlScope::AuthPreScope | SqlScope::WorkerBypass => (String::new(), String::new()),
     };
@@ -937,7 +960,7 @@ async fn verify_one_contract(
     worker: &Client,
     fixture: &RlsFixture,
 ) -> Result<(), String> {
-    let client = if contract.scope.is_worker_bypass() {
+    let client = if contract.scope.is_worker_bypass() || contract.scope.is_admin() {
         worker
     } else {
         app
@@ -1214,8 +1237,8 @@ async fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
-    let (app_dsn, worker_dsn) = match resolve_dsns() {
-        Ok(pair) => pair,
+    let (app_dsn, worker_dsn, worker_explicit) = match resolve_dsns() {
+        Ok(triple) => triple,
         Err(e) => {
             eprintln!("FAIL: PREFLIGHT_DSN_MISSING: {e}");
             return ExitCode::from(1);
@@ -1237,7 +1260,7 @@ async fn main() -> ExitCode {
         }
     });
 
-    let (app_user, pg_ver, worker_user) = match verify_roles(&app, &worker).await {
+    let (app_user, pg_ver, worker_user) = match verify_roles(&app, &worker, worker_explicit).await {
         Ok(info) => info,
         Err(e) => {
             eprintln!("FAIL: {e}");
@@ -1328,6 +1351,7 @@ mod tests {
         let scopes: HashSet<SqlScope> = contracts.iter().map(|c| c.scope).collect();
         for required in [
             SqlScope::MailboxReadOnly,
+            SqlScope::MailboxAuditedRead,
             SqlScope::MailboxReadWrite,
             SqlScope::UserScoped,
             SqlScope::AdminRead,

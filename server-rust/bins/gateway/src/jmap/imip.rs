@@ -629,7 +629,9 @@ mod db {
         let owner = db.connect().await.expect("owner connection");
         let exec =
             ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2).expect("executor");
-        let account = fixture::account(&owner, "famimip-mixed").await.expect("own");
+        let account = fixture::account(&owner, "famimip-mixed")
+            .await
+            .expect("own");
         let actor = ActorId::new(account.user).expect("actor");
         let from = email(&owner, account.mailbox).await;
         let mail = Imip {

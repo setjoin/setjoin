@@ -94,21 +94,23 @@ async fn relay(
                 let mut statements = statements.lock().unwrap();
                 if hit {
                     statements.insert(name);
+                    request_target.store(true, Ordering::SeqCst);
                 } else {
                     statements.remove(&name);
                 }
-                request_target.store(hit, Ordering::SeqCst);
             }
             if tag == b'B' {
                 let name = data.split(|b| *b == 0).nth(1).unwrap_or(&[]);
-                request_target.store(statements.lock().unwrap().contains(name), Ordering::SeqCst);
+                if statements.lock().unwrap().contains(name) {
+                    request_target.store(true, Ordering::SeqCst);
+                }
             }
-            if tag == b'Q' {
-                request_target.store(
-                    data.windows(b"FROM drive_file_versions".len())
-                        .any(|v| v == b"FROM drive_file_versions"),
-                    Ordering::SeqCst,
-                );
+            if tag == b'Q'
+                && data
+                    .windows(b"FROM drive_file_versions".len())
+                    .any(|v| v == b"FROM drive_file_versions")
+            {
+                request_target.store(true, Ordering::SeqCst);
             }
             sw.write_u8(tag).await?;
             sw.write_u32(len).await?;

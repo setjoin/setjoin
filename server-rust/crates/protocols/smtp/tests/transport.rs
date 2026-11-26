@@ -132,7 +132,9 @@ impl setjoin_smtp::outbound::transport::TlsaLookup for Answers {
                         let matching = parts.next().unwrap().parse().unwrap();
                         let bytes = parts.next().unwrap_or("").as_bytes();
                         let association = bytes
-                            .chunks_exact(2)
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
                             .map(|c| {
                                 u8::from_str_radix(std::str::from_utf8(c).unwrap(), 16).unwrap()
                             })

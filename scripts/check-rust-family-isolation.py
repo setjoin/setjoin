@@ -79,7 +79,6 @@ LEGACY_PATTERNS = [
 ]
 
 WAVE_1_8_LEGACY_ALLOWLIST = {
-    "crates/domains/chat/src/workers.rs": {"WorkerDatabase"},
     "crates/domains/compliance/src/chat_export.rs": {"WorkerDatabase"},
     "crates/domains/compliance/src/search.rs": {"WorkerDatabase"},
     "crates/domains/directory-sync/src/ad/runtime.rs": {"WorkerDatabase"},
@@ -87,13 +86,11 @@ WAVE_1_8_LEGACY_ALLOWLIST = {
     "crates/domains/directory-sync/src/ldap/engine.rs": {"WorkerDatabase"},
     "crates/domains/directory-sync/src/ldap/normalized.rs": {"WorkerDatabase"},
     "crates/domains/directory-sync/src/ldap/runtime.rs": {"WorkerDatabase"},
-    "crates/domains/drive/src/lib.rs": {"from_authenticated_session"},
     "crates/domains/identity/src/login.rs": {"ScopedExecutor::from_dsn"},
     "crates/domains/identity/src/self_service.rs": {"from_authenticated_session"},
     "crates/domains/identity/src/session.rs": {"ScopedExecutor::from_dsn"},
     "crates/domains/identity/src/totp.rs": {"ScopedExecutor::from_dsn"},
     "crates/domains/identity/src/webauthn.rs": {"ScopedExecutor::from_dsn"},
-    "crates/domains/mail-security/src/dlp.rs": {"from_authenticated_session"},
 }
 
 

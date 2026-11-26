@@ -43,26 +43,23 @@ pub(super) async fn handle<K: KeySource + 'static>(
         .strip_prefix("/api")
         .unwrap_or("")
         .to_owned();
-    match exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.drive'),false)",&[]).await {
-        Ok(rows) if rows[0].get::<_,bool>(0)=>{},Ok(_)|Err(_)=>return problem(404,"not found",None,&c,id)
+    let Some(factory) = crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+    else {
+        return problem(503, "service unavailable", None, &c, id);
+    };
+    match setjoin_drive::feature_enabled(&factory, "feature.drive").await {
+        Ok(true) => {}
+        Ok(false) | Err(_) => return problem(404, "not found", None, &c, id),
     }
+    let client_ip = c.identity.client_ip.to_string();
+    let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+        return problem(500, "database error", None, &c, id);
+    };
     if super::content::matches(&r) {
-        return super::content::serve(r, &path, exec, auth.context().clone(), store, random, c, id)
-            .await;
+        return super::content::serve(r, &path, factory, user, store, random, c, id).await;
     }
     if simple_match(&r) {
-        return simple(
-            r,
-            &path,
-            &exec,
-            &worker,
-            store,
-            auth.context(),
-            random,
-            &c,
-            id,
-        )
-        .await;
+        return simple(r, &path, &factory, &worker, store, &user, random, &c, id).await;
     }
     if r.method() == hyper::Method::POST {
         let node = match path_value(&r, 4).parse::<i64>() {
@@ -81,7 +78,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
             Err(_) => return problem(400, "invalid JSON", Some(&path), &c, id),
         };
         return command_response(
-            setjoin_drive::part_b::create_branch(&exec, auth.context(), node, &body, random).await,
+            setjoin_drive::part_b::create_branch(&factory, &user, node, &body, random).await,
             201,
             &path,
             &c,
@@ -89,7 +86,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
         );
     }
     if path == "/drive/search" {
-        return search(&r, &path, &exec, auth.context(), &c, id).await;
+        return search(&r, &path, &factory, &user, &c, id).await;
     }
     let value = path_value(&r, 4);
     let Ok(space) = value.parse::<i64>() else {
@@ -116,7 +113,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
         Ok(v) => v,
         Err(r) => return r,
     };
-    match setjoin_drive::part_b::activity(&exec, auth.context(), space, node, max, before).await {
+    match setjoin_drive::part_b::activity(&factory, &user, space, node, max, before).await {
         Ok(v) => crate::jmap::reply::response(v.to_string(), c.identity.proto, id),
         Err(e) => reducer_problem(&e, &path, &c, id),
     }
@@ -188,8 +185,8 @@ pub(super) fn reducer_problem(
 async fn search(
     r: &Request<Body>,
     path: &str,
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &setjoin_authz::principals::TxFactory,
+    user: &setjoin_authz::principals::UserPrincipal,
     c: &RequestContext,
     id: String,
 ) -> Response<Body> {
@@ -211,7 +208,7 @@ async fn search(
         Err(r) => return r,
     };
     let q = query(r, "q").unwrap_or_default();
-    match setjoin_drive::part_b::search(exec, actor, space, &q, max).await {
+    match setjoin_drive::part_b::search(factory, user, space, &q, max).await {
         Ok(v) => crate::jmap::reply::response(
             json!({"items":v}).to_string() + "\n",
             c.identity.proto,
@@ -526,13 +523,14 @@ fn simple_spec(r: &Request<Body>) -> Option<&'static Simple> {
 fn simple_match(r: &Request<Body>) -> bool {
     simple_spec(r).is_some()
 }
+#[allow(clippy::too_many_arguments)]
 async fn simple(
     mut r: Request<Body>,
     path: &str,
-    exec: &ScopedExecutor,
+    factory: &setjoin_authz::principals::TxFactory,
     worker: &ScopedExecutor,
     store: Option<Arc<crate::recovery_worker::S3Store>>,
-    actor: &setjoin_authz::AuthContext,
+    user: &setjoin_authz::principals::UserPrincipal,
     operation: [u8; 16],
     c: &RequestContext,
     id: String,
@@ -546,7 +544,10 @@ async fn simple(
         _ => None,
     };
     if let Some((key, alternate)) = gate {
-        match exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key=$1),false) OR coalesce((SELECT enabled FROM feature_toggles WHERE key=$2),false)",&[(&key,setjoin_pg::Type::TEXT),(&alternate,setjoin_pg::Type::TEXT)]).await{Ok(rows)if rows[0].get::<_,bool>(0)=>{},Ok(_)|Err(_)=>return problem(404,"not found",None,c,id)}
+        match setjoin_drive::feature_any_enabled(factory, key, alternate).await {
+            Ok(true) => {}
+            Ok(false) | Err(_) => return problem(404, "not found", None, c, id),
+        }
     }
     let target = if spec.detail.is_empty() {
         0
@@ -737,7 +738,7 @@ async fn simple(
         body["max"] = json!(max);
     }
     if spec.name == "audit" && query(&r, "format").as_deref() == Some("csv") {
-        return audit_csv(exec.clone(), actor.clone(), body, c, id);
+        return audit_csv(factory.clone(), user.clone(), body, c, id);
     }
     let secret = if matches!(spec.name, "office_launch" | "request_export") {
         use base64::Engine;
@@ -758,7 +759,7 @@ async fn simple(
         None
     };
     if spec.method == "GET" {
-        match setjoin_drive::part_b::simple_read(exec, actor, spec.name, target, &body).await {
+        match setjoin_drive::part_b::simple_read(factory, user, spec.name, target, &body).await {
             Ok(mut v) => {
                 if spec.name == "history" {
                     let next = v
@@ -778,7 +779,7 @@ async fn simple(
         }
     } else {
         let mut outcome =
-            setjoin_drive::part_b::simple_write(exec, actor, spec.name, target, &body, operation)
+            setjoin_drive::part_b::simple_write(factory, user, spec.name, target, &body, operation)
                 .await;
         if let setjoin_pg::CommandOutcome::Committed(ref mut value) = outcome {
             if matches!(spec.name, "put_version" | "restore_version") {
@@ -791,7 +792,7 @@ async fn simple(
                         .unwrap_or(Value::Null)
                 };
                 if let Some(pending) =
-                    apply_worm(exec, worker, store, actor, target, &manifest).await
+                    apply_worm(factory, worker, store, user, target, &manifest).await
                 {
                     value["wormPending"] = json!(pending);
                 }
@@ -1119,8 +1120,8 @@ fn path_value(r: &Request<Body>, index: usize) -> String {
 }
 
 fn audit_csv(
-    exec: ScopedExecutor,
-    actor: setjoin_authz::AuthContext,
+    factory: setjoin_authz::principals::TxFactory,
+    user: setjoin_authz::principals::UserPrincipal,
     mut body: Value,
     c: &RequestContext,
     id: String,
@@ -1141,7 +1142,7 @@ fn audit_csv(
         .unwrap(),
     );
     let pages = futures_util::stream::unfold(
-        (exec, actor, body, 0usize, false, false),
+        (factory, user, body, 0usize, false, false),
         |mut state| async move {
             if state.5 {
                 return None;
@@ -1199,19 +1200,20 @@ fn audit_csv(
 }
 
 async fn apply_worm(
-    exec: &ScopedExecutor,
+    factory: &setjoin_authz::principals::TxFactory,
     worker: &ScopedExecutor,
     store: Option<Arc<crate::recovery_worker::S3Store>>,
-    actor: &setjoin_authz::AuthContext,
+    user: &setjoin_authz::principals::UserPrincipal,
     node: i64,
     manifest: &Value,
 ) -> Option<bool> {
     let chunks = manifest.as_array().filter(|a| !a.is_empty())?;
-    let config = setjoin_drive::part_b::worm_config(exec, actor, node).await?;
+    let config = setjoin_drive::part_b::worm_config(factory, user, node).await?;
     let scope = config["scope"].as_str()?;
     let mode = config["mode"].as_str()?;
     let until = (chrono::Utc::now() + chrono::Duration::days(config["days"].as_i64().unwrap_or(0)))
         .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
+    let actor = user.user().get();
     let mut pending = false;
     for chunk in chunks {
         let sha = chunk["sha256"].as_str().unwrap_or("");
@@ -1227,19 +1229,26 @@ async fn apply_worm(
             pending = true;
             continue;
         }
-        let Some(operation) = crate::jmap::random() else {
-            pending = true;
-            continue;
+        let recorded = match worker.try_worker_pool() {
+            Some(wp) => match wp.begin_read_write().await {
+                Ok(mut tx) => match tx
+                    .execute_contract(
+                        &setjoin_drive::sql::WORM_APPLIED,
+                        &[&actor, &node, &scope, &sha, &until],
+                    )
+                    .await
+                {
+                    Ok(_) => tx.commit().await.is_ok(),
+                    Err(_) => {
+                        let _ = tx.rollback().await;
+                        false
+                    }
+                },
+                Err(_) => false,
+            },
+            None => false,
         };
-        if !setjoin_drive::part_b::worm_applied(
-            worker,
-            actor,
-            node,
-            &json!({"scope":scope,"sha":sha,"until":until}),
-            operation,
-        )
-        .await
-        {
+        if !recorded {
             pending = true;
         }
     }

@@ -9,8 +9,10 @@
 use std::io;
 use std::time::{Duration, Instant};
 
+use setjoin_authz::principals::{MailboxPrincipal, TxFactory};
 use setjoin_conformance::fixture::{self, Account, Snapshot};
 use setjoin_conformance::harness::Db;
+use setjoin_contracts::authority::{AuthorityKey, ResourceScope};
 use setjoin_contracts::command::{CommandEnvelope, OperationResult, SetMessageSeen};
 use setjoin_contracts::ids::{ActorId, Digest, Generation, MailboxId, MessageId, OperationId};
 use setjoin_db::lifecycle::accepted_contract;
@@ -31,14 +33,16 @@ static SERIAL: Mutex<()> = Mutex::const_new(());
 struct Env {
     owner: Client,
     exec: ScopedExecutor,
+    tx: TxFactory,
     a: Account,
 }
 
 async fn env(db: &Db, label: &str) -> Env {
     let owner = db.connect().await.expect("owner connection");
     let exec = ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2).expect("pool");
+    let tx = TxFactory::new(exec.try_app_pool().expect("app pool"));
     let a = fixture::account(&owner, label).await.expect("fixture");
-    Env { owner, exec, a }
+    Env { owner, exec, tx, a }
 }
 
 impl Env {
@@ -48,6 +52,13 @@ impl Env {
             MailboxId::new(self.a.mailbox).unwrap(),
             Generation(1),
         )
+    }
+
+    async fn principal(&self) -> MailboxPrincipal {
+        self.tx
+            .mint_capability_primary_mailbox(ActorId::new(self.a.user).unwrap(), "", "127.0.0.1")
+            .await
+            .unwrap()
     }
 
     async fn run(&self, mailbox: i64, message: i64, seen: bool) -> SetSeenReply {
@@ -62,10 +73,28 @@ impl Env {
         message: i64,
         seen: bool,
     ) -> SetSeenReply {
-        let auth = self.auth();
+        let principal = self.principal().await;
+        self.run_op_on(&self.tx, &principal, operation, mailbox, message, seen)
+            .await
+    }
+
+    async fn run_op_on(
+        &self,
+        tx: &TxFactory,
+        principal: &MailboxPrincipal,
+        operation: OperationId,
+        mailbox: i64,
+        message: i64,
+        seen: bool,
+    ) -> SetSeenReply {
+        let cap = principal.require_mutate().unwrap();
         let envelope = CommandEnvelope {
             operation,
-            authority: auth.authority(),
+            authority: AuthorityKey {
+                actor: cap.actor(),
+                scope: ResourceScope::Mailbox(cap.mailbox()),
+                generation: Generation(1),
+            },
             binding: accepted_contract(),
             payload_digest: Digest([9; 32]),
             command: SetMessageSeen {
@@ -75,7 +104,7 @@ impl Env {
             },
         };
         let deadline = Instant::now() + Duration::from_secs(30);
-        set_message_seen(&self.exec, &envelope, &auth, deadline).await
+        set_message_seen(tx, &envelope, &cap, deadline).await
     }
 
     async fn snapshot(&self) -> Snapshot {
@@ -275,14 +304,16 @@ async fn operation_lookup_answers_committed_or_absent() {
         .expect("fixture b");
     let op = OperationId([0xA5; 16]);
     let reply = e.run_op(op, e.a.mailbox, e.a.two_labels, true).await;
-    let committed = lookup_set_seen(&e.exec, &e.auth(), op).await;
-    let never_ran = lookup_set_seen(&e.exec, &e.auth(), OperationId([0x01; 16])).await;
-    let other_auth = MailboxAuthContext::from_authenticated_session(
-        ActorId::new(other.user).unwrap(),
-        MailboxId::new(other.mailbox).unwrap(),
-        Generation(1),
-    );
-    let foreign = lookup_set_seen(&e.exec, &other_auth, op).await;
+    let a_read = e.principal().await.require_read().unwrap();
+    let committed = lookup_set_seen(&e.tx, &a_read, op).await;
+    let never_ran = lookup_set_seen(&e.tx, &a_read, OperationId([0x01; 16])).await;
+    let other_read =
+        e.tx.mint_capability_primary_mailbox(ActorId::new(other.user).unwrap(), "", "127.0.0.1")
+            .await
+            .unwrap()
+            .require_read()
+            .unwrap();
+    let foreign = lookup_set_seen(&e.tx, &other_read, op).await;
     let details: Vec<Option<String>> = e
         .owner
         .query_typed(
@@ -316,12 +347,40 @@ async fn operation_lookup_does_not_disclose_another_actors_receipt() {
         .unwrap();
     let op = OperationId([0xB7; 16]);
     let reply = e.run_op(op, e.a.mailbox, e.a.two_labels, true).await;
-    let other_actor = MailboxAuthContext::from_authenticated_session(
-        ActorId::new(other.user).unwrap(),
-        MailboxId::new(e.a.mailbox).unwrap(),
-        Generation(1),
-    );
-    let result = lookup_set_seen(&e.exec, &other_actor, op).await;
+    e.owner
+        .query_typed(
+            "INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by) \
+             VALUES ($1, $2, 'read', $3)",
+            &[
+                (&e.a.mailbox, Type::INT8),
+                (&other.user, Type::INT8),
+                (&e.a.user, Type::INT8),
+            ],
+        )
+        .await
+        .unwrap();
+    let other_authorized =
+        setjoin_authz::authorize_basic_member(&e.exec, other.user, String::new())
+            .await
+            .unwrap();
+    let other_actor =
+        e.tx.mint_mailbox_from_authorized(
+            &other_authorized,
+            MailboxId::new(e.a.mailbox).unwrap(),
+            "127.0.0.1",
+        )
+        .await
+        .unwrap()
+        .require_read()
+        .unwrap();
+    let result = lookup_set_seen(&e.tx, &other_actor, op).await;
+    e.owner
+        .query_typed(
+            "DELETE FROM mailbox_delegates WHERE mailbox_id = $1 AND user_id = $2",
+            &[(&e.a.mailbox, Type::INT8), (&other.user, Type::INT8)],
+        )
+        .await
+        .unwrap();
     fixture::remove(&e.owner, &other).await.unwrap();
     e.close().await;
 
@@ -534,21 +593,32 @@ async fn lost_commit_case(cut: CommitCut) {
         return;
     };
     let _serial = SERIAL.lock().await;
-    let mut e = env(&db, "mail-commit-loss").await;
-    let recovery_exec = e.exec.clone();
+    let e = env(&db, "mail-commit-loss").await;
+    let principal = e.principal().await;
+    let read_cap = principal.require_read().unwrap();
     let (dsn, proxy) = commit_cut_proxy(&db, cut).await;
-    e.exec = ScopedExecutor::from_dsn(&dsn, 1).unwrap();
+    let proxied_exec = ScopedExecutor::from_dsn(&dsn, 1).unwrap();
+    let proxied_tx = TxFactory::new(proxied_exec.try_app_pool().unwrap());
     let operation = match cut {
         CommitCut::BeforeCommit => OperationId([0xd1; 16]),
         CommitCut::AfterCommit => OperationId([0xd2; 16]),
     };
-    let reply = e.run_op(operation, e.a.mailbox, e.a.two_labels, true).await;
+    let reply = e
+        .run_op_on(
+            &proxied_tx,
+            &principal,
+            operation,
+            e.a.mailbox,
+            e.a.two_labels,
+            true,
+        )
+        .await;
     let stopped_at = tokio::time::timeout(Duration::from_secs(10), proxy)
         .await
         .unwrap()
         .unwrap()
         .unwrap();
-    let lookup = lookup_set_seen(&recovery_exec, &e.auth(), operation).await;
+    let lookup = lookup_set_seen(&e.tx, &read_cap, operation).await;
     let snapshot = e.snapshot().await;
     let message = e.a.two_labels;
     e.close().await;

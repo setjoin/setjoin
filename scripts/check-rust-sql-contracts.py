@@ -1162,6 +1162,205 @@ def collect_domain_findings(
     return (fmt_map, raw_map)
 
 
+# Infrastructure files allowed to reference `MailboxAuditedRead` directly.
+AUDITED_READ_INFRA_FILES = {
+    "crates/sql-catalog/src/lib.rs",
+    "crates/pg/src/capability.rs",
+    "crates/pg/src/tests.rs",
+    "crates/authz/src/principals.rs",
+    "tests/sql-contracts/src/main.rs",
+}
+
+# Closed contract-ID allowlist for `SqlScope::MailboxAuditedRead`: only the
+# three audited-read contracts reachable from `ReadCapability` may carry this
+# scope. Adding any new contract requires explicit review of its side effects.
+AUDITED_READ_ALLOWED_CONTRACT_IDS = {
+    "jmap.email_get",
+    "jmap.http_blob_recovery_context",
+    "jmap.http_blob_recovery_receipt_contexts",
+}
+
+# Only audited-read reducers whose side effects are strictly read-auditing
+# (mailbox_audit_log / read-receipt context) may be invoked under
+# `SqlScope::MailboxAuditedRead` (which is reachable from `ReadCapability`).
+AUDITED_READ_ALLOWED_FNS = {
+    "jmap_email_get",
+    "continuity_recovery_receipt_context",
+}
+
+FORBIDDEN_AUDITED_READ_DML_RE = re.compile(
+    r"\b(?:UPDATE|DELETE|TRUNCATE|DROP|ALTER|CREATE|GRANT|REVOKE|MERGE)\b",
+    re.IGNORECASE,
+)
+
+INSERT_TARGET_RE = re.compile(
+    r'\bINSERT\s+INTO\s+(?:"?public"?\.)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?',
+    re.IGNORECASE,
+)
+
+SQL_FUNC_CALL_RE = re.compile(
+    r'(?:"?public"?\.)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?\s*\(',
+    re.IGNORECASE,
+)
+
+AUDITED_READ_SQL_BUILTINS = {
+    "as",
+    "materialized",
+    "count",
+    "coalesce",
+    "nullif",
+    "array",
+    "cast",
+    "exists",
+    "not",
+    "any",
+    "all",
+    "in",
+    "values",
+    "mailbox_audit_log",
+}
+
+
+def _extract_contract_field(body_tokens: list[Token], field_name: str) -> str | None:
+    """Resolve a constant string field (e.g. `id` or `sql`) in a `SqlContract` body."""
+    n = len(body_tokens)
+    depth = 0
+    i = 0
+    while i < n:
+        tk = body_tokens[i]
+        if tk.kind == "punct" and tk.value in ("(", "[", "{"):
+            depth += 1
+        elif tk.kind == "punct" and tk.value in (")", "]", "}"):
+            depth -= 1
+        elif (
+            depth == 0
+            and tk.kind == "ident"
+            and tk.value == field_name
+            and i + 1 < n
+            and body_tokens[i + 1].kind == "punct"
+            and body_tokens[i + 1].value == ":"
+        ):
+            j = i + 2
+            val_tokens: list[Token] = []
+            fdepth = 0
+            while j < n:
+                tj = body_tokens[j]
+                if tj.kind == "punct" and tj.value in ("(", "[", "{"):
+                    fdepth += 1
+                    val_tokens.append(tj)
+                elif tj.kind == "punct" and tj.value in (")", "]", "}"):
+                    fdepth -= 1
+                    val_tokens.append(tj)
+                elif fdepth == 0 and tj.kind == "punct" and tj.value == ",":
+                    break
+                else:
+                    val_tokens.append(tj)
+                j += 1
+            return _extract_const_sql_expr(val_tokens)
+        i += 1
+    return None
+
+
+def check_mailbox_audited_read_contracts(
+    server_rust: pathlib.Path,
+    errors: list[str],
+) -> None:
+    """Enforce that `SqlScope::MailboxAuditedRead` cannot smuggle general mutations."""
+    for rs_path in sorted(server_rust.rglob("*.rs")):
+        rel_parts = rs_path.relative_to(server_rust).parts
+        if "target" in rel_parts or (rel_parts and rel_parts[0] == "pilot"):
+            continue
+        rel = rs_path.relative_to(server_rust).as_posix()
+        src = rs_path.read_text(encoding="utf-8", errors="ignore")
+        if "MailboxAuditedRead" not in src:
+            continue
+        tokens = tokenize_rust(src)
+        scope_indices = [
+            idx
+            for idx, tk in enumerate(tokens)
+            if tk.kind == "ident" and tk.value == "MailboxAuditedRead"
+        ]
+        if not scope_indices or rel in AUDITED_READ_INFRA_FILES:
+            continue
+        if not _is_domain_sql_catalog(rel):
+            for idx in scope_indices:
+                errors.append(
+                    f"AUDITED_READ_SCOPE_FORBIDDEN: {rel}:{tokens[idx].line} "
+                    "(SqlScope::MailboxAuditedRead is only permitted in "
+                    "crates/domains/*/src/sql.rs)"
+                )
+            continue
+
+        covered: set[int] = set()
+        n = len(tokens)
+        i = 0
+        while i < n:
+            if (
+                tokens[i].kind == "ident"
+                and tokens[i].value == "SqlContract"
+                and i + 1 < n
+                and tokens[i + 1].kind == "punct"
+                and tokens[i + 1].value == "{"
+            ):
+                depth = 1
+                j = i + 2
+                while j < n and depth > 0:
+                    if tokens[j].kind == "punct" and tokens[j].value == "{":
+                        depth += 1
+                    elif tokens[j].kind == "punct" and tokens[j].value == "}":
+                        depth -= 1
+                    j += 1
+                block_hits = [idx for idx in scope_indices if i + 2 <= idx < j - 1]
+                if block_hits:
+                    covered.update(block_hits)
+                    line = tokens[block_hits[0]].line
+                    contract_id = _extract_contract_field(tokens[i + 2 : j - 1], "id")
+                    if contract_id not in AUDITED_READ_ALLOWED_CONTRACT_IDS:
+                        errors.append(
+                            f"AUDITED_READ_CONTRACT_FORBIDDEN: {rel}:{line} "
+                            f"(contract id '{contract_id}' is not in the closed "
+                            "SqlScope::MailboxAuditedRead allowlist)"
+                        )
+                    sql_text = _extract_contract_sql_field(tokens[i + 2 : j - 1])
+                    if sql_text is None:
+                        errors.append(
+                            f"AUDITED_READ_SQL_INVALID: {rel}:{line} "
+                            "(cannot statically resolve sql field for MailboxAuditedRead)"
+                        )
+                        i = j
+                        continue
+                    if FORBIDDEN_AUDITED_READ_DML_RE.search(sql_text):
+                        errors.append(
+                            f"AUDITED_READ_MUTATION_FORBIDDEN: {rel}:{line} "
+                            "(SqlScope::MailboxAuditedRead forbids UPDATE/DELETE/DDL)"
+                        )
+                    for target in INSERT_TARGET_RE.findall(sql_text):
+                        if target.lower() != "mailbox_audit_log":
+                            errors.append(
+                                f"AUDITED_READ_INSERT_FORBIDDEN: {rel}:{line} "
+                                f"(SqlScope::MailboxAuditedRead may only INSERT into mailbox_audit_log, got '{target}')"
+                            )
+                    # Verify any called function is strictly in the audited-read allowlist or SQL builtins.
+                    for fn_name in SQL_FUNC_CALL_RE.findall(sql_text):
+                        low = fn_name.lower()
+                        if low in AUDITED_READ_SQL_BUILTINS or low in AUDITED_READ_ALLOWED_FNS:
+                            continue
+                        errors.append(
+                            f"AUDITED_READ_FN_FORBIDDEN: {rel}:{line} "
+                            f"(function '{fn_name}' is not allowlisted for SqlScope::MailboxAuditedRead)"
+                        )
+                i = j
+                continue
+            i += 1
+
+        for idx in scope_indices:
+            if idx not in covered:
+                errors.append(
+                    f"AUDITED_READ_SCOPE_FORBIDDEN: {rel}:{tokens[idx].line} "
+                    "(SqlScope::MailboxAuditedRead must appear inside a SqlContract literal)"
+                )
+
+
 def main() -> int:
     """Entry point for `check-rust-sql-contracts.py`."""
     default_root = pathlib.Path(__file__).resolve().parents[1]
@@ -1196,6 +1395,7 @@ def main() -> int:
     errors: list[str] = []
     check_proc_macro_ban(server_rust, errors)
     check_audit_posture_contracts(root, server_rust, errors)
+    check_mailbox_audited_read_contracts(server_rust, errors)
     fmt_map, raw_map = collect_domain_findings(server_rust)
 
     if args.write_ratchet:

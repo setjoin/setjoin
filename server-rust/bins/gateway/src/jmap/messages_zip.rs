@@ -44,7 +44,9 @@ pub async fn archive_bytes(source: ZipSource) -> Result<Vec<u8>, String> {
     let (write, mut read) = tokio::io::duplex(65536);
     let producer = tokio::spawn(async move { archive(write, source, None).await });
     let mut out = Vec::new();
-    read.read_to_end(&mut out).await.map_err(|e| e.to_string())?;
+    read.read_to_end(&mut out)
+        .await
+        .map_err(|e| e.to_string())?;
     producer.await.map_err(|e| e.to_string())??;
     Ok(out)
 }
@@ -106,7 +108,8 @@ pub(super) async fn response(
                     if n == 0 {
                         break;
                     }
-                    out.write(bytes::Bytes::copy_from_slice(&buffer[..n])).await?;
+                    out.write(bytes::Bytes::copy_from_slice(&buffer[..n]))
+                        .await?;
                 }
                 out.finish();
                 Ok::<_, String>(())

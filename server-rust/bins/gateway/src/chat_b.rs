@@ -4,7 +4,7 @@ use http_body_util::BodyExt;
 use hyper::{Method, Request, Response};
 use setjoin_authz::token::KeySource;
 use setjoin_contracts::han;
-use setjoin_pg::{ScopedExecutor, Type};
+use setjoin_pg::ScopedExecutor;
 use std::sync::Arc;
 
 pub struct ChatBRoute<K: KeySource + 'static> {
@@ -124,27 +124,23 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
-            let feature=exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.chat'),false)",&[]).await;
-            match feature {
-                Ok(rows) if rows[0].get::<_, bool>(0) => {}
-                Ok(_) | Err(_) => return opaque_not_found(&c, id),
+            let Some(factory) = crate::policy_composition::tx_factory_from_executors(&exec, None)
+            else {
+                return crate::mailboxes::bare(503, "service unavailable", &c, &id);
+            };
+            match setjoin_chat::channels::enabled(&factory).await {
+                Ok(true) => {}
+                Ok(false) | Err(_) => return opaque_not_found(&c, id),
             }
-            let user = auth.context().user_id();
-            if !exec
-                .read(
-                    "SELECT check_user_app_entitlement($1,'chat')",
-                    &[(&user, Type::INT8)],
-                )
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return crate::chat::problem(500, "request failed", &instance, &c, id);
+            };
+            if !setjoin_chat::members::app_entitled(&factory, &user)
                 .await
-                .is_ok_and(|rows| rows[0].get::<_, bool>(0))
+                .unwrap_or(false)
             {
-                setjoin_chat::members::app_blocked(
-                    &exec,
-                    auth.context(),
-                    &c.identity.client_ip.to_string(),
-                    nonce,
-                )
-                .await;
+                setjoin_chat::members::app_blocked(&factory, &user, &client_ip, nonce).await;
                 let mut response = crate::chat::problem(
                     403,
                     "Access to this application is not permitted for your account.",
@@ -202,11 +198,7 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                     Err(_) => return super::chat::problem(400, "invalid JSON", &path, &c, id),
                 };
                 return match setjoin_chat::members::reaction(
-                    &exec,
-                    auth.context(),
-                    message,
-                    &emoji,
-                    nonce,
+                    &factory, &user, message, &emoji, nonce,
                 )
                 .await
                 {
@@ -233,8 +225,7 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                 else {
                     return super::chat::problem(400, "invalid message id", path, &c, id);
                 };
-                return match setjoin_chat::members::pin(&exec, auth.context(), message, nonce).await
-                {
+                return match setjoin_chat::members::pin(&factory, &user, message, nonce).await {
                     setjoin_pg::CommandOutcome::Committed(pinned) => crate::jmap::reply::response(
                         serde_json::json!({"pinned":pinned}).to_string() + "\n",
                         c.identity.proto,
@@ -250,7 +241,7 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
             }
             if crate::inventory::path_score("/api/chat/scheduled", r.uri().path()).is_some() {
                 let path = instance.as_str();
-                return match setjoin_chat::members::scheduled(&exec, auth.context()).await {
+                return match setjoin_chat::members::scheduled(&factory, &user).await {
                     Ok(value) => read_reply(&value, instance.as_str(), &c, id),
                     Err(ref e) => failure(e, path, &c, id),
                 };
@@ -279,8 +270,7 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                 let Ok(option) = option else {
                     return super::chat::problem(400, "invalid JSON", &path, &c, id);
                 };
-                return match setjoin_chat::members::vote(&exec, auth.context(), poll, option, nonce)
-                    .await
+                return match setjoin_chat::members::vote(&factory, &user, poll, option, nonce).await
                 {
                     setjoin_pg::CommandOutcome::Committed(_) => no_content(&c, id),
                     setjoin_pg::CommandOutcome::RolledBack(ref error) => {
@@ -304,8 +294,7 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                 }) else {
                     return super::chat::problem(400, "invalid poll id", path, &c, id);
                 };
-                return match setjoin_chat::members::close(&exec, auth.context(), poll, nonce).await
-                {
+                return match setjoin_chat::members::close(&factory, &user, poll, nonce).await {
                     setjoin_pg::CommandOutcome::Committed(_) => no_content(&c, id),
                     setjoin_pg::CommandOutcome::RolledBack(ref error) => {
                         rejection(error, path, &c, id)
@@ -327,7 +316,7 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                 }) else {
                     return super::chat::problem(400, "invalid poll id", path, &c, id);
                 };
-                return match setjoin_chat::members::results(&exec, auth.context(), poll).await {
+                return match setjoin_chat::members::results(&factory, &user, poll).await {
                     Ok(value) => read_reply(&value, instance.as_str(), &c, id),
                     Err(ref error) => failure(error, path, &c, id),
                 };
@@ -354,7 +343,7 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                 }
                 let hash = String::from_utf8(raw).expect("ASCII hash");
                 let content_type =
-                    match setjoin_chat::members::image_type(&exec, auth.context(), &hash).await {
+                    match setjoin_chat::members::image_type(&factory, &user, &hash).await {
                         Ok(Some(t)) => t,
                         _ => return opaque_not_found(&c, id),
                     };
@@ -413,9 +402,7 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                 let Some(action) = uuid(&raw) else {
                     return super::chat::problem(400, "invalid actionId", path, &c, id);
                 };
-                return match setjoin_chat::members::cancel(&exec, auth.context(), &action, nonce)
-                    .await
-                {
+                return match setjoin_chat::members::cancel(&factory, &user, &action, nonce).await {
                     setjoin_pg::CommandOutcome::Committed(_) => no_content(&c, id),
                     setjoin_pg::CommandOutcome::RolledBack(ref error) => {
                         rejection(error, path, &c, id)
@@ -431,9 +418,7 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                 let Some(message) = message else {
                     return super::chat::problem(400, "invalid message id", path, &c, id);
                 };
-                return match setjoin_chat::members::delete(&exec, auth.context(), message, nonce)
-                    .await
-                {
+                return match setjoin_chat::members::delete(&factory, &user, message, nonce).await {
                     setjoin_pg::CommandOutcome::Committed(seq) => crate::jmap::reply::response(
                         serde_json::json!({"seq":seq}).to_string() + "\n",
                         c.identity.proto,
@@ -469,14 +454,8 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                 let Ok(body) = body else {
                     return super::chat::problem(400, "invalid JSON", &path, &c, id);
                 };
-                return match setjoin_chat::members::edit(
-                    &exec,
-                    auth.context(),
-                    message,
-                    &body,
-                    nonce,
-                )
-                .await
+                return match setjoin_chat::members::edit(&factory, &user, message, &body, nonce)
+                    .await
                 {
                     setjoin_pg::CommandOutcome::Committed(seq) => crate::jmap::reply::response(
                         serde_json::json!({"seq":seq}).to_string() + "\n",
@@ -498,9 +477,7 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                 let Some(message) = message else {
                     return super::chat::problem(400, "invalid message id", path, &c, id);
                 };
-                return match setjoin_chat::members::save(&exec, auth.context(), message, nonce)
-                    .await
-                {
+                return match setjoin_chat::members::save(&factory, &user, message, nonce).await {
                     setjoin_pg::CommandOutcome::Committed(saved) => crate::jmap::reply::response(
                         serde_json::json!({"saved":saved}).to_string() + "\n",
                         c.identity.proto,
@@ -549,7 +526,7 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                     has,
                     han: query.chars().any(han::contains),
                 };
-                return match setjoin_chat::members::search(&exec, auth.context(), search).await {
+                return match setjoin_chat::members::search(&factory, &user, search).await {
                     Ok(value) => read_reply(&value, instance.as_str(), &c, id),
                     Err(ref error) => failure(error, path, &c, id),
                 };
@@ -563,7 +540,7 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                 let Ok(limit) = limit else {
                     return super::chat::problem(400, "invalid limit", path, &c, id);
                 };
-                return match setjoin_chat::members::my_threads(&exec, auth.context(), limit).await {
+                return match setjoin_chat::members::my_threads(&factory, &user, limit).await {
                     Ok(value) => read_reply(&value, instance.as_str(), &c, id),
                     Err(ref error) => failure(error, path, &c, id),
                 };
@@ -573,12 +550,12 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                 let Ok(message) = message.parse::<i64>() else {
                     return super::chat::problem(400, "invalid message id", path, &c, id);
                 };
-                return match setjoin_chat::members::thread(&exec, auth.context(), message).await {
+                return match setjoin_chat::members::thread(&factory, &user, message).await {
                     Ok(value) => read_reply(&value, instance.as_str(), &c, id),
                     Err(ref error) => failure(error, path, &c, id),
                 };
             }
-            match setjoin_chat::members::saves(&exec, auth.context()).await {
+            match setjoin_chat::members::saves(&factory, &user).await {
                 Ok(value) => read_reply(&value, instance.as_str(), &c, id),
                 Err(ref error) => failure(error, &instance, &c, id),
             }

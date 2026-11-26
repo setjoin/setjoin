@@ -1174,3 +1174,10 @@ webhook_publication_fanout.sql	webhook_publication_fanout	EXEMPT	-	publication f
 webhook_publication_prune.sql	webhook_publication_prune	EXEMPT	-	publication fanout transport; not an authority decision
 webhook_user_changed_publish.sql	webhook_user_changed_publish	EXEMPT	-	publication fanout transport; not an authority decision
 webhook_user_deleted_publish.sql	webhook_user_deleted_publish	EXEMPT	-	publication fanout transport; not an authority decision
+rust_blob_register_metadata.sql	rust_blob_register_metadata	EXEMPT	-	content-addressed blob metadata registration; not an authority transition
+rust_jmap_unsubscribe_record.sql	rust_jmap_unsubscribe_record	EXEMPT	-	user-scoped unsubscribe + sender block (records routine audit_write)
+rust_outbound_queue_enqueue.sql	rust_outbound_queue_enqueue	EXEMPT	-	transport mail queue insertion; not an authority transition
+rust_system_config_ops.sql	rust_system_config_delete	EXEMPT	-	migration source config delete called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_system_config_ops.sql	rust_system_config_upsert	EXEMPT	-	migration source config upsert called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_system_config_ops.sql	rust_system_config_upsert_batch	EXEMPT	-	anti-phish system_config batch upsert called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_user_external_sender_warning_set.sql	rust_user_external_sender_warning_set	EXEMPT	-	self-service user preference toggle; not an authority transition

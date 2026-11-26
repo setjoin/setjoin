@@ -1969,6 +1969,44 @@ impl WorkerTx {
         self.execute(contract.sql, &params).await
     }
 
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::WorkerBypass`]
+    /// while collecting rows one-by-one (preserving partial rows on mid-stream
+    /// errors for Go `rows.Next()` parity).
+    pub async fn query_iterated_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::WorkerBypass],
+            "contract scope mismatch for WorkerTx::query_iterated_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        run_interactive_iterated(&self.lease, contract.sql, &params).await
+    }
+
+    /// Insert a durable operation receipt into `public.rust_operation_receipts`
+    /// for this worker write transaction before `COMMIT`.
+    pub async fn record_receipt(
+        &mut self,
+        operation: OperationId,
+        command: ReceiptCommand,
+    ) -> Result<(), StatementFailure> {
+        let op_hex = operation_hex(operation);
+        let _ = self
+            .execute(
+                RECEIPT_INSERT_SQL,
+                &[
+                    (&op_hex, Type::TEXT),
+                    (&command.family, Type::TEXT),
+                    (&command.command, Type::TEXT),
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn commit(self) -> Result<(), StatementFailure> {
         match self.lease.client().batch_execute("COMMIT").await {
             Ok(()) => {
@@ -2021,12 +2059,21 @@ pub struct AppPool {
 }
 
 impl AppPool {
-    pub(crate) fn from_parts(pool: SetjoinPool, audit_keys: Option<Arc<AuditKeys>>) -> Self {
+    pub(crate) fn from_parts(
+        pool: SetjoinPool,
+        audit_keys: Option<Arc<AuditKeys>>,
+        effect_sem: Arc<Semaphore>,
+    ) -> Self {
         Self {
             pool,
             audit_keys,
-            effect_sem: Arc::new(Semaphore::new(DEFAULT_EFFECT_CONCURRENCY)),
+            effect_sem,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn effect_sem(&self) -> &Arc<Semaphore> {
+        &self.effect_sem
     }
 
     /// Run a 1-RTT pipelined `BEGIN READ ONLY` public/system contract query on
@@ -2068,6 +2115,45 @@ impl AppPool {
         let params = zip_contract_params(contract, values)?;
         self.run_mailbox_read_pipelined(principal, contract.sql, &params)
             .await
+    }
+
+    /// Run a 1-RTT pipelined `BEGIN READ WRITE` mailbox audited-read [`SqlContract`]
+    /// strictly scoped to [`SqlScope::MailboxAuditedRead`] (rejecting `MailboxReadWrite`).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_mailbox_audited_read_contract_pipelined<C, T, P>(
+        &self,
+        envelope: &CommandEnvelope<C>,
+        principal: &VerifiedMailbox,
+        deadline: Instant,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+        receipt: Option<ReceiptCommand>,
+        project: P,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
+    {
+        if let Err(e) = check_contract_scope(
+            contract,
+            &[SqlScope::MailboxAuditedRead],
+            "contract scope mismatch for AppPool::run_mailbox_audited_read_contract_pipelined",
+        ) {
+            return CommandOutcome::RolledBack(Rejection::Statement(e));
+        }
+        let params = match zip_contract_params(contract, values) {
+            Ok(p) => p,
+            Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
+        };
+        self.run_mailbox_write_pipelined(
+            envelope,
+            principal,
+            deadline,
+            contract.sql,
+            &params,
+            receipt,
+            project,
+        )
+        .await
     }
 
     /// Run a 1-RTT pipelined `BEGIN READ WRITE` mailbox [`SqlContract`] write.

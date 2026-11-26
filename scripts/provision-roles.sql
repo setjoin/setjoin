@@ -277,7 +277,12 @@ BEGIN
         ('public.rust_smtp_inbound_security(jsonb,text,text,boolean,text)'),
         ('public.rust_smtp_imip_request_gate(jsonb,text)'),
         ('public.rust_smtp_imip_request_apply(jsonb,jsonb,timestamptz)'),
-        ('public.rust_smtp_imip_cancel_occurrence(text,bigint,text,timestamptz)')
+        ('public.rust_smtp_imip_cancel_occurrence(text,bigint,text,timestamptz)'),
+        -- #546c: worker/admin-only system_config & outbound_queue owning reducers.
+        ('public.rust_system_config_upsert_batch(text[],text[],text)'),
+        ('public.rust_system_config_upsert(text,text,boolean)'),
+        ('public.rust_system_config_delete(text)'),
+        ('public.rust_outbound_queue_enqueue(text,text,text,text)')
       ) AS exact_worker(signature)
      WHERE to_regprocedure(signature) IS NOT NULL
   LOOP
@@ -352,4 +357,23 @@ BEGIN
       EXECUTE format('GRANT SELECT, INSERT, DELETE ON public.%I TO setjoin_worker', t);
     END IF;
   END LOOP;
+END $$;
+
+-- V287 (#546c): prevent direct-leaf table access to mailbox_audit_log partitions
+-- under setjoin_app; via-parent SELECT/INSERT through public.mailbox_audit_log
+-- remains governed by the parent's FORCE RLS policy. Restated here so the
+-- blanket GRANT ALL TABLES above does not re-widen existing leaf partitions.
+DO $$
+DECLARE
+  v_part regclass;
+BEGIN
+  IF to_regclass('public.mailbox_audit_log') IS NOT NULL THEN
+    FOR v_part IN
+      SELECT inhrelid::regclass
+        FROM pg_inherits
+       WHERE inhparent = 'public.mailbox_audit_log'::regclass
+    LOOP
+      EXECUTE format('REVOKE ALL ON TABLE %s FROM setjoin_app', v_part);
+    END LOOP;
+  END IF;
 END $$;

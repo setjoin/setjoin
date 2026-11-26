@@ -1,10 +1,10 @@
 use super::{
-    JmapCommands,
-    http::{envelope, problem},
+    http::{problem, user_envelope},
     reply,
     token::KeySource,
+    JmapCommands,
 };
-use crate::{Body, RequestContext, recovery_worker::ObjectStore};
+use crate::{recovery_worker::ObjectStore, Body, RequestContext};
 use http_body_util::BodyExt;
 use hyper::{Request, Response};
 use setjoin_pg::MailboxAuthContext;
@@ -16,6 +16,7 @@ impl<K: KeySource> JmapCommands<K> {
         req: &mut Request<Body>,
         ctx: &RequestContext,
         auth: &MailboxAuthContext,
+        authorized: &setjoin_authz::Authorized,
         id: &str,
     ) -> Response<Body> {
         let services = self.services.as_ref().unwrap();
@@ -25,7 +26,17 @@ impl<K: KeySource> JmapCommands<K> {
         let Some(account_id) = account.parse::<i64>().ok().filter(|n| *n > 0) else {
             return fail(400, "accountNotFound", "invalid accountId");
         };
-        if !setjoin_jmap::http_blob::account_read(&services.worker, auth, account_id)
+        let Some(tx) = self.tx_factory() else {
+            return fail(500, "serverFail", "upload failed");
+        };
+        let Ok(user) = tx
+            .mint_user_from_authorized(authorized, &ctx.identity.client_ip.to_string())
+            .await
+        else {
+            return fail(500, "serverFail", "upload failed");
+        };
+        let primary_mailbox = auth.mailbox_optional().map(|m| m.get());
+        if !setjoin_jmap::http_blob::account_read(&tx, &user, primary_mailbox, account_id)
             .await
             .unwrap_or(false)
         {
@@ -85,10 +96,10 @@ impl<K: KeySource> JmapCommands<K> {
         {
             return fail(500, "serverFail", "upload failed");
         }
-        let envelope = envelope(auth, operation, digest);
+        let envelope = user_envelope(&user, operation, digest);
         match setjoin_jmap::http_blob::account_upload(
-            &self.exec,
-            auth,
+            &tx,
+            &user,
             &envelope,
             &hash,
             &store.blob_reference(&hash),

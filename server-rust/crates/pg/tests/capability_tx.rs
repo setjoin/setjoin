@@ -1302,7 +1302,8 @@ async fn mid_pipeline_bz001_returns_bz001_not_25p02_and_recycles_cleanly_on_pool
         .unwrap()[0]
         .get(0);
 
-    // Business step calls calendar_free_busy_multi with nonexistent mailbox -> raises real BZ001!
+    // Business step calls jmap_calendar_event_set_occurrence with in-scope mailbox_a
+    // and nonexistent master_id -> raises real BZ001 without tripping GUC binding!
     // Step 4 (receipt insert) receives 25P02; step 5 (COMMIT) rolls back cleanly.
     let env = make_envelope(mb.authority());
     let cmd = ReceiptCommand {
@@ -1314,8 +1315,8 @@ async fn mid_pipeline_bz001_returns_bz001_not_25p02_and_recycles_cleanly_on_pool
             &env,
             &mb,
             deadline(),
-            "SELECT calendar_free_busy_multi(-9999999::bigint, ARRAY[]::bigint[], now(), now())::text",
-            &[],
+            "SELECT jmap_calendar_event_set_occurrence($1, -9999999::bigint, now(), 'this', '{}'::jsonb)::text",
+            &[(&fx.mailbox_a, Type::INT8)],
             Some(cmd),
             |_| Ok(()),
         )

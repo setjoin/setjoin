@@ -36,7 +36,7 @@ async fn unfurl_reap_tick() -> Result<(), BoxError> {
     let result=async{
   let before=observe(&owner,&hashes,&blob).await?;
   if std::env::var_os("GOFREE_RECORD_CHAT_WORKER").is_some(){record_tick(&db)?;}else{
-   setjoin_chat::workers::reap(&setjoin_pg::workers::WorkerDatabase::new(&db.dsn)?).await?;
+   setjoin_gateway::chat_workers::reap(&setjoin_pg::workers::WorkerDatabase::new(&db.dsn)?).await?;
   }
   let after=observe(&owner,&hashes,&blob).await?;
   let observation=json!({"before":before,"after":after});
@@ -407,10 +407,12 @@ async fn run_unfurl(case: &str) -> Result<(), BoxError> {
    let exec=setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),1).map_err(|e|e.0)?.with_audit_keys("22".repeat(32),String::new());
    let mut headers=hyper::HeaderMap::new();headers.insert("host","mail.test".parse()?);headers.insert("origin","http://mail.test".parse()?);headers.insert("authorization",format!("Bearer {}",token(account.user)).parse()?);
    let actor=setjoin_authz::authorize_request(&exec,&common::recovery_keys(),"mailserver",&headers,"http").await.ok_or("verified worker actor")?;
+   let factory=setjoin_gateway::policy_composition::tx_factory_from_executors(&exec,None).ok_or("tx factory")?;
+   let user=factory.mint_user_from_authorized(&actor,"127.0.0.1").await?;
    let client=reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).no_proxy().resolve("page.test",peer).build()?;
    let store=std::sync::Arc::new(setjoin_gateway::recovery_worker::S3Store::new(&format!("http://{s3}"),"mailblobs","test-access","test-secret")?);
    let unfurl=if case=="dns_private" {setjoin_gateway::chat_unfurl::Unfurl::production(exec,store)}else{setjoin_gateway::chat_unfurl::Unfurl::new(exec,store,client)};
-   unfurl.process(actor.context(),message,&url).await;
+   unfurl.process(&user,message,&url).await;
   }
   if std::env::var_os("GOFREE_RECORD_CHAT_WORKER").is_none() {
    let previous:Vec<String>=old.iter().cloned().collect();

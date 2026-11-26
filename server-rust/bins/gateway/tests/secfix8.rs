@@ -17,7 +17,11 @@ fn op() -> [u8; 16] {
         .as_nanos() as u64;
     let mut out = [0u8; 16];
     out[..8].copy_from_slice(&nanos.to_be_bytes());
-    out[8..].copy_from_slice(&NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst).to_be_bytes());
+    out[8..].copy_from_slice(
+        &NEXT
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            .to_be_bytes(),
+    );
     out
 }
 
@@ -27,14 +31,23 @@ async fn actor(exec: &ScopedExecutor, user: i64) -> Result<setjoin_authz::Author
     headers.insert("origin", "http://mail.test".parse()?);
     let token = common::recovery_token_with(user, json!({"admin": true}));
     headers.insert("authorization", format!("Bearer {token}").parse()?);
-    Ok(
-        setjoin_authz::authorize_request(exec, &common::recovery_keys(), "mailserver", &headers, "http")
-            .await
-            .ok_or("verified actor")?,
+    Ok(setjoin_authz::authorize_request(
+        exec,
+        &common::recovery_keys(),
+        "mailserver",
+        &headers,
+        "http",
     )
+    .await
+    .ok_or("verified actor")?)
 }
 
-async fn grant(owner: &Client, user: i64, perms: &[&str], domain: Option<i64>) -> Result<(), BoxError> {
+async fn grant(
+    owner: &Client,
+    user: i64,
+    perms: &[&str],
+    domain: Option<i64>,
+) -> Result<(), BoxError> {
     let name = format!("secfix8-{user}-{}-{}", perms.join("+"), domain.unwrap_or(0));
     let perms: Vec<String> = perms.iter().map(|p| p.to_string()).collect();
     let role: i64 = owner
@@ -94,7 +107,9 @@ struct World {
 }
 
 async fn world(case: &str) -> Result<Option<World>, BoxError> {
-    let Some(db) = Db::for_case(case) else { return Ok(None) };
+    let Some(db) = Db::for_case(case) else {
+        return Ok(None);
+    };
     let owner = db.connect().await?;
     cleanup(&owner).await?;
     let a = fixture::account(&owner, "secfix8-a").await?;
@@ -103,7 +118,14 @@ async fn world(case: &str) -> Result<Option<World>, BoxError> {
     let global = fixture::account(&owner, "secfix8-global").await?;
     let exec = common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?
         .with_audit_keys("22".repeat(32), String::new());
-    Ok(Some(World { owner, exec, a, b, scoped, global }))
+    Ok(Some(World {
+        owner,
+        exec,
+        a,
+        b,
+        scoped,
+        global,
+    }))
 }
 impl World {
     async fn finish(self) -> Result<(), BoxError> {
@@ -124,9 +146,17 @@ static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 #[tokio::test]
 async fn session_revoke_reach_uses_the_route_permission() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
-    let Some(w) = world("secfix8-revoke").await? else { return Ok(()) };
+    let Some(w) = world("secfix8-revoke").await? else {
+        return Ok(());
+    };
     let result = async {
-        grant(&w.owner, w.scoped.user, &["access.policy_write"], Some(w.a.domain)).await?;
+        grant(
+            &w.owner,
+            w.scoped.user,
+            &["access.policy_write"],
+            Some(w.a.domain),
+        )
+        .await?;
         grant(&w.owner, w.scoped.user, &["users.read"], Some(w.b.domain)).await?;
         grant(&w.owner, w.global.user, &["access.policy_write"], None).await?;
         let reach = |who: &fixture::Account, target: i64| {
@@ -134,14 +164,27 @@ async fn session_revoke_reach_uses_the_route_permission() -> Result<(), BoxError
             let who = who.user;
             async move {
                 let auth = actor(&exec, who).await?;
-                setjoin_conditional_access::console::can_reach(&exec, auth.context().user_id(), target)
-                    .await
-                    .map_err(|e| BoxError::from(e.message))
+                setjoin_conditional_access::console::can_reach(
+                    &exec,
+                    auth.context().user_id(),
+                    target,
+                )
+                .await
+                .map_err(|e| BoxError::from(e.message))
             }
         };
-        assert!(reach(&w.scoped, w.a.user).await?, "own-domain target refused");
-        assert!(!reach(&w.scoped, w.b.user).await?, "an unrelated grant extended the session revoke to another domain");
-        assert!(reach(&w.global, w.a.user).await? && reach(&w.global, w.b.user).await?, "org-wide admin refused");
+        assert!(
+            reach(&w.scoped, w.a.user).await?,
+            "own-domain target refused"
+        );
+        assert!(
+            !reach(&w.scoped, w.b.user).await?,
+            "an unrelated grant extended the session revoke to another domain"
+        );
+        assert!(
+            reach(&w.global, w.a.user).await? && reach(&w.global, w.b.user).await?,
+            "org-wide admin refused"
+        );
         Ok::<_, BoxError>(())
     }
     .await;
@@ -154,7 +197,9 @@ async fn session_revoke_reach_uses_the_route_permission() -> Result<(), BoxError
 #[tokio::test]
 async fn field_policy_reach_uses_the_route_permission() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
-    let Some(w) = world("secfix8-field-policy").await? else { return Ok(()) };
+    let Some(w) = world("secfix8-field-policy").await? else {
+        return Ok(());
+    };
     let result = async {
         // users.read over A (read list) + identity.write over A; only an unrelated mam.read
         // over B (read) and users.read over B (not identity.write: the write).
@@ -213,20 +258,24 @@ async fn m365_connect_needs_a_real_public_host() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
     use hyper::Request;
     use setjoin_gateway::{migration::MigrationRoute, Config, Gateway, RouteTable, TrustedProxies};
-    let Some(w) = world("secfix8-m365").await? else { return Ok(()) };
+    let Some(w) = world("secfix8-m365").await? else {
+        return Ok(());
+    };
     let result = async {
         grant(&w.owner, w.global.user, &["mail.pipeline"], None).await?;
         let mut statuses = Vec::new();
         for host in ["", "localhost", "LocalHost.", " localhost ", "mail.test"] {
             let route = MigrationRoute {
                 exec: w.exec.clone(),
+                worker: w.exec.clone(),
                 keys: std::sync::Arc::new(common::recovery_keys()),
                 issuer: "mailserver".into(),
                 encryption_key: String::new(),
                 public_host: host.into(),
                 runner: None,
             };
-            let mut inventory: serde_json::Value = serde_json::from_str(include_str!("../route-inventory.json"))?;
+            let mut inventory: serde_json::Value =
+                serde_json::from_str(include_str!("../route-inventory.json"))?;
             for r in inventory["routes"].as_array_mut().ok_or("routes")? {
                 if r["family"] == "F05" && r["slice"] == "migration" {
                     r["state"] = json!("ON");
@@ -256,16 +305,27 @@ async fn m365_connect_needs_a_real_public_host() -> Result<(), BoxError> {
                 .header("authorization", format!("Bearer {token}"));
             let response = common::send(address, request.body(common::full(""))?).await;
             let status = response.status().as_u16();
-            let location = response.headers().get("location").and_then(|v| v.to_str().ok()).map(str::to_owned);
+            let location = response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned);
             server.abort();
             statuses.push((host, status, location));
         }
         for (host, status, location) in &statuses[..4] {
-            assert_eq!(*status, 503, "connect with HOSTNAME={host:?} must be refused, got {status} {location:?}");
+            assert_eq!(
+                *status, 503,
+                "connect with HOSTNAME={host:?} must be refused, got {status} {location:?}"
+            );
             assert!(location.is_none());
         }
         // A real host passes the guard (the unsealed config is absent here, which is its own 400).
-        assert_eq!(statuses[4].1, 400, "control: a configured host reaches the config check: {:?}", statuses[4]);
+        assert_eq!(
+            statuses[4].1, 400,
+            "control: a configured host reaches the config check: {:?}",
+            statuses[4]
+        );
         Ok::<_, BoxError>(())
     }
     .await;
@@ -280,69 +340,123 @@ async fn blob_cleanup_refuses_a_credential_without_bypassrls() -> Result<(), Box
     use setjoin_gateway::{blob_cleanup::BlobCleanup, recovery_worker::S3Store};
     use setjoin_pg::workers::WorkerDatabase;
     use std::sync::Arc;
-    let Some(db) = Db::for_case("secfix8-blob-cleanup") else { return Ok(()) };
-    let store = |_: ()| {
-        Arc::new(S3Store::new("http://127.0.0.1:1", "mailblobs", "test-access", "test-secret").unwrap())
+    let Some(db) = Db::for_case("secfix8-blob-cleanup") else {
+        return Ok(());
     };
-    let app = db.app.clone().ok_or("the app (non-BYPASSRLS) DSN is required")?;
+    let store = |_: ()| {
+        Arc::new(
+            S3Store::new(
+                "http://127.0.0.1:1",
+                "mailblobs",
+                "test-access",
+                "test-secret",
+            )
+            .unwrap(),
+        )
+    };
+    let app = db
+        .app
+        .clone()
+        .ok_or("the app (non-BYPASSRLS) DSN is required")?;
     let filtered = BlobCleanup::new(WorkerDatabase::new(&app)?, store(()));
-    assert!(!filtered.worker_bypasses_rls().await?, "the request-pool role must not count as BYPASSRLS");
+    assert!(
+        !filtered.worker_bypasses_rls().await?,
+        "the request-pool role must not count as BYPASSRLS"
+    );
     let returned = tokio::time::timeout(
         std::time::Duration::from_secs(10),
         filtered.run_until(std::future::pending::<()>()),
     )
     .await;
-    assert!(returned.is_ok(), "the worker kept running on a credential without BYPASSRLS");
+    assert!(
+        returned.is_ok(),
+        "the worker kept running on a credential without BYPASSRLS"
+    );
     let privileged = BlobCleanup::new(WorkerDatabase::new(&db.dsn)?, store(()));
-    assert!(privileged.worker_bypasses_rls().await?, "the worker credential has BYPASSRLS");
+    assert!(
+        privileged.worker_bypasses_rls().await?,
+        "the worker credential has BYPASSRLS"
+    );
     let still = tokio::time::timeout(
         std::time::Duration::from_millis(1500),
         privileged.run_until(std::future::pending::<()>()),
     )
     .await;
-    assert!(still.is_err(), "the worker refused to run on a BYPASSRLS credential");
+    assert!(
+        still.is_err(),
+        "the worker refused to run on a BYPASSRLS credential"
+    );
     Ok(())
 }
 
 /// #531 F1: an unrelated caller's meeting projection carries no chat-channel or calendar-event
 /// id (like roomName and ownerUserId since #378); the owner still gets them.
 #[tokio::test]
-async fn meeting_projection_hides_channel_and_event_ids_from_unrelated_callers() -> Result<(), BoxError> {
+async fn meeting_projection_hides_channel_and_event_ids_from_unrelated_callers(
+) -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
-    let Some(w) = world("secfix8-meet").await? else { return Ok(()) };
-    let result = async {
-        // Dangling ids are fine here: the projection copies the columns, it never follows them.
-        let id: i64 = {
-            let tx = w.owner.query_one(
+    let Some(w) = world("secfix8-meet").await? else {
+        return Ok(());
+    };
+    let result =
+        async {
+            // Dangling ids are fine here: the projection copies the columns, it never follows them.
+            let id: i64 =
+                {
+                    let tx = w.owner.query_one(
                 "WITH r AS (SELECT set_config('session_replication_role','replica',true)) \
                  INSERT INTO meetings(title,owner_user_id,chat_channel_id,calendar_event_id) \
                  SELECT 'secfix8-meeting',$1,987654321,987654322 FROM r RETURNING id",
                 &[&w.a.user],
             ).await?;
-            tx.get(0)
-        };
-        let project = |user: i64| {
-            let exec = w.exec.clone();
-            async move {
-                let auth = actor(&exec, user).await?;
-                let text = setjoin_meet::get(&exec, auth.context(), id)
-                    .await
-                    .map_err(|e| BoxError::from(e.message))?;
-                Ok::<serde_json::Value, BoxError>(serde_json::from_str(&text)?)
-            }
-        };
-        let owner_view = project(w.a.user).await?;
-        assert_eq!(owner_view["chatChannelId"], 987654321, "the owner lost the channel id");
-        assert_eq!(owner_view["calendarEventId"], 987654322, "the owner lost the event id");
-        let stranger = project(w.b.user).await?;
-        assert!(stranger["chatChannelId"].is_null(), "unrelated caller got chatChannelId: {stranger}");
-        assert!(stranger["calendarEventId"].is_null(), "unrelated caller got calendarEventId: {stranger}");
-        assert!(stranger["roomName"].is_null() && stranger["ownerUserId"].is_null());
-        assert_eq!(stranger["title"], "secfix8-meeting", "the pre-join facts stay visible");
-        Ok::<_, BoxError>(())
-    }
-    .await;
-    w.owner.execute("DELETE FROM meetings WHERE title='secfix8-meeting'", &[]).await?;
+                    tx.get(0)
+                };
+            let project = |user: i64| {
+                let exec = w.exec.clone();
+                async move {
+                    let auth = actor(&exec, user).await?;
+                    let factory =
+                        setjoin_gateway::policy_composition::tx_factory_from_executors(&exec, None)
+                            .ok_or_else(|| BoxError::from("tx_factory unavailable"))?;
+                    let principal = factory
+                        .mint_user_from_authorized(&auth, "127.0.0.1")
+                        .await
+                        .map_err(|e| BoxError::from(e.to_string()))?;
+                    let text = setjoin_meet::get(&factory, &principal, id)
+                        .await
+                        .map_err(|e| BoxError::from(e.message))?;
+                    Ok::<serde_json::Value, BoxError>(serde_json::from_str(&text)?)
+                }
+            };
+            let owner_view = project(w.a.user).await?;
+            assert_eq!(
+                owner_view["chatChannelId"], 987654321,
+                "the owner lost the channel id"
+            );
+            assert_eq!(
+                owner_view["calendarEventId"], 987654322,
+                "the owner lost the event id"
+            );
+            let stranger = project(w.b.user).await?;
+            assert!(
+                stranger["chatChannelId"].is_null(),
+                "unrelated caller got chatChannelId: {stranger}"
+            );
+            assert!(
+                stranger["calendarEventId"].is_null(),
+                "unrelated caller got calendarEventId: {stranger}"
+            );
+            assert!(stranger["roomName"].is_null() && stranger["ownerUserId"].is_null());
+            assert_eq!(
+                stranger["title"], "secfix8-meeting",
+                "the pre-join facts stay visible"
+            );
+            Ok::<_, BoxError>(())
+        }
+        .await;
+    w.owner
+        .execute("DELETE FROM meetings WHERE title='secfix8-meeting'", &[])
+        .await?;
     w.finish().await?;
     result
 }

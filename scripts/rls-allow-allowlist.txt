@@ -155,3 +155,22 @@ reminders	COVERED	wave18a_force_rls.pg	ALLOW reminders: setjoin_app INSERT/UPDAT
 user_signatures	COVERED	wave18a_force_rls.pg	ALLOW user_signatures: setjoin_app INSERT/UPDATE/DELETE own signature succeeds	V286: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
 vacation_replies	COVERED	wave18a_force_rls.pg	ALLOW vacation_replies: setjoin_app INSERT/DELETE own reply succeeds	V286: same-tenant INSERT/DELETE under SET LOCAL ROLE setjoin_app with owner mailbox GUC.
 vacation_settings	COVERED	wave18a_force_rls.pg	ALLOW vacation_settings: setjoin_app UPDATE own settings succeeds	V286: same-tenant UPDATE read-back under SET LOCAL ROLE setjoin_app with owner mailbox GUC.
+
+# ── V287 Wave 1.8B mail/mailbox child FORCE RLS allow-flow proofs (17 tables) ─
+aliases	COVERED	wave18b_force_rls.pg	ALLOW aliases: setjoin_app INSERT/UPDATE/DELETE own alias succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with owner mailbox GUC.
+folders	COVERED	wave18b_force_rls.pg	ALLOW folders: setjoin_app INSERT/UPDATE/DELETE own folder succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with owner mailbox GUC.
+mailbox_audit_log	COVERED	wave18b_force_rls.pg	ALLOW mailbox_audit_log: setjoin_app INSERT and read-back own row succeeds	V287: same-tenant append-only INSERT + read-back under SET LOCAL ROLE setjoin_app with owner mailbox GUC.
+message_attachments	COVERED	wave18b_force_rls.pg	ALLOW message_attachments: setjoin_app INSERT/UPDATE/DELETE own attachment succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app via parent message scope.
+message_recalls	COVERED	wave18b_force_rls.pg	ALLOW message_recalls: setjoin_app INSERT/UPDATE/DELETE own recall succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with recalled_by user GUC.
+migration_jobs	COVERED	wave18b_force_rls.pg	ALLOW migration_jobs: setjoin_app INSERT/UPDATE/DELETE own job succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+quarantined_messages	COVERED	wave18b_force_rls.pg	ALLOW quarantined_messages: setjoin_app INSERT/UPDATE/DELETE own row succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with owner mailbox GUC.
+quick_steps	COVERED	wave18b_force_rls.pg	ALLOW quick_steps: setjoin_app INSERT/UPDATE/DELETE own quick_step succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with owner mailbox GUC.
+read_receipts	COVERED	wave18b_force_rls.pg	ALLOW read_receipts: setjoin_app INSERT/UPDATE/DELETE own receipt succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app via parent message scope.
+rules	COVERED	wave18b_force_rls.pg	ALLOW rules: setjoin_app INSERT/UPDATE/DELETE own rule succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with owner mailbox GUC.
+scheduled_actions	COVERED	wave18b_force_rls.pg	ALLOW scheduled_actions: setjoin_app INSERT/UPDATE/DELETE own action succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with owner mailbox GUC.
+tags	COVERED	wave18b_force_rls.pg	ALLOW tags: setjoin_app INSERT/UPDATE/DELETE own tag succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with owner mailbox GUC.
+task_activity	COVERED	wave18b_force_rls.pg	ALLOW task_activity: setjoin_app INSERT/UPDATE/DELETE own activity succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with owner mailbox GUC.
+tasks	COVERED	wave18b_force_rls.pg	ALLOW tasks: setjoin_app INSERT/UPDATE/DELETE own task succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with owner mailbox GUC.
+user_sender_list	COVERED	wave18b_force_rls.pg	ALLOW user_sender_list: setjoin_app INSERT/UPDATE/DELETE own sender succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+user_spam_model	COVERED	wave18b_force_rls.pg	ALLOW user_spam_model: setjoin_app UPDATE own model succeeds	V287: same-tenant UPDATE read-back under SET LOCAL ROLE setjoin_app with user GUC.
+vote_responses	COVERED	wave18b_force_rls.pg	ALLOW vote_responses: setjoin_app INSERT/UPDATE/DELETE own vote succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app via parent message scope.

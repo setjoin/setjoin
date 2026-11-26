@@ -36,7 +36,10 @@ pub struct WebSocketRoute<K: KeySource + 'static> {
     devices: Arc<super::device_cache::DeviceCache>,
 }
 impl<K: KeySource + 'static> WebSocketRoute<K> {
-    pub fn with_device_cache(mut self,devices:Arc<super::device_cache::DeviceCache>)->Self{self.devices=devices;self}
+    pub fn with_device_cache(mut self, devices: Arc<super::device_cache::DeviceCache>) -> Self {
+        self.devices = devices;
+        self
+    }
 
     pub fn new(commands: Arc<JmapCommands<K>>, direct_dsn: String) -> Self {
         Self {
@@ -476,7 +479,10 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
         })
     }
 }
-pub(super) fn cache_denies<K: KeySource>(commands: &JmapCommands<K>, identity: &PushIdentity) -> bool {
+pub(super) fn cache_denies<K: KeySource>(
+    commands: &JmapCommands<K>,
+    identity: &PushIdentity,
+) -> bool {
     commands.denylist.as_ref().is_some_and(|d| {
         !d.loaded()
             || chrono::DateTime::from_timestamp(identity.issued_at(), 0).is_none_or(|iat| {
@@ -624,7 +630,7 @@ pub(super) async fn state_frames(
         task |= value.contains_key("task_id");
     }
     if valid || calendar || contact || task {
-        let tokens = setjoin_jmap::push_state::tokens(exec, scope).await;
+        let tokens = super::push_tokens(exec, scope).await;
         let mut changed = json!({"Email":tokens[0],"Mailbox":tokens[1],"Thread":tokens[2]});
         if calendar {
             changed["Calendar"] = json!(tokens[3]);

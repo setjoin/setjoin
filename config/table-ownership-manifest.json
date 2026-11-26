@@ -1,16 +1,10 @@
 {
   "schema_version": 1,
-  "legacy_rls_pending_ceiling": 37,
+  "legacy_rls_pending_ceiling": 20,
   "legacy_rls_pending_tables": [
-    "aliases",
     "app_passwords",
-    "folders",
-    "mailbox_audit_log",
     "mailboxes",
-    "message_attachments",
-    "message_recalls",
     "mfa_reauth_step_ups",
-    "migration_jobs",
     "oauth_tokens",
     "oidc_auth_requests",
     "oidc_tokens",
@@ -18,29 +12,18 @@
     "password_history",
     "push_devices",
     "push_mfa_challenges",
-    "quarantined_messages",
-    "quick_steps",
-    "read_receipts",
     "recipient_smime_certs",
-    "rules",
-    "scheduled_actions",
     "sessions",
-    "tags",
-    "task_activity",
-    "tasks",
     "totp_pending_enrollments",
     "totp_removal_step_ups",
     "user_app_entitlements",
-    "user_sender_list",
     "user_smime_certs",
-    "user_spam_model",
     "users",
-    "vote_responses",
     "webauthn_ceremonies",
     "webhook_subscriptions",
     "ws_subscriptions"
   ],
-  "legacy_write_migration_ceiling": 20,
+  "legacy_write_migration_ceiling": 14,
   "r1_r3_allowlist": [
     {
       "file": "server-rust/crates/domains/admin-identity/src/idv2_ops.rs",
@@ -113,12 +96,12 @@
       "reason": "Directory LDAP sync lookup matching org users by email."
     },
     {
-      "file": "server-rust/crates/domains/drive/src/core.rs",
+      "file": "server-rust/crates/domains/drive/src/sql.rs",
       "table": "drive_spaces",
       "reason": "Drive space admin/classification lookup gated by space ACL / admin permission check."
     },
     {
-      "file": "server-rust/crates/domains/drive/src/part_b.rs",
+      "file": "server-rust/crates/domains/drive/src/sql.rs",
       "table": "drive_audit_alarms",
       "reason": "Admin Drive audit alarm listing gated by SQL drive_has_admin_perm($1, 'drive.manage')."
     },
@@ -178,37 +161,32 @@
       "reason": "Pre-auth WebAuthn login lookup on users by email."
     },
     {
-      "file": "server-rust/crates/domains/jmap/src/email_list.rs",
+      "file": "server-rust/crates/domains/jmap/src/sql.rs",
       "table": "messages",
       "reason": "list_sql! macro injects m.mailbox_id = $1 predicate via list_sql!(@where)."
     },
     {
-      "file": "server-rust/crates/domains/mail-security/src/quarantine.rs",
+      "file": "server-rust/crates/domains/mail-security/src/sql.rs",
       "table": "messages",
       "reason": "Admin quarantine message preview lookup gated by admin_can_reach_perm."
     },
     {
-      "file": "server-rust/crates/domains/mail-security/src/quarantine.rs",
+      "file": "server-rust/crates/domains/mail-security/src/sql.rs",
       "table": "quarantined_messages",
       "reason": "Admin quarantine dashboard counts and preview gated by admin permission."
     },
     {
-      "file": "server-rust/crates/domains/mail-security/src/spam.rs",
+      "file": "server-rust/crates/domains/mail-security/src/sql.rs",
       "table": "user_spam_model",
       "reason": "Admin fleet-wide spam model health statistics."
     },
     {
-      "file": "server-rust/crates/domains/mail-security/src/trace.rs",
-      "table": "delivery_attempts",
-      "reason": "Message delivery trace query composed with dynamic {scope} mailbox/admin predicate."
-    },
-    {
-      "file": "server-rust/crates/domains/mailboxes/src/migration.rs",
+      "file": "server-rust/crates/domains/mailboxes/src/sql.rs",
       "table": "migration_jobs",
       "reason": "Admin migration job list/get/delete with admin permission and dynamic scope."
     },
     {
-      "file": "server-rust/crates/domains/meet/src/lib.rs",
+      "file": "server-rust/crates/domains/meet/src/sql.rs",
       "table": "meetings",
       "reason": "Meeting room/lobby/recording lookup by meeting id after participant/host authorization."
     },
@@ -488,8 +466,7 @@
     "aliases": {
       "owner": "mailboxes",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": [
         {
@@ -608,7 +585,13 @@
       "owner": "identity",
       "security_class": "system_only",
       "rls_posture": "enforced",
-      "read_contracts": []
+      "read_contracts": [
+        {
+          "consumer": "mail-security",
+          "mode": "read_only",
+          "reason": "Admin threat dashboard read of recent auth attempts (exposed after eliminating format! SQL in threat.rs)."
+        }
+      ]
     },
     "auth_event_log": {
       "owner": "identity",
@@ -679,8 +662,8 @@
       "read_contracts": [
         {
           "consumer": "chat",
-          "mode": "legacy_write_migration_pending",
-          "reason": "Direct blob insert for chat avatar/preview storage in chat/members.rs; migrate to blobs adapter."
+          "mode": "read_only",
+          "reason": "Read-only lookup; writes migrated to owning reducer (#546c)."
         },
         {
           "consumer": "jmap",
@@ -1884,8 +1867,7 @@
     "folders": {
       "owner": "mailboxes",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": []
     },
@@ -2506,8 +2488,7 @@
     "mailbox_audit_log": {
       "owner": "jmap",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": []
     },
@@ -2803,8 +2784,7 @@
     "message_attachments": {
       "owner": "jmap",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "message_id -> messages.mailbox_id",
       "read_contracts": [
         {
@@ -2821,10 +2801,9 @@
     },
     "message_recalls": {
       "owner": "jmap",
-      "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
-      "rls_scope_column": "message_id -> messages.mailbox_id",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "recalled_by",
       "read_contracts": []
     },
     "message_retention_tags": {
@@ -2934,8 +2913,7 @@
     "migration_jobs": {
       "owner": "mailboxes",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": [
         {
@@ -3126,11 +3104,6 @@
       "rls_posture": "not_applicable",
       "read_contracts": [
         {
-          "consumer": "guests",
-          "mode": "legacy_write_migration_pending",
-          "reason": "Guest invitation notification enqueues email directly into outbound_queue; migrate to mail-security/delivery reducer."
-        },
-        {
           "consumer": "platform",
           "mode": "read_only",
           "reason": "Outbound queue depth check in platform monitoring."
@@ -3184,8 +3157,7 @@
     "quarantined_messages": {
       "owner": "mail-security",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": [
         {
@@ -3198,8 +3170,7 @@
     "quick_steps": {
       "owner": "jmap",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": []
     },
@@ -3207,13 +3178,18 @@
       "owner": "foundation",
       "security_class": "system_only",
       "rls_posture": "not_applicable",
-      "read_contracts": []
+      "read_contracts": [
+        {
+          "consumer": "mail-security",
+          "mode": "read_only",
+          "reason": "Admin threat dashboard read of rate-limit counters (exposed after eliminating format! SQL in threat.rs)."
+        }
+      ]
     },
     "read_receipts": {
       "owner": "jmap",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "message_id -> messages.mailbox_id",
       "read_contracts": []
     },
@@ -3259,8 +3235,7 @@
     "rules": {
       "owner": "rules",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": []
     },
@@ -3321,8 +3296,7 @@
     "scheduled_actions": {
       "owner": "rules",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": [
         {
@@ -3550,21 +3524,20 @@
         },
         {
           "consumer": "mail-security",
-          "mode": "legacy_write_migration_pending",
-          "reason": "DLP settings handler updates system_config directly; migrate to platform config reducer."
+          "mode": "read_only",
+          "reason": "Read-only lookup; writes migrated to owning reducer (#546c)."
         },
         {
           "consumer": "mailboxes",
-          "mode": "legacy_write_migration_pending",
-          "reason": "Migration settings handler updates system_config directly; migrate to platform config reducer."
+          "mode": "read_only",
+          "reason": "Read-only lookup; writes migrated to owning reducer (#546c)."
         }
       ]
     },
     "tags": {
       "owner": "jmap",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": [
         {
@@ -3587,8 +3560,7 @@
     "task_activity": {
       "owner": "jmap",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": []
     },
@@ -3609,8 +3581,7 @@
     "tasks": {
       "owner": "jmap",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": []
     },
@@ -3856,16 +3827,9 @@
     "user_sender_list": {
       "owner": "mail-security",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
-      "read_contracts": [
-        {
-          "consumer": "jmap",
-          "mode": "legacy_write_migration_pending",
-          "reason": "JMAP message handler writes sender allow/block list directly; migrate to mail-security reducer."
-        }
-      ]
+      "read_contracts": []
     },
     "user_signatures": {
       "owner": "user-settings",
@@ -3885,8 +3849,7 @@
     "user_spam_model": {
       "owner": "mail-security",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
@@ -3954,8 +3917,8 @@
         },
         {
           "consumer": "mail-security",
-          "mode": "legacy_write_migration_pending",
-          "reason": "Spam filter settings handler updates user spam preferences on users; migrate to identity reducer."
+          "mode": "read_only",
+          "reason": "Read-only lookup; writes migrated to owning reducer (#546c)."
         },
         {
           "consumer": "mailboxes",
@@ -4003,8 +3966,7 @@
     "vote_responses": {
       "owner": "jmap",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "message_id -> messages.mailbox_id",
       "read_contracts": []
     },

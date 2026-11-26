@@ -3,32 +3,38 @@
 //! writes one `email_get` audit row, and the mailbox is the authenticated one.
 use std::time::{Duration, Instant};
 
+use setjoin_authz::principals::TxFactory;
 use setjoin_conformance::fixture::{self, Account};
 use setjoin_conformance::harness::Db;
+use setjoin_contracts::authority::{AuthorityKey, ResourceScope};
 use setjoin_contracts::command::CommandEnvelope;
-use setjoin_contracts::ids::{ActorId, Digest, Generation, MailboxId, OperationId};
+use setjoin_contracts::ids::{ActorId, Digest, Generation, OperationId};
 use setjoin_db::lifecycle::accepted_contract;
 use setjoin_jmap::{email_get, EmailGet, GetOutcome};
-use setjoin_pg::{MailboxAuthContext, ScopedExecutor};
+use setjoin_pg::ScopedExecutor;
 use tokio_postgres::types::Type;
 
-async fn get(exec: &ScopedExecutor, a: &Account, ids: &[i64]) -> GetOutcome {
-    let auth = MailboxAuthContext::from_authenticated_session(
-        ActorId::new(a.user).unwrap(),
-        MailboxId::new(a.mailbox).unwrap(),
-        Generation(1),
-    );
+async fn get(tx: &TxFactory, a: &Account, ids: &[i64]) -> GetOutcome {
+    let principal = tx
+        .mint_capability_primary_mailbox(ActorId::new(a.user).unwrap(), "", "127.0.0.1")
+        .await
+        .unwrap();
+    let cap = principal.require_read().unwrap();
     let envelope = CommandEnvelope {
         operation: OperationId([0x6E; 16]),
-        authority: auth.authority(),
+        authority: AuthorityKey {
+            actor: cap.actor(),
+            scope: ResourceScope::Mailbox(cap.mailbox()),
+            generation: Generation(1),
+        },
         binding: accepted_contract(),
         payload_digest: Digest([1; 32]),
         command: EmailGet,
     };
     email_get(
-        exec,
+        tx,
         &envelope,
-        &auth,
+        &cap,
         Instant::now() + Duration::from_secs(30),
         Some(ids),
         None,
@@ -54,8 +60,9 @@ async fn encrypted_mail_is_served_for_decrypt_and_audited_once() {
     };
     let owner = db.connect().await.unwrap();
     let exec = ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2).unwrap();
+    let tx = TxFactory::new(exec.try_app_pool().unwrap());
     let a = fixture::account(&owner, "email-get-db").await.unwrap();
-    let plain = get(&exec, &a, &[a.two_labels]).await;
+    let plain = get(&tx, &a, &[a.two_labels]).await;
     assert!(matches!(plain, GetOutcome::Served(_)), "{plain:?}");
     assert_eq!(audits(&owner, &a).await, 1);
 
@@ -66,7 +73,7 @@ async fn encrypted_mail_is_served_for_decrypt_and_audited_once() {
         )
         .await
         .unwrap();
-    let mixed = get(&exec, &a, &[a.two_labels, a.inbox_only]).await;
+    let mixed = get(&tx, &a, &[a.two_labels, a.inbox_only]).await;
     let GetOutcome::Served(text) = mixed else {
         panic!("expected GetOutcome::Served for gateway decrypt-on-read, got {mixed:?}");
     };
@@ -88,9 +95,10 @@ async fn another_mailboxes_message_is_not_returned_and_is_still_audited_as_a_rea
     };
     let owner = db.connect().await.unwrap();
     let exec = ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2).unwrap();
+    let tx = TxFactory::new(exec.try_app_pool().unwrap());
     let a = fixture::account(&owner, "email-get-db-a").await.unwrap();
     let b = fixture::account(&owner, "email-get-db-b").await.unwrap();
-    let GetOutcome::Served(text) = get(&exec, &a, &[b.two_labels]).await else {
+    let GetOutcome::Served(text) = get(&tx, &a, &[b.two_labels]).await else {
         panic!("served");
     };
     assert!(

@@ -233,18 +233,31 @@ impl<K: KeySource> JmapCommands<K> {
         if authorized.context().mailbox_id() == 0 {
             return plain404(ctx, id);
         }
-        let Some(device_id) = setjoin_jmap::http_blob::transfer_device(
-            &services.worker,
-            auth,
-            &device.id,
-            &device.platform,
-        )
-        .await
-        .ok()
-        .flatten() else {
+        let Some(tx) = self.tx_factory() else {
+            return fail(500, "attachment transfer unavailable");
+        };
+        let client_ip = ctx.identity.client_ip.to_string();
+        let Ok(user) = tx.mint_user_from_authorized(authorized, &client_ip).await else {
+            return fail(500, "attachment transfer unavailable");
+        };
+        let Ok(mb) = tx
+            .mint_primary_mailbox_from_authorized(authorized, &client_ip)
+            .await
+        else {
+            return fail(403, "attachment transfer is not allowed by current policy");
+        };
+        let Ok(read_cap) = mb.require_read() else {
+            return fail(403, "attachment transfer is not allowed by current policy");
+        };
+        let Some(device_id) =
+            setjoin_jmap::http_blob::transfer_device(&tx, &user, &device.id, &device.platform)
+                .await
+                .ok()
+                .flatten()
+        else {
             return fail(403, "approved native device required");
         };
-        let raw = setjoin_jmap::http_blob::transfer_policy(&services.worker, auth, device_id)
+        let raw = setjoin_jmap::http_blob::transfer_policy(&tx, &read_cap, device_id)
             .await
             .unwrap_or_default();
         let policy = serde_json::from_str::<Value>(&raw).unwrap_or(json!({}));
@@ -258,9 +271,12 @@ impl<K: KeySource> JmapCommands<K> {
             return fail(403, "attachment transfer is not allowed by current policy");
         }
         let generation = format!("{:x}", Sha256::digest(raw.as_bytes()));
-        if !setjoin_jmap::http_blob::download_allowed(
+        let primary_mailbox = auth.mailbox_optional().map(|m| m.get());
+        if !super::download_allowed(
             &services.worker,
-            auth,
+            &tx,
+            &user,
+            primary_mailbox,
             &args.account,
             &args.hash,
         )
@@ -269,7 +285,7 @@ impl<K: KeySource> JmapCommands<K> {
         {
             return plain404(ctx, id);
         }
-        let Some((size, _)) = setjoin_jmap::http_blob::metadata(&services.worker, &args.hash)
+        let Some((size, _)) = setjoin_jmap::http_blob::metadata(&tx, &user, &args.hash)
             .await
             .ok()
             .flatten()

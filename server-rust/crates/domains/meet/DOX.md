@@ -179,3 +179,8 @@ An entitlement read failure denies, and audit failure remains best effort.
 
 ## Security fix (#531 F1, owner-approved 2026-11-06)
 `meeting_get_projection` also returns `chatChannelId` and `calendarEventId` only to a related caller (same rule as `roomName`/`ownerUserId`); `chatChannelMember` is unchanged. Meeting ids are sequential, so join-by-id stays enumerable: accepted risk, bounded by the gateway rate limit. Test `bins/gateway/tests/secfix8.rs`, mutant `sql:meet-ids-unrelated`.
+
+## Wave 1.8 capability and SQL-contract cutover (#546c)
+- All 54 SQL statements live as static `SqlContract` constants in `src/sql.rs` and are exported via `setjoin_meet::SQL_CONTRACTS` (zero raw SQL literals or `format!` SQL outside `src/sql.rs`).
+- Authenticated reads and mutators accept `factory: &TxFactory` + `user: &UserPrincipal` (`run_user_read_contract`, `run_user_write_contract_pipelined`, `run_user_effect_write`); public feature-flag lookups use `run_public_read_contract` (`SqlScope::AuthPreScope`); the cross-tenant admin recordings registry (`GET /admin/meet/recordings`) uses `AdminPermissionProof` (`drive.view`) via `run_admin_read_contract` (`SqlScope::AdminRead`).
+- Unauthenticated `SECURITY DEFINER` lobby/webhook reducers (`PUBLIC_CREATE`, `PUBLIC_POLL`, `PARTICIPANT_EVENT`, `RECORDING_EVENT`) are cataloged in `src/sql.rs` (`SqlScope::WorkerBypass`) and executed from gateway `src/meet.rs` with `setjoin_meet::decode_text0`.

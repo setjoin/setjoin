@@ -2,11 +2,8 @@
 //! `handleSearch`, `handleStore` and `handleUID` over the selected tag. The wire
 //! contract is Go's bytes, quirks included (see DOX.md "Mirrored Go quirks").
 use crate::session::{split_args, Session};
-use setjoin_contracts::{
-    command::CommandEnvelope,
-    ids::{ActorId, Digest, Generation, MailboxId, OperationId},
-};
-use setjoin_pg::{CommandOutcome, MailboxAuthContext, Param, ScopedTx, StatementFailure, Type};
+use setjoin_contracts::ids::OperationId;
+use setjoin_pg::{CommandOutcome, MailboxTx, Param, ReadWrite, StatementFailure, Type};
 use sha2::{Digest as _, Sha256};
 use std::{
     sync::atomic::{AtomicU64, Ordering},
@@ -359,14 +356,6 @@ impl Session {
         self.authed && !self.selected.is_empty()
     }
 
-    pub(crate) fn mailbox_auth(&self) -> Option<MailboxAuthContext> {
-        Some(MailboxAuthContext::from_authenticated_session(
-            ActorId::new(self.user_id).ok()?,
-            MailboxId::new(self.mailbox_id).ok()?,
-            Generation(1),
-        ))
-    }
-
     pub(crate) fn uid_column(&self) -> &'static str {
         if self.use_membership_uid {
             "mt.imap_uid"
@@ -377,13 +366,33 @@ impl Session {
 
     /// `auditLog`: after the reply, best effort, only with a resolved mailbox.
     pub(crate) async fn audit(&self, action: &str) {
-        if self.mailbox_id > 0 {
-            let _ = self
-                .server
-                .db
-                .record_mailbox_audit(self.mailbox_id, self.user_id, action)
-                .await;
+        if self.mailbox_id <= 0 {
+            return;
         }
+        let (Some(tx_factory), Some(mutate_cap)) = (self.tx_factory(), self.mutate_cap()) else {
+            return;
+        };
+        let mailbox = mutate_cap.mailbox().get();
+        let actor = mutate_cap.actor().get();
+        let message: Option<i64> = None;
+        let envelope = self.mailbox_envelope(&mutate_cap, action.as_bytes());
+        let _ = tx_factory
+            .run_mailbox_write_pipelined(
+                &mutate_cap,
+                &envelope,
+                Instant::now() + Duration::from_secs(5),
+                "INSERT INTO mailbox_audit_log (mailbox_id, actor_user_id, action, message_id) \
+                 VALUES ($1, $2, $3, $4)",
+                &[
+                    (&mailbox, Type::INT8),
+                    (&actor, Type::INT8),
+                    (&action, Type::TEXT),
+                    (&message, Type::INT8),
+                ],
+                None,
+                |_| Ok(()),
+            )
+            .await;
     }
 
     pub(crate) async fn uid_command(&mut self, tag: &str, args: &str) {
@@ -462,27 +471,35 @@ impl Session {
     }
 
     async fn read_fetch_rows(&self) -> Option<Vec<FetchRow>> {
-        let auth = self.mailbox_auth()?;
-        let uid = self.uid_column();
+        let tx_factory = self.tx_factory()?;
+        let read_cap = self.read_cap()?;
+        let mailbox = read_cap.mailbox().get();
         // The received date is rendered in UTC: Go formats pgx's local-zone time
         // and the production gateway runs in UTC.
-        let sql = format!(
-            "SELECT m.id, {uid}, m.subject, m.from_addr, m.to_addrs::text, m.cc_addrs::text, \
+        let sql = if self.use_membership_uid {
+            "SELECT m.id, mt.imap_uid, m.subject, m.from_addr, m.to_addrs::text, m.cc_addrs::text, \
                     m.is_read, m.is_flagged, m.is_answered, m.is_draft, m.is_deleted, \
                     m.size_bytes, \
                     to_char(m.received_at AT TIME ZONE 'UTC', 'Dy, DD Mon YYYY HH24:MI:SS') || ' +0000' \
              FROM messages m \
              JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at \
              WHERE mt.tag_id = $1 AND m.mailbox_id = $2 AND mt.is_primary = TRUE \
-             ORDER BY {uid}"
-        );
-        let rows = self
-            .server
-            .db
-            .read_scoped(
-                &auth,
-                &sql,
-                &[(&self.tag_id, Type::INT8), (&self.mailbox_id, Type::INT8)],
+             ORDER BY mt.imap_uid"
+        } else {
+            "SELECT m.id, m.imap_uid, m.subject, m.from_addr, m.to_addrs::text, m.cc_addrs::text, \
+                    m.is_read, m.is_flagged, m.is_answered, m.is_draft, m.is_deleted, \
+                    m.size_bytes, \
+                    to_char(m.received_at AT TIME ZONE 'UTC', 'Dy, DD Mon YYYY HH24:MI:SS') || ' +0000' \
+             FROM messages m \
+             JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at \
+             WHERE mt.tag_id = $1 AND m.mailbox_id = $2 AND mt.is_primary = TRUE \
+             ORDER BY m.imap_uid"
+        };
+        let rows = tx_factory
+            .run_mailbox_read_pipelined(
+                &read_cap,
+                sql,
+                &[(&self.tag_id, Type::INT8), (&mailbox, Type::INT8)],
             )
             .await
             .ok()?;
@@ -545,7 +562,9 @@ impl Session {
     }
 
     async fn read_search_uids(&self, args: &str) -> Option<Vec<i64>> {
-        let auth = self.mailbox_auth()?;
+        let tx_factory = self.tx_factory()?;
+        let read_cap = self.read_cap()?;
+        let mailbox = read_cap.mailbox().get();
         let uid = self.uid_column();
         let (clause, values) = build_search_clause(args, 3);
         let sql = format!(
@@ -554,17 +573,13 @@ impl Session {
              WHERE mt.tag_id = $1 AND m.mailbox_id = $2 AND mt.is_primary = TRUE \
                AND NOT m.is_deleted{clause} ORDER BY {uid}"
         );
-        let mut params: Vec<Param<'_>> =
-            vec![(&self.tag_id, Type::INT8), (&self.mailbox_id, Type::INT8)];
+        let mut params: Vec<Param<'_>> = vec![(&self.tag_id, Type::INT8), (&mailbox, Type::INT8)];
         for value in &values {
             params.push((value, Type::TEXT));
         }
-        let rows = self
-            .server
-            .db
-            .read_scoped(&auth, &sql, &params)
-            .await
-            .ok()?;
+        let mut tx = tx_factory.begin_mailbox_read(&read_cap).await.ok()?;
+        let rows = tx.query(&sql, &params).await.ok()?;
+        tx.finish().await.ok()?;
         let mut uids = Vec::with_capacity(rows.len());
         for row in &rows {
             uids.push(row.try_get::<_, Option<i64>>(0).ok()??);
@@ -592,26 +607,19 @@ impl Session {
             return;
         }
         let (delta, silent) = parse_store_flags(parts[1], &parts[2..].join(" "));
-        let Some(auth) = self.mailbox_auth() else {
+        let (Some(tx_factory), Some(mutate_cap)) = (self.tx_factory(), self.mutate_cap()) else {
             self.reply(tag, "NO Store failed");
             return;
         };
-        let envelope = CommandEnvelope {
-            operation: operation_id(self.user_id),
-            authority: auth.authority(),
-            binding: setjoin_db::lifecycle::accepted_contract(),
-            payload_digest: Digest(Sha256::digest(args.as_bytes()).into()),
-            command: (),
-        };
-        let (tag_id, mailbox, uid_column) = (self.tag_id, self.mailbox_id, self.uid_column());
-        let outcome = self
-            .server
-            .db
-            .run(
+        let envelope = self.mailbox_envelope(&mutate_cap, args.as_bytes());
+        let (tag_id, mailbox, uid_column) =
+            (self.tag_id, mutate_cap.mailbox().get(), self.uid_column());
+        let outcome = tx_factory
+            .run_mailbox_write(
+                &mutate_cap,
                 &envelope,
-                &auth,
                 Instant::now() + STORE_DEADLINE,
-                async |tx: &mut ScopedTx| {
+                async |tx: &mut MailboxTx<ReadWrite>| {
                     store_in_tx(tx, tag_id, mailbox, uid_column, &ranges, &delta, is_uid).await
                 },
             )
@@ -649,7 +657,7 @@ struct FetchRow {
 /// One scoped transaction: ordered view, keyword patch via the reducer, then
 /// the `\Deleted` writes with their state pushes (Go's `handleStore` body).
 async fn store_in_tx(
-    tx: &mut ScopedTx,
+    tx: &mut MailboxTx<ReadWrite>,
     tag_id: i64,
     mailbox: i64,
     uid_column: &str,

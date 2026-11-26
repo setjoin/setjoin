@@ -1,4 +1,5 @@
 //! Lost PostgreSQL COMMIT acknowledgements observed through SMTP and the DB.
+#[allow(clippy::if_same_then_else)]
 #[path = "../../../../bins/gateway/tests/common/commit.rs"]
 mod commit;
 use commit::{commit_cut_proxy, CommitCut};

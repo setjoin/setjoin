@@ -146,7 +146,11 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
-            match setjoin_chat::channels::enabled(&exec).await {
+            let Some(factory) = crate::policy_composition::tx_factory_from_executors(&exec, None)
+            else {
+                return crate::mailboxes::bare(503, "service unavailable", &c, &id);
+            };
+            match setjoin_chat::channels::enabled(&factory).await {
                 Ok(true) => {}
                 Ok(false) | Err(_) => {
                     let mut reply = problem(404, "not found", "", &c, id, &language);
@@ -159,6 +163,10 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
             let decoded =
                 String::from_utf8_lossy(&crate::inventory::unescape(r.uri().path())).into_owned();
             let path = decoded.strip_prefix("/api").unwrap_or(&decoded).to_owned();
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return problem(500, "request failed", &path, &c, id, &language);
+            };
             if r.method() == Method::POST
                 && crate::inventory::path_score(
                     "/api/chat/channels/{id}/messages/schedule",
@@ -203,14 +211,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 };
                 return json_response(
                     setjoin_chat::channels::schedule(
-                        &exec,
-                        auth.context(),
-                        channel,
-                        body,
-                        parent,
-                        mentions,
-                        broadcast,
-                        fire,
+                        &factory, &user, channel, body, parent, mentions, broadcast, fire,
                         operation,
                     )
                     .await,
@@ -255,14 +256,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 };
                 return json_response(
                     setjoin_chat::channels::poll(
-                        &exec,
-                        auth.context(),
-                        channel,
-                        question,
-                        options,
-                        multi,
-                        closes,
-                        operation,
+                        &factory, &user, channel, question, options, multi, closes, operation,
                     )
                     .await,
                     201,
@@ -316,7 +310,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     Err(_) => return problem(400, "invalid attachments", &path, &c, id, &language),
                 };
                 if !array.is_empty() {
-                    match setjoin_chat::channels::drive_enabled(&exec).await {
+                    match setjoin_chat::channels::drive_enabled(&factory).await {
                         Ok(true) => {}
                         Ok(false) => {
                             let mut reply = problem(404, "not found", "", &c, id, &language);
@@ -349,8 +343,8 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 };
                 let unfurl_body = unfurl.as_ref().map(|_| body.clone());
                 let outcome = setjoin_chat::channels::send(
-                    &exec,
-                    auth.context(),
+                    &factory,
+                    &user,
                     channel,
                     body,
                     parent,
@@ -365,7 +359,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 if let (Some(unfurl), Some(body), setjoin_pg::CommandOutcome::Committed(sent)) =
                     (&unfurl, &unfurl_body, &outcome)
                 {
-                    unfurl.trigger(auth.context(), sent, body);
+                    unfurl.trigger(&user, sent, body);
                 }
                 return json_response(outcome, 201, &path, &c, id, &language);
             }
@@ -385,7 +379,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     return problem(500, "request failed", &path, &c, id, &language);
                 };
                 return void_response(
-                    setjoin_chat::channels::join(&exec, auth.context(), channel, operation).await,
+                    setjoin_chat::channels::join(&factory, &user, channel, operation).await,
                     &path,
                     &c,
                     id,
@@ -411,7 +405,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     return problem(500, "request failed", &path, &c, id, &language);
                 };
                 let outcome =
-                    setjoin_chat::channels::typing(&exec, auth.context(), channel, operation).await;
+                    setjoin_chat::channels::typing(&factory, &user, channel, operation).await;
                 if matches!(&outcome, setjoin_pg::CommandOutcome::Committed(())) && !debounced {
                     if let Some(typing) = federation_typing {
                         typing.send(exec.clone(), auth.context().clone(), channel);
@@ -447,14 +441,8 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     return problem(500, "request failed", &path, &c, id, &language);
                 };
                 return void_response(
-                    setjoin_chat::channels::mark_read(
-                        &exec,
-                        auth.context(),
-                        channel,
-                        value,
-                        operation,
-                    )
-                    .await,
+                    setjoin_chat::channels::mark_read(&factory, &user, channel, value, operation)
+                        .await,
                     &path,
                     &c,
                     id,
@@ -489,8 +477,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     return problem(500, "request failed", &path, &c, id, &language);
                 };
                 return void_response(
-                    setjoin_chat::channels::notif(&exec, auth.context(), channel, value, operation)
-                        .await,
+                    setjoin_chat::channels::notif(&factory, &user, channel, value, operation).await,
                     &path,
                     &c,
                     id,
@@ -525,14 +512,8 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     return problem(500, "request failed", &path, &c, id, &language);
                 };
                 return void_response(
-                    setjoin_chat::channels::add_member(
-                        &exec,
-                        auth.context(),
-                        channel,
-                        value,
-                        operation,
-                    )
-                    .await,
+                    setjoin_chat::channels::add_member(&factory, &user, channel, value, operation)
+                        .await,
                     &path,
                     &c,
                     id,
@@ -584,14 +565,8 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     return problem(500, "request failed", &path, &c, id, &language);
                 };
                 return void_response(
-                    setjoin_chat::channels::update(
-                        &exec,
-                        auth.context(),
-                        channel,
-                        patch,
-                        operation,
-                    )
-                    .await,
+                    setjoin_chat::channels::update(&factory, &user, channel, patch, operation)
+                        .await,
                     &path,
                     &c,
                     id,
@@ -626,11 +601,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 };
                 return void_response(
                     setjoin_chat::channels::remove_member(
-                        &exec,
-                        auth.context(),
-                        channel,
-                        target,
-                        operation,
+                        &factory, &user, channel, target, operation,
                     )
                     .await,
                     &path,
@@ -646,7 +617,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 )
                 .is_some()
             {
-                match setjoin_chat::channels::federation_enabled(&exec).await {
+                match setjoin_chat::channels::federation_enabled(&factory).await {
                     Ok(true) => {}
                     Ok(false) | Err(_) => {
                         let mut reply = problem(404, "not found", "", &c, id, &language);
@@ -662,12 +633,8 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     Some(v) => v,
                     None => return problem(400, "invalid channel id", &path, &c, id, &language),
                 };
-                return match setjoin_chat::channels::federation_roster(
-                    &exec,
-                    auth.context(),
-                    channel,
-                )
-                .await
+                return match setjoin_chat::channels::federation_roster(&factory, &user, channel)
+                    .await
                 {
                     Ok(raw) => match crate::jmap::reply::go_compact(&raw) {
                         Some(body) => {
@@ -685,7 +652,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 )
                 .is_some()
             {
-                match setjoin_chat::channels::federation_enabled(&exec).await {
+                match setjoin_chat::channels::federation_enabled(&factory).await {
                     Ok(true) => {}
                     Ok(false) | Err(_) => {
                         let mut reply = problem(404, "not found", "", &c, id, &language);
@@ -718,11 +685,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 };
                 return void_response(
                     setjoin_chat::channels::federation_remove(
-                        &exec,
-                        auth.context(),
-                        channel,
-                        domain,
-                        operation,
+                        &factory, &user, channel, domain, operation,
                     )
                     .await,
                     &path,
@@ -738,7 +701,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 )
                 .is_some()
             {
-                match setjoin_chat::channels::federation_enabled(&exec).await {
+                match setjoin_chat::channels::federation_enabled(&factory).await {
                     Ok(true) => {}
                     Ok(false) | Err(_) => {
                         let mut reply = problem(404, "not found", "", &c, id, &language);
@@ -774,12 +737,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 };
                 return void_response(
                     setjoin_chat::channels::federation_invite(
-                        &exec,
-                        auth.context(),
-                        channel,
-                        domain,
-                        contact,
-                        operation,
+                        &factory, &user, channel, domain, contact, operation,
                     )
                     .await,
                     &path,
@@ -795,7 +753,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 )
                 .is_some()
             {
-                match setjoin_chat::channels::federation_enabled(&exec).await {
+                match setjoin_chat::channels::federation_enabled(&factory).await {
                     Ok(true) if !local_domain.is_empty() => {}
                     Ok(_) | Err(_) => {
                         let mut reply = problem(404, "not found", "", &c, id, &language);
@@ -816,8 +774,8 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 };
                 return json_response(
                     setjoin_chat::channels::federation_bind(
-                        &exec,
-                        auth.context(),
+                        &factory,
+                        &user,
                         channel,
                         local_domain,
                         operation,
@@ -833,7 +791,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
             if r.method() == Method::POST
                 && crate::inventory::path_score("/api/chat/dm/federated", r.uri().path()).is_some()
             {
-                match setjoin_chat::channels::federation_enabled(&exec).await {
+                match setjoin_chat::channels::federation_enabled(&factory).await {
                     Ok(true) => {}
                     Ok(false) | Err(_) => {
                         let mut reply = problem(404, "not found", "", &c, id, &language);
@@ -860,8 +818,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     return problem(500, "request failed", &path, &c, id, &language);
                 };
                 return scalar_response(
-                    setjoin_chat::channels::federated_dm(&exec, auth.context(), remote, operation)
-                        .await,
+                    setjoin_chat::channels::federated_dm(&factory, &user, remote, operation).await,
                     "channelId",
                     200,
                     &path,
@@ -889,7 +846,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     return problem(500, "request failed", &path, &c, id, &language);
                 };
                 return scalar_response(
-                    setjoin_chat::channels::dm(&exec, auth.context(), others, operation).await,
+                    setjoin_chat::channels::dm(&factory, &user, others, operation).await,
                     "channelId",
                     200,
                     &path,
@@ -902,7 +859,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 && crate::inventory::path_score("/api/chat/channels/{id}/space", r.uri().path())
                     .is_some()
             {
-                match setjoin_chat::channels::drive_enabled(&exec).await {
+                match setjoin_chat::channels::drive_enabled(&factory).await {
                     Ok(true) => {}
                     Ok(false) | Err(_) => {
                         let mut response = problem(404, "not found", "", &c, id, &language);
@@ -922,7 +879,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     return problem(500, "request failed", &path, &c, id, &language);
                 };
                 return scalar_response(
-                    setjoin_chat::channels::space(&exec, auth.context(), channel, operation).await,
+                    setjoin_chat::channels::space(&factory, &user, channel, operation).await,
                     "spaceId",
                     200,
                     &path,
@@ -970,8 +927,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     crate::problem::set_body(&mut response, raw);
                     return response;
                 }
-                return match setjoin_chat::channels::preview(&exec, auth.context(), channel, &email)
-                    .await
+                return match setjoin_chat::channels::preview(&factory, &user, channel, &email).await
                 {
                     Ok(raw) => crate::jmap::reply::response(
                         crate::jmap::reply::go_compact(&raw).expect("reducer JSON") + "\n",
@@ -1004,8 +960,8 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     return problem(500, "request failed", &path, &c, id, &language);
                 };
                 let result = setjoin_chat::channels::create(
-                    &exec,
-                    auth.context(),
+                    &factory,
+                    &user,
                     &name,
                     if topic.is_empty() { None } else { Some(topic) },
                     if visibility.is_empty() {
@@ -1068,7 +1024,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 0
             };
             let drive = if conversation {
-                setjoin_chat::channels::drive_enabled(&exec)
+                setjoin_chat::channels::drive_enabled(&factory)
                     .await
                     .unwrap_or(false)
             } else {
@@ -1107,41 +1063,34 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
             };
             let mut cursor = None;
             let result = if since {
-                setjoin_chat::channels::since(&exec, auth.context(), channel, seq)
+                setjoin_chat::channels::since(&factory, &user, channel, seq)
                     .await
                     .map(|(body, seq)| {
                         cursor = Some(seq);
                         body
                     })
             } else if messages {
-                setjoin_chat::channels::messages(
-                    &exec,
-                    auth.context(),
-                    channel,
-                    before,
-                    limit,
-                    around,
-                )
-                .await
+                setjoin_chat::channels::messages(&factory, &user, channel, before, limit, around)
+                    .await
             } else if readers {
-                setjoin_chat::channels::readers(&exec, auth.context(), channel).await
+                setjoin_chat::channels::readers(&factory, &user, channel).await
             } else if pins {
-                setjoin_chat::channels::pins(&exec, auth.context(), channel).await
+                setjoin_chat::channels::pins(&factory, &user, channel).await
             } else if search {
-                setjoin_chat::channels::mention_search(&exec, auth.context(), channel, &query).await
+                setjoin_chat::channels::mention_search(&factory, &user, channel, &query).await
             } else if roster {
-                setjoin_chat::channels::roster(&exec, auth.context(), channel).await
+                setjoin_chat::channels::roster(&factory, &user, channel).await
             } else if conversation {
-                setjoin_chat::channels::conversations(&exec, auth.context()).await
+                setjoin_chat::channels::conversations(&factory, &user).await
             } else {
-                setjoin_chat::channels::browse(&exec, auth.context()).await
+                setjoin_chat::channels::browse(&factory, &user).await
             };
             match result {
                 Ok(raw) => {
                     let raw = if conversation {
                         format!(
                             "{{\"attachmentsEnabled\":{},\"conversations\":{raw}}}",
-                            drive && !auth.context().is_guest()
+                            drive && !user.is_guest()
                         )
                     } else {
                         raw

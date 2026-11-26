@@ -1,0 +1,830 @@
+-- pgTAP: wave18b_force_rls.pg
+-- Wave 1.8 Phase 546c (`V287__wave18b_mail_child_force_rls.sql`) proof:
+--   1. All 17 Wave B mail/mailbox child tables have BOTH relrowsecurity AND relforcerowsecurity.
+--   2. All 4 new ARCH-018 pure-boolean helpers + 3 chat_schedule_* DEFINER reducers are
+--      SECURITY DEFINER owned by setjoin_worker.
+--   3. Divergent user_id != mailbox_id fixtures (`mk_account`) under SET LOCAL ROLE setjoin_app:
+--      - Unset GUCs fail closed (0 rows visible on SELECT across all 17 tables).
+--      - Nullable scope rows (rules.mailbox_id IS NULL transport rule,
+--        scheduled_actions.mailbox_id IS NULL org/compliance job,
+--        message_recalls.recalled_by IS NULL) fail closed under setjoin_app.
+--      - Divergent ID trap: setting app.current_mailbox_id = user_id sees 0 rows on
+--        mailbox-scoped tables.
+--      - Tenant A sees ONLY Tenant A rows and CANNOT SELECT, INSERT, UPDATE, or DELETE
+--        Tenant B rows across all 17 tables.
+--      - V112 shared task_lists & personal assignee_user_id work cleanly for tasks and
+--        task_activity under setjoin_app without breaking stranger isolation.
+--      - send_as delegate reads Alice's aliases (SELECT) but cannot mutate them.
+--      - chat_schedule_* GUC binding rejects forged p_user_id (42501) and allows own user.
+--      - Positive same-tenant INSERT/UPDATE/DELETE ALLOW-flow proofs for all 17 tables.
+
+BEGIN;
+SELECT plan(105);
+
+-- ── 1) Structural check: all 17 tables have ENABLE + FORCE RLS ──────────────
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+    WHERE c.relname IN (
+      'tags','tasks','task_activity','quick_steps','mailbox_audit_log',
+      'message_attachments','message_recalls','read_receipts','vote_responses',
+      'quarantined_messages','user_sender_list','user_spam_model','aliases',
+      'folders','scheduled_actions','rules','migration_jobs'
+    )
+      AND c.relrowsecurity = true
+      AND c.relforcerowsecurity = true),
+  17,
+  'V287: all 17 Wave B tables have ENABLE + FORCE ROW LEVEL SECURITY'
+);
+
+-- Verify ARCH-018 helpers + hardened chat_schedule_* reducers are SECURITY DEFINER owned by setjoin_worker.
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'public'
+     JOIN pg_authid r ON r.oid = p.proowner
+    WHERE p.proname IN (
+      'rls_task_list_member',
+      'rls_task_in_scope',
+      'rls_message_in_scope',
+      'rls_mailbox_delegate_for_current_user',
+      'chat_schedule_message',
+      'chat_scheduled_list',
+      'chat_scheduled_cancel'
+    )
+      AND p.prosecdef = true
+      AND r.rolname = 'setjoin_worker'),
+  7,
+  'V287: all 4 ARCH-018 helpers and 3 chat_schedule_* reducers are SECURITY DEFINER owned by setjoin_worker'
+);
+
+-- ── 2) Seed two divergent-ID tenants (A & B) plus collaborator/delegate (C) as superuser ──
+CREATE TEMP TABLE _w18b (
+  k text PRIMARY KEY,
+  v bigint NOT NULL
+);
+CREATE TEMP TABLE _w18b_uuid (
+  k text PRIMARY KEY,
+  v uuid NOT NULL
+);
+
+DO $$
+DECLARE
+  v_mb_a bigint := mk_account('w18b-alice');
+  v_mb_b bigint := mk_account('w18b-bob');
+  v_mb_c bigint := mk_account('w18b-carol');
+  v_u_a  bigint; v_u_b  bigint; v_u_c  bigint;
+  v_d_a  bigint; v_d_b  bigint;
+  v_tag_a bigint; v_tag_b bigint;
+  v_fld_a bigint; v_fld_b bigint;
+  v_al_a  bigint; v_al_b  bigint;
+  v_tl_a  bigint;
+  v_tsk_a bigint; v_tsk_b bigint; v_tsk_shared bigint; v_tsk_assigned bigint;
+  v_ta_a  bigint; v_ta_b  bigint; v_ta_shared  bigint;
+  v_qs_a  bigint; v_qs_b  bigint;
+  v_rl_a  bigint; v_rl_b  bigint; v_rl_null bigint;
+  v_sa_a  uuid;   v_sa_b  uuid;   v_sa_null uuid;
+  v_mj_a  bigint; v_mj_b  bigint;
+  v_msg_a bigint; v_msg_b bigint;
+  v_rcv   timestamptz := date_trunc('second', now());
+  v_att_a bigint; v_att_b bigint;
+  v_rr_a  bigint; v_rr_b  bigint;
+  v_vr_a  bigint; v_vr_b  bigint;
+  v_qm_a  bigint; v_qm_b  bigint;
+  v_mal_a bigint; v_mal_b bigint;
+  v_ch_a  bigint;
+BEGIN
+  SELECT user_id, domain_id INTO v_u_a, v_d_a FROM mailboxes WHERE id = v_mb_a;
+  SELECT user_id, domain_id INTO v_u_b, v_d_b FROM mailboxes WHERE id = v_mb_b;
+  SELECT user_id INTO v_u_c FROM mailboxes WHERE id = v_mb_c;
+
+  IF v_u_a = v_mb_a OR v_u_b = v_mb_b OR v_u_c = v_mb_c THEN
+    RAISE EXCEPTION 'expected divergent user_id != mailbox_id';
+  END IF;
+
+  -- Delegate Carol as send_as on Alice's mailbox
+  INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+  VALUES (v_mb_a, v_u_c, 'send_as', v_u_a) ON CONFLICT DO NOTHING;
+
+  -- 1. tags
+  INSERT INTO tags (mailbox_id, name, tag_type) VALUES (v_mb_a, 'W18B-TagA', 'user') RETURNING id INTO v_tag_a;
+  INSERT INTO tags (mailbox_id, name, tag_type) VALUES (v_mb_b, 'W18B-TagB', 'user') RETURNING id INTO v_tag_b;
+
+  -- 2. folders
+  INSERT INTO folders (mailbox_id, name, path) VALUES (v_mb_a, 'W18B-FldA', 'W18B-FldA') RETURNING id INTO v_fld_a;
+  INSERT INTO folders (mailbox_id, name, path) VALUES (v_mb_b, 'W18B-FldB', 'W18B-FldB') RETURNING id INTO v_fld_b;
+
+  -- 3. aliases
+  INSERT INTO aliases (mailbox_id, email, domain_id) VALUES (v_mb_a, 'w18b-al-a@mk.test', v_d_a) RETURNING id INTO v_al_a;
+  INSERT INTO aliases (mailbox_id, email, domain_id) VALUES (v_mb_b, 'w18b-al-b@mk.test', v_d_b) RETURNING id INTO v_al_b;
+
+  -- V112 shared task list owned by Alice with member Carol
+  INSERT INTO task_lists (owner_user_id, name) VALUES (v_u_a, 'W18B Shared List') RETURNING id INTO v_tl_a;
+  INSERT INTO task_list_members (list_id, user_id, role, added_by_user_id) VALUES
+    (v_tl_a, v_u_a, 'owner', v_u_a),
+    (v_tl_a, v_u_c, 'member', v_u_a);
+
+  -- 4. tasks (personal A, personal B, shared list A+C, personal A assigned to C)
+  INSERT INTO tasks (mailbox_id, title) VALUES (v_mb_a, 'Alice Personal Task') RETURNING id INTO v_tsk_a;
+  INSERT INTO tasks (mailbox_id, title) VALUES (v_mb_b, 'Bob Personal Task') RETURNING id INTO v_tsk_b;
+  INSERT INTO tasks (mailbox_id, list_id, title) VALUES (v_mb_a, v_tl_a, 'Shared List Task') RETURNING id INTO v_tsk_shared;
+  INSERT INTO tasks (mailbox_id, assignee_user_id, title) VALUES (v_mb_a, v_u_c, 'Assigned Personal Task') RETURNING id INTO v_tsk_assigned;
+
+  -- 5. task_activity
+  INSERT INTO task_activity (task_id, mailbox_id, author_user_id, kind, body)
+  VALUES (v_tsk_a, v_mb_a, v_u_a, 'comment', 'Alice activity') RETURNING id INTO v_ta_a;
+  INSERT INTO task_activity (task_id, mailbox_id, author_user_id, kind, body)
+  VALUES (v_tsk_b, v_mb_b, v_u_b, 'comment', 'Bob activity') RETURNING id INTO v_ta_b;
+  INSERT INTO task_activity (task_id, mailbox_id, author_user_id, kind, body)
+  VALUES (v_tsk_shared, v_mb_a, v_u_a, 'comment', 'Shared activity') RETURNING id INTO v_ta_shared;
+
+  -- 6. quick_steps
+  INSERT INTO quick_steps (mailbox_id, name) VALUES (v_mb_a, 'Alice QS') RETURNING id INTO v_qs_a;
+  INSERT INTO quick_steps (mailbox_id, name) VALUES (v_mb_b, 'Bob QS') RETURNING id INTO v_qs_b;
+
+  -- 7. rules (personal A, personal B, org transport rule with mailbox_id IS NULL)
+  INSERT INTO rules (mailbox_id, name, is_transport_rule) VALUES (v_mb_a, 'Alice Rule', false) RETURNING id INTO v_rl_a;
+  INSERT INTO rules (mailbox_id, name, is_transport_rule) VALUES (v_mb_b, 'Bob Rule', false) RETURNING id INTO v_rl_b;
+  INSERT INTO rules (mailbox_id, name, is_transport_rule) VALUES (NULL, 'Org Transport Rule', true) RETURNING id INTO v_rl_null;
+
+  -- 8. scheduled_actions (mailbox A, mailbox B, org/compliance NULL mailbox_id)
+  INSERT INTO scheduled_actions (action_kind, fire_at, mailbox_id)
+  VALUES ('snooze', now() + interval '1 hour', v_mb_a) RETURNING id INTO v_sa_a;
+  INSERT INTO scheduled_actions (action_kind, fire_at, mailbox_id)
+  VALUES ('snooze', now() + interval '1 hour', v_mb_b) RETURNING id INTO v_sa_b;
+  INSERT INTO scheduled_actions (action_kind, fire_at, mailbox_id)
+  VALUES ('dsn', now() + interval '1 hour', NULL) RETURNING id INTO v_sa_null;
+
+  -- 9. migration_jobs
+  INSERT INTO migration_jobs (user_id, source_type, target_mailbox_id)
+  VALUES (v_u_a, 'imap', v_mb_a) RETURNING id INTO v_mj_a;
+  INSERT INTO migration_jobs (user_id, source_type, target_mailbox_id)
+  VALUES (v_u_b, 'imap', v_mb_b) RETURNING id INTO v_mj_b;
+
+  -- Parent messages + blob for message_attachments / read_receipts / vote_responses / quarantined_messages
+  INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
+  VALUES (repeat('d', 64), 'blobs/d', 32, 'text/plain', 0) ON CONFLICT DO NOTHING;
+  INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, size_bytes, thread_id, raw_ref, received_at)
+  VALUES (v_mb_a, v_fld_a, '<w18b-msg-a@mk.test>', 'Alice Msg', 'a@mk.test', '[]'::jsonb, 10, 'thr-w18b-a', 'raw/w18b-a', v_rcv)
+  RETURNING id INTO v_msg_a;
+  INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, size_bytes, thread_id, raw_ref, received_at)
+  VALUES (v_mb_b, v_fld_b, '<w18b-msg-b@mk.test>', 'Bob Msg', 'b@mk.test', '[]'::jsonb, 10, 'thr-w18b-b', 'raw/w18b-b', v_rcv)
+  RETURNING id INTO v_msg_b;
+
+  -- 10. message_attachments
+  INSERT INTO message_attachments (message_id, received_at, blob_sha256, filename, content_type, size_bytes)
+  VALUES (v_msg_a, v_rcv, repeat('d', 64), 'a.txt', 'text/plain', 32) RETURNING id INTO v_att_a;
+  INSERT INTO message_attachments (message_id, received_at, blob_sha256, filename, content_type, size_bytes)
+  VALUES (v_msg_b, v_rcv, repeat('d', 64), 'b.txt', 'text/plain', 32) RETURNING id INTO v_att_b;
+
+  -- 11. read_receipts (ensure Alice/Bob do not have read_receipt_policy='never')
+  INSERT INTO read_receipts (message_id, received_at, recipient_email)
+  VALUES (v_msg_a, v_rcv, 'rcpt-a@mk.test') RETURNING id INTO v_rr_a;
+  INSERT INTO read_receipts (message_id, received_at, recipient_email)
+  VALUES (v_msg_b, v_rcv, 'rcpt-b@mk.test') RETURNING id INTO v_rr_b;
+
+  -- 12. vote_responses
+  INSERT INTO vote_responses (message_id, received_at, voter_email, vote_option)
+  VALUES (v_msg_a, v_rcv, 'voter-a@mk.test', 'Yes') RETURNING id INTO v_vr_a;
+  INSERT INTO vote_responses (message_id, received_at, voter_email, vote_option)
+  VALUES (v_msg_b, v_rcv, 'voter-b@mk.test', 'No') RETURNING id INTO v_vr_b;
+
+  -- 13. quarantined_messages
+  INSERT INTO quarantined_messages (message_id, mailbox_id, original_tag, reason)
+  VALUES (v_msg_a, v_mb_a, 'Inbox', 'Test A') RETURNING id INTO v_qm_a;
+  INSERT INTO quarantined_messages (message_id, mailbox_id, original_tag, reason)
+  VALUES (v_msg_b, v_mb_b, 'Inbox', 'Test B') RETURNING id INTO v_qm_b;
+
+  -- 14. message_recalls (user_scoped on recalled_by + NULL recalled_by row)
+  INSERT INTO message_recalls (message_id, recalled_by) VALUES ('<w18b-rec-a@mk.test>', v_u_a);
+  INSERT INTO message_recalls (message_id, recalled_by) VALUES ('<w18b-rec-b@mk.test>', v_u_b);
+  INSERT INTO message_recalls (message_id, recalled_by) VALUES ('<w18b-rec-null@mk.test>', NULL);
+
+  -- 15. mailbox_audit_log
+  INSERT INTO mailbox_audit_log (occurred_at, mailbox_id, actor_user_id, action)
+  VALUES (v_rcv, v_mb_a, v_u_a, 'w18b_test_a') RETURNING id INTO v_mal_a;
+  INSERT INTO mailbox_audit_log (occurred_at, mailbox_id, actor_user_id, action)
+  VALUES (v_rcv, v_mb_b, v_u_b, 'w18b_test_b') RETURNING id INTO v_mal_b;
+
+  -- 16. user_sender_list
+  INSERT INTO user_sender_list (user_id, sender, list_type) VALUES (v_u_a, 'safe-a@ext.test', 'safe');
+  INSERT INTO user_sender_list (user_id, sender, list_type) VALUES (v_u_b, 'safe-b@ext.test', 'safe');
+
+  -- 17. user_spam_model
+  INSERT INTO user_spam_model (user_id, model_bytes) VALUES (v_u_a, '\x0102'::bytea);
+  INSERT INTO user_spam_model (user_id, model_bytes) VALUES (v_u_b, '\x0304'::bytea);
+
+  -- Chat channel for Alice (testing chat_schedule_* SECURITY DEFINER GUC binding)
+  INSERT INTO chat_channels (kind, name, visibility, created_by)
+  VALUES ('channel', 'w18b-sched', 'private', v_u_a) RETURNING id INTO v_ch_a;
+  INSERT INTO chat_channel_members (channel_id, user_id, role)
+  VALUES (v_ch_a, v_u_a, 'owner');
+
+  INSERT INTO _w18b VALUES
+    ('mb_a', v_mb_a), ('mb_b', v_mb_b), ('mb_c', v_mb_c),
+    ('u_a', v_u_a), ('u_b', v_u_b), ('u_c', v_u_c),
+    ('d_a', v_d_a), ('d_b', v_d_b),
+    ('tag_a', v_tag_a), ('tag_b', v_tag_b),
+    ('fld_a', v_fld_a), ('fld_b', v_fld_b),
+    ('al_a', v_al_a), ('al_b', v_al_b),
+    ('tl_a', v_tl_a),
+    ('tsk_a', v_tsk_a), ('tsk_b', v_tsk_b), ('tsk_shared', v_tsk_shared), ('tsk_assigned', v_tsk_assigned),
+    ('ta_a', v_ta_a), ('ta_b', v_ta_b), ('ta_shared', v_ta_shared),
+    ('qs_a', v_qs_a), ('qs_b', v_qs_b),
+    ('rl_a', v_rl_a), ('rl_b', v_rl_b), ('rl_null', v_rl_null),
+    ('mj_a', v_mj_a), ('mj_b', v_mj_b),
+    ('msg_a', v_msg_a), ('msg_b', v_msg_b),
+    ('att_a', v_att_a), ('att_b', v_att_b),
+    ('rr_a', v_rr_a), ('rr_b', v_rr_b),
+    ('vr_a', v_vr_a), ('vr_b', v_vr_b),
+    ('qm_a', v_qm_a), ('qm_b', v_qm_b),
+    ('mal_a', v_mal_a), ('mal_b', v_mal_b),
+    ('ch_a', v_ch_a);
+  INSERT INTO _w18b_uuid VALUES
+    ('sa_a', v_sa_a), ('sa_b', v_sa_b), ('sa_null', v_sa_null);
+END $$;
+
+GRANT SELECT ON _w18b, _w18b_uuid TO setjoin_app;
+
+-- ── 3) Switch to setjoin_app (NOSUPERUSER NOBYPASSRLS) with UNSET GUCs ──────
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '', true);
+SELECT set_config('app.current_mailbox_id', '', true);
+
+SELECT is((SELECT count(*)::int FROM tags WHERE id IN (SELECT v FROM _w18b WHERE k IN ('tag_a','tag_b'))), 0, 'unset GUC: tags fail-closed');
+SELECT is((SELECT count(*)::int FROM folders WHERE id IN (SELECT v FROM _w18b WHERE k IN ('fld_a','fld_b'))), 0, 'unset GUC: folders fail-closed');
+SELECT is((SELECT count(*)::int FROM aliases WHERE id IN (SELECT v FROM _w18b WHERE k IN ('al_a','al_b'))), 0, 'unset GUC: aliases fail-closed');
+SELECT is((SELECT count(*)::int FROM tasks WHERE id IN (SELECT v FROM _w18b WHERE k IN ('tsk_a','tsk_b'))), 0, 'unset GUC: tasks fail-closed');
+SELECT is((SELECT count(*)::int FROM task_activity WHERE id IN (SELECT v FROM _w18b WHERE k IN ('ta_a','ta_b'))), 0, 'unset GUC: task_activity fail-closed');
+SELECT is((SELECT count(*)::int FROM quick_steps WHERE id IN (SELECT v FROM _w18b WHERE k IN ('qs_a','qs_b'))), 0, 'unset GUC: quick_steps fail-closed');
+SELECT is((SELECT count(*)::int FROM rules WHERE id IN (SELECT v FROM _w18b WHERE k IN ('rl_a','rl_b','rl_null'))), 0, 'unset GUC: rules fail-closed');
+SELECT is((SELECT count(*)::int FROM scheduled_actions WHERE id IN (SELECT v FROM _w18b_uuid WHERE k IN ('sa_a','sa_b','sa_null'))), 0, 'unset GUC: scheduled_actions fail-closed');
+SELECT is((SELECT count(*)::int FROM migration_jobs WHERE id IN (SELECT v FROM _w18b WHERE k IN ('mj_a','mj_b'))), 0, 'unset GUC: migration_jobs fail-closed');
+SELECT is((SELECT count(*)::int FROM message_attachments WHERE id IN (SELECT v FROM _w18b WHERE k IN ('att_a','att_b'))), 0, 'unset GUC: message_attachments fail-closed');
+SELECT is((SELECT count(*)::int FROM read_receipts WHERE id IN (SELECT v FROM _w18b WHERE k IN ('rr_a','rr_b'))), 0, 'unset GUC: read_receipts fail-closed');
+SELECT is((SELECT count(*)::int FROM vote_responses WHERE id IN (SELECT v FROM _w18b WHERE k IN ('vr_a','vr_b'))), 0, 'unset GUC: vote_responses fail-closed');
+SELECT is((SELECT count(*)::int FROM quarantined_messages WHERE id IN (SELECT v FROM _w18b WHERE k IN ('qm_a','qm_b'))), 0, 'unset GUC: quarantined_messages fail-closed');
+SELECT is((SELECT count(*)::int FROM message_recalls WHERE message_id IN ('<w18b-rec-a@mk.test>','<w18b-rec-b@mk.test>','<w18b-rec-null@mk.test>')), 0, 'unset GUC: message_recalls fail-closed');
+SELECT is((SELECT count(*)::int FROM mailbox_audit_log WHERE id IN (SELECT v FROM _w18b WHERE k IN ('mal_a','mal_b'))), 0, 'unset GUC: mailbox_audit_log fail-closed');
+SELECT is((SELECT count(*)::int FROM user_sender_list WHERE user_id IN (SELECT v FROM _w18b WHERE k IN ('u_a','u_b'))), 0, 'unset GUC: user_sender_list fail-closed');
+SELECT is((SELECT count(*)::int FROM user_spam_model WHERE user_id IN (SELECT v FROM _w18b WHERE k IN ('u_a','u_b'))), 0, 'unset GUC: user_spam_model fail-closed');
+
+-- ── 4) Divergent-ID trap: setting mailbox GUC to user_id sees 0 mailbox rows ──
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18b WHERE k = 'u_a'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18b WHERE k = 'u_a'), true);
+SELECT is((SELECT count(*)::int FROM tags WHERE id = (SELECT v FROM _w18b WHERE k = 'tag_a')), 0, 'divergent ID: user_id in mailbox GUC sees 0 tags');
+SELECT is((SELECT count(*)::int FROM quick_steps WHERE id = (SELECT v FROM _w18b WHERE k = 'qs_a')), 0, 'divergent ID: user_id in mailbox GUC sees 0 quick_steps');
+SELECT is((SELECT count(*)::int FROM mailbox_audit_log WHERE id = (SELECT v FROM _w18b WHERE k = 'mal_a')), 0, 'divergent ID: user_id in mailbox GUC sees 0 mailbox_audit_log');
+
+-- ── 5) Tenant A scope (MailboxTx: user_id=u_a, mailbox_id=mb_a) ─────────────
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18b WHERE k = 'u_a'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18b WHERE k = 'mb_a'), true);
+
+-- Tenant A sees ONLY Tenant A rows (never Tenant B, never NULL-scoped org rows) across all 17 tables.
+SELECT is((SELECT count(*)::int FROM tags WHERE id IN (SELECT v FROM _w18b WHERE k IN ('tag_a','tag_b'))), 1, 'tenant A: sees only own tags');
+SELECT is((SELECT count(*)::int FROM folders WHERE id IN (SELECT v FROM _w18b WHERE k IN ('fld_a','fld_b'))), 1, 'tenant A: sees only own folders');
+SELECT is((SELECT count(*)::int FROM aliases WHERE id IN (SELECT v FROM _w18b WHERE k IN ('al_a','al_b'))), 1, 'tenant A: sees only own aliases');
+SELECT is((SELECT count(*)::int FROM tasks WHERE id IN (SELECT v FROM _w18b WHERE k IN ('tsk_a','tsk_b'))), 1, 'tenant A: sees only own tasks');
+SELECT is((SELECT count(*)::int FROM task_activity WHERE id IN (SELECT v FROM _w18b WHERE k IN ('ta_a','ta_b'))), 1, 'tenant A: sees only own task_activity');
+SELECT is((SELECT count(*)::int FROM quick_steps WHERE id IN (SELECT v FROM _w18b WHERE k IN ('qs_a','qs_b'))), 1, 'tenant A: sees only own quick_steps');
+SELECT is((SELECT count(*)::int FROM rules WHERE id IN (SELECT v FROM _w18b WHERE k IN ('rl_a','rl_b','rl_null'))), 1, 'tenant A: sees only own rules (NULL transport rule hidden)');
+SELECT is((SELECT count(*)::int FROM scheduled_actions WHERE id IN (SELECT v FROM _w18b_uuid WHERE k IN ('sa_a','sa_b','sa_null'))), 1, 'tenant A: sees only own scheduled_actions (NULL org job hidden)');
+SELECT is((SELECT count(*)::int FROM migration_jobs WHERE id IN (SELECT v FROM _w18b WHERE k IN ('mj_a','mj_b'))), 1, 'tenant A: sees only own migration_jobs');
+SELECT is((SELECT count(*)::int FROM message_attachments WHERE id IN (SELECT v FROM _w18b WHERE k IN ('att_a','att_b'))), 1, 'tenant A: sees only own message_attachments');
+SELECT is((SELECT count(*)::int FROM read_receipts WHERE id IN (SELECT v FROM _w18b WHERE k IN ('rr_a','rr_b'))), 1, 'tenant A: sees only own read_receipts');
+SELECT is((SELECT count(*)::int FROM vote_responses WHERE id IN (SELECT v FROM _w18b WHERE k IN ('vr_a','vr_b'))), 1, 'tenant A: sees only own vote_responses');
+SELECT is((SELECT count(*)::int FROM quarantined_messages WHERE id IN (SELECT v FROM _w18b WHERE k IN ('qm_a','qm_b'))), 1, 'tenant A: sees only own quarantined_messages');
+SELECT is((SELECT count(*)::int FROM message_recalls WHERE message_id IN ('<w18b-rec-a@mk.test>','<w18b-rec-b@mk.test>','<w18b-rec-null@mk.test>')), 1, 'tenant A: sees only own message_recalls (NULL recalled_by hidden)');
+SELECT is((SELECT count(*)::int FROM mailbox_audit_log WHERE id IN (SELECT v FROM _w18b WHERE k IN ('mal_a','mal_b'))), 1, 'tenant A: sees only own mailbox_audit_log');
+SELECT is((SELECT count(*)::int FROM user_sender_list WHERE user_id IN (SELECT v FROM _w18b WHERE k IN ('u_a','u_b'))), 1, 'tenant A: sees only own user_sender_list');
+SELECT is((SELECT count(*)::int FROM user_spam_model WHERE user_id IN (SELECT v FROM _w18b WHERE k IN ('u_a','u_b'))), 1, 'tenant A: sees only own user_spam_model');
+
+-- ── 6) Cross-tenant INSERT / UPDATE / DELETE denials under Tenant A ─────────
+SELECT throws_ok(
+  $$INSERT INTO tags (mailbox_id, name, tag_type) VALUES ((SELECT v FROM _w18b WHERE k = 'mb_b'), 'Injected', 'user')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into tags denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO folders (mailbox_id, name, path) VALUES ((SELECT v FROM _w18b WHERE k = 'mb_b'), 'Injected', 'Injected')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into folders denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO aliases (mailbox_id, email, domain_id) VALUES ((SELECT v FROM _w18b WHERE k = 'mb_b'), 'inj@mk.test', (SELECT v FROM _w18b WHERE k = 'd_b'))$$,
+  '42501', NULL,
+  'cross-tenant INSERT into aliases denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO tasks (mailbox_id, title) VALUES ((SELECT v FROM _w18b WHERE k = 'mb_b'), 'Injected')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into tasks denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO task_activity (task_id, mailbox_id, author_user_id, kind, body) VALUES ((SELECT v FROM _w18b WHERE k = 'tsk_b'), (SELECT v FROM _w18b WHERE k = 'mb_b'), (SELECT v FROM _w18b WHERE k = 'u_a'), 'comment', 'Injected')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into task_activity denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO quick_steps (mailbox_id, name) VALUES ((SELECT v FROM _w18b WHERE k = 'mb_b'), 'Injected')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into quick_steps denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO rules (mailbox_id, name, is_transport_rule) VALUES (NULL, 'Injected Transport', true)$$,
+  '42501', NULL,
+  'NULL-mailbox INSERT into rules (transport rule) denied under setjoin_app'
+);
+SELECT throws_ok(
+  $$INSERT INTO scheduled_actions (action_kind, fire_at, mailbox_id) VALUES ('dsn', now() + interval '1 hour', NULL)$$,
+  '42501', NULL,
+  'NULL-mailbox INSERT into scheduled_actions denied under setjoin_app'
+);
+SELECT throws_ok(
+  $$INSERT INTO migration_jobs (user_id, source_type, target_mailbox_id) VALUES ((SELECT v FROM _w18b WHERE k = 'u_b'), 'imap', (SELECT v FROM _w18b WHERE k = 'mb_b'))$$,
+  '42501', NULL,
+  'cross-tenant INSERT into migration_jobs denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO message_recalls (message_id, recalled_by) VALUES ('<w18b-inj@mk.test>', (SELECT v FROM _w18b WHERE k = 'u_b'))$$,
+  '42501', NULL,
+  'cross-tenant INSERT into message_recalls denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO mailbox_audit_log (occurred_at, mailbox_id, actor_user_id, action) VALUES (now(), (SELECT v FROM _w18b WHERE k = 'mb_b'), (SELECT v FROM _w18b WHERE k = 'u_a'), 'inj')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into mailbox_audit_log denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO user_sender_list (user_id, sender, list_type) VALUES ((SELECT v FROM _w18b WHERE k = 'u_b'), 'evil@ext.test', 'blocked')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into user_sender_list denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO user_spam_model (user_id, model_bytes) VALUES ((SELECT v FROM _w18b WHERE k = 'u_b'), '\x99'::bytea)$$,
+  '42501', NULL,
+  'cross-tenant INSERT into user_spam_model denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO quarantined_messages (message_id, mailbox_id, original_tag, reason) VALUES ((SELECT v FROM _w18b WHERE k = 'msg_b'), (SELECT v FROM _w18b WHERE k = 'mb_b'), 'Inbox', 'Injected')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into quarantined_messages denied by FORCE RLS'
+);
+
+-- Cross-tenant UPDATE/DELETE on parent-message tables and Bob's rows affect 0 rows.
+WITH d AS (DELETE FROM message_attachments WHERE id = (SELECT v FROM _w18b WHERE k = 'att_b') RETURNING id)
+SELECT is((SELECT count(*)::int FROM d), 0, 'cross-tenant DELETE on message_attachments affects 0 rows');
+
+WITH d AS (DELETE FROM read_receipts WHERE id = (SELECT v FROM _w18b WHERE k = 'rr_b') RETURNING id)
+SELECT is((SELECT count(*)::int FROM d), 0, 'cross-tenant DELETE on read_receipts affects 0 rows');
+
+WITH d AS (DELETE FROM vote_responses WHERE id = (SELECT v FROM _w18b WHERE k = 'vr_b') RETURNING id)
+SELECT is((SELECT count(*)::int FROM d), 0, 'cross-tenant DELETE on vote_responses affects 0 rows');
+
+WITH u AS (UPDATE rules SET name = 'Hacked' WHERE id = (SELECT v FROM _w18b WHERE k = 'rl_null') RETURNING id)
+SELECT is((SELECT count(*)::int FROM u), 0, 'NULL-mailbox UPDATE on transport rule affects 0 rows under setjoin_app');
+
+WITH d AS (DELETE FROM scheduled_actions WHERE id = (SELECT v FROM _w18b_uuid WHERE k = 'sa_null') RETURNING id)
+SELECT is((SELECT count(*)::int FROM d), 0, 'NULL-mailbox DELETE on org scheduled_actions affects 0 rows under setjoin_app');
+
+-- ── 7) V112 shared task lists, assignee scope, & send_as delegate aliases ───
+-- Carol (u_c, mb_c) is a member of Alice's shared list, assignee of tsk_assigned,
+-- and send_as delegate on mb_a.
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18b WHERE k = 'u_c'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18b WHERE k = 'mb_c'), true);
+
+SELECT is((SELECT count(*)::int FROM tasks WHERE id = (SELECT v FROM _w18b WHERE k = 'tsk_shared')), 1, 'V112 shared list: member Carol sees shared task');
+SELECT is((SELECT count(*)::int FROM tasks WHERE id = (SELECT v FROM _w18b WHERE k = 'tsk_assigned')), 1, 'task assignee: Carol sees personal task assigned to her');
+SELECT is((SELECT count(*)::int FROM tasks WHERE id = (SELECT v FROM _w18b WHERE k = 'tsk_a')), 0, 'task isolation: Carol cannot see Alice private unassigned task');
+SELECT is((SELECT count(*)::int FROM task_activity WHERE id = (SELECT v FROM _w18b WHERE k = 'ta_shared')), 1, 'V112 shared list: member Carol sees shared task_activity');
+SELECT is((SELECT count(*)::int FROM task_activity WHERE id = (SELECT v FROM _w18b WHERE k = 'ta_a')), 0, 'task_activity isolation: Carol cannot see Alice private task_activity');
+
+-- Assignee cannot DELETE or directly UPDATE arbitrary columns on someone else's personal task.
+WITH d AS (DELETE FROM tasks WHERE id = (SELECT v FROM _w18b WHERE k = 'tsk_assigned') RETURNING id)
+SELECT is((SELECT count(*)::int FROM d), 0, 'task assignee: Carol cannot DELETE Alice personal assigned task');
+
+WITH u AS (UPDATE tasks SET title = 'Hijacked Title' WHERE id = (SELECT v FROM _w18b WHERE k = 'tsk_assigned') RETURNING id)
+SELECT is((SELECT count(*)::int FROM u), 0, 'task assignee: Carol cannot directly UPDATE Alice personal assigned task');
+
+-- Assignee CAN update status via hardened SECURITY DEFINER task_assignee_set_status (own user GUC).
+SELECT lives_ok(
+  $$SELECT task_assignee_set_status((SELECT v FROM _w18b WHERE k = 'u_c'), (SELECT v FROM _w18b WHERE k = 'tsk_assigned'), 'in-progress')$$,
+  'task assignee: Carol updates status via hardened task_assignee_set_status under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT task_assignee_set_status((SELECT v FROM _w18b WHERE k = 'u_a'), (SELECT v FROM _w18b WHERE k = 'tsk_assigned'), 'completed')$$,
+  '42501', NULL,
+  'DEFINER GUC bind: task_assignee_set_status rejects forged p_user_id under setjoin_app'
+);
+
+-- Shared task_activity INSERT enforces author_user_id = app.current_user_id (no author spoofing).
+SELECT throws_ok(
+  $$INSERT INTO task_activity (task_id, mailbox_id, author_user_id, kind, body)
+    VALUES ((SELECT v FROM _w18b WHERE k = 'tsk_shared'), (SELECT v FROM _w18b WHERE k = 'mb_a'), (SELECT v FROM _w18b WHERE k = 'u_a'), 'comment', 'spoofed')$$,
+  '42501', NULL,
+  'task_activity INSERT: Carol cannot spoof author_user_id on shared task'
+);
+
+-- send_as delegate Carol sees Alice's alias (SELECT), cannot UPDATE/DELETE it.
+SELECT is((SELECT count(*)::int FROM aliases WHERE id = (SELECT v FROM _w18b WHERE k = 'al_a')), 1, 'send_as delegate: Carol sees Alice alias');
+WITH u AS (UPDATE aliases SET display_name = 'Hijacked' WHERE id = (SELECT v FROM _w18b WHERE k = 'al_a') RETURNING id)
+SELECT is((SELECT count(*)::int FROM u), 0, 'send_as delegate: Carol cannot UPDATE Alice alias');
+
+-- Stranger Bob sees 0 of Alice's shared tasks, task_activity, or aliases.
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18b WHERE k = 'u_b'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18b WHERE k = 'mb_b'), true);
+SELECT is((SELECT count(*)::int FROM tasks WHERE id IN (SELECT v FROM _w18b WHERE k IN ('tsk_shared','tsk_assigned'))), 0, 'V112 stranger: Bob sees 0 of Alice shared/assigned tasks');
+SELECT is((SELECT count(*)::int FROM task_activity WHERE id = (SELECT v FROM _w18b WHERE k = 'ta_shared')), 0, 'V112 stranger: Bob sees 0 of Alice shared task_activity');
+
+-- ── 8) chat_schedule_* SECURITY DEFINER GUC binding ─────────────────────────
+-- Bob forging Alice's p_user_id fails closed with 42501!
+SELECT throws_ok(
+  $$SELECT chat_schedule_message((SELECT v FROM _w18b WHERE k = 'u_a'), (SELECT v FROM _w18b WHERE k = 'ch_a'), 'forged', NULL, '{}'::bigint[], NULL, now() + interval '1 hour')$$,
+  '42501', NULL,
+  'DEFINER GUC bind: chat_schedule_message rejects forged p_user_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT chat_scheduled_list((SELECT v FROM _w18b WHERE k = 'u_a'))$$,
+  '42501', NULL,
+  'DEFINER GUC bind: chat_scheduled_list rejects forged p_user_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT chat_scheduled_cancel((SELECT v FROM _w18b WHERE k = 'u_a'), gen_random_uuid())$$,
+  '42501', NULL,
+  'DEFINER GUC bind: chat_scheduled_cancel rejects forged p_user_id under setjoin_app'
+);
+
+-- Alice calling chat_schedule_message / list / cancel with own user GUC succeeds under setjoin_app!
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18b WHERE k = 'u_a'), true);
+SELECT set_config('app.current_mailbox_id', '', true);
+SELECT lives_ok(
+  $$
+  DO $inner$
+  DECLARE v_id uuid;
+  BEGIN
+    v_id := chat_schedule_message(
+      (SELECT v FROM _w18b WHERE k = 'u_a'),
+      (SELECT v FROM _w18b WHERE k = 'ch_a'),
+      'hello scheduled',
+      NULL, '{}'::bigint[], NULL, now() + interval '1 hour'
+    );
+    IF jsonb_array_length(chat_scheduled_list((SELECT v FROM _w18b WHERE k = 'u_a'))) <> 1 THEN
+      RAISE EXCEPTION 'expected 1 scheduled chat message';
+    END IF;
+    PERFORM chat_scheduled_cancel((SELECT v FROM _w18b WHERE k = 'u_a'), v_id);
+  END $inner$;
+  $$,
+  'ALLOW chat_schedule_*: Alice schedules, lists, and cancels chat_send under setjoin_app'
+);
+
+-- ── 9) Positive same-tenant INSERT/UPDATE/DELETE ALLOW-flow proofs (all 17) ─
+-- Each table runs distinct INSERT -> UPDATE -> DELETE statements (separate command
+-- snapshots) under SET LOCAL ROLE setjoin_app as Alice (u_a, mb_a).
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18b WHERE k = 'u_a'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18b WHERE k = 'mb_a'), true);
+
+-- 1. tags ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO tags (mailbox_id, name, tag_type)
+    VALUES ((SELECT v FROM _w18b WHERE k = 'mb_a'), 'W18B-AllowTag', 'user') RETURNING id INTO v_id;
+    UPDATE tags SET name = 'W18B-AllowTag-v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'tags UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM tags WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'tags DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW tags: setjoin_app INSERT/UPDATE/DELETE own tag succeeds');
+
+-- 2. folders ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO folders (mailbox_id, name, path)
+    VALUES ((SELECT v FROM _w18b WHERE k = 'mb_a'), 'W18B-AllowFld', 'W18B-AllowFld') RETURNING id INTO v_id;
+    UPDATE folders SET name = 'W18B-AllowFld-v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'folders UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM folders WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'folders DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW folders: setjoin_app INSERT/UPDATE/DELETE own folder succeeds');
+
+-- 3. aliases ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO aliases (mailbox_id, email, domain_id)
+    VALUES ((SELECT v FROM _w18b WHERE k = 'mb_a'), 'w18b-allow-al@mk.test', (SELECT v FROM _w18b WHERE k = 'd_a')) RETURNING id INTO v_id;
+    UPDATE aliases SET display_name = 'Allow Alias' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'aliases UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM aliases WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'aliases DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW aliases: setjoin_app INSERT/UPDATE/DELETE own alias succeeds');
+
+-- 4. tasks ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO tasks (mailbox_id, title)
+    VALUES ((SELECT v FROM _w18b WHERE k = 'mb_a'), 'W18B Allow Task') RETURNING id INTO v_id;
+    UPDATE tasks SET title = 'W18B Allow Task v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'tasks UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM tasks WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'tasks DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW tasks: setjoin_app INSERT/UPDATE/DELETE own task succeeds');
+
+-- 5. task_activity ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO task_activity (task_id, mailbox_id, author_user_id, kind, body)
+    VALUES ((SELECT v FROM _w18b WHERE k = 'tsk_a'), (SELECT v FROM _w18b WHERE k = 'mb_a'), (SELECT v FROM _w18b WHERE k = 'u_a'), 'comment', 'Allow') RETURNING id INTO v_id;
+    UPDATE task_activity SET body = 'Allow v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'task_activity UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM task_activity WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'task_activity DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW task_activity: setjoin_app INSERT/UPDATE/DELETE own activity succeeds');
+
+-- 6. quick_steps ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO quick_steps (mailbox_id, name)
+    VALUES ((SELECT v FROM _w18b WHERE k = 'mb_a'), 'Allow QS') RETURNING id INTO v_id;
+    UPDATE quick_steps SET name = 'Allow QS v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'quick_steps UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM quick_steps WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'quick_steps DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW quick_steps: setjoin_app INSERT/UPDATE/DELETE own quick_step succeeds');
+
+-- 7. rules ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO rules (mailbox_id, name, is_transport_rule)
+    VALUES ((SELECT v FROM _w18b WHERE k = 'mb_a'), 'Allow Rule', false) RETURNING id INTO v_id;
+    UPDATE rules SET name = 'Allow Rule v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'rules UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM rules WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'rules DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW rules: setjoin_app INSERT/UPDATE/DELETE own rule succeeds');
+
+-- 8. scheduled_actions ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id uuid; v_cnt int;
+  BEGIN
+    INSERT INTO scheduled_actions (action_kind, fire_at, mailbox_id)
+    VALUES ('remind', now() + interval '2 hours', (SELECT v FROM _w18b WHERE k = 'mb_a')) RETURNING id INTO v_id;
+    UPDATE scheduled_actions SET status = 'done' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'scheduled_actions UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM scheduled_actions WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'scheduled_actions DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW scheduled_actions: setjoin_app INSERT/UPDATE/DELETE own action succeeds');
+
+-- 9. migration_jobs ALLOW (completed status avoids migration_one_active_per_user unique index)
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO migration_jobs (user_id, source_type, target_mailbox_id, status)
+    VALUES ((SELECT v FROM _w18b WHERE k = 'u_a'), 'imap', (SELECT v FROM _w18b WHERE k = 'mb_a'), 'completed') RETURNING id INTO v_id;
+    UPDATE migration_jobs SET status = 'cancelled' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'migration_jobs UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM migration_jobs WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'migration_jobs DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW migration_jobs: setjoin_app INSERT/UPDATE/DELETE own job succeeds');
+
+-- 10. message_attachments ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int; v_rcv timestamptz; v_mid bigint;
+  BEGIN
+    SELECT id, received_at INTO v_mid, v_rcv FROM messages WHERE id = (SELECT v FROM _w18b WHERE k = 'msg_a');
+    INSERT INTO message_attachments (message_id, received_at, blob_sha256, filename, content_type, size_bytes)
+    VALUES (v_mid, v_rcv, repeat('d', 64), 'allow.txt', 'text/plain', 32) RETURNING id INTO v_id;
+    UPDATE message_attachments SET filename = 'allow2.txt' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'message_attachments UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM message_attachments WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'message_attachments DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW message_attachments: setjoin_app INSERT/UPDATE/DELETE own attachment succeeds');
+
+-- 11. read_receipts ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int; v_rcv timestamptz; v_mid bigint;
+  BEGIN
+    SELECT id, received_at INTO v_mid, v_rcv FROM messages WHERE id = (SELECT v FROM _w18b WHERE k = 'msg_a');
+    INSERT INTO read_receipts (message_id, received_at, recipient_email)
+    VALUES (v_mid, v_rcv, 'allow-rcpt@mk.test') RETURNING id INTO v_id;
+    UPDATE read_receipts SET user_agent = 'AllowUA' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'read_receipts UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM read_receipts WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'read_receipts DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW read_receipts: setjoin_app INSERT/UPDATE/DELETE own receipt succeeds');
+
+-- 12. vote_responses ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int; v_rcv timestamptz; v_mid bigint;
+  BEGIN
+    SELECT id, received_at INTO v_mid, v_rcv FROM messages WHERE id = (SELECT v FROM _w18b WHERE k = 'msg_a');
+    INSERT INTO vote_responses (message_id, received_at, voter_email, vote_option)
+    VALUES (v_mid, v_rcv, 'allow-voter@mk.test', 'Maybe') RETURNING id INTO v_id;
+    UPDATE vote_responses SET vote_option = 'Yes' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'vote_responses UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM vote_responses WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'vote_responses DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW vote_responses: setjoin_app INSERT/UPDATE/DELETE own vote succeeds');
+
+-- 13. quarantined_messages ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO quarantined_messages (message_id, mailbox_id, original_tag, reason)
+    VALUES ((SELECT v FROM _w18b WHERE k = 'msg_a'), (SELECT v FROM _w18b WHERE k = 'mb_a'), 'Inbox', 'Allow Q') RETURNING id INTO v_id;
+    UPDATE quarantined_messages SET reason = 'Allow Q v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'quarantined_messages UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM quarantined_messages WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'quarantined_messages DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW quarantined_messages: setjoin_app INSERT/UPDATE/DELETE own row succeeds');
+
+-- 14. message_recalls ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_cnt int;
+  BEGIN
+    INSERT INTO message_recalls (message_id, recalled_by)
+    VALUES ('<w18b-allow-rec@mk.test>', (SELECT v FROM _w18b WHERE k = 'u_a'));
+    UPDATE message_recalls SET copy_count = 1 WHERE message_id = '<w18b-allow-rec@mk.test>';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'message_recalls UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM message_recalls WHERE message_id = '<w18b-allow-rec@mk.test>';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'message_recalls DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW message_recalls: setjoin_app INSERT/UPDATE/DELETE own recall succeeds');
+
+-- 15. mailbox_audit_log ALLOW (append-only trigger forbids UPDATE/DELETE)
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO mailbox_audit_log (occurred_at, mailbox_id, actor_user_id, action)
+    VALUES (now(), (SELECT v FROM _w18b WHERE k = 'mb_a'), (SELECT v FROM _w18b WHERE k = 'u_a'), 'allow_act') RETURNING id INTO v_id;
+    SELECT count(*)::int INTO v_cnt FROM mailbox_audit_log WHERE id = v_id;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'mailbox_audit_log SELECT readback returned % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW mailbox_audit_log: setjoin_app INSERT and read-back own row succeeds');
+
+-- 16. user_sender_list ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_cnt int;
+  BEGIN
+    INSERT INTO user_sender_list (user_id, sender, list_type)
+    VALUES ((SELECT v FROM _w18b WHERE k = 'u_a'), 'allow-sender@ext.test', 'safe');
+    UPDATE user_sender_list SET list_type = 'blocked'
+     WHERE user_id = (SELECT v FROM _w18b WHERE k = 'u_a') AND sender = 'allow-sender@ext.test';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'user_sender_list UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM user_sender_list
+     WHERE user_id = (SELECT v FROM _w18b WHERE k = 'u_a') AND sender = 'allow-sender@ext.test';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'user_sender_list DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW user_sender_list: setjoin_app INSERT/UPDATE/DELETE own sender succeeds');
+
+-- 17. user_spam_model ALLOW
+WITH upd AS (
+  UPDATE user_spam_model SET sample_count = 7
+   WHERE user_id = (SELECT v FROM _w18b WHERE k = 'u_a') RETURNING sample_count
+)
+SELECT is((SELECT sample_count::int FROM upd), 7, 'ALLOW user_spam_model: setjoin_app UPDATE own model succeeds');
+
+-- ── 10) Tightened policy & hardened rust_* reducer security proofs ──────────
+-- task_activity: setjoin_app cannot inject activity onto a foreign task_id even using own mailbox_id
+SELECT throws_ok(
+  $$INSERT INTO task_activity (task_id, mailbox_id, author_user_id, kind, body)
+    VALUES ((SELECT v FROM _w18b WHERE k = 'tsk_b'), (SELECT v FROM _w18b WHERE k = 'mb_a'), (SELECT v FROM _w18b WHERE k = 'u_a'), 'comment', 'Cross-task spoof')$$,
+  '42501', NULL,
+  'task_activity: setjoin_app cannot INSERT onto foreign task_id using own mailbox_id'
+);
+
+-- scheduled_actions: setjoin_app cannot forge chat_send even with own mailbox_id
+SELECT throws_ok(
+  $$INSERT INTO scheduled_actions (action_kind, fire_at, payload, mailbox_id)
+    VALUES ('chat_send', now() + interval '1 hour', '{}'::jsonb, (SELECT v FROM _w18b WHERE k = 'mb_a'))$$,
+  '42501', NULL,
+  'scheduled_actions: setjoin_app cannot forge action_kind=chat_send even with own mailbox_id'
+);
+
+-- mailbox_audit_log: direct leaf partition access is denied under setjoin_app
+SELECT throws_ok(
+  $$SELECT count(*) FROM public.mailbox_audit_log_default$$,
+  '42501', NULL,
+  'mailbox_audit_log leaf: direct SELECT on mailbox_audit_log_default denied for setjoin_app'
+);
+SELECT throws_ok(
+  $$INSERT INTO public.mailbox_audit_log_default (occurred_at, mailbox_id, actor_user_id, action)
+    VALUES (now(), (SELECT v FROM _w18b WHERE k = 'mb_b'), (SELECT v FROM _w18b WHERE k = 'u_a'), 'leaf_inj')$$,
+  '42501', NULL,
+  'mailbox_audit_log leaf: direct INSERT on mailbox_audit_log_default denied for setjoin_app'
+);
+
+-- Worker-only rust_* reducers cannot be called by setjoin_app (42501)
+SELECT throws_ok(
+  $$SELECT rust_system_config_upsert_batch(ARRAY['k1'], ARRAY['true'], 'forged')$$,
+  '42501', NULL,
+  'worker-only reducer: rust_system_config_upsert_batch denied for setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT rust_system_config_upsert('k1', 'true', false)$$,
+  '42501', NULL,
+  'worker-only reducer: rust_system_config_upsert denied for setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT rust_system_config_delete('k1')$$,
+  '42501', NULL,
+  'worker-only reducer: rust_system_config_delete denied for setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT rust_outbound_queue_enqueue('<forged@mk.test>', 'a@mk.test', 'b@mk.test', 'raw/x')$$,
+  '42501', NULL,
+  'worker-only reducer: rust_outbound_queue_enqueue denied for setjoin_app'
+);
+
+-- User-scoped rust_* reducers reject foreign p_user_id under setjoin_app (42501)
+SELECT throws_ok(
+  $$SELECT rust_user_external_sender_warning_set((SELECT v FROM _w18b WHERE k = 'u_b'), true)$$,
+  '42501', NULL,
+  'GUC bind: rust_user_external_sender_warning_set rejects foreign p_user_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT rust_jmap_unsubscribe_record((SELECT v FROM _w18b WHERE k = 'u_b'), 1, 'forged@ext.test')$$,
+  '42501', NULL,
+  'GUC bind: rust_jmap_unsubscribe_record rejects foreign p_user_id under setjoin_app'
+);
+
+-- rust_blob_register_metadata: input validation (22023) & unset GUC rejection (42501)
+SELECT throws_ok(
+  $$SELECT rust_blob_register_metadata('not-a-sha256', 'blobs/x', 10, 'text/plain')$$,
+  '22023', NULL,
+  'input validation: rust_blob_register_metadata rejects malformed sha256'
+);
+SELECT set_config('app.current_user_id', '', true);
+SELECT set_config('app.current_mailbox_id', '', true);
+SELECT throws_ok(
+  $$SELECT rust_blob_register_metadata('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 'blobs/x', 10, 'text/plain')$$,
+  '42501', NULL,
+  'GUC bind: rust_blob_register_metadata fails closed when both scope GUCs are unset'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

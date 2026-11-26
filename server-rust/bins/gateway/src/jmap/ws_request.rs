@@ -122,17 +122,9 @@ pub async fn execute<K: super::token::KeySource>(
     let Some(authorized) = identity.command_authorization(&commands.exec).await else {
         return request_error_status(&env.id, "serverFail", 500, "internal error");
     };
-    let id_ctx = authorized.context();
     let session = authorized.session_state().encode();
     let (_, outcome) = commands
-        .execute_batch_verified(
-            id_ctx.user_id(),
-            id_ctx.mailbox_id(),
-            id_ctx.email(),
-            &env.using,
-            &env.calls,
-            false,
-        )
+        .execute_batch_verified(&authorized, "", &env.using, &env.calls, false)
         .await;
     match outcome {
         super::BatchOutcome::Problem {

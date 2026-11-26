@@ -268,3 +268,22 @@ user_signatures	COVERED	wave18a_force_rls.pg	tenant A: sees only own user_signat
 vacation_replies	COVERED	wave18a_force_rls.pg	tenant A: sees only own vacation_replies	V286: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant DELETE 0 rows.
 vacation_settings	COVERED	wave18a_force_rls.pg	tenant A: sees only own vacation_settings	V286: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant UPDATE 0 rows.
 vt_timezone	COVERED	wave18a_force_rls.pg	tenant A: sees only own vt_timezone	V286: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + unset GUC fail-closed.
+
+# ── V287 Wave 1.8B mail/mailbox child FORCE RLS (17 tables, #546c) ──────────
+aliases	COVERED	wave18b_force_rls.pg	tenant A: sees only own aliases	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501 + send_as delegate read-only proof.
+folders	COVERED	wave18b_force_rls.pg	tenant A: sees only own folders	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+mailbox_audit_log	COVERED	wave18b_force_rls.pg	tenant A: sees only own mailbox_audit_log	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501 + strict mailbox GUC.
+message_attachments	COVERED	wave18b_force_rls.pg	tenant A: sees only own message_attachments	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant DELETE 0 rows.
+message_recalls	COVERED	wave18b_force_rls.pg	tenant A: sees only own message_recalls (NULL recalled_by hidden)	V287: reclassified to user_scoped on recalled_by; two-tenant proof + NULL fail-closed + cross-tenant INSERT 42501.
+migration_jobs	COVERED	wave18b_force_rls.pg	tenant A: sees only own migration_jobs	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+quarantined_messages	COVERED	wave18b_force_rls.pg	tenant A: sees only own quarantined_messages	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+quick_steps	COVERED	wave18b_force_rls.pg	tenant A: sees only own quick_steps	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501 + strict mailbox GUC.
+read_receipts	COVERED	wave18b_force_rls.pg	tenant A: sees only own read_receipts	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant DELETE 0 rows.
+rules	COVERED	wave18b_force_rls.pg	tenant A: sees only own rules (NULL transport rule hidden)	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + NULL transport rule hidden/INSERT 42501.
+scheduled_actions	COVERED	wave18b_force_rls.pg	tenant A: sees only own scheduled_actions (NULL org job hidden)	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + NULL org job hidden/INSERT 42501.
+tags	COVERED	wave18b_force_rls.pg	tenant A: sees only own tags	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501 + divergent ID trap.
+task_activity	COVERED	wave18b_force_rls.pg	tenant A: sees only own task_activity	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + V112 shared list isolation + cross-tenant INSERT 42501.
+tasks	COVERED	wave18b_force_rls.pg	tenant A: sees only own tasks	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + V112 shared list & assignee isolation + cross-tenant INSERT 42501.
+user_sender_list	COVERED	wave18b_force_rls.pg	tenant A: sees only own user_sender_list	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+user_spam_model	COVERED	wave18b_force_rls.pg	tenant A: sees only own user_spam_model	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+vote_responses	COVERED	wave18b_force_rls.pg	tenant A: sees only own vote_responses	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant DELETE 0 rows.

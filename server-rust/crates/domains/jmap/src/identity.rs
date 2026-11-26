@@ -1,10 +1,9 @@
 //! Identity self-knowledge and atomic alias edits, mirroring frozen Go.
-use crate::{Failure, SetOutcome};
+use crate::{sql, Failure, SetOutcome};
+use setjoin_authz::principals::{OwnerCapability, TxFactory, UserPrincipal};
 use setjoin_contracts::command::CommandEnvelope;
-use setjoin_pg::{
-    CommandOutcome, MailboxAuthContext, ReceiptCommand, Rejection, ScopedExecutor,
-    StatementFailure, Type, run_receipted_command,
-};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, Rejection, StatementFailure};
+
 #[derive(Default)]
 pub struct Primary {
     pub email: String,
@@ -13,6 +12,7 @@ pub struct Primary {
     pub family: Option<String>,
     pub avatar: Option<String>,
 }
+
 pub struct Entry {
     pub id: i64,
     pub name: String,
@@ -20,9 +20,13 @@ pub struct Entry {
     pub signature: Option<String>,
     pub reply: Option<String>,
 }
-pub async fn primary(exec: &ScopedExecutor, auth: &MailboxAuthContext) -> Primary {
-    let user = auth.actor().get();
-    let rows=exec.read("SELECT email::text,display_name::text,first_name::text,last_name::text,avatar_sha256::text FROM users WHERE id=$1",&[(&user,Type::INT8)]).await.unwrap_or_default();
+
+pub async fn primary(tx_factory: &TxFactory, user: &UserPrincipal) -> Primary {
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &sql::IDENTITY_PRIMARY, &[&uid])
+        .await
+        .unwrap_or_default();
     rows.first()
         .and_then(|r| {
             Some(Primary {
@@ -35,9 +39,17 @@ pub async fn primary(exec: &ScopedExecutor, auth: &MailboxAuthContext) -> Primar
         })
         .unwrap_or_default()
 }
-pub async fn aliases(exec: &ScopedExecutor, auth: &MailboxAuthContext) -> Vec<Entry> {
-    let user = auth.actor().get();
-    let rows=exec.read_iterated("SELECT a.id,COALESCE(a.display_name,a.email)::text,a.email::text,a.signature::text,a.reply_to::text FROM aliases a JOIN mailboxes m ON m.id=a.mailbox_id WHERE m.user_id=$1",&[(&user,Type::INT8)]).await.unwrap_or_default();
+
+pub async fn aliases(tx_factory: &TxFactory, user: &UserPrincipal) -> Vec<Entry> {
+    let uid = user.user().get();
+    let Ok(mut tx) = tx_factory.begin_user_read(user).await else {
+        return Vec::new();
+    };
+    let rows = tx
+        .query_iterated_contract(&sql::IDENTITY_ALIASES, &[&uid])
+        .await
+        .unwrap_or_default();
+    let _ = tx.finish().await;
     rows.iter()
         .filter_map(|r| {
             Some(Entry {
@@ -50,9 +62,17 @@ pub async fn aliases(exec: &ScopedExecutor, auth: &MailboxAuthContext) -> Vec<En
         })
         .collect()
 }
-pub async fn delegated(exec: &ScopedExecutor, auth: &MailboxAuthContext) -> Vec<Entry> {
-    let user = auth.actor().get();
-    let rows=exec.read_iterated("SELECT mb.id,COALESCE(mb.display_name,mb.email)::text,mb.email::text FROM mailboxes mb JOIN mailbox_delegates md ON md.mailbox_id=mb.id WHERE md.user_id=$1 AND md.permission IN ('send_as','full_access') AND mb.user_id<>$1",&[(&user,Type::INT8)]).await.unwrap_or_default();
+
+pub async fn delegated(tx_factory: &TxFactory, user: &UserPrincipal) -> Vec<Entry> {
+    let uid = user.user().get();
+    let Ok(mut tx) = tx_factory.begin_user_read(user).await else {
+        return Vec::new();
+    };
+    let rows = tx
+        .query_iterated_contract(&sql::IDENTITY_DELEGATED, &[&uid])
+        .await
+        .unwrap_or_default();
+    let _ = tx.finish().await;
     rows.iter()
         .filter_map(|r| {
             Some(Entry {
@@ -65,26 +85,47 @@ pub async fn delegated(exec: &ScopedExecutor, auth: &MailboxAuthContext) -> Vec<
         })
         .collect()
 }
-pub async fn state(exec: &ScopedExecutor, auth: &MailboxAuthContext) -> Option<String> {
-    let user = auth.actor().get();
-    let rows = exec
-        .read(
-            "SELECT floor(extract(epoch FROM updated_at))::bigint FROM users WHERE id=$1",
-            &[(&user, Type::INT8)],
-        )
+
+pub async fn state(tx_factory: &TxFactory, user: &UserPrincipal) -> Option<String> {
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &sql::IDENTITY_STATE, &[&uid])
         .await
         .ok()?;
     Some(rows.first()?.try_get::<_, i64>(0).ok()?.to_string())
 }
+
 pub async fn set(
-    exec: &ScopedExecutor,
-    auth: &MailboxAuthContext,
+    tx_factory: &TxFactory,
+    owner: &OwnerCapability,
     envelope: &CommandEnvelope<()>,
     create: &Option<String>,
     update: &Option<String>,
     destroy: &Option<Vec<i64>>,
 ) -> SetOutcome {
-    let out=run_receipted_command(exec,ReceiptCommand{family:"jmap",command:"identity.set"},envelope,auth,std::time::Instant::now()+std::time::Duration::from_secs(10),"SELECT jmap_identity_set_batch($1,$4::text::jsonb,$5::text::jsonb,$6)::text WHERE $2::bigint>0 AND $3::text<>''",&[(create,Type::TEXT),(update,Type::TEXT),(destroy,Type::INT8_ARRAY)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(||StatementFailure{hint:None,sqlstate:None,message:"missing identity set result".into()})).await;
+    let mailbox = owner.mailbox().get();
+    let out = tx_factory
+        .run_owner_write_contract_pipelined(
+            owner,
+            envelope,
+            std::time::Instant::now() + std::time::Duration::from_secs(10),
+            &sql::IDENTITY_SET,
+            &[&mailbox, create, update, destroy],
+            Some(ReceiptCommand {
+                family: "jmap",
+                command: "identity.set",
+            }),
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(|| StatementFailure {
+                        hint: None,
+                        sqlstate: None,
+                        message: "missing identity set result".into(),
+                    })
+            },
+        )
+        .await;
     match out {
         CommandOutcome::Committed(raw) => SetOutcome::Done(raw),
         CommandOutcome::Unknown { operation } => SetOutcome::Unknown { operation },

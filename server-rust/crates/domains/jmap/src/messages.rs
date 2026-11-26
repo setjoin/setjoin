@@ -1,14 +1,16 @@
 //! The `/messages/{id}/*` REST routes (#469): focus, raw download, attachments
 //! zip and one-click unsubscribe. Every statement keys ownership on the
-//! verified user (`mb.user_id`), never a request field (R1-R3). Reads run on
-//! the worker credential because a message may live in any of the user's
-//! mailboxes, exactly as frozen Go's `ResolveOwnedMessage` does.
+//! verified user (`mb.user_id`), never a request field (R1-R3).
+//!
+//! Cross-mailbox owner lookups (`MESSAGES_OWNED_MESSAGE`, `MESSAGES_ZIP_SOURCE`,
+//! `MESSAGES_UNSUBSCRIBE_SOURCE`) are cataloged with `SqlScope::WorkerBypass`
+//! and decoded by the pure helpers here; writes run via [`TxFactory`].
+use setjoin_authz::principals::{MutateCapability, TxFactory, UserPrincipal};
 use setjoin_contracts::command::CommandEnvelope;
-use setjoin_pg::{
-    run_receipted_command, CommandOutcome, MailboxAuthContext, ReceiptCommand, ScopedExecutor,
-    StatementFailure, Type,
-};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, Row, StatementFailure};
 use std::time::Instant;
+
+use crate::sql;
 
 /// Go's `OwnedMessage` columns the routes need.
 pub struct Owned {
@@ -25,20 +27,8 @@ fn failure(message: &str) -> StatementFailure {
     }
 }
 
-/// `ResolveOwnedMessage`: `None` when the message does not exist or belongs to
-/// another user (indistinguishable by design).
-pub async fn owned_message(
-    exec: &ScopedExecutor,
-    user: i64,
-    id: i64,
-) -> Result<Option<Owned>, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT m.raw_ref, m.mailbox_id, COALESCE(m.subject, 'message') FROM messages m \
-             JOIN mailboxes mb ON mb.id = m.mailbox_id WHERE m.id = $1 AND mb.user_id = $2",
-            &[(&id, Type::INT8), (&user, Type::INT8)],
-        )
-        .await?;
+/// Decode rows produced by [`crate::sql::MESSAGES_OWNED_MESSAGE`].
+pub fn decode_owned_message(rows: &[Row]) -> Result<Option<Owned>, StatementFailure> {
     let Some(row) = rows.first() else {
         return Ok(None);
     };
@@ -51,44 +41,42 @@ pub async fn owned_message(
 
 /// `set_message_focus` for a message the verified user owns. Ownership, the
 /// owning mailbox and `received_at` come from the same statement as the
-/// reducer call (no check-then-mutate); `auth` is scoped to that mailbox.
-/// Zero rows (the message vanished since it was resolved) is the reducer's
-/// own `BZ006` not-found.
+/// reducer call (no check-then-mutate). Zero rows (the message vanished since
+/// it was resolved) rolls back with the reducer's own `BZ006` not-found.
 pub async fn set_focus(
-    exec: &ScopedExecutor,
-    auth: &MailboxAuthContext,
+    tx_factory: &TxFactory,
+    mutate: &MutateCapability,
     envelope: &CommandEnvelope<()>,
     deadline: Instant,
     id: i64,
     focused: bool,
 ) -> CommandOutcome<(), StatementFailure> {
-    run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "jmap",
-            command: "message.focus",
-        },
-        envelope,
-        auth,
-        deadline,
-        "SELECT set_message_focus(m.id, m.received_at, $5::bool, m.mailbox_id)::text FROM messages m \
-         JOIN mailboxes mb ON mb.id = m.mailbox_id \
-         WHERE m.id = $4::bigint AND mb.user_id = $2::bigint AND m.mailbox_id = $1::bigint \
-         AND $3::text <> ''",
-        &[(&id, Type::INT8), (&focused, Type::BOOL)],
-        |rows| {
+    let mailbox = mutate.mailbox().get();
+    let actor = mutate.actor().get();
+    let operation = envelope.operation;
+    tx_factory
+        .run_mailbox_write(mutate, envelope, deadline, async move |tx| {
+            let rows = tx
+                .query_contract(&sql::MESSAGES_SET_FOCUS, &[&mailbox, &actor, &id, &focused])
+                .await?;
             if rows.is_empty() {
-                Err(StatementFailure {
+                return Err(StatementFailure {
                     hint: None,
                     sqlstate: Some("BZ006".into()),
                     message: "message not found".into(),
-                })
-            } else {
-                Ok(())
+                });
             }
-        },
-    )
-    .await
+            tx.record_receipt(
+                operation,
+                ReceiptCommand {
+                    family: "jmap",
+                    command: "message.focus",
+                },
+            )
+            .await?;
+            Ok(())
+        })
+        .await
 }
 
 /// The non-inline attachments of an owned message in `message_attachments.id`
@@ -98,22 +86,8 @@ pub struct ZipSource {
     pub subject: Option<String>,
 }
 
-pub async fn zip_source(
-    exec: &ScopedExecutor,
-    user: i64,
-    id: i64,
-) -> Result<ZipSource, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT ma.blob_sha256, COALESCE(ma.filename, 'attachment'), m.subject \
-               FROM message_attachments ma \
-               JOIN messages m   ON m.id = ma.message_id AND m.received_at = ma.received_at \
-               JOIN mailboxes mb ON mb.id = m.mailbox_id \
-              WHERE m.id = $1 AND mb.user_id = $2 AND ma.disposition <> 'inline' \
-              ORDER BY ma.id",
-            &[(&id, Type::INT8), (&user, Type::INT8)],
-        )
-        .await?;
+/// Decode rows produced by [`crate::sql::MESSAGES_ZIP_SOURCE`].
+pub fn decode_zip_source(rows: &[Row]) -> Result<ZipSource, StatementFailure> {
     let mut entries = Vec::new();
     let mut subject = None;
     for (index, row) in rows.iter().enumerate() {
@@ -130,21 +104,10 @@ pub async fn zip_source(
     Ok(ZipSource { entries, subject })
 }
 
-/// The List-Unsubscribe header and From address of an owned message. The id
-/// stays text and is cast by PostgreSQL, as pgx hands Go's string to an int8
-/// parameter; any error (including a non-numeric id) reads as not found.
-pub async fn unsubscribe_source(
-    exec: &ScopedExecutor,
-    user: i64,
-    id: &str,
+/// Decode rows produced by [`crate::sql::MESSAGES_UNSUBSCRIBE_SOURCE`].
+pub fn decode_unsubscribe_source(
+    rows: &[Row],
 ) -> Result<Option<(String, String)>, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT COALESCE(m.list_unsubscribe, ''), COALESCE(m.from_addr, '') FROM messages m \
-             JOIN mailboxes mb ON mb.id = m.mailbox_id WHERE m.id = $1::text::bigint AND mb.user_id = $2",
-            &[(&id, Type::TEXT), (&user, Type::INT8)],
-        )
-        .await?;
     let Some(row) = rows.first() else {
         return Ok(None);
     };
@@ -154,34 +117,30 @@ pub async fn unsubscribe_source(
     )))
 }
 
-/// The unsubscribe audit row and the sender block in one statement (Go writes
-/// them as two independent best-effort statements). The block key is the raw
-/// `from_addr`, which is what inbound per-user spam matches.
+/// Record the unsubscribe routine audit row and sender block via the owning
+/// `rust_jmap_unsubscribe_record` PL/pgSQL reducer (retiring direct
+/// cross-domain writes to `user_sender_list`, Wave 1.8c #546c).
 pub async fn record_unsubscribe(
-    exec: &ScopedExecutor,
-    auth: &MailboxAuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     envelope: &CommandEnvelope<()>,
     deadline: Instant,
     target: Option<i64>,
     sender: &str,
 ) -> CommandOutcome<(), StatementFailure> {
-    run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "jmap",
-            command: "message.unsubscribe",
-        },
-        envelope,
-        auth,
-        deadline,
-        "WITH audit AS (SELECT audit_write($2::bigint, 'unsubscribe_newsletter', 'message', $4::bigint, \
-             NULL, NULL, NULL, 'List-Unsubscribe POST', 'routine') WHERE $1::bigint >= 0 AND $3::text <> ''), \
-         blocked AS (INSERT INTO user_sender_list (user_id, sender, list_type) \
-             SELECT $2::bigint, $5::text, 'blocked' WHERE $5::text <> '' \
-             ON CONFLICT (user_id, sender, list_type) DO NOTHING) \
-         SELECT count(*) FROM audit",
-        &[(&target, Type::INT8), (&sender, Type::TEXT)],
-        |_| Ok(()),
-    )
-    .await
+    let uid = user.user().get();
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            envelope,
+            deadline,
+            &sql::MESSAGES_RECORD_UNSUBSCRIBE,
+            &[&uid, &target, &sender],
+            Some(ReceiptCommand {
+                family: "jmap",
+                command: "message.unsubscribe",
+            }),
+            |_| Ok(()),
+        )
+        .await
 }

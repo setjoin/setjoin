@@ -4,37 +4,33 @@
 //!
 //! The table is global admin configuration (no RLS): the gateway adapter checks the console
 //! gate (`requireMailPerm` for the list, `requireMailSecurity` for writes) and passes the
-//! caller's domain scope, resolved from the verified token (0 is deployment-wide). Writes are
-//! receipted reducers (`rust_mailsec_smime_anchor_import|delete`) that store the rows and send
-//! the `smime_trust_changed` notification in one transaction. Certificate parsing uses
-//! `x509-parser` and a port of Go's `pem.Decode`; nothing here touches cryptographic keys.
-use super::{command, deadline, done, envelope, invalid, s, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+//! verified principal/proof. Writes are receipted reducers (`rust_mailsec_smime_anchor_import|delete`)
+//! that store the rows and send the `smime_trust_changed` notification in one transaction.
+//! Certificate parsing uses `x509-parser` and a port of Go's `pem.Decode`; nothing here touches
+//! cryptographic keys.
+use super::{command, deadline, done, envelope, invalid, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 
 pub mod trust;
 
-pub use setjoin_certificates::{fingerprint, parse_chain, validate_chain, ChainError, ParsedCert, first_certificate_dates, first_certificate_encrypt_capable, first_certificate_email, first_pem_bytes};
+pub use setjoin_certificates::{
+    fingerprint, first_certificate_dates, first_certificate_email,
+    first_certificate_encrypt_capable, first_pem_bytes, parse_chain, validate_chain, ChainError,
+    ParsedCert,
+};
 
 // ---- reads and writes ----
 
 /// `GET /admin/smime/trust-anchors`: `{"anchors":[...]}` newest first. A row whose validity
 /// bounds are NULL fails Go's `time.Time` scan, which ends the iteration there. `scope` 0 sees everything.
-pub async fn list(worker: &ScopedExecutor, domain_scope: i64) -> Result<String, StatementFailure> {
-    let iso = |c: &str| format!("to_char({c} AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')");
-    let rows = worker
-        .read(
-            &format!(
-                "SELECT id, label, COALESCE(subject_cn,''), fingerprint, domain_id, {}, {}, {} \
-                 FROM smime_trust_anchors \
-                 WHERE ($1::bigint = 0 OR domain_id IS NULL OR domain_id = $1::bigint) \
-                 ORDER BY created_at DESC, id DESC",
-                iso("not_before"),
-                iso("not_after"),
-                iso("created_at")
-            ),
-            &[(&domain_scope, Type::INT8)],
-        )
+pub async fn list(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let domain_scope = admin.enforced_domain_scope().unwrap_or(0);
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::SMIME_LIST, &[&domain_scope])
         .await?;
     let mut items = Vec::new();
     for row in &rows {
@@ -68,8 +64,8 @@ pub async fn list(worker: &ScopedExecutor, domain_scope: i64) -> Result<String, 
 /// `POST /admin/smime/trust-anchors` after validation: every certificate row and the
 /// notification, one transaction. Returns the number stored.
 pub async fn import(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     label: &str,
     certs: &[ParsedCert],
     domain_scope: i64,
@@ -85,7 +81,6 @@ pub async fn import(
         })
         .collect();
     let document = serde_json::Value::Array(rows).to_string();
-    let auth = scope(actor);
     let digest = format!(
         "smime.anchor.import:{domain_scope}:{label}:{}",
         certs
@@ -94,57 +89,54 @@ pub async fn import(
             .collect::<Vec<_>>()
             .join(",")
     );
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("smime.anchor.import"),
-        &envelope(&auth, operation, &digest),
-        &auth,
-        deadline(),
-        "SELECT rust_mailsec_smime_anchor_import($4::text,$5::text::jsonb,$6::bigint,$2::bigint) \
-         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-        &[
-            (&label, Type::TEXT),
-            (&document, Type::TEXT),
-            (&domain_scope, Type::INT8),
-        ],
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get::<_, i32>(0).ok())
-                .ok_or_else(invalid)
-        },
-    )
-    .await
+    let actor_id = user.user().get();
+    let env = envelope(user.user(), user.generation(), operation, &digest);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::SMIME_IMPORT,
+            &[&label, &document, &domain_scope, &actor_id],
+            Some(command("smime.anchor.import")),
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get::<_, i32>(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }
 
 /// `DELETE /admin/smime/trust-anchors/{id}`: `Committed(false)` is Go's 404.
 pub async fn delete(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     id: i64,
     domain_scope: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("smime.anchor.delete"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("smime.anchor.delete:{domain_scope}:{id}"),
-        ),
-        &auth,
-        deadline(),
-        "SELECT rust_mailsec_smime_anchor_delete($4::bigint,$5::bigint) \
-         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-        &[(&id, Type::INT8), (&domain_scope, Type::INT8)],
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get::<_, bool>(0).ok())
-                .ok_or_else(invalid)
-        },
-    )
-    .await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("smime.anchor.delete:{domain_scope}:{id}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::SMIME_DELETE,
+            &[&id, &domain_scope],
+            Some(command("smime.anchor.delete")),
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get::<_, bool>(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }
 
 /// `GET /user/cert-status`: metadata from this request's own TLS peer leaf.

@@ -84,6 +84,7 @@ pub async fn commit_cut_proxy(
                 if tag == b'Q' {
                     if body.starts_with(b"BEGIN READ ONLY")
                         || body.starts_with(b"BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY")
+                        || body.starts_with(b"BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
                     {
                         in_read_only = true;
                     } else if body.starts_with(b"BEGIN") {

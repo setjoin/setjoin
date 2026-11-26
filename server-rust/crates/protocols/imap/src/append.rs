@@ -2,19 +2,26 @@
 //! idle loop. See DOX.md for the mirrored quirks and the one IDLE gap.
 use crate::{
     conn::LineError,
-    messages::operation_id,
     session::{canonical_mailbox, Session},
 };
-use setjoin_contracts::{
-    command::CommandEnvelope,
-    ids::{ActorId, Digest, Generation, MailboxId},
-};
-use setjoin_pg::{CommandOutcome, MailboxAuthContext, ScopedTx, StatementFailure, Type};
-use sha2::{Digest as _, Sha256};
+use setjoin_pg::{CommandOutcome, MailboxTx, ReadWrite, StatementFailure, Type};
 use std::time::{Duration, Instant};
 
 const APPEND_DEADLINE: Duration = Duration::from_secs(60);
 const MAX_LITERAL: i64 = 50_000_000;
+
+const DEST_BY_MAILBOX_SQL: &str = "SELECT t.id, t.mailbox_id, t.name, t.imap_uid_validity, \
+     COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.imap_membership_uid'),FALSE) \
+     AND COALESCE((imap_membership_uid_readiness(t.id)->>'ready')::boolean,FALSE) \
+     FROM tags t \
+     WHERE t.mailbox_id = $1 AND (t.name = $2 OR t.imap_name = $2)";
+
+const DEST_BY_USER_SQL: &str = "SELECT t.id, t.mailbox_id, t.name, t.imap_uid_validity, \
+     COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.imap_membership_uid'),FALSE) \
+     AND COALESCE((imap_membership_uid_readiness(t.id)->>'ready')::boolean,FALSE) \
+     FROM tags t JOIN mailboxes mb ON mb.id = t.mailbox_id \
+     WHERE mb.user_id = $1 AND (t.name = $2 OR t.imap_name = $2) \
+     ORDER BY mb.is_primary DESC LIMIT 1";
 
 enum Abort {
     OverQuota,
@@ -44,10 +51,6 @@ struct Dest {
     membership: bool,
 }
 
-const DEST_COLUMNS: &str = "t.id, t.mailbox_id, t.name, t.imap_uid_validity, \
-     COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.imap_membership_uid'),FALSE) \
-     AND COALESCE((imap_membership_uid_readiness(t.id)->>'ready')::boolean,FALSE)";
-
 fn dest_row(row: &setjoin_pg::Row) -> Option<Dest> {
     Some(Dest {
         tag_id: row.try_get(0).ok()?,
@@ -60,31 +63,29 @@ fn dest_row(row: &setjoin_pg::Row) -> Option<Dest> {
 
 impl Session {
     async fn append_destination(&self, name: &str) -> Option<Dest> {
-        let first = self
-            .server
-            .db
-            .read(
-                &format!(
-                    "SELECT {DEST_COLUMNS} FROM tags t \
-                     WHERE t.mailbox_id = $1 AND (t.name = $2 OR t.imap_name = $2)"
-                ),
-                &[(&self.mailbox_id, Type::INT8), (&name, Type::TEXT)],
-            )
-            .await
-            .ok()
-            .and_then(|rows| rows.first().and_then(dest_row));
-        if first.is_some() {
-            return first;
+        let tx_factory = self.tx_factory()?;
+        if let Some(read_cap) = self.read_cap() {
+            let first = tx_factory
+                .run_mailbox_read_pipelined(
+                    &read_cap,
+                    DEST_BY_MAILBOX_SQL,
+                    &[(&self.mailbox_id, Type::INT8), (&name, Type::TEXT)],
+                )
+                .await
+                .ok()
+                .and_then(|rows| rows.first().and_then(dest_row));
+            if first.is_some() {
+                return first;
+            }
         }
-        // An APPEND issued before SELECT bound a mailbox resolves by the user.
-        self.server
-            .db
-            .read(
-                &format!(
-                    "SELECT {DEST_COLUMNS} FROM tags t JOIN mailboxes mb ON mb.id = t.mailbox_id \
-                     WHERE mb.user_id = $1 AND (t.name = $2 OR t.imap_name = $2) \
-                     ORDER BY mb.is_primary DESC LIMIT 1"
-                ),
+        // An APPEND issued before SELECT bound a mailbox — or targeting another
+        // owned mailbox while a different folder is selected — resolves under
+        // UserPrincipal so secondary/primary owned tags remain visible under V287 FORCE RLS.
+        let user_principal = self.user_principal()?;
+        tx_factory
+            .run_user_read_pipelined(
+                user_principal,
+                DEST_BY_USER_SQL,
                 &[(&self.user_id, Type::INT8), (&name, Type::TEXT)],
             )
             .await
@@ -193,26 +194,17 @@ impl Session {
         args: &str,
         body: Option<String>,
     ) -> Result<i64, Abort> {
-        let (Ok(actor), Ok(mailbox)) = (ActorId::new(self.user_id), MailboxId::new(dest.mailbox))
-        else {
-            return Err(Abort::Failed);
-        };
-        let auth = MailboxAuthContext::from_authenticated_session(actor, mailbox, Generation(1));
-        let envelope = CommandEnvelope {
-            operation: operation_id(self.user_id),
-            authority: auth.authority(),
-            binding: setjoin_db::lifecycle::accepted_contract(),
-            payload_digest: Digest(Sha256::digest(args.as_bytes()).into()),
-            command: (),
-        };
-        let outcome = self
-            .server
-            .db
-            .run(
+        let tx_factory = self.tx_factory().ok_or(Abort::Failed)?;
+        let (mutate_cap, envelope) = self
+            .mutate_cap_for(dest.mailbox, args.as_bytes())
+            .await
+            .ok_or(Abort::Failed)?;
+        let outcome = tx_factory
+            .run_mailbox_write(
+                &mutate_cap,
                 &envelope,
-                &auth,
                 Instant::now() + APPEND_DEADLINE,
-                async |tx: &mut ScopedTx| -> Result<i64, Abort> {
+                async |tx: &mut MailboxTx<ReadWrite>| -> Result<i64, Abort> {
                     // Quota first: the check locks the mailbox row.
                     let within = tx
                         .query(
@@ -347,7 +339,9 @@ impl Session {
                 // Owner-approved security fix 2026-11-05 (#449): a client that disconnects during
                 // IDLE ends the session and frees its connection slots (frozen Go swallowed the
                 // error in a 100 ms loop and leaked the slot).
-                Err(LineError::Closed) if setjoin_contracts::mutants::on("imap-idle-spins-on-close") => {
+                Err(LineError::Closed)
+                    if setjoin_contracts::mutants::on("imap-idle-spins-on-close") =>
+                {
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
                 Err(LineError::TooLong | LineError::Closed) => return true,

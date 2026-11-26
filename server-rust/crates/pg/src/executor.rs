@@ -281,6 +281,7 @@ pub struct ScopedExecutor {
     timeouts: Timeouts,
     audit_keys: Option<Arc<AuditKeys>>,
     user_receipt: Option<crate::ReceiptCommand>,
+    effect_sem: Arc<Semaphore>,
 }
 
 impl ScopedExecutor {
@@ -295,6 +296,7 @@ impl ScopedExecutor {
             timeouts: Timeouts::resolved(),
             audit_keys: None,
             user_receipt: None,
+            effect_sem: Arc::new(Semaphore::new(crate::DEFAULT_EFFECT_CONCURRENCY)),
         }
     }
 
@@ -323,6 +325,7 @@ impl ScopedExecutor {
             timeouts,
             audit_keys: None,
             user_receipt: None,
+            effect_sem: Arc::new(Semaphore::new(crate::DEFAULT_EFFECT_CONCURRENCY)),
         })
     }
 
@@ -355,6 +358,7 @@ impl ScopedExecutor {
             PoolBackend::Fast(pool) => Some(crate::AppPool::from_parts(
                 pool.clone(),
                 self.audit_keys.clone(),
+                self.effect_sem.clone(),
             )),
             PoolBackend::Legacy { .. } => None,
         }

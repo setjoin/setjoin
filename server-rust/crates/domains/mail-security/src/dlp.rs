@@ -4,14 +4,13 @@
 //!
 //! The gateway adapter checks the console gate (`requireMailPerm`, `requireMailSecurity`,
 //! `requireSecurityWrite`, `requireLogsPerm`) first. `dlp_policies`, `system_config` and
-//! `link_protect_audit` carry no tenant column, so reads are global; the only scoping is the
-//! domain scope of a domain-scoped admin on the pattern list. The pattern replace is a
-//! receipted reducer (`rust_mailsec_dlp_patterns_replace`: Go's delete-then-insert transaction);
-//! the anti-phish write is one upsert statement (Go's six upserts are one implicit batch
-//! transaction).
-use super::{command, deadline, done, envelope, invalid, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+//! `link_protect_audit` carry no tenant column, so reads run via `AdminReadTx`; the only
+//! scoping is the domain scope of a domain-scoped admin on the pattern list. The pattern
+//! replace calls `rust_mailsec_dlp_patterns_replace`; the anti-phish write calls the
+//! owning `rust_system_config_upsert_batch` reducer.
+use super::{command, deadline, done, envelope, invalid, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 
 /// `actionToSeverity`.
 pub fn action_to_severity(action: &str) -> &'static str {
@@ -44,26 +43,13 @@ pub struct Pattern {
 
 /// `GET /admin/dlp/patterns`: scoped admins see global patterns and their own domain's.
 pub async fn patterns_get(
-    worker: &ScopedExecutor,
-    domain_scope: i64,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
 ) -> Result<String, StatementFailure> {
-    let rows = if domain_scope > 0 {
-        worker
-            .read(
-                "SELECT id, name, COALESCE(regex_patterns[1], ''), action, enabled FROM dlp_policies \
-                 WHERE is_pattern = TRUE AND (domain_id IS NULL OR domain_id = $1) ORDER BY priority, id",
-                &[(&domain_scope, Type::INT8)],
-            )
-            .await?
-    } else {
-        worker
-            .read(
-                "SELECT id, name, COALESCE(regex_patterns[1], ''), action, enabled FROM dlp_policies \
-                 WHERE is_pattern = TRUE ORDER BY priority, id",
-                &[],
-            )
-            .await?
-    };
+    let domain_scope = admin.enforced_domain_scope().unwrap_or(0);
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::DLP_PATTERNS_GET, &[&domain_scope])
+        .await?;
     let mut items = vec![];
     for row in &rows {
         let id: i64 = row.try_get(0).map_err(|_| invalid())?;
@@ -104,8 +90,8 @@ pub enum ReplaceError {
 /// `PUT /admin/dlp/patterns`: delete every pattern row, then insert the submitted rows
 /// (priority is the position), in one transaction.
 pub async fn patterns_put(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     patterns: &[Pattern],
     operation: [u8; 16],
 ) -> Result<(), ReplaceError> {
@@ -131,30 +117,24 @@ pub async fn patterns_put(
             .collect::<Vec<_>>()
             .join("\u{1e}")
     );
-    let auth = scope(actor);
-    let outcome = setjoin_pg::run_receipted_command(
-        worker,
-        command("dlp.patterns.put"),
-        &envelope(&auth, operation, &digest),
-        &auth,
-        deadline(),
-        "SELECT rust_mailsec_dlp_patterns_replace($4::text[],$5::boolean[],$6::text[],$7::text[]) \
-         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-        &[
-            (&names, Type::TEXT_ARRAY),
-            (&enabled, Type::BOOL_ARRAY),
-            (&actions, Type::TEXT_ARRAY),
-            (&regexes, Type::TEXT_ARRAY),
-        ],
-        |rows| {
-            if rows.len() == 1 {
-                Ok(())
-            } else {
-                Err(invalid())
-            }
-        },
-    )
-    .await;
+    let env = envelope(user.user(), user.generation(), operation, &digest);
+    let outcome = factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::DLP_PATTERNS_REPLACE,
+            &[&names, &enabled, &actions, &regexes],
+            Some(command("dlp.patterns.put")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await;
     match outcome {
         CommandOutcome::Committed(()) => Ok(()),
         CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(f))
@@ -181,12 +161,12 @@ fn raw_slice(raw: Option<&String>) -> Option<Vec<String>> {
 }
 
 /// `GET /admin/anti-phish`: `antiphish_%` rows, values trimmed of `"`, with Go's defaults.
-pub async fn antiphish_get(worker: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = worker
-        .read(
-            "SELECT key, value::text FROM system_config WHERE key LIKE 'antiphish_%' ORDER BY key",
-            &[],
-        )
+pub async fn antiphish_get(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::ANTIPHISH_GET, &[])
         .await?;
     let mut raw = std::collections::BTreeMap::new();
     for row in &rows {
@@ -227,13 +207,10 @@ pub struct AntiPhish {
     pub users: Option<Vec<String>>,
 }
 
-/// `PUT /admin/anti-phish`: six upserts, one statement. `json.Marshal` of a nil slice is `null`.
-pub async fn antiphish_put(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
-    body: &AntiPhish,
-    operation: [u8; 16],
-) -> CommandOutcome<(), StatementFailure> {
+/// Encode `PUT /admin/anti-phish` keys and JSON values for the worker-only
+/// `sql::ANTIPHISH_PUT` (`rust_system_config_upsert_batch`) contract.
+/// `json.Marshal` of a nil slice is `null`.
+pub fn antiphish_put_args(body: &AntiPhish) -> (Vec<String>, Vec<String>) {
     let list = |items: &Option<Vec<String>>| match items {
         None => "null".to_owned(),
         Some(l) => format!("[{}]", l.iter().map(|d| s(d)).collect::<Vec<_>>().join(",")),
@@ -257,27 +234,7 @@ pub async fn antiphish_put(
         list(&body.domains),
         list(&body.users),
     ];
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("antiphish.put"),
-        &envelope(&auth, operation, &format!("antiphish.put:{}", values.join(","))),
-        &auth,
-        deadline(),
-        "INSERT INTO system_config (key, value, description) \
-         SELECT t.k, t.v::jsonb, 'anti-phish config' FROM unnest($4::text[], $5::text[]) AS t(k, v) \
-         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' \
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now() RETURNING true",
-        &[(&keys, Type::TEXT_ARRAY), (&values, Type::TEXT_ARRAY)],
-        |rows| {
-            if rows.len() == 6 {
-                Ok(())
-            } else {
-                Err(invalid())
-            }
-        },
-    )
-    .await
+    (keys, values)
 }
 
 // ---- link-protect audit ----
@@ -298,35 +255,21 @@ pub struct AuditRow {
 /// `GET /admin/link-protect/audit`. `since` is a UTC `YYYY-MM-DDTHH:MM:SS.ffffffZ` text.
 /// Go's `rows.Scan` failure on a NULL closes the rows, so the list ends at that row.
 pub async fn audit_list(
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     since: Option<&str>,
     url_hash: &str,
     limit: i64,
 ) -> Result<Vec<AuditRow>, StatementFailure> {
-    let mut sql = String::from(
-        "SELECT id, url_hash, verdict, scanner, message_id, mailbox_id, client_ip, \
-         floor(extract(epoch from created_at))::bigint FROM link_protect_audit WHERE 1=1",
-    );
-    let mut params: Vec<setjoin_pg::Param<'_>> = vec![];
-    let since_text = since.map(str::to_owned);
-    let hash_text = url_hash.to_owned();
-    if let Some(t) = &since_text {
-        params.push((t, Type::TEXT));
-        sql.push_str(&format!(
-            " AND created_at >= ${}::text::timestamptz",
-            params.len()
-        ));
-    }
-    if !hash_text.is_empty() {
-        params.push((&hash_text, Type::TEXT));
-        sql.push_str(&format!(" AND url_hash = ${}", params.len()));
-    }
-    params.push((&limit, Type::INT8));
-    sql.push_str(&format!(
-        " ORDER BY created_at DESC LIMIT ${}",
-        params.len()
-    ));
-    let rows = worker.read_iterated(&sql, &params).await?;
+    let since_text: Option<String> = since.map(str::to_owned);
+    let mut tx = factory.begin_admin_read(admin).await?;
+    let rows = tx
+        .query_iterated_contract(
+            &sql::LINK_PROTECT_AUDIT_LIST,
+            &[&since_text, &url_hash, &limit],
+        )
+        .await?;
+    tx.finish().await?;
     let mut out = vec![];
     for row in &rows {
         let (Ok(message_id), Ok(client_ip)) = (
@@ -352,20 +295,7 @@ pub async fn audit_list(
     Ok(out)
 }
 
-// ---- link-protect click ----
-
-/// The feature flag `feature.link_protect_strict_mode`: DB row, else the registry default (ON).
-pub async fn strict_mode(worker: &ScopedExecutor) -> Result<bool, StatementFailure> {
-    let rows = worker
-        .read(
-            "SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.link_protect_strict_mode'), true)",
-            &[],
-        )
-        .await?;
-    rows.first()
-        .and_then(|r| r.try_get::<_, bool>(0).ok())
-        .ok_or_else(invalid)
-}
+// ---- link-protect click verdict decoding ----
 
 /// What the click reducer decided, or why the audit could not be made durable.
 pub enum Click {
@@ -377,66 +307,11 @@ pub enum Click {
     Unscoped,
 }
 
-/// `link_protect_check_and_audit`: the verdict rules and the audit row in one transaction.
-/// Ownership is the signed token's mailbox, set as the transaction's tenant scope.
-#[allow(clippy::too_many_arguments)]
-pub async fn click_audit(
-    worker: &ScopedExecutor,
-    mailbox: i64,
-    url: &str,
-    rfc_message_id: &str,
-    base: &str,
-    scanners: &str,
-    all_errors: bool,
-    strict: bool,
-    ip: &str,
-    operation: [u8; 16],
-) -> Click {
-    use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
-    let (Some(actor), Some(mailbox_id)) =
-        (ActorId::new(mailbox).ok(), MailboxId::new(mailbox).ok())
-    else {
-        return Click::Unscoped;
-    };
-    let auth = setjoin_pg::MailboxAuthContext::from_authenticated_session(
-        actor,
-        mailbox_id,
-        Generation(1),
-    );
-    let digest =
-        format!("link_protect.click:{mailbox}:{url}:{base}:{scanners}:{all_errors}:{strict}");
-    let outcome = setjoin_pg::run_receipted_command(
-        worker,
-        command("link_protect.click"),
-        &envelope(&auth, operation, &digest),
-        &auth,
-        deadline(),
-        "SELECT link_protect_check_and_audit($4,$5,$1,$6,$7::text::jsonb,$8,$9,$10)::text \
-         WHERE $2::bigint>0 AND $3::text<>''",
-        &[
-            (&url, Type::TEXT),
-            (&rfc_message_id, Type::TEXT),
-            (&base, Type::TEXT),
-            (&scanners, Type::TEXT),
-            (&all_errors, Type::BOOL),
-            (&strict, Type::BOOL),
-            (&ip, Type::TEXT),
-        ],
-        |rows| {
-            let text: String = rows
-                .first()
-                .and_then(|r| r.try_get(0).ok())
-                .ok_or_else(invalid)?;
-            let value: serde_json::Value = serde_json::from_str(&text).map_err(|_| invalid())?;
-            value["verdict"]
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(invalid)
-        },
-    )
-    .await;
-    match outcome {
-        CommandOutcome::Committed(verdict) => Click::Verdict(verdict),
-        _ => Click::Failed,
-    }
+/// Extract the `"verdict"` string from `link_protect_check_and_audit`'s JSON output.
+pub fn parse_click_verdict(text: &str) -> Result<String, StatementFailure> {
+    let value: serde_json::Value = serde_json::from_str(text).map_err(|_| invalid())?;
+    value["verdict"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(invalid)
 }

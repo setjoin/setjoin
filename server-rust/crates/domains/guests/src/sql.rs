@@ -323,7 +323,7 @@ pub const INVITE_APPROVAL_DECIDE: SqlContract = SqlContract {
 pub const ENQUEUE_OUTBOUND: SqlContract = SqlContract {
     id: "guests.enqueue_outbound",
     domain: "guests",
-    sql: "INSERT INTO outbound_queue(message_id,from_addr,rcpt_addrs,raw_ref,status) VALUES($1,$2,ARRAY[$3],$4,'pending') RETURNING id",
+    sql: "SELECT rust_outbound_queue_enqueue($1,$2,$3,$4) AS id",
     params: &[Type::TEXT, Type::TEXT, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::named("id", Type::INT8)],
     scope: SqlScope::WorkerBypass,

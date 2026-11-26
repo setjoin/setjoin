@@ -1,23 +1,18 @@
 //! General `Email/set` writes (JMAP1 #315, Wave 2a #356): multi-phase
 //! `create`, `update`, and `destroy` in one locked transaction with the
 //! `email_set` audit row, plus per-message `message_snooze` and the R1-scoped
-//! attachment-blob ownership check.
+//! attachment-blob ownership decoder.
 //!
-//! `jmap_email_set_create`, `jmap_email_set_update`, and
-//! `jmap_email_set_destroy` own every mail-table, counter, state, journal, and
-//! push effect. The mailbox and actor come from the authenticated context
-//! (R1/R2/R3). The audit row carries `details.operation` (owner decision
-//! 2026-10-29) inside the same locked transaction (`run_locked_tx`), so an
-//! `Unknown` commit can be looked up with [`crate::lookup_set_seen`].
+//! All mutations take a [`MutateCapability`] (`Owner | full_access` ONLY) and
+//! execute via [`TxFactory`].
+use setjoin_authz::principals::{MutateCapability, TxFactory};
 use setjoin_contracts::command::CommandEnvelope;
 use setjoin_contracts::ids::OperationId;
-use setjoin_pg::{
-    operation_hex, run_command, run_locked_tx, CommandOutcome, MailboxAuthContext, Rejection, Row,
-    ScopedExecutor, StatementFailure, Type,
-};
+use setjoin_pg::{operation_hex, CommandOutcome, Rejection, Row, StatementFailure};
 use std::time::Instant;
 
 use crate::failure::{classify, Failure};
+use crate::sql;
 
 /// The command marker; the mailbox is the authenticated one.
 #[derive(Clone, Copy, Debug)]
@@ -43,7 +38,7 @@ pub enum SetOutcome {
     /// The reducer's JSONB as text, committed with its audit row.
     Done(String),
     Failed(Failure),
-    /// Known not committed and not Rust's to answer: forward to Go.
+    /// Known not committed and not Rust's to answer.
     Forward,
     /// Commit outcome unknown; never success.
     Unknown {
@@ -63,60 +58,24 @@ pub enum SetBatchOutcome {
     },
 }
 
-/// `$1` mailbox, `$2` actor, `$3` operation ID, `$4` the phase argument.
-pub const UPDATE: &str = "WITH audit AS ( \
-       INSERT INTO mailbox_audit_log (mailbox_id, actor_user_id, action, message_id, details) \
-       VALUES ($1, $2, 'email_set', NULL, jsonb_build_object('operation', $3::text)) RETURNING 1) \
-     SELECT r::text FROM jmap_email_set_update($1, $4::text::jsonb) AS r, audit";
-pub const DESTROY: &str = "WITH audit AS ( \
-       INSERT INTO mailbox_audit_log (mailbox_id, actor_user_id, action, message_id, details) \
-       VALUES ($1, $2, 'email_set', NULL, jsonb_build_object('operation', $3::text)) RETURNING 1) \
-     SELECT r::text FROM jmap_email_set_destroy($1, $4::bigint[]) AS r, audit";
+pub const UPDATE: &str = sql::EMAIL_SET_UPDATE.sql;
+pub const DESTROY: &str = sql::EMAIL_SET_DESTROY.sql;
+pub const CREATE_PHASE: &str = sql::EMAIL_SET_CREATE_PHASE.sql;
+pub const UPDATE_PHASE: &str = sql::EMAIL_SET_UPDATE_PHASE.sql;
+pub const DESTROY_PHASE: &str = sql::EMAIL_SET_DESTROY_PHASE.sql;
+pub const AUDIT: &str = sql::EMAIL_SET_AUDIT.sql;
+pub const SNOOZE: &str = sql::EMAIL_SNOOZE.sql;
+pub const OWNED_BLOBS: &str = sql::EMAIL_SET_OWNED_BLOBS.sql;
 
-pub const CREATE_PHASE: &str = "SELECT jmap_email_set_create($1, $2::text::jsonb)::text";
-pub const UPDATE_PHASE: &str = "SELECT jmap_email_set_update($1, $2::text::jsonb)::text";
-pub const DESTROY_PHASE: &str = "SELECT jmap_email_set_destroy($1, $2::bigint[])::text";
-pub const AUDIT: &str = "INSERT INTO mailbox_audit_log \
-    (mailbox_id, actor_user_id, action, message_id, details) \
-    VALUES ($1, $2, 'email_set', NULL, jsonb_build_object('operation', $3::text))";
-pub const SNOOZE: &str = "SELECT message_snooze($1, $2, $3::text::timestamptz)::text";
-pub const OWNED_BLOBS: &str = "SELECT q.sha \
-    FROM unnest($1::text[]) AS q(sha) \
-    WHERE EXISTS ( \
-        SELECT 1 FROM blob_user_charges bc \
-        WHERE bc.blob_sha256 = q.sha AND bc.user_id = $2 \
-    ) OR EXISTS ( \
-        SELECT 1 FROM message_attachments ma \
-        JOIN messages m ON m.id = ma.message_id \
-        JOIN mailboxes mb ON mb.id = m.mailbox_id \
-        WHERE ma.blob_sha256 = q.sha AND mb.user_id = $2 \
-    )";
-
-/// R1-scoped attachment blob ownership query on the BYPASSRLS worker pool.
-/// Returns the subset of `blob_ids` owned by `actor` (uploaded by `actor` or
-/// already attached to a message in a mailbox owned by `actor`).
-pub async fn owned_blob_set(
-    worker: &ScopedExecutor,
-    actor: i64,
-    blob_ids: &[String],
-) -> Result<Vec<String>, StatementFailure> {
-    if blob_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-    let ids = blob_ids.to_vec();
-    let rows = worker
-        .read(
-            OWNED_BLOBS,
-            &[(&ids, Type::TEXT_ARRAY), (&actor, Type::INT8)],
-        )
-        .await?;
+/// Decode rows produced by [`crate::sql::EMAIL_SET_OWNED_BLOBS`].
+pub fn decode_owned_blob_set(rows: &[Row]) -> Vec<String> {
     let mut owned = Vec::with_capacity(rows.len());
     for row in rows {
         if let Ok(sha) = row.try_get::<_, String>(0) {
             owned.push(sha);
         }
     }
-    Ok(owned)
+    owned
 }
 
 #[derive(Debug)]
@@ -128,28 +87,24 @@ pub enum SnoozeOutcome {
 
 /// Run `message_snooze` in its own scoped transaction (matching Go `mail.go`).
 pub async fn snooze_message(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
     envelope: &CommandEnvelope<EmailSet>,
-    auth: &MailboxAuthContext,
+    mutate: &MutateCapability,
     deadline: Instant,
     message_id: i64,
     until_rfc3339: &str,
 ) -> SnoozeOutcome {
-    let mailbox = auth.mailbox().get();
-    let until = until_rfc3339.to_owned();
-    let outcome = exec
-        .run(envelope, auth, deadline, async move |tx| {
-            tx.query(
-                SNOOZE,
-                &[
-                    (&mailbox, Type::INT8),
-                    (&message_id, Type::INT8),
-                    (&until, Type::TEXT),
-                ],
-            )
-            .await?;
-            Ok::<_, StatementFailure>(())
-        })
+    let mailbox = mutate.mailbox().get();
+    let outcome = tx_factory
+        .run_mailbox_write_contract_pipelined(
+            mutate,
+            envelope,
+            deadline,
+            &sql::EMAIL_SNOOZE,
+            &[&mailbox, &message_id, &until_rfc3339],
+            None,
+            |_| Ok(()),
+        )
         .await;
     match outcome {
         CommandOutcome::Committed(()) => SnoozeOutcome::Committed,
@@ -164,37 +119,42 @@ pub async fn snooze_message(
 }
 
 pub async fn email_set(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
     envelope: &CommandEnvelope<EmailSet>,
-    auth: &MailboxAuthContext,
+    mutate: &MutateCapability,
     deadline: Instant,
     phase: SetPhase<'_>,
 ) -> SetOutcome {
+    let mailbox = mutate.mailbox().get();
+    let actor = mutate.actor().get();
+    let op_hex = operation_hex(envelope.operation);
     let outcome = match phase {
         SetPhase::Update(patches) => {
-            run_command(
-                exec,
-                envelope,
-                auth,
-                deadline,
-                UPDATE,
-                &[(&patches, Type::TEXT)],
-                decode,
-            )
-            .await
+            tx_factory
+                .run_mailbox_write_contract_pipelined(
+                    mutate,
+                    envelope,
+                    deadline,
+                    &sql::EMAIL_SET_UPDATE,
+                    &[&mailbox, &actor, &op_hex, &patches],
+                    None,
+                    |rows| decode(&rows),
+                )
+                .await
         }
         SetPhase::Destroy(ids) => {
             let ids = ids.to_vec();
-            run_command(
-                exec,
-                envelope,
-                auth,
-                deadline,
-                DESTROY,
-                &[(&ids, Type::INT8_ARRAY)],
-                decode,
-            )
-            .await
+            tx_factory
+                .run_mailbox_write_contract_pipelined(
+                    mutate,
+                    envelope,
+                    deadline,
+                    &sql::EMAIL_SET_DESTROY,
+                    &[&mailbox, &actor, &op_hex, &ids],
+                    None,
+                    |rows| decode(&rows),
+                )
+                .await
         }
     };
     match outcome {
@@ -212,86 +172,73 @@ pub async fn email_set(
 /// locked transaction, always writing one `email_set` audit row carrying
 /// `details.operation` (including for snooze-only and zero-phase calls).
 pub async fn email_set_batch(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
     envelope: &CommandEnvelope<EmailSet>,
-    auth: &MailboxAuthContext,
+    mutate: &MutateCapability,
     deadline: Instant,
     batch: SetBatch<'_>,
 ) -> SetBatchOutcome {
+    let mailbox = mutate.mailbox().get();
+    let actor = mutate.actor().get();
+    let op_hex = operation_hex(envelope.operation);
     let outcome = match (batch.create, batch.update, batch.destroy) {
         (None, Some(patches), None) => {
-            run_command(
-                exec,
-                envelope,
-                auth,
-                deadline,
-                UPDATE,
-                &[(&patches, Type::TEXT)],
-                |rows| Ok(vec![decode(rows)?]),
-            )
-            .await
+            tx_factory
+                .run_mailbox_write_contract_pipelined(
+                    mutate,
+                    envelope,
+                    deadline,
+                    &sql::EMAIL_SET_UPDATE,
+                    &[&mailbox, &actor, &op_hex, &patches],
+                    None,
+                    |rows| Ok(vec![decode(&rows)?]),
+                )
+                .await
         }
         (None, None, Some(ids)) => {
             let ids = ids.to_vec();
-            run_command(
-                exec,
-                envelope,
-                auth,
-                deadline,
-                DESTROY,
-                &[(&ids, Type::INT8_ARRAY)],
-                |rows| Ok(vec![decode(rows)?]),
-            )
-            .await
+            tx_factory
+                .run_mailbox_write_contract_pipelined(
+                    mutate,
+                    envelope,
+                    deadline,
+                    &sql::EMAIL_SET_DESTROY,
+                    &[&mailbox, &actor, &op_hex, &ids],
+                    None,
+                    |rows| Ok(vec![decode(&rows)?]),
+                )
+                .await
         }
         _ => {
-            let mailbox = auth.mailbox().get();
-            let actor = auth.actor().get();
-            let op_hex = operation_hex(envelope.operation);
             let create = batch.create.map(str::to_owned);
             let update = batch.update.map(str::to_owned);
             let destroy = batch.destroy.map(<[i64]>::to_vec);
-            run_locked_tx(exec, envelope, auth, deadline, async move |tx| {
-                let mut parts = Vec::new();
-                if let Some(create) = create {
-                    let rows = tx
-                        .query(
-                            CREATE_PHASE,
-                            &[(&mailbox, Type::INT8), (&create, Type::TEXT)],
-                        )
+            tx_factory
+                .run_mailbox_locked_tx(mutate, envelope, deadline, async move |tx| {
+                    let mut parts = Vec::new();
+                    if let Some(create) = create {
+                        let rows = tx
+                            .query_contract(&sql::EMAIL_SET_CREATE_PHASE, &[&mailbox, &create])
+                            .await?;
+                        parts.push(decode(&rows)?);
+                    }
+                    if let Some(update) = update {
+                        let rows = tx
+                            .query_contract(&sql::EMAIL_SET_UPDATE_PHASE, &[&mailbox, &update])
+                            .await?;
+                        parts.push(decode(&rows)?);
+                    }
+                    if let Some(ids) = destroy {
+                        let rows = tx
+                            .query_contract(&sql::EMAIL_SET_DESTROY_PHASE, &[&mailbox, &ids])
+                            .await?;
+                        parts.push(decode(&rows)?);
+                    }
+                    tx.execute_contract(&sql::EMAIL_SET_AUDIT, &[&mailbox, &actor, &op_hex])
                         .await?;
-                    parts.push(decode(&rows)?);
-                }
-                if let Some(update) = update {
-                    let rows = tx
-                        .query(
-                            UPDATE_PHASE,
-                            &[(&mailbox, Type::INT8), (&update, Type::TEXT)],
-                        )
-                        .await?;
-                    parts.push(decode(&rows)?);
-                }
-                if let Some(ids) = destroy {
-                    let rows = tx
-                        .query(
-                            DESTROY_PHASE,
-                            &[(&mailbox, Type::INT8), (&ids, Type::INT8_ARRAY)],
-                        )
-                        .await?;
-                    parts.push(decode(&rows)?);
-                }
-                tx.execute(
-                    AUDIT,
-                    &[
-                        (&mailbox, Type::INT8),
-                        (&actor, Type::INT8),
-                        (&op_hex, Type::TEXT),
-                    ],
-                )
-                .await?;
-                Ok(parts)
-            })
-            .await
+                    Ok::<_, StatementFailure>(parts)
+                })
+                .await
         }
     };
     match outcome {

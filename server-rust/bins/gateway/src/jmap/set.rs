@@ -233,9 +233,14 @@ pub(super) async fn gate_attachment_blob_ownership(
         HashSet::new()
     } else {
         let worker = worker.ok_or(())?;
-        setjoin_jmap::email_set::owned_blob_set(worker, actor, &unique)
-            .await
-            .map_err(|_| ())?
+        let rows = super::worker_read_contract(
+            worker,
+            &setjoin_jmap::sql::EMAIL_SET_OWNED_BLOBS,
+            &[&unique, &actor],
+        )
+        .await
+        .map_err(|_| ())?;
+        setjoin_jmap::email_set::decode_owned_blob_set(&rows)
             .into_iter()
             .collect()
     };

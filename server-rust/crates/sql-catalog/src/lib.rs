@@ -15,6 +15,12 @@ pub enum SqlScope {
     /// Mailbox-scoped `BEGIN READ ONLY` transaction under `setjoin_app`
     /// (`app.current_mailbox_id` + `app.current_user_id` set).
     MailboxReadOnly,
+    /// Mailbox-scoped `BEGIN READ WRITE` audited-read transaction strictly
+    /// admitted under [`ReadCapability`] on `setjoin_app` (e.g., `jmap_email_get`
+    /// + `mailbox_audit_log`, `continuity_recovery_receipt_context`).
+    /// Statically verified by `scripts/check-rust-sql-contracts.py` to forbid
+    /// general mutations.
+    MailboxAuditedRead,
     /// Mailbox-scoped `BEGIN READ WRITE` transaction under `setjoin_app`
     /// (`app.current_mailbox_id` + `app.current_user_id` set).
     MailboxReadWrite,
@@ -49,10 +55,16 @@ impl SqlScope {
         matches!(self, Self::WorkerBypass)
     }
 
+    /// Whether this scope runs on the privileged `AdminWorkerPool` (`setjoin_worker`).
+    pub const fn is_admin(self) -> bool {
+        matches!(self, Self::AdminRead | Self::AdminWrite)
+    }
+
     /// Stable machine-readable scope label for diagnostics and JSON reports.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::MailboxReadOnly => "MailboxReadOnly",
+            Self::MailboxAuditedRead => "MailboxAuditedRead",
             Self::MailboxReadWrite => "MailboxReadWrite",
             Self::UserScoped => "UserScoped",
             Self::AdminRead => "AdminRead",

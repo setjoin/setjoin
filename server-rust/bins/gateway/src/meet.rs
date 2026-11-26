@@ -7,8 +7,9 @@ use crate::chat_channels::{
 use crate::meet_livekit::{parse_uuid, parse_webhook, GrantSpec, LiveKit, WEBHOOK_MAX_BODY};
 use crate::{Body, BoxFuture, Intercept, RequestContext};
 use hyper::{Method, Request, Response};
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
 use setjoin_authz::token::KeySource;
-use setjoin_pg::ScopedExecutor;
+use setjoin_pg::{ScopedExecutor, Type};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -325,16 +326,22 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return plain(503, "service unavailable", &c, id);
+            };
+            let client_ip = c.identity.client_ip.to_string();
             if kind == Kind::AdminRecordings {
                 // Go mounts this under adminLimit and drive.view only: no
                 // feature.meet, entitlement or LiveKit gate.
                 let decoded = String::from_utf8_lossy(&crate::inventory::unescape(r.uri().path()))
                     .into_owned();
                 let path = decoded.strip_prefix("/api").unwrap_or(&decoded).to_owned();
-                return c::registry(&exec, &worker, auth.context(), &r, &c, id, &language, &path)
+                return c::registry(&factory, &auth, &client_ip, &r, &c, id, &language, &path)
                     .await;
             }
-            match setjoin_meet::enabled(&exec).await {
+            match setjoin_meet::enabled(&factory).await {
                 Ok(true) => {}
                 Ok(false) | Err(_) => {
                     let mut reply = problem(404, "not found", "", &c, id, &language);
@@ -345,18 +352,19 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
             let decoded =
                 String::from_utf8_lossy(&crate::inventory::unescape(r.uri().path())).into_owned();
             let path = decoded.strip_prefix("/api").unwrap_or(&decoded).to_owned();
+            let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return plain(500, "internal error", &c, id);
+            };
             let entitled = tokio::time::timeout(
                 setjoin_authz::precheck_timeout(),
-                setjoin_meet::entitled(&exec, auth.context()),
+                setjoin_meet::entitled(&factory, &user),
             )
             .await;
             if !matches!(entitled, Ok(Ok(true))) {
-                let actor = setjoin_contracts::ids::ActorId::new(auth.context().user_id())
-                    .expect("verified actor");
-                let ip = c.identity.client_ip.to_string();
+                let actor = user.user();
                 let _ = tokio::time::timeout(
                     setjoin_authz::precheck_timeout(),
-                    exec.audit_app_blocked(actor, "meet", &ip),
+                    exec.audit_app_blocked(actor, "meet", &client_ip),
                 )
                 .await;
                 let detail = "Access to this application is not permitted for your account.";
@@ -377,17 +385,16 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
             let unescaped = |i: usize| {
                 String::from_utf8_lossy(&crate::inventory::unescape(segments[i])).into_owned()
             };
-            let actor = auth.context();
             match kind {
                 Kind::List => read(
-                    setjoin_meet::list(&exec, actor).await,
+                    setjoin_meet::list(&factory, &user).await,
                     &path,
                     &c,
                     id,
                     &language,
                 ),
                 Kind::BySlug => read(
-                    setjoin_meet::by_slug(&exec, actor, &unescaped(4)).await,
+                    setjoin_meet::by_slug(&factory, &user, &unescaped(4)).await,
                     &path,
                     &c,
                     id,
@@ -398,7 +405,7 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
                         return problem(400, "invalid meeting id", &path, &c, id, &language);
                     };
                     read(
-                        setjoin_meet::get(&exec, actor, meeting).await,
+                        setjoin_meet::get(&factory, &user, meeting).await,
                         &path,
                         &c,
                         id,
@@ -415,7 +422,7 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
                     let Some(operation) = crate::jmap::random() else {
                         return problem(500, "request failed", &path, &c, id, &language);
                     };
-                    match setjoin_meet::create(&exec, actor, &meeting, operation).await {
+                    match setjoin_meet::create(&factory, &user, &meeting, operation).await {
                         setjoin_pg::CommandOutcome::Committed(raw) => {
                             match crate::jmap::reply::go_compact(&raw) {
                                 Some(body) => {
@@ -456,9 +463,9 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
                 | Kind::BreakoutClose
                 | Kind::BreakoutJoin => {
                     let ctx = Authed {
-                        exec: &exec,
+                        factory: &factory,
                         livekit: &livekit,
-                        actor,
+                        user: &user,
                         path: &path,
                         c: &c,
                         id: id.clone(),
@@ -483,15 +490,19 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
                     };
                     let result = match kind {
                         Kind::Lock => match bool_field(&fields, "LOCKED") {
-                            Ok(v) => setjoin_meet::lock(&exec, actor, meeting, v, operation).await,
+                            Ok(v) => {
+                                setjoin_meet::lock(&factory, &user, meeting, v, operation).await
+                            }
                             Err(()) => {
                                 return problem(400, "invalid JSON", &path, &c, id, &language)
                             }
                         },
                         Kind::Settings => match bool_field(&fields, "GUESTALLOWED") {
                             Ok(v) => {
-                                setjoin_meet::set_guest_allowed(&exec, actor, meeting, v, operation)
-                                    .await
+                                setjoin_meet::set_guest_allowed(
+                                    &factory, &user, meeting, v, operation,
+                                )
+                                .await
                             }
                             Err(()) => {
                                 return problem(400, "invalid JSON", &path, &c, id, &language)
@@ -500,7 +511,7 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
                         _ => match (text_field(&fields, "IDENTITY"), text_field(&fields, "ROLE")) {
                             (Ok(identity), Ok(role)) => {
                                 setjoin_meet::set_role(
-                                    &exec, actor, meeting, &identity, &role, operation,
+                                    &factory, &user, meeting, &identity, &role, operation,
                                 )
                                 .await
                             }
@@ -527,9 +538,9 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
                 | Kind::AnnCommit
                 | Kind::AnnRead => {
                     let ctx = Authed {
-                        exec: &exec,
+                        factory: &factory,
                         livekit: &livekit,
-                        actor,
+                        user: &user,
                         path: &path,
                         c: &c,
                         id: id.clone(),
@@ -549,9 +560,9 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
                 | Kind::SemPackage
                 | Kind::SemReplay => {
                     let ctx = Authed {
-                        exec: &exec,
+                        factory: &factory,
                         livekit: &livekit,
-                        actor,
+                        user: &user,
                         path: &path,
                         c: &c,
                         id: id.clone(),
@@ -803,9 +814,9 @@ fn committed<T>(
 /// An authenticated, entitled, LiveKit-configured request for the routes that
 /// call the room controller. The verified user is the only identity.
 struct Authed<'a> {
-    exec: &'a ScopedExecutor,
+    factory: &'a TxFactory,
     livekit: &'a LiveKit,
-    actor: &'a setjoin_authz::AuthContext,
+    user: &'a UserPrincipal,
     path: &'a str,
     c: &'a RequestContext,
     id: String,
@@ -888,7 +899,7 @@ impl Authed<'_> {
         request: Option<&str>,
         r: &mut Request<Body>,
     ) -> Result<Response<Body>, Response<Body>> {
-        let (exec, actor, livekit) = (self.exec, self.actor, self.livekit);
+        let (factory, user, livekit) = (self.factory, self.user, self.livekit);
         let operation = || crate::jmap::random().ok_or_else(|| self.problem(500, "request failed"));
         let meeting_id = || {
             meeting
@@ -902,7 +913,7 @@ impl Authed<'_> {
             Kind::Join => {
                 let meeting = meeting_id()?;
                 let (spec, envelope) =
-                    self.commit(setjoin_meet::join(exec, actor, meeting, operation()?).await)?;
+                    self.commit(setjoin_meet::join(factory, user, meeting, operation()?).await)?;
                 let spec = self.grant(&spec)?;
                 let parsed: Envelope = serde_json::from_str(&envelope)
                     .map_err(|_| self.plain(500, "internal error"))?;
@@ -936,7 +947,7 @@ impl Authed<'_> {
                 let identity = text_field(&fields, "IDENTITY")
                     .map_err(|()| self.problem(400, "invalid JSON"))?;
                 let room = self.commit(
-                    setjoin_meet::kick(exec, actor, meeting, &identity, operation()?).await,
+                    setjoin_meet::kick(factory, user, meeting, &identity, operation()?).await,
                 )?;
                 if livekit.remove_participant(&room, &identity).await.is_err() {
                     return Err(self.plain(502, "kicked, but eviction failed; will be retried"));
@@ -946,11 +957,11 @@ impl Authed<'_> {
             Kind::End => {
                 let meeting = meeting_id()?;
                 let room =
-                    self.commit(setjoin_meet::end(exec, actor, meeting, operation()?).await)?;
+                    self.commit(setjoin_meet::end(factory, user, meeting, operation()?).await)?;
                 // Law 1: stop every in-flight recording before the room is deleted.
                 // Errors are logged, never fatal: the worker's stop leg retries.
                 if livekit.egress() {
-                    match setjoin_meet::stopping_egress_ids(exec, actor, meeting).await {
+                    match setjoin_meet::stopping_egress_ids(factory, user, meeting).await {
                         Ok(ids) => {
                             for egress in ids {
                                 if livekit.stop_egress(&egress).await.is_err() {
@@ -961,7 +972,7 @@ impl Authed<'_> {
                         Err(_) => eprintln!("meet: stopping-recordings query at end failed"),
                     }
                 }
-                match setjoin_meet::breakout_rooms(exec, actor, meeting).await {
+                match setjoin_meet::breakout_rooms(factory, user, meeting).await {
                     Ok(children) => {
                         for child in children {
                             if livekit.delete_room(&child).await.is_err() {
@@ -990,13 +1001,13 @@ impl Authed<'_> {
                         self.language,
                     )
                 };
-                let (slug, name) = match setjoin_meet::knock_lookup(exec, actor, meeting).await {
+                let (slug, name) = match setjoin_meet::knock_lookup(factory, user, meeting).await {
                     Ok(Some(found)) => found,
                     Ok(None) => return Err(not_found()),
                     Err(_) => return Err(self.plain(500, "internal error")),
                 };
                 let out = self.commit(
-                    setjoin_meet::knock_create(exec, actor, &slug, &name, operation()?).await,
+                    setjoin_meet::knock_create(factory, user, &slug, &name, operation()?).await,
                 )?;
                 Ok(self.json(201, &out))
             }
@@ -1011,12 +1022,14 @@ impl Authed<'_> {
                 match action.as_str() {
                     "admit" => {
                         let out = self.commit(
-                            setjoin_meet::admit(exec, actor, request, operation()?).await,
+                            setjoin_meet::admit(factory, user, request, operation()?).await,
                         )?;
                         Ok(self.json(200, &out))
                     }
                     "deny" => {
-                        self.commit(setjoin_meet::deny(exec, actor, request, operation()?).await)?;
+                        self.commit(
+                            setjoin_meet::deny(factory, user, request, operation()?).await,
+                        )?;
                         Ok(empty_reply(204, self.c, self.id.clone()))
                     }
                     _ => Err(self.problem(400, "action must be \"admit\" or \"deny\"")),
@@ -1024,7 +1037,7 @@ impl Authed<'_> {
             }
             Kind::BreakoutOpen => {
                 // The toggle gates open only, before the id parses.
-                match setjoin_meet::flag(exec, "feature.meet_breakouts", false).await {
+                match setjoin_meet::flag(factory, "feature.meet_breakouts", false).await {
                     Ok(true) => {}
                     Ok(false) => return Err(self.plain(404, "not found")),
                     Err(_) => return Err(self.plain(500, "internal error")),
@@ -1037,8 +1050,8 @@ impl Authed<'_> {
                 let auto = bool_field(&fields, "AUTOASSIGN").map_err(invalid)?;
                 let out = self.commit(
                     setjoin_meet::breakout_open(
-                        exec,
-                        actor,
+                        factory,
+                        user,
                         meeting,
                         count,
                         &titles,
@@ -1073,8 +1086,8 @@ impl Authed<'_> {
                 let breakout = optional_field::<i64>(&fields, "BREAKOUTID").map_err(invalid)?;
                 let room = self.commit(
                     setjoin_meet::breakout_assign(
-                        exec,
-                        actor,
+                        factory,
+                        user,
                         meeting,
                         target,
                         breakout,
@@ -1097,7 +1110,7 @@ impl Authed<'_> {
             Kind::BreakoutClose => {
                 let meeting = meeting_id()?;
                 let out = self.commit(
-                    setjoin_meet::breakout_close(exec, actor, meeting, operation()?).await,
+                    setjoin_meet::breakout_close(factory, user, meeting, operation()?).await,
                 )?;
                 let rooms: Vec<String> =
                     serde_json::from_str(&out).map_err(|_| self.plain(500, "internal error"))?;
@@ -1123,7 +1136,8 @@ impl Authed<'_> {
                 let breakout = optional_field::<i64>(&fields, "BREAKOUTID")
                     .map_err(|()| self.problem(400, "invalid JSON"))?;
                 let spec = self.commit(
-                    setjoin_meet::breakout_join(exec, actor, meeting, breakout, operation()?).await,
+                    setjoin_meet::breakout_join(factory, user, meeting, breakout, operation()?)
+                        .await,
                 )?;
                 let spec = self.grant(&spec)?;
                 if livekit
@@ -1188,16 +1202,19 @@ async fn webhook(
         let Some(room) = parse_uuid(&info.room_name) else {
             return ok(c, id);
         };
-        return match setjoin_meet::recording_event(
-            exec,
-            &room,
-            &info.egress_id,
-            &event.event,
-            &info.info_json,
-        )
-        .await
+        return match exec
+            .read(
+                setjoin_meet::sql::RECORDING_EVENT.sql,
+                &[
+                    (&room, Type::TEXT),
+                    (&info.egress_id, Type::TEXT),
+                    (&event.event, Type::TEXT),
+                    (&info.info_json, Type::TEXT),
+                ],
+            )
+            .await
         {
-            Ok(()) => ok(c, id),
+            Ok(_) => ok(c, id),
             Err(_) => plain(500, "internal error", c, id),
         };
     }
@@ -1210,8 +1227,18 @@ async fn webhook(
     let Some(room) = parse_uuid(&event.room) else {
         return ok(c, id);
     };
-    match setjoin_meet::participant_event(exec, &room, &event.event, &event.participant).await {
-        Ok(()) => ok(c, id),
+    match exec
+        .read(
+            setjoin_meet::sql::PARTICIPANT_EVENT.sql,
+            &[
+                (&room, Type::TEXT),
+                (&event.event, Type::TEXT),
+                (&event.participant, Type::TEXT),
+            ],
+        )
+        .await
+    {
+        Ok(_) => ok(c, id),
         Err(_) => plain(500, "internal error", c, id),
     }
 }
@@ -1229,7 +1256,10 @@ async fn public(
     id: String,
     language: &str,
 ) -> Response<Body> {
-    match setjoin_meet::enabled(exec).await {
+    let Some(factory) = crate::policy_composition::tx_factory_from_executors(exec, None) else {
+        return plain(503, "service unavailable", c, id);
+    };
+    match setjoin_meet::enabled(&factory).await {
         Ok(true) => {}
         Ok(false) | Err(_) => return plain(404, "not found", c, id),
     }
@@ -1243,7 +1273,7 @@ async fn public(
         .collect();
     let slug = segments[4].clone();
     if kind == Kind::PublicCreate {
-        match setjoin_meet::flag(exec, "meet.guest_access", true).await {
+        match setjoin_meet::flag(&factory, "meet.guest_access", true).await {
             Ok(true) => {}
             Ok(false) | Err(_) => return plain(404, "not found", c, id),
         }
@@ -1270,7 +1300,14 @@ async fn public(
         else {
             return plain(400, "invalid JSON", c, id);
         };
-        return match setjoin_meet::public_create(exec, &slug, &name).await {
+        return match exec
+            .read(
+                setjoin_meet::sql::PUBLIC_CREATE.sql,
+                &[(&slug, Type::TEXT), (&name, Type::TEXT)],
+            )
+            .await
+            .and_then(|rows| setjoin_meet::decode_text0(&rows))
+        {
             Ok(out) => match crate::jmap::reply::go_compact(&out) {
                 Some(body) => json_reply(201, body + "\n", c, id),
                 None => problem(500, "request failed", &path, c, id, language),
@@ -1287,7 +1324,18 @@ async fn public(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_owned();
-    let out = match setjoin_meet::public_poll(exec, &slug, request, &secret).await {
+    let out = match exec
+        .read(
+            setjoin_meet::sql::PUBLIC_POLL.sql,
+            &[
+                (&slug, Type::TEXT),
+                (&request, Type::INT8),
+                (&secret, Type::TEXT),
+            ],
+        )
+        .await
+        .and_then(|rows| setjoin_meet::decode_text0(&rows))
+    {
         Ok(out) => out,
         Err(e) => return failure(&e, &path, c, id, language),
     };

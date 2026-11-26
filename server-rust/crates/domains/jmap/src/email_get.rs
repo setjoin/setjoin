@@ -1,15 +1,15 @@
 //! `Email/get` (JMAP1, #315, #328): the reducer read plus the `email_get`
 //! audit row in one transaction.
 //!
-//! Go's `emailGet` calls `jmap_email_get(mailbox, ids, properties)` through the
-//! scoped caller, writes one `mailbox_audit_log` row (`email_get`, actor from
-//! the token, `message_id` NULL, `details` NULL), and decrypts any
-//! `smime-encrypted` entries on read in the gateway. Here the reducer call and
-//! the `email_get` audit row commit in one scoped transaction; the mailbox and
-//! actor come from the authenticated context (R1/R2), never `accountId`.
+//! Calls `jmap_email_get(mailbox, ids, properties)` and commits one
+//! `mailbox_audit_log` row (`email_get`, actor from the token, `message_id`
+//! NULL) in one scoped transaction via [`TxFactory::run_mailbox_audited_read_contract`]
+//! from a verified [`ReadCapability`].
 use crate::failure::{classify, Failure};
+use crate::sql;
+use setjoin_authz::principals::{ReadCapability, TxFactory};
 use setjoin_contracts::command::CommandEnvelope;
-use setjoin_pg::{CommandOutcome, MailboxAuthContext, Rejection, ScopedExecutor, Type};
+use setjoin_pg::{CommandOutcome, Rejection, StatementFailure};
 use std::time::Instant;
 
 /// The command marker; the mailbox is the authenticated one.
@@ -22,53 +22,52 @@ pub enum GetOutcome {
     Served(String),
     /// The database refused the read deterministically: Go's call fails the same way.
     Failed(Failure),
-    /// Not served (rolled back, unknown commit, unreadable): forward to Go.
-    /// The read has no effect to double beyond one more audit row.
+    /// Not served (rolled back, unknown commit, unreadable).
     Forward,
 }
 
 /// `$1` mailbox, `$2` actor, `$3` ids (NULL = Go's nil slice), `$4` properties.
-pub const SQL: &str =
-    "WITH r AS MATERIALIZED (SELECT jmap_email_get($1, $3::bigint[], $4::text[]) AS res), \
-     a AS (INSERT INTO mailbox_audit_log (mailbox_id, actor_user_id, action, message_id) \
-           SELECT $1, $2, 'email_get', NULL FROM r \
-           RETURNING 1) \
-     SELECT r.res::text, (SELECT count(*) FROM a)::int4 FROM r";
+pub const SQL: &str = sql::EMAIL_GET.sql;
 
 pub async fn email_get(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
     envelope: &CommandEnvelope<EmailGet>,
-    auth: &MailboxAuthContext,
+    read: &ReadCapability,
     deadline: Instant,
     ids: Option<&[i64]>,
     properties: Option<&[String]>,
 ) -> GetOutcome {
-    let mailbox = auth.mailbox().get();
-    let actor = auth.actor().get();
+    let mailbox = read.mailbox().get();
+    let actor = read.actor().get();
     let ids: Option<Vec<i64>> = ids.map(<[i64]>::to_vec);
     let properties: Option<Vec<String>> = properties.map(<[String]>::to_vec);
-    let outcome = exec
-        .run(envelope, auth, deadline, async |tx| {
-            let rows = tx
-                .query(
-                    SQL,
-                    &[
-                        (&mailbox, Type::INT8),
-                        (&actor, Type::INT8),
-                        (&ids, Type::INT8_ARRAY),
-                        (&properties, Type::TEXT_ARRAY),
-                    ],
-                )
-                .await?;
-            let row = rows.first().ok_or_else(|| setjoin_pg::StatementFailure {
-                hint: None,
-                sqlstate: None,
-                message: "reducer returned no row".into(),
-            })?;
-            let text: Option<String> = row.get(0);
-            let audited: i32 = row.get(1);
-            Ok::<_, setjoin_pg::StatementFailure>((text, audited))
-        })
+    let outcome = tx_factory
+        .run_mailbox_audited_read_contract(
+            read,
+            envelope,
+            deadline,
+            &sql::EMAIL_GET,
+            &[&mailbox, &actor, &ids, &properties],
+            None,
+            |rows| {
+                let row = rows.first().ok_or_else(|| StatementFailure {
+                    hint: None,
+                    sqlstate: None,
+                    message: "reducer returned no row".into(),
+                })?;
+                let text: Option<String> = row.try_get(0).map_err(|_| StatementFailure {
+                    hint: None,
+                    sqlstate: None,
+                    message: "invalid Email/get payload column".into(),
+                })?;
+                let audited: i32 = row.try_get(1).map_err(|_| StatementFailure {
+                    hint: None,
+                    sqlstate: None,
+                    message: "invalid Email/get audit column".into(),
+                })?;
+                Ok((text, audited))
+            },
+        )
         .await;
     match outcome {
         CommandOutcome::Committed((Some(text), 1)) => GetOutcome::Served(text),

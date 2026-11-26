@@ -1,13 +1,13 @@
 # Mail security (F06, #320..#328)
 
-`setjoin-mail-security` depends only on foundation crates (`authz`, `contracts`, `db`, `pg`, `mime`, `spam`, `certificates`)
+`setjoin-mail-security` depends only on foundation crates (`authz`, `contracts`, `db`, `pg`, `sql-catalog`, `mime`, `spam`, `certificates`)
 and no other family crate. The gateway adapter `bins/gateway/src/mail_security.rs`
 translates HTTP (one `Intercept`, a method/pattern `action()` table, a `gate()` per route);
-business authority stays in reducers. The actor and mailbox come from the sealed auth
-context; path ids, query strings and bodies name targets and never grant authority. Later
-slices add modules here and arms to the adapter's table; they reuse `authority`,
-`console_denied`, `scope`, `envelope`, `command`, `done`, `nano` and the permission sets in
-`lib.rs`. Frozen Go is authoritative (ARCH-029/030).
+business authority stays in reducers. The actor and mailbox come from sealed principals
+(`UserPrincipal`, `MailboxPrincipal` capabilities, `AdminPermissionProof`) minted through
+`TxFactory`; path ids, query strings and bodies name targets and never grant authority.
+All SQL statements are static typed `SqlContract` entries in `src/sql.rs` (`SQL_CONTRACTS`).
+Frozen Go is authoritative (ARCH-029/030).
 
 ## Slice map (all 56 F06 inventory entries, exactly one slice each)
 

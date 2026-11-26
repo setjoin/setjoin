@@ -3001,7 +3001,10 @@ mod db {
             false,
         )
         .await;
-        assert!(scoped_list.is_empty(), "reviewed list query: {scoped_list:?}");
+        assert!(
+            scoped_list.is_empty(),
+            "reviewed list query: {scoped_list:?}"
+        );
         // The expression rule itself (p_x of seam_probe_expr is reviewed neutral).
         let control = violations(&owner, "fixture", "SELECT seam_probe_expr($1,$3)", 2, true).await;
         assert!(control.is_empty(), "plain control: {control:?}");

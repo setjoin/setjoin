@@ -439,6 +439,7 @@ async fn exercise(
     let adapter = Probe {
         inner: MigrationRoute {
             exec,
+            worker: worker.clone(),
             keys: Arc::new(common::recovery_keys()),
             issuer: "mailserver".into(),
             encryption_key: plan::root(),

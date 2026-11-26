@@ -8,17 +8,17 @@
 //! (`admin_can_reach_mailbox`), as Go's `ImportExportHandler`. The MIME work is
 //! `setjoin_mailboxes::mimeutil`, a port of Go's `mimeutil`; the export ZIP is
 //! `setjoin_mailboxes::ziparchive::ZipStream`. See the crate DOX.
-use crate::mailboxes::{bare, segment, segment_path};
+use crate::mailboxes::{bare, segment, segment_path, worker_write_contract};
 use crate::recovery_worker::ObjectStore;
 use crate::{Body, BoxFuture, Intercept, RequestContext};
 use bytes::Bytes;
 use hyper::{Method, Request, Response};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
 use setjoin_authz::token::KeySource;
-use setjoin_authz::AuthContext;
 use setjoin_mailboxes::import_export as db;
 use setjoin_mailboxes::mimeutil::{self, ImportFields};
 use setjoin_mailboxes::ziparchive::{self, Archive, ZipStream};
-use setjoin_pg::{CommandOutcome, ScopedExecutor};
+use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
@@ -226,8 +226,9 @@ impl Fail {
 /// Everything one import needs besides the message.
 struct Importer<'a, S: ObjectStore> {
     worker: &'a ScopedExecutor,
+    proof: &'a setjoin_authz::principals::AdminPermissionProof,
     store: &'a S,
-    actor: &'a AuthContext,
+    actor_id: i64,
     scope: i64,
     mailbox: i64,
     tag: Option<i64>,
@@ -257,17 +258,52 @@ impl<S: ObjectStore> Importer<'_, S> {
         // reducer call failing in Go, after the upload.
         let strings = db::Strings::of(&fields, &message_id).ok_or(Fail::Generic)?;
         let operation = crate::jmap::random().ok_or(Fail::Generic)?;
-        match db::import_message(
+        let (secs, micros): (Option<i64>, Option<i32>) = match fields.date {
+            Some((s, us)) => (Some(s), Some(us as i32)),
+            None => (None, None),
+        };
+        let size = raw.len() as i64;
+        match worker_write_contract(
             self.worker,
-            self.actor,
-            self.scope,
-            self.mailbox,
-            self.tag,
-            &strings,
-            &fields,
-            raw.len() as i64,
-            &reference,
+            self.proof,
+            "mailbox.import_message",
+            &setjoin_mailboxes::sql::IMPORT_MESSAGE,
+            &[
+                &self.mailbox,
+                &self.tag,
+                &strings.message_id,
+                &strings.subject,
+                &strings.from_addr,
+                &strings.from_name,
+                &fields.to_json,
+                &fields.cc_json,
+                &fields.bcc_json,
+                &strings.in_reply_to,
+                &strings.references,
+                &strings.body_text,
+                &strings.body_html,
+                &size,
+                &reference,
+                &secs,
+                &micros,
+                &self.actor_id,
+                &self.scope,
+            ],
             operation,
+            |rows| match rows {
+                [row] => row
+                    .try_get::<_, Option<i64>>(0)
+                    .map_err(|_| StatementFailure {
+                        sqlstate: None,
+                        hint: None,
+                        message: "invalid mailboxes result".into(),
+                    }),
+                _ => Err(StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "invalid mailboxes result".into(),
+                }),
+            },
         )
         .await
         {
@@ -428,9 +464,9 @@ impl hyper::body::Body for ChunkBody {
 }
 
 struct Export<S: ObjectStore> {
-    worker: ScopedExecutor,
+    factory: TxFactory,
+    proof: AdminPermissionProof,
     store: Arc<S>,
-    actor: i64,
     scope: i64,
     mailbox: i64,
     mbox: bool,
@@ -444,7 +480,7 @@ impl<S: ObjectStore + 'static> Export<S> {
             return false;
         }
         !matches!(
-            db::reach(&self.worker, self.actor, self.scope, self.mailbox).await,
+            db::reach(&self.factory, &self.proof, self.scope, self.mailbox).await,
             Ok(db::Reach::Allowed)
         )
     }
@@ -530,10 +566,19 @@ impl<K: KeySource + 'static, S: ObjectStore + 'static> Intercept for MailboxIoRo
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return bare(503, "service unavailable", &c, "");
+            };
             let Some(operation) = crate::jmap::random() else {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return bare(500, "database error", &c, &id);
+            };
             let actor = auth.context();
             let path = r.uri().path().to_owned();
             let go_path = segment_path(&path);
@@ -541,14 +586,22 @@ impl<K: KeySource + 'static, S: ObjectStore + 'static> Intercept for MailboxIoRo
                 Io::Import => &setjoin_mailboxes::USERS_CREATE,
                 Io::Export => &setjoin_mailboxes::MAIL_EXPORT,
             };
-            let Some(authority) = setjoin_mailboxes::authority(&exec, actor)
-                .await
-                .ok()
-                .filter(|authority| authority.allows_any(required))
-            else {
+            let admin_and_proof = if actor.signed_admin() {
+                factory
+                    .mint_admin_from_authorized(&auth, &client_ip)
+                    .await
+                    .ok()
+                    .and_then(|admin| {
+                        let proof = admin.require_any_permission(required).ok()?;
+                        Some((admin, proof))
+                    })
+            } else {
+                None
+            };
+            let Some((admin, proof)) = admin_and_proof else {
                 let _ = setjoin_mailboxes::console_denied(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user,
                     &go_path,
                     &required.join("|"),
                     operation,
@@ -556,8 +609,8 @@ impl<K: KeySource + 'static, S: ObjectStore + 'static> Intercept for MailboxIoRo
                 .await;
                 return bare(403, "Forbidden", &c, &id);
             };
-            let scope = authority.domain_scope();
-            let actor_id = actor.user_id();
+            let scope = admin.enforced_domain_scope().unwrap_or(0);
+            let actor_id = proof.actor().get();
             let head = r.method() == Method::HEAD;
             let reply = |body: String| {
                 // net/http buffers 2 KiB of a handler's output; a larger single
@@ -580,7 +633,7 @@ impl<K: KeySource + 'static, S: ObjectStore + 'static> Intercept for MailboxIoRo
             if mailbox <= 0 {
                 return full(400, "invalid mailbox id");
             }
-            match db::reach(&worker, actor_id, scope, mailbox).await {
+            match db::reach(&factory, &proof, scope, mailbox).await {
                 Ok(db::Reach::Allowed) => {}
                 Ok(db::Reach::OutOfScope) => {
                     return full(403, "target mailbox not within your administrative scope")
@@ -616,15 +669,16 @@ impl<K: KeySource + 'static, S: ObjectStore + 'static> Intercept for MailboxIoRo
                     let mut tag = None;
                     if let Some(folder) = folder.filter(|f| !f.is_empty()) {
                         if let Some(fid) = folder.parse::<i64>().ok().filter(|f| *f > 0) {
-                            tag = db::folder_to_tag(&worker, mailbox, fid).await;
+                            tag = db::folder_to_tag(&factory, &proof, mailbox, fid).await;
                         }
                     }
                     let filename = go_base(&filename);
                     let name = filename.to_lowercase();
                     let importer = Importer {
                         worker: &worker,
+                        proof: &proof,
                         store: &*store,
-                        actor,
+                        actor_id,
                         scope,
                         mailbox,
                         tag,
@@ -646,11 +700,11 @@ impl<K: KeySource + 'static, S: ObjectStore + 'static> Intercept for MailboxIoRo
                     .to_string();
                     if let Some(audit_operation) = crate::jmap::random() {
                         let _ = db::audit_import(
-                            &worker,
-                            actor,
+                            &factory,
+                            &user,
                             mailbox,
                             &after,
-                            &c.identity.client_ip.to_string(),
+                            &client_ip,
                             audit_operation,
                         )
                         .await;
@@ -676,10 +730,10 @@ impl<K: KeySource + 'static, S: ObjectStore + 'static> Intercept for MailboxIoRo
                     let mut tag = None;
                     if let Some(folder) = query_value("folder_id") {
                         if let Some(fid) = folder.parse::<i64>().ok().filter(|f| *f > 0) {
-                            tag = db::folder_to_tag(&worker, mailbox, fid).await;
+                            tag = db::folder_to_tag(&factory, &proof, mailbox, fid).await;
                         }
                     }
-                    let rows = match db::export_rows(&worker, actor_id, scope, mailbox, tag).await {
+                    let rows = match db::export_rows(&factory, &proof, scope, mailbox, tag).await {
                         Ok(rows) => rows,
                         Err(_) => return full(500, "database error"),
                     };
@@ -691,9 +745,9 @@ impl<K: KeySource + 'static, S: ObjectStore + 'static> Intercept for MailboxIoRo
                     let (tx, mut rx) = tokio::sync::mpsc::channel::<Bytes>(4);
                     tokio::spawn(
                         Export {
-                            worker: worker.clone(),
+                            factory,
+                            proof,
                             store: store.clone(),
-                            actor: actor_id,
                             scope,
                             mailbox,
                             mbox,

@@ -5,6 +5,7 @@
 //! FORCE-RLS), enforces the per-method [`Gate`] class, and verifies
 //! `mailbox_lifecycle_access_allowed`.
 
+use setjoin_authz::principals::{MailboxPrincipal, PrincipalError, TxFactory};
 use setjoin_contracts::ids::{ActorId, MailboxId};
 use setjoin_pg::{MailboxAuthContext, ScopedExecutor, Type};
 
@@ -15,6 +16,12 @@ pub(crate) struct ResolvedAccount {
     pub mailbox: i64,
     pub auth: MailboxAuthContext,
     pub delegated: bool,
+}
+
+pub(crate) struct ResolvedPrincipal {
+    pub mailbox: i64,
+    pub auth: MailboxAuthContext,
+    pub principal: MailboxPrincipal,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -129,5 +136,69 @@ pub(crate) async fn resolve_account(
         mailbox: account,
         auth,
         delegated,
+    })
+}
+
+/// Resolve `accountId` into a sealed [`MailboxPrincipal`] via [`TxFactory`],
+/// preserving exact JMAP error kinds/details for missing, foreign,
+/// insufficient-delegate, and suspended/detached mailboxes.
+pub(crate) async fn resolve_principal(
+    tx_factory: &TxFactory,
+    authorized: &setjoin_authz::Authorized,
+    raw: &str,
+    gate: Gate,
+    client_ip: &str,
+) -> Result<ResolvedPrincipal, AccountError> {
+    if raw.is_empty() {
+        return Err(AccountError {
+            kind: "accountNotFound",
+            detail: "accountId is required",
+        });
+    }
+    let Some(account) = raw.parse::<i64>().ok().filter(|id| *id > 0) else {
+        return Err(AccountError {
+            kind: "accountNotFound",
+            detail: "invalid accountId",
+        });
+    };
+    let mismatch = || AccountError {
+        kind: "accountNotFound",
+        detail: "accountId does not match authenticated user",
+    };
+    let mb_id = MailboxId::new(account).map_err(|_| mismatch())?;
+    let principal = tokio::time::timeout(
+        PRECHECK_TIMEOUT,
+        tx_factory.mint_mailbox_from_authorized(authorized, mb_id, client_ip),
+    )
+    .await
+    .map_err(|_| mismatch())?
+    .map_err(|e| match e {
+        PrincipalError::MailboxBlocked => AccountError {
+            kind: "forbidden",
+            detail: "mailbox access is suspended or detached",
+        },
+        _ => mismatch(),
+    })?;
+    let gate_ok = match gate {
+        Gate::Personal => principal.require_owner().is_ok(),
+        Gate::Read => principal.require_read().is_ok(),
+        Gate::Mutate => principal.require_mutate().is_ok(),
+        Gate::Submit | Gate::Collaborate => principal.require_submit().is_ok(),
+    };
+    if !gate_ok {
+        return Err(AccountError {
+            kind: "forbidden",
+            detail: "insufficient delegate permission for this method",
+        });
+    }
+    let auth = MailboxAuthContext::from_authenticated_session(
+        principal.actor(),
+        principal.mailbox(),
+        REQUEST_AUTHORITY_GENERATION,
+    );
+    Ok(ResolvedPrincipal {
+        mailbox: account,
+        auth,
+        principal,
     })
 }

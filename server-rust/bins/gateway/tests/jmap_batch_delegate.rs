@@ -1014,11 +1014,17 @@ wave1_case!(wave2a_email_set_multiphase_and_ownership_gate, |e| {
     let token = e.token(e.a.user);
     let mb = e.a.mailbox.to_string();
     let inbox_tag = e.a.inbox.to_string();
-    let auth = setjoin_pg::MailboxAuthContext::from_authenticated_session(
-        setjoin_contracts::ids::ActorId::new(e.a.user).unwrap(),
-        setjoin_contracts::ids::MailboxId::new(e.a.mailbox).unwrap(),
-        setjoin_contracts::ids::Generation(1),
-    );
+    let tx_factory = setjoin_gateway::policy_composition::tx_factory_from_executors(&e.exec, None)
+        .expect("app pool");
+    let principal = tx_factory
+        .mint_capability_primary_mailbox(
+            setjoin_contracts::ids::ActorId::new(e.a.user).unwrap(),
+            "",
+            "127.0.0.1",
+        )
+        .await
+        .unwrap();
+    let read_cap = principal.require_read().unwrap();
 
     // Seed an owned blob (via blob_user_charges for user A) and a foreign blob (user B).
     let own_sha = "a1".repeat(32);
@@ -1266,7 +1272,7 @@ wave1_case!(wave2a_email_set_multiphase_and_ownership_gate, |e| {
     assert_eq!(op_rows.len(), 3);
     for row in op_rows {
         let op = parse_op_hex(row.get::<_, &str>(0));
-        let found = setjoin_jmap::lookup_set_seen(&e.exec, &auth, op)
+        let found = setjoin_jmap::lookup_set_seen(&tx_factory, &read_cap, op)
             .await
             .unwrap();
         assert_eq!(found, setjoin_jmap::OperationLookup::Committed);

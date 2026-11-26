@@ -298,7 +298,8 @@ fn server_fail_detail(detail: &str) -> (String, String) {
 impl<K: KeySource> JmapCommands<K> {
     pub(super) async fn execute_recovery_receipt(
         &self,
-        user_id: i64,
+        authorized: &setjoin_authz::Authorized,
+        client_ip: &str,
         raw_args: &str,
         operation: [u8; 16],
         digest: [u8; 32],
@@ -336,16 +337,23 @@ impl<K: KeySource> JmapCommands<K> {
             }
         };
 
-        let resolved = match account::resolve_account(
-            &self.exec,
-            user_id,
+        let Some(tx) = self.tx_factory() else {
+            return ("error".into(), ws_request::server_fail());
+        };
+        let resolved = match account::resolve_principal(
+            &tx,
+            authorized,
             &args.account_id,
             family::Gate::Read,
+            client_ip,
         )
         .await
         {
             Ok(r) => r,
             Err(e) => return ("error".into(), e.json()),
+        };
+        let Ok(read_cap) = resolved.principal.require_read() else {
+            return ("error".into(), ws_request::server_fail());
         };
 
         let mut parsed_ids = Vec::with_capacity(args.ids.len());
@@ -362,8 +370,8 @@ impl<K: KeySource> JmapCommands<K> {
         let env = envelope(&resolved.auth, operation, digest);
         // Runs in a receipted scoped tx and commits/releases BEFORE S3 reads & signing.
         let raw_ctx = match setjoin_jmap::http_blob::recovery_receipt_contexts(
-            &self.exec,
-            &resolved.auth,
+            &tx,
+            &read_cap,
             &env,
             &parsed_ids,
             boot,
@@ -530,6 +538,7 @@ impl<K: KeySource> JmapCommands<K> {
         req: &Request<Body>,
         ctx: &RequestContext,
         auth: &MailboxAuthContext,
+        authorized: &setjoin_authz::Authorized,
         id: &str,
     ) -> Response<Body> {
         let services = self.services.as_ref().unwrap();
@@ -563,15 +572,24 @@ impl<K: KeySource> JmapCommands<K> {
         let (Some(account), Some(message)) = (account, message) else {
             return denied();
         };
-        if !setjoin_jmap::http_blob::account_read(&services.worker, auth, account)
-            .await
-            .unwrap_or(false)
-        {
+        let Some(tx) = self.tx_factory() else {
+            return problem(500, "serverFail", "recovery context unavailable", ctx, id);
+        };
+        let Ok(mb_id) = MailboxId::new(account) else {
             return denied();
-        }
+        };
+        let Ok(mb) = tx
+            .mint_mailbox_from_authorized(authorized, mb_id, &ctx.identity.client_ip.to_string())
+            .await
+        else {
+            return denied();
+        };
+        let Ok(read_cap) = mb.require_read() else {
+            return denied();
+        };
         let target = MailboxAuthContext::from_authenticated_session(
             ActorId::new(auth.actor().get()).unwrap(),
-            MailboxId::new(account).unwrap(),
+            mb_id,
             Generation(1),
         );
         let Ok(operation) = super::random_bytes() else {
@@ -591,28 +609,27 @@ impl<K: KeySource> JmapCommands<K> {
                 id,
             )
         };
-        let raw = match setjoin_jmap::http_blob::recovery_context(
-            &self.exec, &target, &env, message, boot,
-        )
-        .await
-        {
-            setjoin_pg::CommandOutcome::Committed(raw) => raw,
-            setjoin_pg::CommandOutcome::Unknown { operation } => {
-                let mut r = problem(
-                    503,
-                    "serverUnavailable",
-                    "recovery outcome unknown",
-                    ctx,
-                    id,
-                );
-                r.headers_mut().insert(
-                    "x-operation-id",
-                    setjoin_pg::operation_hex(operation).parse().unwrap(),
-                );
-                return r;
-            }
-            _ => return missing(),
-        };
+        let raw =
+            match setjoin_jmap::http_blob::recovery_context(&tx, &read_cap, &env, message, boot)
+                .await
+            {
+                setjoin_pg::CommandOutcome::Committed(raw) => raw,
+                setjoin_pg::CommandOutcome::Unknown { operation } => {
+                    let mut r = problem(
+                        503,
+                        "serverUnavailable",
+                        "recovery outcome unknown",
+                        ctx,
+                        id,
+                    );
+                    r.headers_mut().insert(
+                        "x-operation-id",
+                        setjoin_pg::operation_hex(operation).parse().unwrap(),
+                    );
+                    return r;
+                }
+                _ => return missing(),
+            };
         let value: serde_json::Value = match serde_json::from_str(&raw) {
             Ok(v) => v,
             Err(_) => return missing(),

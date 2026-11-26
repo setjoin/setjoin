@@ -1159,6 +1159,27 @@ impl TxFactory {
         .await
     }
 
+    /// Mint a sealed [`MailboxPrincipal`] for a verified non-JWT capability actor
+    /// targeting a specific mailbox (e.g., IMAP `SELECT`/`EXAMINE` on a secondary
+    /// owned mailbox). Live-verifies ownership/delegation and mailbox lifecycle.
+    pub async fn mint_capability_mailbox(
+        &self,
+        actor: ActorId,
+        mailbox: MailboxId,
+        email: &str,
+        client_ip: &str,
+    ) -> Result<MailboxPrincipal, PrincipalError> {
+        self.mint_mailbox_principal(
+            actor,
+            mailbox,
+            false,
+            Generation(1),
+            None,
+            AuditMeta::new(email, client_ip),
+        )
+        .await
+    }
+
     fn require_admin_pool(&self) -> Result<&AdminWorkerPool, StatementFailure> {
         self.admin_pool.as_ref().ok_or_else(|| StatementFailure {
             sqlstate: None,
@@ -1603,6 +1624,37 @@ SELECT ra.role_group_id, \
             .await
     }
 
+    /// Run a 1-RTT pipelined audited-read contract (`email_get` + `mailbox_audit_log`,
+    /// `continuity_recovery_receipt_context`) strictly from a [`ReadCapability`]
+    /// on `AppPool` (`setjoin_app`, `NOBYPASSRLS`). Preserves the compile-fail
+    /// separation preventing [`ReadCapability`] from calling `run_mailbox_write`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_mailbox_audited_read_contract<C, T, P>(
+        &self,
+        cap: &ReadCapability,
+        envelope: &CommandEnvelope<C>,
+        deadline: Instant,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+        receipt: Option<ReceiptCommand>,
+        project: P,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
+    {
+        self.pool
+            .run_mailbox_audited_read_contract_pipelined(
+                envelope,
+                cap.verified(),
+                deadline,
+                contract,
+                values,
+                receipt,
+                project,
+            )
+            .await
+    }
+
     /// Run an interactive `MailboxTx<ReadWrite>` strictly on submission/collaborate
     /// paths using a [`SubmitCapability`] (`Owner | full_access | send_as | send_on_behalf`).
     pub async fn run_mailbox_submit<C, T, E, F>(
@@ -1617,6 +1669,62 @@ SELECT ra.role_group_id, \
     {
         self.pool
             .run_mailbox_write(envelope, cap.verified(), deadline, body)
+            .await
+    }
+
+    /// Run a 1-RTT pipelined submission contract from a [`SubmitCapability`].
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_mailbox_submit_contract_pipelined<C, T, P>(
+        &self,
+        cap: &SubmitCapability,
+        envelope: &CommandEnvelope<C>,
+        deadline: Instant,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+        receipt: Option<ReceiptCommand>,
+        project: P,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
+    {
+        self.pool
+            .run_mailbox_write_contract_pipelined(
+                envelope,
+                cap.verified(),
+                deadline,
+                contract,
+                values,
+                receipt,
+                project,
+            )
+            .await
+    }
+
+    /// Run a 1-RTT pipelined owner-only contract from an [`OwnerCapability`].
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_owner_write_contract_pipelined<C, T, P>(
+        &self,
+        cap: &OwnerCapability,
+        envelope: &CommandEnvelope<C>,
+        deadline: Instant,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+        receipt: Option<ReceiptCommand>,
+        project: P,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
+    {
+        self.pool
+            .run_mailbox_write_contract_pipelined(
+                envelope,
+                cap.verified(),
+                deadline,
+                contract,
+                values,
+                receipt,
+                project,
+            )
             .await
     }
 

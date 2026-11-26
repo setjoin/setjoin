@@ -1,8 +1,9 @@
 //! #276 Drive ACL governance, access requests, locks, folder admins, watches and
 //! as-of routes. Transport translation only; the reducers own every decision.
 use super::*;
-use setjoin_drive::part_c as dc;
-use setjoin_pg::{CommandOutcome, StatementFailure, Type};
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
+use setjoin_drive::{part_c as dc, sql as dsql};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Op {
@@ -294,24 +295,22 @@ pub(super) async fn handle<K: KeySource + 'static>(
         c: &c,
         id: id.clone(),
     };
+    let Some(factory) = crate::policy_composition::tx_factory_from_executors(&exec, None) else {
+        return problem(503, "service unavailable", None, &c, id);
+    };
     let flag = |key: &'static str| {
-        let exec = exec.clone();
-        async move {
-            exec.read(
-                "SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key=$1),false)",
-                &[(&key, Type::TEXT)],
-            )
-            .await
-            .map(|rows| rows[0].get::<_, bool>(0))
-        }
+        let factory = factory.clone();
+        async move { setjoin_drive::feature_enabled(&factory, key).await }
     };
     match flag("feature.drive").await {
         Ok(true) => {}
         Ok(false) | Err(_) => return ordered(404, "not found", None, "", "", None, &c, id),
     }
-    let actor = auth.context();
+    let client_ip = c.identity.client_ip.to_string();
+    let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+        return ctx.problem(500, "request failed");
+    };
     let op = op(&r).expect("matched route");
-    let user = actor.user_id();
     let numeric = |index: usize, detail: &str| -> Result<i64, Response<Body>> {
         segment(&r, index)
             .parse::<i64>()
@@ -323,15 +322,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
                 Ok(v) => v,
                 Err(e) => return e,
             };
-            ctx.read(
-                dc::read_text(
-                    &exec,
-                    actor,
-                    dc::NODE_DETAIL,
-                    &[(&user, Type::INT8), (&node, Type::INT8)],
-                )
-                .await,
-            )
+            ctx.read(dc::read_text(&factory, &user, &dsql::ACL_NODE_DETAIL, &[&node]).await)
         }
         Op::Subjects => {
             let node = decimal(query(&r, "node").as_deref().unwrap_or(""));
@@ -344,7 +335,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
                 Ok(v) => v,
                 Err(_) => return ctx.problem(500, "request failed"),
             };
-            match dc::subjects(&exec, actor, node, q, groups).await {
+            match dc::subjects(&factory, &user, node, q, groups).await {
                 Ok(rows) => ctx.status(200, subjects_json(&rows)),
                 Err(e) => ctx.failure(&e),
             }
@@ -366,20 +357,19 @@ pub(super) async fn handle<K: KeySource + 'static>(
             if op == Op::GrantPreview {
                 return ctx.read(
                     dc::read_text(
-                        &exec,
-                        actor,
-                        dc::GRANT_PREVIEW,
+                        &factory,
+                        &user,
+                        &dsql::ACL_GRANT_PREVIEW,
                         &[
-                            (&user, Type::INT8),
-                            (&node, Type::INT8),
-                            (&grant.kind, Type::TEXT),
-                            (&grant.subject, Type::INT8),
-                            (&grant.preset, Type::TEXT),
-                            (&grant.scope, Type::TEXT),
-                            (&grant.starts, Type::TEXT),
-                            (&grant.expires, Type::TEXT),
-                            (&grant.max_uses, Type::INT8),
-                            (&grant.reason, Type::TEXT),
+                            &node,
+                            &grant.kind,
+                            &grant.subject,
+                            &grant.preset,
+                            &grant.scope,
+                            &grant.starts,
+                            &grant.expires,
+                            &grant.max_uses,
+                            &grant.reason,
                         ],
                     )
                     .await,
@@ -391,7 +381,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
             ) else {
                 return ctx.wire();
             };
-            if let Some(stop) = throttle(&exec, actor, &ctx, random).await {
+            if let Some(stop) = throttle(&factory, &user, &ctx, random).await {
                 return stop;
             }
             if grant.max_uses.is_some_and(|v| i32::try_from(v).is_err()) {
@@ -400,23 +390,23 @@ pub(super) async fn handle<K: KeySource + 'static>(
             let digest = format!("grant:{node}:{}", body.idempotency);
             ctx.outcome(
                 dc::write_text(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user,
                     "drive_acl_grant",
                     &digest,
-                    dc::GRANT,
+                    &dsql::ACL_GRANT,
                     &[
-                        (&node, Type::INT8),
-                        (&grant.kind, Type::TEXT),
-                        (&grant.subject, Type::INT8),
-                        (&grant.preset, Type::TEXT),
-                        (&grant.scope, Type::TEXT),
-                        (&grant.starts, Type::TEXT),
-                        (&grant.expires, Type::TEXT),
-                        (&grant.max_uses, Type::INT8),
-                        (&grant.reason, Type::TEXT),
-                        (&epoch, Type::INT8),
-                        (&body.idempotency, Type::TEXT),
+                        &node,
+                        &grant.kind,
+                        &grant.subject,
+                        &grant.preset,
+                        &grant.scope,
+                        &grant.starts,
+                        &grant.expires,
+                        &grant.max_uses,
+                        &grant.reason,
+                        &epoch,
+                        &body.idempotency,
                     ],
                     second,
                 )
@@ -439,21 +429,17 @@ pub(super) async fn handle<K: KeySource + 'static>(
             ) else {
                 return ctx.wire();
             };
-            if let Some(stop) = throttle(&exec, actor, &ctx, random).await {
+            if let Some(stop) = throttle(&factory, &user, &ctx, random).await {
                 return stop;
             }
             ctx.outcome(
                 dc::write_text(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user,
                     "drive_acl_revoke",
                     &format!("revoke:{grant}"),
-                    dc::REVOKE,
-                    &[
-                        (&grant, Type::INT8),
-                        (&epoch, Type::INT8),
-                        (&reason, Type::TEXT),
-                    ],
+                    &dsql::ACL_REVOKE,
+                    &[&grant, &epoch, &reason],
                     second,
                 )
                 .await,
@@ -472,14 +458,10 @@ pub(super) async fn handle<K: KeySource + 'static>(
             if op == Op::InheritancePreview {
                 return ctx.read(
                     dc::read_text(
-                        &exec,
-                        actor,
-                        dc::INHERITANCE_PREVIEW,
-                        &[
-                            (&user, Type::INT8),
-                            (&node, Type::INT8),
-                            (&breaking, Type::BOOL),
-                        ],
+                        &factory,
+                        &user,
+                        &dsql::ACL_INHERITANCE_PREVIEW,
+                        &[&node, &breaking],
                     )
                     .await,
                 );
@@ -487,21 +469,17 @@ pub(super) async fn handle<K: KeySource + 'static>(
             let Some(epoch) = epoch(&body.expected_epoch) else {
                 return ctx.wire();
             };
-            if let Some(stop) = throttle(&exec, actor, &ctx, random).await {
+            if let Some(stop) = throttle(&factory, &user, &ctx, random).await {
                 return stop;
             }
             ctx.outcome(
                 dc::write_text(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user,
                     "drive_acl_inheritance_set",
                     &format!("inheritance:{node}:{breaking}"),
-                    dc::INHERITANCE_SET,
-                    &[
-                        (&node, Type::INT8),
-                        (&breaking, Type::BOOL),
-                        (&epoch, Type::INT8),
-                    ],
+                    &dsql::ACL_INHERITANCE_SET,
+                    &[&node, &breaking, &epoch],
                     second,
                 )
                 .await,
@@ -517,15 +495,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
             if !matches!(view.as_str(), "shared" | "shares" | "requests") {
                 return ctx.wire();
             }
-            ctx.read(
-                dc::read_text(
-                    &exec,
-                    actor,
-                    dc::QUICK_VIEW,
-                    &[(&user, Type::INT8), (&view, Type::TEXT), (&max, Type::INT8)],
-                )
-                .await,
-            )
+            ctx.read(dc::read_text(&factory, &user, &dsql::ACL_QUICK_VIEW, &[&view, &max]).await)
         }
         Op::RequestPreview | Op::RequestCreate => {
             let node = match numeric(4, "invalid node id") {
@@ -565,21 +535,20 @@ pub(super) async fn handle<K: KeySource + 'static>(
                 }
                 return ctx.read(
                     dc::read_text(
-                        &exec,
-                        actor,
-                        dc::REQUEST_PREVIEW,
+                        &factory,
+                        &user,
+                        &dsql::ACL_REQUEST_PREVIEW,
                         &[
-                            (&user, Type::INT8),
-                            (&node, Type::INT8),
-                            (&kind, Type::TEXT),
-                            (&subject, Type::INT8),
-                            (&caps, Type::TEXT_ARRAY),
-                            (&propagation, Type::TEXT),
-                            (&minutes, Type::INT8),
-                            (&max_uses, Type::INT8),
-                            (&emergency, Type::BOOL),
-                            (&mfa, Type::TEXT),
-                            (&reason, Type::TEXT),
+                            &node,
+                            &kind,
+                            &subject,
+                            &caps,
+                            &propagation,
+                            &minutes,
+                            &max_uses,
+                            &emergency,
+                            &mfa,
+                            &reason,
                         ],
                     )
                     .await,
@@ -589,7 +558,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
             if !idempotent(&r, &key) {
                 return ctx.wire();
             }
-            if let Some(stop) = throttle(&exec, actor, &ctx, random).await {
+            if let Some(stop) = throttle(&factory, &user, &ctx, random).await {
                 return stop;
             }
             if [max_uses, Some(minutes)]
@@ -601,23 +570,23 @@ pub(super) async fn handle<K: KeySource + 'static>(
             }
             ctx.outcome(
                 dc::write_text(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user,
                     "drive_access_request",
                     &format!("request:{node}:{key}"),
-                    dc::REQUEST_CREATE,
+                    &dsql::ACL_REQUEST_CREATE,
                     &[
-                        (&node, Type::INT8),
-                        (&kind, Type::TEXT),
-                        (&subject, Type::INT8),
-                        (&caps, Type::TEXT_ARRAY),
-                        (&propagation, Type::TEXT),
-                        (&minutes, Type::INT8),
-                        (&max_uses, Type::INT8),
-                        (&emergency, Type::BOOL),
-                        (&mfa, Type::TEXT),
-                        (&reason, Type::TEXT),
-                        (&key, Type::TEXT),
+                        &node,
+                        &kind,
+                        &subject,
+                        &caps,
+                        &propagation,
+                        &minutes,
+                        &max_uses,
+                        &emergency,
+                        &mfa,
+                        &reason,
+                        &key,
                     ],
                     second,
                 )
@@ -630,7 +599,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
                 Ok(v) => v,
                 Err(e) => return e,
             };
-            match dc::folder_admins(&exec, actor, node).await {
+            match dc::folder_admins(&factory, &user, node).await {
                 Ok(Some(rows)) => ctx.status(200, folder_admins_json(&rows)),
                 Ok(None) => ctx.problem(404, "node not found"),
                 Err(e) => ctx.failure(&e),
@@ -645,19 +614,19 @@ pub(super) async fn handle<K: KeySource + 'static>(
                 Ok(v) => v,
                 Err(e) => return e,
             };
-            let (name, sql) = if op == Op::FolderAdminGrant {
-                ("drive_folder_admin_grant", dc::FOLDER_ADMIN_GRANT)
+            let (name, contract) = if op == Op::FolderAdminGrant {
+                ("drive_folder_admin_grant", &dsql::FOLDER_ADMIN_GRANT)
             } else {
-                ("drive_folder_admin_revoke", dc::FOLDER_ADMIN_REVOKE)
+                ("drive_folder_admin_revoke", &dsql::FOLDER_ADMIN_REVOKE)
             };
             ctx.outcome(
-                dc::write_text(
-                    &exec,
-                    actor,
+                dc::write_void(
+                    &factory,
+                    &user,
                     name,
                     &format!("{name}:{node}:{grantee}"),
-                    sql,
-                    &[(&node, Type::INT8), (&grantee, Type::INT8)],
+                    contract,
+                    &[&node, &grantee],
                     random,
                 )
                 .await,
@@ -684,19 +653,12 @@ pub(super) async fn handle<K: KeySource + 'static>(
             );
             ctx.outcome(
                 dc::write_text(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user,
                     "drive_file_lock",
                     &format!("lock:{node}:{mode}"),
-                    dc::LOCK_PUT,
-                    &[
-                        (&node, Type::INT8),
-                        (&mode, Type::TEXT),
-                        (&branch, Type::INT8),
-                        (&version, Type::INT8),
-                        (&device, Type::TEXT),
-                        (&ttl, Type::INT8),
-                    ],
+                    &dsql::LOCK_PUT,
+                    &[&node, &mode, &branch, &version, &device, &ttl],
                     random,
                 )
                 .await,
@@ -710,13 +672,13 @@ pub(super) async fn handle<K: KeySource + 'static>(
             };
             let breaking = query(&r, "break").as_deref() == Some("1");
             ctx.outcome(
-                dc::write_text(
-                    &exec,
-                    actor,
+                dc::write_void(
+                    &factory,
+                    &user,
                     "drive_file_unlock",
                     &format!("unlock:{node}:{breaking}"),
-                    dc::LOCK_DELETE,
-                    &[(&node, Type::INT8), (&breaking, Type::BOOL)],
+                    &dsql::LOCK_DELETE,
+                    &[&node, &breaking],
                     random,
                 )
                 .await,
@@ -728,15 +690,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
                 Ok(v) => v,
                 Err(e) => return e,
             };
-            ctx.read(
-                dc::read_text(
-                    &exec,
-                    actor,
-                    dc::LOCK_LIST,
-                    &[(&user, Type::INT8), (&space, Type::INT8)],
-                )
-                .await,
-            )
+            ctx.read(dc::read_text(&factory, &user, &dsql::LOCK_LIST, &[&space]).await)
         }
         Op::WatchPut => {
             let node = match numeric(4, "invalid node id") {
@@ -748,13 +702,13 @@ pub(super) async fn handle<K: KeySource + 'static>(
             };
             let ops = body.list("ops");
             ctx.outcome(
-                dc::write_text(
-                    &exec,
-                    actor,
+                dc::write_void(
+                    &factory,
+                    &user,
                     "drive_watch_set",
                     &format!("watch:{node}:{ops:?}"),
-                    dc::WATCH_PUT,
-                    &[(&node, Type::INT8), (&ops, Type::TEXT_ARRAY)],
+                    &dsql::WATCH_PUT,
+                    &[&node, &ops],
                     random,
                 )
                 .await,
@@ -767,13 +721,13 @@ pub(super) async fn handle<K: KeySource + 'static>(
                 Err(e) => return e,
             };
             ctx.outcome(
-                dc::write_text(
-                    &exec,
-                    actor,
+                dc::write_void(
+                    &factory,
+                    &user,
                     "drive_watch_remove",
                     &format!("unwatch:{node}"),
-                    dc::WATCH_DELETE,
-                    &[(&node, Type::INT8)],
+                    &dsql::WATCH_DELETE,
+                    &[&node],
                     random,
                 )
                 .await,
@@ -797,14 +751,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
                     id.clone(),
                 );
             };
-            match dc::read_text(
-                &exec,
-                actor,
-                dc::AS_OF,
-                &[(&user, Type::INT8), (&space, Type::INT8), (&at, Type::TEXT)],
-            )
-            .await
-            {
+            match dc::read_text(&factory, &user, &dsql::SPACE_AS_OF, &[&space, &at]).await {
                 Ok(items) => ctx.status(
                     200,
                     format!("{{\"items\":{}}}\n", go_compact(&items.unwrap_or_default())),
@@ -812,7 +759,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
                 Err(e) => ctx.failure(&e),
             }
         }
-        Op::Watches => match dc::watches(&exec, actor).await {
+        Op::Watches => match dc::watches(&factory, &user).await {
             Ok(rows) => ctx.status(200, watches_json(&rows)),
             Err(e) => ctx.failure(&e),
         },
@@ -821,12 +768,12 @@ pub(super) async fn handle<K: KeySource + 'static>(
 
 /// Go's per-user mutation budget; `None` means continue.
 async fn throttle(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     ctx: &Ctx<'_>,
     operation: [u8; 16],
 ) -> Option<Response<Body>> {
-    match dc::acl_rate(exec, actor, operation).await {
+    match dc::acl_rate(factory, user, operation).await {
         CommandOutcome::Committed(Some(v)) if v == "true" => None,
         CommandOutcome::Committed(_) => {
             let mut r = ctx.problem(429, "too many permission changes; retry later");

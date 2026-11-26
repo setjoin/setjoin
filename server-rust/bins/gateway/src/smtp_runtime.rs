@@ -314,7 +314,19 @@ pub fn start_with_trust_cache(
                 "submission listener {addr} is beyond loopback and has no TLS certificate pair"
             ));
         }
+        let app_exec = setjoin_pg::ScopedExecutor::from_dsn(&dsn, 8)
+            .map_err(|e| format!("SMTP submission DB_DSN: {e:?}"))?
+            .with_audit_keys(
+                get("DB_ENCRYPTION_KEY").unwrap_or_default(),
+                get("AUDIT_HMAC_KEY").unwrap_or_default(),
+            );
+        let app_pool = app_exec
+            .try_app_pool()
+            .ok_or_else(|| "SMTP submission DB_DSN: AppPool unavailable".to_owned())?;
+        let tx_factory = setjoin_authz::principals::TxFactory::new(app_pool);
         let mut server = Submission::new(db.clone())
+            .with_app_executor(app_exec)
+            .with_tx_factory(tx_factory)
             .with_threat_gate(gate.clone() as Arc<dyn ThreatGate>)
             .with_auth_webhooks(Arc::new(crate::imap_runtime::AuthEvents(webhooks.clone())))
             .with_events(Arc::new(crate::smtp_events::SubmissionEvents(
@@ -333,8 +345,11 @@ pub fn start_with_trust_cache(
         if let Some((cert, key)) = pair.clone() {
             server = server.with_starttls_files(cert, key)?;
         }
-        if !server.threat_enforced() || !server.webhooks_wired() {
-            return Err("submission activation refused: threat/webhook policy is not wired".into());
+        if !server.threat_enforced() || !server.webhooks_wired() || !server.tx_factory_wired() {
+            return Err(
+                "submission activation refused: threat/webhook/tx_factory policy is not wired"
+                    .into(),
+            );
         }
         msa = Some((Arc::new(server), socket));
     }

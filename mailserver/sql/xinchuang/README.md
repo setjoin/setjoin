@@ -49,22 +49,22 @@ Engines: polardb = PolarDB for PostgreSQL · opengauss = openGauss · gaussdb = 
 
 Counting unit: the function NAME. Live universe extracted from `mailserver/sql/reducers/*.sql`:
 
-- Reducer files: 796 · declarations: 1179 · unique names: 1176
+- Reducer files: 801 · declarations: 1186 · unique names: 1183
 - Represented in `compatibility_matrix.csv`: 106 names (106 rows) — representation is not attestation
 - Names with any evidence-bearing cell (attested anywhere): 0
-- Canonical complement (no CSV row): 1070 → `unattested_functions.csv`
+- Canonical complement (no CSV row): 1077 → `unattested_functions.csv`
 
-Per-engine attestation against the full 1176-name universe (a name is attested-for-engine iff its cell is non-`untested`):
+Per-engine attestation against the full 1183-name universe (a name is attested-for-engine iff its cell is non-`untested`):
 
 | Engine | Attested | Not attested |
 |---|---|---|
-| polardb | 0 | 1176 |
-| opengauss | 0 | 1176 |
-| gaussdb | 0 | 1176 |
-| kingbase | 0 | 1176 |
-| dameng | 0 | 1176 |
-| oceanbase_pg | 0 | 1176 |
-| oceanbase_oracle | 0 | 1176 |
+| polardb | 0 | 1183 |
+| opengauss | 0 | 1183 |
+| gaussdb | 0 | 1183 |
+| kingbase | 0 | 1183 |
+| dameng | 0 | 1183 |
+| oceanbase_pg | 0 | 1183 |
+| oceanbase_oracle | 0 | 1183 |
 
 `uses_digest` is SOURCE-DERIVED USAGE — a non-comment `digest(` call exists in the defining file (73 files / 142 call sites repo-wide). It is never a parity attestation; pgcrypto parity is attested (or not) per engine via `pgcrypto_digest_parity` above. Covered rows with `uses_digest`: 17 of 106.
 
@@ -178,7 +178,7 @@ The reducers below are the certification critical path for the primary combinati
 | revoke | 1 |
 | rule | 4 |
 | rules | 1 |
-| rust | 168 |
+| rust | 175 |
 | saved | 3 |
 | scheduled | 13 |
 | scim | 5 |
@@ -198,7 +198,7 @@ The reducers below are the certification critical path for the primary combinati
 | utils | 2 |
 | vip | 2 |
 | webhook | 10 |
-| Total | 1070 across 99 families |
+| Total | 1077 across 99 families |
 
 <!-- END GENERATED -->
 

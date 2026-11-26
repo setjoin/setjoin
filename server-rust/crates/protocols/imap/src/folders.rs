@@ -1,19 +1,26 @@
 //! LIST, STATUS, CREATE, DELETE, RENAME, CLOSE and EXPUNGE (#345): a port of
 //! frozen Go's handlers of the same names, wire quirks included (DOX.md).
-use crate::{
-    messages::operation_id,
-    session::{split_args, Session},
-};
-use setjoin_contracts::{command::CommandEnvelope, ids::Digest};
-use setjoin_pg::{CommandOutcome, ScopedTx, StatementFailure, Type};
-use sha2::{Digest as _, Sha256};
+use crate::session::{split_args, Session};
+use setjoin_pg::{CommandOutcome, MailboxTx, ReadWrite, Rejection, StatementFailure, Type};
 use std::{
     collections::HashMap,
     time::{Duration, Instant},
 };
 
-/// Bound for the one CLOSE/EXPUNGE transaction (Go bounds it only by the pool).
+/// Bound for the one CLOSE/EXPUNGE/folder-mutation transaction (Go bounds it only by the pool).
 const PURGE_DEADLINE: Duration = Duration::from_secs(30);
+
+enum DeleteAbort {
+    NotFound,
+    System,
+    Failed,
+}
+
+impl From<StatementFailure> for DeleteAbort {
+    fn from(_: StatementFailure) -> Self {
+        DeleteAbort::Failed
+    }
+}
 
 /// `strings.EqualFold` (simple folding, approximated by lowercase equality).
 pub(crate) fn equal_fold(a: &str, b: &str) -> bool {
@@ -38,33 +45,25 @@ fn special_use(name: &str) -> &'static str {
 }
 
 impl Session {
-    /// `identity.ResolvePrimaryMailbox` on the request pool (0 = none or error).
-    async fn primary_mailbox(&self) -> Option<i64> {
-        let rows = self
-            .server
-            .db
-            .read(
-                "SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
-                &[(&self.user_id, Type::INT8)],
-            )
-            .await
-            .ok()?;
-        rows.first()?.try_get::<_, i64>(0).ok()
-    }
-
     pub(crate) async fn list(&mut self, tag: &str) {
         if !self.authed {
             self.reply(tag, "NO Authentication required");
             return;
         }
+        let (Some(tx_factory), Some(user_principal)) = (self.tx_factory(), self.user_principal())
+        else {
+            self.reply(tag, "NO Server error");
+            return;
+        };
         // The settings read ignores its error and a missing row leaves Go's
         // zero values (so no row means "show everything", not "subscribed only").
+        // Run under UserPrincipal (app.current_user_id only) so secondary owned
+        // mailboxes' exposed tags remain visible under V287 FORCE RLS on `tags`.
         let (mut expose_all, mut sub_only, mut exposed, mut separator) =
             (false, false, Vec::<i64>::new(), String::new());
-        if let Ok(rows) = self
-            .server
-            .db
-            .read(
+        if let Ok(rows) = tx_factory
+            .run_user_read_pipelined(
+                user_principal,
                 "SELECT COALESCE(expose_all, FALSE), COALESCE(show_subscribed_only, TRUE), \
                  COALESCE(exposed_tag_ids, '{}'), COALESCE(folder_separator, '/') \
                  FROM user_imap_settings WHERE user_id = $1",
@@ -82,10 +81,9 @@ impl Session {
         if separator.is_empty() {
             separator = "/".into();
         }
-        let Ok(rows) = self
-            .server
-            .db
-            .read(
+        let Ok(rows) = tx_factory
+            .run_user_read_pipelined(
+                user_principal,
                 "SELECT t.id, COALESCE(t.imap_name, t.name), t.parent_id, \
                  COALESCE((SELECT COUNT(*) FROM tags child WHERE child.parent_id = t.id \
                            AND child.imap_expose = TRUE), 0)::bigint, t.tag_type \
@@ -101,18 +99,23 @@ impl Session {
         };
         let mut paths: HashMap<i64, String> = HashMap::new();
         for row in &rows {
-            let id: i64 = row.get(0);
-            let name: String = row.get(1);
+            let (Ok(id), Ok(name)) = (row.try_get::<_, i64>(0), row.try_get::<_, String>(1)) else {
+                self.reply(tag, "NO Server error");
+                return;
+            };
             // pgx cannot scan a NULL parent_id into int64: the scan fails at that
             // column (id and name are already set, the later columns stay zero),
             // Go ignores the error, handles this one row, and the failed scan
             // has closed the rows, so the command ends with `NO Server error`.
-            let parent: Option<i64> = row.get(2);
+            let parent: Option<i64> = row.try_get(2).ok().flatten();
             let scan_failed = parent.is_none();
             let (children, tag_type): (i64, String) = if scan_failed {
                 (0, String::new())
             } else {
-                (row.get(3), row.get(4))
+                (
+                    row.try_get(3).unwrap_or(0),
+                    row.try_get(4).unwrap_or_default(),
+                )
             };
             let visible = !(sub_only && !expose_all) || exposed.contains(&id);
             if visible {
@@ -153,10 +156,14 @@ impl Session {
         }
         let first = args.split(' ').next().unwrap_or("");
         let folder = crate::session::canonical_mailbox(first.trim_matches('"'));
-        let rows = self
-            .server
-            .db
-            .read(
+        let (Some(tx_factory), Some(user_principal)) = (self.tx_factory(), self.user_principal())
+        else {
+            self.reply(tag, "NO No such mailbox");
+            return;
+        };
+        let rows = tx_factory
+            .run_user_read_pipelined(
+                user_principal,
                 "SELECT COALESCE(t.total_count, 0)::bigint, COALESCE(t.unread_count, 0)::bigint, \
                  COALESCE(t.imap_uid_validity, 0)::bigint, COALESCE(t.imap_uid_next, 1)::bigint \
                  FROM tags t JOIN mailboxes m ON m.id = t.mailbox_id \
@@ -169,8 +176,15 @@ impl Session {
             self.reply(tag, "NO No such mailbox");
             return;
         };
-        let (total, unread, mut validity, mut next): (i64, i64, i64, i64) =
-            (row.get(0), row.get(1), row.get(2), row.get(3));
+        let (Ok(total), Ok(unread), Ok(mut validity), Ok(mut next)) = (
+            row.try_get::<_, i64>(0),
+            row.try_get::<_, i64>(1),
+            row.try_get::<_, i64>(2),
+            row.try_get::<_, i64>(3),
+        ) else {
+            self.reply(tag, "NO No such mailbox");
+            return;
+        };
         if validity == 0 {
             validity = 1;
         }
@@ -201,20 +215,25 @@ impl Session {
             self.reply(tag, "NO Cannot create system mailbox");
             return;
         }
-        let Some(mailbox) = self.primary_mailbox().await else {
+        let (Some(tx_factory), Some(mutate_cap)) = (self.tx_factory(), self.mutate_cap()) else {
             self.reply(tag, "NO Cannot find mailbox");
             return;
         };
-        let created = self
-            .server
-            .db
-            .protocol_statement(
+        let mailbox = mutate_cap.mailbox().get();
+        let envelope = self.mailbox_envelope(&mutate_cap, name.as_bytes());
+        let outcome = tx_factory
+            .run_mailbox_write_pipelined(
+                &mutate_cap,
+                &envelope,
+                Instant::now() + PURGE_DEADLINE,
                 "INSERT INTO tags (mailbox_id, name, tag_type, sort_order, imap_expose) \
                  VALUES ($1, $2, 'user', 999, TRUE) ON CONFLICT (mailbox_id, name) DO NOTHING",
                 &[(&mailbox, Type::INT8), (&name, Type::TEXT)],
+                None,
+                |_| Ok(()),
             )
             .await;
-        if created.is_err() {
+        if !matches!(outcome, CommandOutcome::Committed(())) {
             self.reply(tag, "NO CREATE failed");
             return;
         }
@@ -231,39 +250,56 @@ impl Session {
             self.reply(tag, "BAD Missing mailbox name");
             return;
         }
-        let Some(mailbox) = self.primary_mailbox().await.filter(|m| *m != 0) else {
+        let (Some(tx_factory), Some(mutate_cap)) = (self.tx_factory(), self.mutate_cap()) else {
             self.reply(tag, "NO Cannot find mailbox");
             return;
         };
-        let kind = self
-            .server
-            .db
-            .read(
-                "SELECT tag_type FROM tags WHERE mailbox_id = $1 AND name = $2",
-                &[(&mailbox, Type::INT8), (&name, Type::TEXT)],
-            )
-            .await
-            .ok()
-            .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, String>(0).ok()));
-        let Some(kind) = kind else {
-            self.reply(tag, "NO No such mailbox");
-            return;
-        };
-        if kind == "system" {
-            self.reply(tag, "NO Cannot delete system mailbox");
-            return;
-        }
-        let deleted = self
-            .server
-            .db
-            .protocol_statement(
-                "DELETE FROM tags WHERE mailbox_id = $1 AND name = $2 AND tag_type = 'user'",
-                &[(&mailbox, Type::INT8), (&name, Type::TEXT)],
+        let mailbox = mutate_cap.mailbox().get();
+        let envelope = self.mailbox_envelope(&mutate_cap, name.as_bytes());
+        let outcome = tx_factory
+            .run_mailbox_write(
+                &mutate_cap,
+                &envelope,
+                Instant::now() + PURGE_DEADLINE,
+                async |tx: &mut MailboxTx<ReadWrite>| -> Result<(), DeleteAbort> {
+                    let rows = tx
+                        .query(
+                            "SELECT tag_type FROM tags WHERE mailbox_id = $1 AND name = $2",
+                            &[(&mailbox, Type::INT8), (&name, Type::TEXT)],
+                        )
+                        .await?;
+                    let Some(kind) = rows
+                        .first()
+                        .and_then(|r| r.try_get::<_, String>(0).ok())
+                    else {
+                        return Err(DeleteAbort::NotFound);
+                    };
+                    if kind == "system" {
+                        return Err(DeleteAbort::System);
+                    }
+                    tx.execute(
+                        "DELETE FROM tags WHERE mailbox_id = $1 AND name = $2 AND tag_type = 'user'",
+                        &[(&mailbox, Type::INT8), (&name, Type::TEXT)],
+                    )
+                    .await?;
+                    Ok(())
+                },
             )
             .await;
-        if deleted.is_err() {
-            self.reply(tag, "NO DELETE failed");
-            return;
+        match outcome {
+            CommandOutcome::Committed(()) => {}
+            CommandOutcome::RolledBack(Rejection::Body(DeleteAbort::NotFound)) => {
+                self.reply(tag, "NO No such mailbox");
+                return;
+            }
+            CommandOutcome::RolledBack(Rejection::Body(DeleteAbort::System)) => {
+                self.reply(tag, "NO Cannot delete system mailbox");
+                return;
+            }
+            _ => {
+                self.reply(tag, "NO DELETE failed");
+                return;
+            }
         }
         if equal_fold(&name, &self.selected) {
             self.reply("*", "OK [CLOSED] Previous mailbox closed");
@@ -293,23 +329,28 @@ impl Session {
             self.reply(tag, "NO Cannot rename system mailbox");
             return;
         }
-        let Some(mailbox) = self.primary_mailbox().await.filter(|m| *m != 0) else {
+        let (Some(tx_factory), Some(mutate_cap)) = (self.tx_factory(), self.mutate_cap()) else {
             self.reply(tag, "NO Cannot find mailbox");
             return;
         };
-        let renamed = self
-            .server
-            .db
-            .protocol_statement(
+        let mailbox = mutate_cap.mailbox().get();
+        let envelope = self.mailbox_envelope(&mutate_cap, args.as_bytes());
+        let outcome = tx_factory
+            .run_mailbox_write_pipelined(
+                &mutate_cap,
+                &envelope,
+                Instant::now() + PURGE_DEADLINE,
                 "UPDATE tags SET name = $1 WHERE mailbox_id = $2 AND name = $3 AND tag_type = 'user'",
                 &[
                     (&new, Type::TEXT),
                     (&mailbox, Type::INT8),
                     (&old, Type::TEXT),
                 ],
+                None,
+                |_| Ok(()),
             )
             .await;
-        if renamed.is_err() {
+        if !matches!(outcome, CommandOutcome::Committed(())) {
             self.reply(tag, "NO RENAME failed");
             return;
         }
@@ -324,25 +365,17 @@ impl Session {
     /// already pushed `destroyed`). `announce` collects each expunged sequence
     /// number the way Go streams them before the purge statement runs.
     async fn purge_deleted(&mut self, all_rows: bool, announce: &mut Vec<i64>) -> bool {
-        let Some(auth) = self.mailbox_auth() else {
+        let (Some(tx_factory), Some(mutate_cap)) = (self.tx_factory(), self.mutate_cap()) else {
             return false;
         };
-        let envelope = CommandEnvelope {
-            operation: operation_id(self.user_id),
-            authority: auth.authority(),
-            binding: setjoin_db::lifecycle::accepted_contract(),
-            payload_digest: Digest(Sha256::digest(b"imap-purge-deleted").into()),
-            command: (),
-        };
-        let (tag_id, mailbox, uid) = (self.tag_id, self.mailbox_id, self.uid_column());
-        let outcome = self
-            .server
-            .db
-            .run(
+        let envelope = self.mailbox_envelope(&mutate_cap, b"imap-purge-deleted");
+        let (tag_id, mailbox, uid) = (self.tag_id, mutate_cap.mailbox().get(), self.uid_column());
+        let outcome = tx_factory
+            .run_mailbox_write(
+                &mutate_cap,
                 &envelope,
-                &auth,
                 Instant::now() + PURGE_DEADLINE,
-                async |tx: &mut ScopedTx| -> Result<(), StatementFailure> {
+                async |tx: &mut MailboxTx<ReadWrite>| -> Result<(), StatementFailure> {
                     let order = if all_rows {
                         format!("ORDER BY {uid}")
                     } else {

@@ -82,28 +82,45 @@ pub fn inject_cleartext(email: &mut BTreeMap<String, Value>, plaintext: &[u8]) {
 
 async fn record_decrypt_audit(
     exec: &ScopedExecutor,
-    mailbox_id: i64,
-    actor_user_id: i64,
+    auth: &MailboxAuthContext,
     message_id: i64,
 ) -> Result<(), ()> {
-    exec.protocol_statement(
-        "INSERT INTO mailbox_audit_log (mailbox_id, actor_user_id, action, message_id) \
-         VALUES ($1, $2, 'email_decrypt_read', $3)",
-        &[
-            (&mailbox_id, Type::INT8),
-            (&actor_user_id, Type::INT8),
-            (&message_id, Type::INT8),
-        ],
-    )
-    .await
-    .map_err(|_| ())
+    let op = super::random().ok_or(())?;
+    let mailbox_id = auth.mailbox().get();
+    let actor_user_id = auth.actor().get();
+    let env = setjoin_contracts::command::CommandEnvelope {
+        operation: setjoin_contracts::ids::OperationId(op),
+        authority: auth.authority(),
+        binding: setjoin_db::lifecycle::accepted_contract(),
+        payload_digest: setjoin_contracts::ids::Digest([0u8; 32]),
+        command: (),
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    match exec
+        .run(&env, auth, deadline, async |tx| {
+            tx.execute(
+                "INSERT INTO mailbox_audit_log (mailbox_id, actor_user_id, action, message_id) \
+                 VALUES ($1, $2, 'email_decrypt_read', $3)",
+                &[
+                    (&mailbox_id, Type::INT8),
+                    (&actor_user_id, Type::INT8),
+                    (&message_id, Type::INT8),
+                ],
+            )
+            .await
+            .map(|_| ())
+        })
+        .await
+    {
+        setjoin_pg::CommandOutcome::Committed(()) => Ok(()),
+        _ => Err(()),
+    }
 }
 
 async fn decrypt_one_email(
     exec: &ScopedExecutor,
     store: Option<&S3Store>,
-    mailbox_id: i64,
-    actor_user_id: i64,
+    auth: &MailboxAuthContext,
     email: &mut BTreeMap<String, Value>,
     keys: Arc<Vec<DecryptKey>>,
 ) -> &'static str {
@@ -139,10 +156,7 @@ async fn decrypt_one_email(
     };
 
     // Gate plaintext release on a successful audit row write.
-    if record_decrypt_audit(exec, mailbox_id, actor_user_id, msg_id)
-        .await
-        .is_err()
-    {
+    if record_decrypt_audit(exec, auth, msg_id).await.is_err() {
         return smime::DECRYPT_STATE_ERROR;
     }
 
@@ -180,7 +194,6 @@ pub async fn decrypt_email_result(
     }
 
     let actor_user_id = auth.actor().get();
-    let mailbox_id = auth.mailbox().get();
     let mut cached_keys: Option<Result<Arc<Vec<DecryptKey>>, ()>> = None;
     let mut out_list = Vec::with_capacity(list_vals.len());
 
@@ -216,7 +229,7 @@ pub async fn decrypt_email_result(
         let state = match keys {
             Err(()) => smime::DECRYPT_STATE_ERROR,
             Ok(k) if k.is_empty() => smime::DECRYPT_STATE_NO_KEY,
-            Ok(k) => decrypt_one_email(exec, store, mailbox_id, actor_user_id, &mut obj, k).await,
+            Ok(k) => decrypt_one_email(exec, store, auth, &mut obj, k).await,
         };
         obj.insert("decryptState".into(), Value::String(state.into()));
         out_list.push(Value::Object(obj.into_iter().collect()));

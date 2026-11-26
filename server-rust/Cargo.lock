@@ -6286,6 +6286,7 @@ dependencies = [
  "setjoin-contracts",
  "setjoin-db",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
 ]
 
@@ -6404,6 +6405,7 @@ dependencies = [
  "setjoin-contracts",
  "setjoin-db",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
  "tokio",
  "tokio-postgres",
@@ -6624,6 +6626,7 @@ dependencies = [
  "setjoin-contracts",
  "setjoin-db",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "tokio",
  "tokio-postgres",
 ]
@@ -6661,6 +6664,7 @@ dependencies = [
  "setjoin-mime",
  "setjoin-pg",
  "setjoin-spam",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
  "x509-parser 0.18.1",
 ]
@@ -6680,6 +6684,7 @@ dependencies = [
  "setjoin-db",
  "setjoin-mime",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
  "sm4",
  "zeroize",
@@ -6725,6 +6730,7 @@ dependencies = [
  "setjoin-contracts",
  "setjoin-db",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
 ]
 
@@ -6936,8 +6942,14 @@ dependencies = [
  "setjoin-approvals",
  "setjoin-blobs",
  "setjoin-calendar",
+ "setjoin-chat",
  "setjoin-devices",
+ "setjoin-drive",
  "setjoin-guests",
+ "setjoin-jmap",
+ "setjoin-mail-security",
+ "setjoin-mailboxes",
+ "setjoin-meet",
  "setjoin-office",
  "setjoin-pg",
  "setjoin-rules",

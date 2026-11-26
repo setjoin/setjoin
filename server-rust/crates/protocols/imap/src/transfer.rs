@@ -2,12 +2,10 @@
 //! `handleMove`: one scoped transaction per command, an aligned input relation
 //! of (message id, received_at) and set-based statements around the reducers.
 use crate::{
-    messages::{operation_id, parse_seq_set, resolve_seq_set, Msg},
+    messages::{parse_seq_set, resolve_seq_set, Msg},
     session::{canonical_mailbox, split_args, Session},
 };
-use setjoin_contracts::{command::CommandEnvelope, ids::Digest};
-use setjoin_pg::{CommandOutcome, ScopedTx, StatementFailure, Type};
-use sha2::{Digest as _, Sha256};
+use setjoin_pg::{CommandOutcome, MailboxTx, ReadWrite, StatementFailure, Type};
 use std::{
     collections::HashMap,
     time::{Duration, Instant},
@@ -81,7 +79,7 @@ fn destination_uids(
 }
 
 async fn memberships(
-    tx: &mut ScopedTx,
+    tx: &mut MailboxTx<ReadWrite>,
     sql: &str,
     params: &[setjoin_pg::Param<'_>],
 ) -> Result<HashMap<(i64, String), i64>, StatementFailure> {
@@ -101,7 +99,7 @@ async fn memberships(
 
 #[allow(clippy::too_many_arguments)]
 async fn transfer_in_tx(
-    tx: &mut ScopedTx,
+    tx: &mut MailboxTx<ReadWrite>,
     mov: bool,
     tag_id: i64,
     mailbox: i64,
@@ -123,8 +121,11 @@ async fn transfer_in_tx(
     let Some(dest) = dest.first() else {
         return Ok(moved);
     };
-    let (dest_id, group, validity): (i64, Option<String>, i64) =
-        (dest.get(0), dest.get(1), dest.get(2));
+    let (dest_id, group, validity): (i64, Option<String>, i64) = (
+        dest.try_get(0).map_err(|_| Abort::Failed)?,
+        dest.try_get(1).map_err(|_| Abort::Failed)?,
+        dest.try_get(2).map_err(|_| Abort::Failed)?,
+    );
     moved.validity = validity;
 
     let rows = tx
@@ -148,12 +149,12 @@ async fn transfer_in_tx(
             .flatten()
             .ok_or(Abort::Failed)?;
         all.push(Msg {
-            id: row.get(0),
+            id: row.try_get(0).map_err(|_| Abort::Failed)?,
             uid,
             seq: i as i64 + 1,
             ..Msg::default()
         });
-        recvs.push(row.get::<_, String>(2));
+        recvs.push(row.try_get::<_, String>(2).map_err(|_| Abort::Failed)?);
     }
     let targets = resolve_seq_set(ranges, &all, is_uid);
     if targets.is_empty() {
@@ -269,31 +270,23 @@ impl Session {
             return;
         }
         let verb = if mov { "MOVE" } else { "COPY" };
-        let Some(auth) = self.mailbox_auth() else {
+        let (Some(tx_factory), Some(mutate_cap)) = (self.tx_factory(), self.mutate_cap()) else {
             self.reply(tag, &format!("NO {verb} failed"));
             return;
         };
-        let envelope = CommandEnvelope {
-            operation: operation_id(self.user_id),
-            authority: auth.authority(),
-            binding: setjoin_db::lifecycle::accepted_contract(),
-            payload_digest: Digest(Sha256::digest(args.as_bytes()).into()),
-            command: (),
-        };
+        let envelope = self.mailbox_envelope(&mutate_cap, args.as_bytes());
         let (tag_id, mailbox, uid_column, membership) = (
             self.tag_id,
-            self.mailbox_id,
+            mutate_cap.mailbox().get(),
             self.uid_column(),
             self.use_membership_uid,
         );
-        let outcome = self
-            .server
-            .db
-            .run(
+        let outcome = tx_factory
+            .run_mailbox_write(
+                &mutate_cap,
                 &envelope,
-                &auth,
                 Instant::now() + TRANSFER_DEADLINE,
-                async |tx: &mut ScopedTx| {
+                async |tx: &mut MailboxTx<ReadWrite>| {
                     transfer_in_tx(
                         tx, mov, tag_id, mailbox, uid_column, membership, &ranges, is_uid, &target,
                     )

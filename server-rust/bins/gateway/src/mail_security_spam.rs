@@ -3,14 +3,16 @@
 //! report. Business reads and writes live in `setjoin_mail_security::spam`; this file
 //! only decodes requests the way Go's handlers do and renders Go's exact answers.
 use crate::admin_identity_input::{query, rfc3339, timestamptz};
-use crate::mail_security::{segment, segment_path};
+use crate::mail_security::{segment, segment_path, worker_bool_command};
 use crate::mail_security_input as input;
 use crate::mailboxes::{bare, language, parse_uuid, render, unknown_outcome};
 use crate::problem::Problem;
 use crate::{Body, RequestContext};
 use hyper::{Request, Response};
-use setjoin_authz::AuthContext;
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_authz::Authorized;
 use setjoin_mail_security::spam as db;
+use setjoin_mail_security::sql as mailsec_sql;
 use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure};
 use sha2::{Digest, Sha256};
 
@@ -122,7 +124,7 @@ fn classified(code: &str, fallback: &str, path: &str, lang: &str, out: &Out<'_>)
     )
 }
 
-fn header<'a>(r: &'a Request<Body>, name: &str) -> String {
+fn header(r: &Request<Body>, name: &str) -> String {
     r.headers()
         .get(name)
         .map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned())
@@ -158,13 +160,18 @@ fn real_uuid(text: &str) -> Option<String> {
     parse_uuid(text).filter(|u| u != "00000000-0000-0000-0000-000000000000")
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle(
     what: crate::mail_security::Action,
     mut r: Request<Body>,
     c: &RequestContext,
     id: &str,
     operation: [u8; 16],
-    actor: &AuthContext,
+    factory: &TxFactory,
+    auth: &Authorized,
+    client_ip: &str,
+    user: &UserPrincipal,
+    admin: Option<&AdminPermissionProof>,
     worker: &ScopedExecutor,
 ) -> Response<Body> {
     use crate::mail_security::Action as A;
@@ -173,7 +180,6 @@ pub(crate) async fn handle(
         id,
         head: r.method() == hyper::Method::HEAD,
     };
-    let user = actor.user_id();
     let path = r.uri().path().to_owned();
     let stripped = segment_path(&path);
     let lang = language(&r);
@@ -188,11 +194,20 @@ pub(crate) async fn handle(
     };
     let unknown = |op| unknown_outcome(op, c, id);
     match what {
-        A::SpamDashboard => out.json(
-            db::dashboard_with_stats(worker, setjoin_spam::process_stats().snapshot()).await,
-            200,
-        ),
+        A::SpamDashboard => {
+            let Some(admin) = admin else {
+                return problem(403, "Forbidden");
+            };
+            out.json(
+                db::dashboard_with_stats(factory, admin, setjoin_spam::process_stats().snapshot())
+                    .await,
+                200,
+            )
+        }
         A::SpamReset | A::SpamDisable | A::SpamEnable => {
+            let Some(admin) = admin else {
+                return problem(403, "Forbidden");
+            };
             let switch = match what {
                 A::SpamReset => db::Switch::Reset,
                 A::SpamDisable => db::Switch::Disable,
@@ -201,7 +216,20 @@ pub(crate) async fn handle(
             let Some(target) = int(&segment(&path, 5)).filter(|n| *n > 0) else {
                 return problem(400, "invalid userId");
             };
-            match db::switch_model(worker, actor, target, switch, operation).await {
+            let (cmd, contract) = match switch {
+                db::Switch::Reset => ("spam.model.reset", &mailsec_sql::SPAM_MODEL_RESET),
+                db::Switch::Disable => ("spam.model.disable", &mailsec_sql::SPAM_MODEL_DISABLE),
+                db::Switch::Enable => ("spam.model.enable", &mailsec_sql::SPAM_MODEL_ENABLE),
+            };
+            match worker_bool_command(
+                worker,
+                contract,
+                &[admin.actor().get(), target],
+                cmd,
+                operation,
+            )
+            .await
+            {
                 CommandOutcome::Committed(true) => out.json(
                     setjoin_mail_security::done(format!(
                         "{{\"status\":{}}}",
@@ -221,9 +249,9 @@ pub(crate) async fn handle(
             }
         }
         A::SendersGet => {
-            let on = db::sender_control_on(worker).await.unwrap_or(false);
+            let on = db::sender_control_on(factory).await.unwrap_or(false);
             if on {
-                match db::sender_list_read(worker, user).await {
+                match db::sender_list_read(factory, user).await {
                     Ok(raw) => out.send(raw.body, 200, Kind::Raw, Some(&raw.generation)),
                     Err(e) => classified(
                         e.sqlstate.as_deref().unwrap_or(""),
@@ -234,14 +262,14 @@ pub(crate) async fn handle(
                     ),
                 }
             } else {
-                match db::senders_legacy(worker, user).await {
+                match db::senders_legacy(factory, user).await {
                     Ok(body) => out.json(body, 200),
                     Err(_) => out.bare(500, "database error"),
                 }
             }
         }
         A::SendersPut => {
-            let on = db::sender_control_on(worker).await.unwrap_or(false);
+            let on = db::sender_control_on(factory).await.unwrap_or(false);
             let Ok(body) = input::lenient::<input::SenderList>(&mut r).await else {
                 return out.bare(400, "invalid json");
             };
@@ -251,7 +279,7 @@ pub(crate) async fn handle(
                     body.blocked.clone().unwrap_or_default(),
                 );
                 return match db::sender_list_replace_legacy(
-                    worker, actor, &safe, &blocked, operation,
+                    factory, user, &safe, &blocked, operation,
                 )
                 .await
                 {
@@ -291,8 +319,8 @@ pub(crate) async fn handle(
             }
             encoded.push('}');
             match db::sender_list_replace(
-                worker,
-                actor,
+                factory,
+                user,
                 &operation_id.expect("checked"),
                 generation.expect("checked"),
                 &sha_hex(&encoded),
@@ -316,7 +344,7 @@ pub(crate) async fn handle(
             }
         }
         A::SendersNeverBlock => {
-            let on = db::sender_control_on(worker).await.unwrap_or(false);
+            let on = db::sender_control_on(factory).await.unwrap_or(false);
             if on {
                 return out.bare(409, "use the message-bound sender control action");
             }
@@ -326,7 +354,7 @@ pub(crate) async fn handle(
             if body.sender.is_empty() {
                 return out.bare(400, "sender is required");
             }
-            match db::never_block(worker, actor, &body.sender, operation).await {
+            match db::never_block(factory, user, &body.sender, operation).await {
                 CommandOutcome::Committed(_) => out.send(
                     format!(
                         "{{\"list\":\"safe\",\"sender\":{},\"status\":\"ok\"}}\n",
@@ -350,7 +378,7 @@ pub(crate) async fn handle(
                 Ok(t) => t,
                 Err(detail) => return out.bare(400, detail),
             };
-            match db::sender_control_read(worker, user, mailbox, message, &at).await {
+            match db::sender_control_read(factory, user, mailbox, message, &at).await {
                 Ok(raw) => control_write(&out, raw),
                 Err(e) => classified(
                     e.sqlstate.as_deref().unwrap_or(""),
@@ -413,7 +441,7 @@ pub(crate) async fn handle(
                 digest: &digest,
                 target_operation: target_operation.as_deref(),
             };
-            match db::sender_control_action(worker, actor, &action, operation).await {
+            match db::sender_control_action(factory, user, &action, operation).await {
                 CommandOutcome::Committed(raw) => control_write(&out, raw),
                 CommandOutcome::RolledBack(e) => classified(
                     state(&e),
@@ -425,7 +453,7 @@ pub(crate) async fn handle(
                 CommandOutcome::Unknown { operation } => unknown(operation),
             }
         }
-        A::TrustedList => match db::trusted_list(worker, user).await {
+        A::TrustedList => match db::trusted_list(factory, user).await {
             Ok(body) => out.json(body, 200),
             Err(_) => out.bare(500, "database error"),
         },
@@ -443,7 +471,7 @@ pub(crate) async fn handle(
             if sender.is_empty() {
                 return out.bare(400, "invalid sender address");
             }
-            match db::trusted_write(worker, actor, &sender, add, operation).await {
+            match db::trusted_write(factory, user, &sender, add, operation).await {
                 CommandOutcome::Committed(_) if add => out.json(
                     setjoin_mail_security::done(format!(
                         "{{\"sender\":{}}}",
@@ -456,7 +484,7 @@ pub(crate) async fn handle(
                 CommandOutcome::Unknown { operation } => unknown(operation),
             }
         }
-        A::ExternalGet => out.json(db::external_get(worker, user).await, 200),
+        A::ExternalGet => out.json(db::external_get(factory, user).await, 200),
         A::ExternalPut => {
             let Ok(body) = input::lenient::<input::External>(&mut r).await else {
                 return out.bare(400, "invalid json");
@@ -464,7 +492,7 @@ pub(crate) async fn handle(
             let Some(enabled) = body.enabled else {
                 return out.bare(400, "enabled is required");
             };
-            match db::external_put(worker, actor, enabled, operation).await {
+            match db::external_put(factory, user, enabled, operation).await {
                 CommandOutcome::Committed(_) => {
                     out.send("{\"status\":\"ok\"}\n".into(), 200, Kind::Plain, None)
                 }
@@ -473,7 +501,7 @@ pub(crate) async fn handle(
             }
         }
         A::Report => {
-            let on = db::sender_control_on(worker).await.unwrap_or(false);
+            let on = db::sender_control_on(factory).await.unwrap_or(false);
             if on {
                 return out.bare(409, "use the message-bound sender control report action");
             }
@@ -499,7 +527,16 @@ pub(crate) async fn handle(
             } else {
                 body.note.clone()
             };
-            match db::report(worker, actor, message, &body.kind, &note, operation).await {
+            let Ok(mb) = factory
+                .mint_primary_mailbox_from_authorized(auth, client_ip)
+                .await
+            else {
+                return out.bare(500, "database error");
+            };
+            let Ok(cap) = mb.require_mutate() else {
+                return out.bare(403, "Forbidden");
+            };
+            match db::report(factory, &cap, message, &body.kind, &note, operation).await {
                 CommandOutcome::Committed(true) => out.json(
                     setjoin_mail_security::done(format!(
                         "{{\"status\":\"reported\",\"type\":{}}}",

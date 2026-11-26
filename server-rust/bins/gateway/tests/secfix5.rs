@@ -548,13 +548,56 @@ async fn quarantine_admin_actions_are_confined_to_the_callers_reach() -> Result<
         let (own, foreign) = (quarantine(&w.owner, &w.a, "own").await?, quarantine(&w.owner, &w.b, "foreign").await?);
         let scoped = actor(&w.exec, w.scoped.user).await?;
         let global = actor(&w.exec, w.global.user).await?;
+        let factory =
+            setjoin_gateway::policy_composition::tx_factory_from_executors(&w.exec, Some(&w.exec))
+                .ok_or_else(|| BoxError::from("tx_factory unavailable"))?;
+        let scoped_admin = factory
+            .mint_admin_from_authorized(&scoped, "127.0.0.1")
+            .await
+            .map_err(|e| BoxError::from(e.to_string()))?;
+        let global_admin = factory
+            .mint_admin_from_authorized(&global, "127.0.0.1")
+            .await
+            .map_err(|e| BoxError::from(e.to_string()))?;
+        let scoped_read = scoped_admin
+            .require_permission("mail.security")
+            .map_err(|e| BoxError::from(e.to_string()))?;
+        let global_read = global_admin
+            .require_permission("mail.security")
+            .map_err(|e| BoxError::from(e.to_string()))?;
+        let scoped_write = scoped_admin
+            .require_permission("security.write")
+            .map_err(|e| BoxError::from(e.to_string()))?;
+        let global_write = global_admin
+            .require_permission("security.write")
+            .map_err(|e| BoxError::from(e.to_string()))?;
         // Preview and stats.
-        assert!(quarantine::admin_preview(&w.exec, scoped.context(), foreign).await.map_err(|e| e.message)?.is_none(), "scoped admin previewed a foreign message");
-        assert!(quarantine::admin_preview(&w.exec, scoped.context(), own).await.map_err(|e| e.message)?.is_some(), "own message not previewable");
-        assert!(quarantine::admin_preview(&w.exec, global.context(), foreign).await.map_err(|e| e.message)?.is_some(), "org-wide admin refused");
-        let stats = serde_json::from_str::<serde_json::Value>(&quarantine::admin_stats(&w.exec, scoped.context()).await)?;
+        assert!(
+            quarantine::admin_preview(&factory, &scoped_read, foreign)
+                .await
+                .map_err(|e| e.message)?
+                .is_none(),
+            "scoped admin previewed a foreign message"
+        );
+        assert!(
+            quarantine::admin_preview(&factory, &scoped_read, own)
+                .await
+                .map_err(|e| e.message)?
+                .is_some(),
+            "own message not previewable"
+        );
+        assert!(
+            quarantine::admin_preview(&factory, &global_read, foreign)
+                .await
+                .map_err(|e| e.message)?
+                .is_some(),
+            "org-wide admin refused"
+        );
+        let stats =
+            serde_json::from_str::<serde_json::Value>(&quarantine::admin_stats(&factory, &scoped_read).await)?;
         assert_eq!(stats["active"], 1, "scoped stats count a foreign domain: {stats}");
-        let wide = serde_json::from_str::<serde_json::Value>(&quarantine::admin_stats(&w.exec, global.context()).await)?;
+        let wide =
+            serde_json::from_str::<serde_json::Value>(&quarantine::admin_stats(&factory, &global_read).await)?;
         assert!(wide["active"].as_i64().unwrap() >= 2, "org-wide stats lost a row: {wide}");
         // Release and reject: a foreign row answers like a missing one and stays active.
         let state = |id: i64| {
@@ -564,16 +607,46 @@ async fn quarantine_admin_actions_are_confined_to_the_callers_reach() -> Result<
                 Ok::<_, BoxError>((row.get::<_, bool>(0), row.get::<_, bool>(1), row.get::<_, i64>(2)))
             }
         };
+        let resolve_admin = |proof: &setjoin_authz::principals::AdminPermissionProof,
+                             target: i64,
+                             reject: bool| {
+            let exec = w.exec.clone();
+            let actor_id = proof.actor().get();
+            async move {
+                let contract = if reject {
+                    &setjoin_mail_security::sql::QUARANTINE_ADMIN_REJECT
+                } else {
+                    &setjoin_mail_security::sql::QUARANTINE_ADMIN_RELEASE
+                };
+                let pool = exec
+                    .try_worker_pool()
+                    .ok_or_else(|| BoxError::from("worker pool unavailable"))?;
+                let mut tx = pool
+                    .begin_read_write()
+                    .await
+                    .map_err(|e| BoxError::from(e.message))?;
+                let rows = tx
+                    .query_contract(contract, &[&actor_id, &target])
+                    .await
+                    .map_err(|e| BoxError::from(e.message))?;
+                let ok = rows
+                    .first()
+                    .and_then(|r| r.try_get::<_, bool>(0).ok())
+                    .unwrap_or(false);
+                tx.commit().await.map_err(|e| BoxError::from(e.message))?;
+                Ok::<bool, BoxError>(ok)
+            }
+        };
         for reject in [false, true] {
-            let denied = quarantine::resolve(&w.exec, scoped.context(), foreign, true, reject, op()).await;
-            assert!(matches!(denied, CommandOutcome::Committed(false)), "scoped admin acted on a foreign message (reject={reject}): {denied:?}");
+            let denied = resolve_admin(&scoped_write, foreign, reject).await?;
+            assert!(!denied, "scoped admin acted on a foreign message (reject={reject})");
             assert_eq!(state(foreign).await?, (false, false, 1), "foreign message changed (reject={reject})");
         }
-        let released = quarantine::resolve(&w.exec, scoped.context(), own, true, false, op()).await;
-        assert!(matches!(released, CommandOutcome::Committed(true)), "own-domain release refused: {released:?}");
+        let released = resolve_admin(&scoped_write, own, false).await?;
+        assert!(released, "own-domain release refused");
         assert_eq!(state(own).await?.0, true);
-        let rejected = quarantine::resolve(&w.exec, global.context(), foreign, true, true, op()).await;
-        assert!(matches!(rejected, CommandOutcome::Committed(true)), "org-wide reject refused: {rejected:?}");
+        let rejected = resolve_admin(&global_write, foreign, true).await?;
+        assert!(rejected, "org-wide reject refused");
         assert_eq!(state(foreign).await?, (false, true, 0));
         Ok::<_, BoxError>(())
     }

@@ -5,11 +5,10 @@
 //! (`mailserver/sql/reducers/jmap_email.sql`) is the single owner of the
 //! journal collapse and soft cap; this crate never reimplements it (ARCH-028).
 //! The call is one static `SELECT` in a `READ ONLY` transaction scoped to the
-//! authenticated mailbox ([`ScopedExecutor::read_scoped`]), so it can write
-//! nothing: no audit row (Go's `emailChanges` writes none), no state bump, no
-//! journal row, no notification. The mailbox is the authenticated one (R1);
-//! the request's `accountId` is never bound.
-use setjoin_pg::{MailboxAuthContext, ScopedExecutor, Type};
+//! authenticated mailbox ([`TxFactory::run_mailbox_read_contract`]).
+use setjoin_authz::principals::{ReadCapability, TxFactory};
+
+use crate::sql;
 
 /// Why no changes object came back.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,33 +17,25 @@ pub enum ChangesError {
     CannotCalculateChanges,
     /// SQLSTATE `BZ006`: the mailbox row does not exist.
     AccountNotFound,
-    /// Anything else (timeouts, transport, other reducer codes): the caller
-    /// forwards the request to Go, which answers as today. A read has no
-    /// effect to double.
+    /// Anything else (timeouts, transport, other reducer codes).
     Other,
 }
-
-const SQL: &str = "SELECT jmap_email_changes($1, $2, $3)::text";
 
 /// The reducer's JSONB as text. `since_state` is the client's decimal token
 /// (Go checked it parses as a non-negative int64); `max_changes` is `None`
 /// when the client omitted it or sent zero (Go's `nullIfZero`).
 pub async fn email_changes(
-    exec: &ScopedExecutor,
-    auth: &MailboxAuthContext,
+    tx_factory: &TxFactory,
+    read: &ReadCapability,
     since_state: &str,
     max_changes: Option<i32>,
 ) -> Result<String, ChangesError> {
-    let mailbox = auth.mailbox().get();
-    let rows = exec
-        .read_scoped(
-            auth,
-            SQL,
-            &[
-                (&mailbox, Type::INT8),
-                (&since_state, Type::TEXT),
-                (&max_changes, Type::INT4),
-            ],
+    let mailbox = read.mailbox().get();
+    let rows = tx_factory
+        .run_mailbox_read_contract(
+            read,
+            &sql::EMAIL_CHANGES,
+            &[&mailbox, &since_state, &max_changes],
         )
         .await
         .map_err(|failure| match failure.sqlstate.as_deref() {
@@ -63,7 +54,7 @@ mod tests {
 
     #[test]
     fn statement_is_an_admissible_select() {
-        assert_eq!(setjoin_pg::statement::admit(SQL), Ok(()));
-        assert!(SQL.starts_with("SELECT "));
+        assert_eq!(setjoin_pg::statement::admit(sql::EMAIL_CHANGES.sql), Ok(()));
+        assert!(sql::EMAIL_CHANGES.sql.starts_with("SELECT "));
     }
 }

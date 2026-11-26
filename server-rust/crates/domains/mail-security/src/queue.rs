@@ -1,24 +1,21 @@
 //! Slice `queue` (#321): Go's `admin.QueueHandler` (`Summary`, `List`, `ForceRetry`,
 //! `Bounce`). The queue is global (no tenant column); every route is behind the admin
 //! console gate the adapter checks (`requireMailPerm` for reads, `requireQueueWrite` for the
-//! two writes). Retry and bounce are Go's single UPDATE each, called through a reducer so
-//! the DSN trigger and the immutable-status guard run in the same statement as in Go.
-use super::{command, deadline, envelope, invalid, nano, s, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, Row, ScopedExecutor, StatementFailure, Type};
+//! two writes). Reads run via `AdminReadTx`; retry and bounce use `QUEUE_RETRY`/`QUEUE_BOUNCE`
+//! `WorkerBypass` contracts executed by the gateway composition root (because the bounce DSN
+//! trigger inserts into FORCE-RLS `scheduled_actions` with `mailbox_id = NULL` and Go writes
+//! no `admin_audit_log` row).
+use super::{invalid, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::{Row, StatementFailure};
 
 /// `GET /admin/queue/summary`: sorted-key map; any query error is Go's 500.
-pub async fn summary(worker: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = worker
-        .read(
-            "SELECT COUNT(*) FILTER (WHERE status = 'pending')::bigint, \
-             COUNT(*) FILTER (WHERE status = 'deferred')::bigint, \
-             COUNT(*) FILTER (WHERE status = 'bounced' AND delivered_at > now() - interval '24 hours')::bigint, \
-             COUNT(*) FILTER (WHERE attempt_count >= 10 AND status IN ('deferred','pending'))::bigint, \
-             COALESCE(EXTRACT(EPOCH FROM (now() - MIN(queued_at) FILTER (WHERE status IN ('pending','deferred'))))/60, 0)::float8 \
-             FROM outbound_queue",
-            &[],
-        )
+pub async fn summary(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::QUEUE_SUMMARY, &[])
         .await?;
     let row = rows.first().ok_or_else(invalid)?;
     let n = |i: usize| row.try_get::<_, i64>(i).map_err(|_| invalid());
@@ -31,19 +28,6 @@ pub async fn summary(worker: &ScopedExecutor) -> Result<String, StatementFailure
         n(0)?,
         n(3)?
     )))
-}
-
-/// Go's `mapQueueStatus`: the WHERE clause and whether the tab value binds as `$1`.
-fn status_clause(tab: &str) -> (&'static str, bool) {
-    match tab {
-        "" | "all" => ("", false),
-        "failed" => ("status = 'bounced'", false),
-        "held" => (
-            "attempt_count >= 10 AND status IN ('deferred','pending')",
-            false,
-        ),
-        _ => ("status = $1", true),
-    }
 }
 
 fn item(row: &Row) -> Result<String, StatementFailure> {
@@ -69,82 +53,33 @@ fn item(row: &Row) -> Result<String, StatementFailure> {
 /// `GET /admin/queue`: a JSON array (`[]` when empty). `limit` and `offset` are already
 /// Go's `ParseLimitOffset(50, 200)` results.
 pub async fn list(
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     status: &str,
     limit: i64,
     offset: i64,
 ) -> Result<String, StatementFailure> {
-    let (clause, bind) = status_clause(status);
-    let select = format!(
-        "SELECT id, message_id, from_addr, status, rcpt_addrs, attempt_count, {} , last_error, {}, mailbox_id \
-         FROM outbound_queue",
-        nano("next_attempt_at"),
-        nano("queued_at")
-    );
-    // Column order above: 0 id, 1 message_id, 2 from_addr, 3 status, 4 rcpt_addrs,
-    // 5 attempt_count, 6 next_attempt_at, 7 last_error, 8 queued_at, 9 mailbox_id.
-    let rows = match (clause.is_empty(), bind) {
-        (true, _) => {
-            worker
-                .read_iterated(
-                    &format!("{select} ORDER BY queued_at DESC LIMIT $1 OFFSET $2"),
-                    &[(&limit, Type::INT8), (&offset, Type::INT8)],
-                )
+    let mut tx = factory.begin_admin_read(admin).await?;
+    let rows = match status {
+        "" | "all" => {
+            tx.query_iterated_contract(&sql::QUEUE_LIST_ALL, &[&limit, &offset])
                 .await?
         }
-        (false, true) => {
-            worker
-                .read_iterated(
-                    &format!("{select} WHERE {clause} ORDER BY queued_at DESC LIMIT $2 OFFSET $3"),
-                    &[
-                        (&status, Type::TEXT),
-                        (&limit, Type::INT8),
-                        (&offset, Type::INT8),
-                    ],
-                )
+        "failed" => {
+            tx.query_iterated_contract(&sql::QUEUE_LIST_FAILED, &[&limit, &offset])
                 .await?
         }
-        (false, false) => {
-            worker
-                .read_iterated(
-                    &format!("{select} WHERE {clause} ORDER BY queued_at DESC LIMIT $1 OFFSET $2"),
-                    &[(&limit, Type::INT8), (&offset, Type::INT8)],
-                )
+        "held" => {
+            tx.query_iterated_contract(&sql::QUEUE_LIST_HELD, &[&limit, &offset])
+                .await?
+        }
+        _ => {
+            tx.query_iterated_contract(&sql::QUEUE_LIST_STATUS, &[&status, &limit, &offset])
                 .await?
         }
     };
+    tx.finish().await?;
     // Go skips a row whose Scan fails; every column here is scannable.
     let items = rows.iter().filter_map(|r| item(r).ok()).collect::<Vec<_>>();
     Ok(super::done(format!("[{}]", items.join(","))))
-}
-
-/// Retry (`bounce == false`) or bounce one queue item. `Committed(false)` is Go's 404.
-pub async fn resolve(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
-    id: i64,
-    bounce: bool,
-    operation: [u8; 16],
-) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    let (name, sql) = if bounce {
-        ("queue.bounce", "SELECT rust_mailsec_queue_bounce($4) WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''")
-    } else {
-        ("queue.retry", "SELECT rust_mailsec_queue_retry($4) WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''")
-    };
-    setjoin_pg::run_receipted_command(
-        worker,
-        command(name),
-        &envelope(&auth, operation, &format!("{name}:{id}")),
-        &auth,
-        deadline(),
-        sql,
-        &[(&id, Type::INT8)],
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get::<_, bool>(0).ok())
-                .ok_or_else(invalid)
-        },
-    )
-    .await
 }

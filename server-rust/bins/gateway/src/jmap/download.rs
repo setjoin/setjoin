@@ -1,4 +1,4 @@
-use super::{JmapCommands, http::problem, reply, token::KeySource};
+use super::{http::problem, reply, token::KeySource, JmapCommands};
 use crate::{Body, RequestContext};
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, Response};
@@ -10,10 +10,21 @@ impl<K: KeySource> JmapCommands<K> {
         req: &Request<Body>,
         ctx: &RequestContext,
         auth: &MailboxAuthContext,
+        authorized: &setjoin_authz::Authorized,
         id: &str,
     ) -> Response<Body> {
         let services = self.services.as_ref().unwrap();
         let fail = || problem(404, "blobNotFound", "blob not found", ctx, id);
+        let Some(tx) = self.tx_factory() else {
+            return fail();
+        };
+        let Ok(user) = tx
+            .mint_user_from_authorized(authorized, &ctx.identity.client_ip.to_string())
+            .await
+        else {
+            return fail();
+        };
+        let primary_mailbox = auth.mailbox_optional().map(|m| m.get());
         let segments = req.uri().path()[15..].split('/').collect::<Vec<_>>();
         let account =
             String::from_utf8_lossy(&crate::inventory::unescape(segments[0])).into_owned();
@@ -22,15 +33,21 @@ impl<K: KeySource> JmapCommands<K> {
         // metadata is read, so a foreign hash and an unknown hash both answer 404 (frozen Go
         // answered 403 for a known foreign hash, an existence oracle).
         if setjoin_contracts::mutants::on("download-existence-oracle") {
-            let known = setjoin_jmap::http_blob::metadata(&services.worker, &hash)
+            let known = setjoin_jmap::http_blob::metadata(&tx, &user, &hash)
                 .await
                 .ok()
                 .flatten()
                 .is_some();
-            let allowed =
-                setjoin_jmap::http_blob::download_allowed(&services.worker, auth, &account, &hash)
-                    .await
-                    .unwrap_or(false);
+            let allowed = super::download_allowed(
+                &services.worker,
+                &tx,
+                &user,
+                primary_mailbox,
+                &account,
+                &hash,
+            )
+            .await
+            .unwrap_or(false);
             if !known {
                 return fail();
             }
@@ -38,13 +55,20 @@ impl<K: KeySource> JmapCommands<K> {
                 return problem(403, "forbidden", "access denied", ctx, id);
             }
         }
-        if !setjoin_jmap::http_blob::download_allowed(&services.worker, auth, &account, &hash)
-            .await
-            .unwrap_or(false)
+        if !super::download_allowed(
+            &services.worker,
+            &tx,
+            &user,
+            primary_mailbox,
+            &account,
+            &hash,
+        )
+        .await
+        .unwrap_or(false)
         {
             return fail();
         }
-        let Some((size, ct)) = setjoin_jmap::http_blob::metadata(&services.worker, &hash)
+        let Some((size, ct)) = setjoin_jmap::http_blob::metadata(&tx, &user, &hash)
             .await
             .ok()
             .flatten()
