@@ -25,3 +25,5 @@ Owns native shells/shared Rust; webmail remains the single UI. Electron is deskt
 - [Verification](DOX.md#verification)
 - [ENG-REVIEW OPTIMIZATIONS (2026-06-23)](DOX.md#eng-review-optimizations-2026-06-23)
 - [Child DOX Index](DOX.md#child-dox-index)
+
+Excluded: `harmonyos/refs/` (vendored third-party OpenHarmony SDK documentation mirrors; skip during agent traversal).

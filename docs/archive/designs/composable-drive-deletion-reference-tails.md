@@ -59,7 +59,7 @@ Hashes cover whole bytes; inclusive ranges state reads. `R/` = `mailserver/sql/r
 | `docs/AGENTS.md` | full 1–252, reused | `2767f16c6b87ca244d5a28a29a9b4a572ec2424be2dbc8788126afb463c64919` |
 | `mailserver/AGENTS.md` | 1–24, 890–947; heading matches | `28283ad1593f5bad385c8ac39cced4482689caffa35c8b20e6c73c2f3a508f70` |
 | `mailserver/sql/AGENTS.md` | 1–98, 537–592; heading/matching lines | `e58eff6c923ed65fdffe299f5accf660afbf1daa8d8dbb07addbb0173f4c6801` |
-| `docs/designs/composable-backup-object-participation.md` | full 1–101 | `9bcbe400d826b505969181b58147ccf8b782204671f126c4afc22c7fdeab65ca` |
+| `docs/archive/designs/composable-backup-object-participation.md` | full 1–101 | `9bcbe400d826b505969181b58147ccf8b782204671f126c4afc22c7fdeab65ca` |
 | `retired-docs:superpowers/specs/2026-07-09-drive-v1-spec.md` | 509–552 | `e66138e5e7d63ea32e56367c117ea30f1588f95ebc040ace6e43181212b5bd95` |
 | `R/drive_node_trash.sql` | full 1–34 | `37ecf5f2fa7e123d342159745b85804defa3b7ed288a5b81b406d47c8ac0a6b9` |
 | `R/drive_node_destroy.sql` | full 1–79 | `fb9d8a17810a3166691fcae21fbef33f517fa353bca22dee12748e11a036ec8b` |
