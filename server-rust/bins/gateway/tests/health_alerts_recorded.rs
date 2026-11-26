@@ -95,7 +95,7 @@ async fn health_alerts_on_ok_to_error_transitions() -> Result<(), BoxError> {
                             // Seed-plus-one-request seam: the public route drives the real
                             // tracker and signed dispatcher with Go absent.
                             let table = setjoin_gateway::RouteTable::proxy_all().with(setjoin_gateway::surface::SurfaceRoute {
-                                exec: exec.clone(), keys: std::sync::Arc::new(common::recovery_keys()),
+                                exec: exec.clone(), worker: None, keys: std::sync::Arc::new(common::recovery_keys()),
                                 issuer: "mailserver".into(), config: std::sync::Arc::new(setjoin_gateway::surface::SurfaceConfig::from_env()),
                                 health: std::sync::Arc::new(HealthGate::new(false).with_alerts(observer.clone())),
                                 fallback: None, discovery: None,
@@ -159,7 +159,9 @@ async fn a_failed_live_probe_is_an_error_verdict_but_not_an_alert() -> Result<()
     let owner = db.connect().await?;
     owner.batch_execute("DELETE FROM health_history").await?;
     owner.batch_execute("INSERT INTO health_history(check_name,status,details) VALUES ('wh457_probe_base','ok','oracle')").await?;
-    let exec = setjoin_pg::ScopedExecutor::from_dsn(&db.dsn, 2).map_err(|e| e.0)?;
+    let factory = setjoin_authz::principals::TxFactory::new(
+        setjoin_pg::AppPool::from_dsn(&db.dsn, 2).map_err(|e| e.0)?,
+    );
     let rows: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
     let observer: setjoin_static::health::Alerts = {
         let rows = rows.clone();
@@ -175,9 +177,9 @@ async fn a_failed_live_probe_is_an_error_verdict_but_not_an_alert() -> Result<()
             .with_alerts(observer.clone())
             .with_probes(probes)
     };
-    let error = verdict(true).public(&exec).await;
-    let ok = verdict(false).public(&exec).await;
-    let deferred = HealthGate::new(true).public(&exec).await;
+    let error = verdict(true).public(&factory).await;
+    let ok = verdict(false).public(&factory).await;
+    let deferred = HealthGate::new(true).public(&factory).await;
     owner
         .batch_execute("DELETE FROM health_history WHERE check_name LIKE 'wh457_%'")
         .await?;

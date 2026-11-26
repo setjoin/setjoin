@@ -278,7 +278,8 @@ fn written(outcome: Result<i64, StatementFailure>) -> Result<(), String> {
 }
 
 struct Ctx<'a> {
-    exec: &'a ScopedExecutor,
+    tx: &'a setjoin_authz::principals::TxFactory,
+    user: &'a setjoin_authz::principals::UserPrincipal,
     owner: i64,
     book: i64,
 }
@@ -308,20 +309,22 @@ impl Ctx<'_> {
             birthday: vc.birthday.as_deref(),
             anniversary: vc.anniversary.as_deref(),
         };
-        written(db::write_contact(self.exec, self.owner, self.book, &contact, upsert).await)
+        written(
+            db::write_contact(self.tx, self.user, self.owner, self.book, &contact, upsert).await,
+        )
     }
 
     async fn remove(&self, uid: &str) {
-        let _ = db::remove_contact(self.exec, self.owner, self.book, uid).await;
+        let _ = db::remove_contact(self.tx, self.user, self.owner, self.book, uid).await;
     }
 
     async fn exists(&self, uid: &str) -> bool {
-        db::exists(self.exec, self.book, uid, self.owner).await
+        db::exists(self.tx, self.user, self.book, uid, self.owner).await
     }
 
     /// Go's best-effort `notify_contact_state`.
     async fn notify(&self) {
-        let _ = db::notify_import(self.exec, self.owner).await;
+        let _ = db::notify_import(self.tx, self.user, self.owner).await;
     }
 }
 
@@ -419,11 +422,12 @@ impl<K: KeySource + 'static> ContactsRoute<K> {
 
     async fn gate(
         &self,
+        tx: &setjoin_authz::principals::TxFactory,
+        user: &setjoin_authz::principals::UserPrincipal,
         out: &Out<'_>,
-        actor: &setjoin_authz::AuthContext,
         book: i64,
     ) -> Result<i64, Response<Body>> {
-        match db::owned_mailbox_for_book(&self.exec, book, actor.user_id()).await {
+        match db::owned_mailbox_for_book(tx, user, book).await {
             Err(_) => Err(out.bare(500, "database error")),
             Ok(None) => Err(out.bare(403, "address book not found")),
             Ok(Some(owner)) => Ok(owner),
@@ -432,6 +436,8 @@ impl<K: KeySource + 'static> ContactsRoute<K> {
 
     async fn import_csv(
         &self,
+        tx: &setjoin_authz::principals::TxFactory,
+        user: &setjoin_authz::principals::UserPrincipal,
         mut r: Request<Body>,
         out: &Out<'_>,
         actor: &setjoin_authz::AuthContext,
@@ -460,13 +466,14 @@ impl<K: KeySource + 'static> ContactsRoute<K> {
                 None => return out.bare(400, "invalid mapping"),
             }
         }
-        let owner = match self.gate(out, actor, book).await {
+        let owner = match self.gate(tx, user, out, book).await {
             Ok(owner) => owner,
             Err(response) => return response,
         };
         let data = form.file.unwrap_or_default();
         let ctx = Ctx {
-            exec: &self.exec,
+            tx,
+            user,
             owner,
             book,
         };
@@ -546,6 +553,8 @@ impl<K: KeySource + 'static> ContactsRoute<K> {
 
     async fn import_vcf(
         &self,
+        tx: &setjoin_authz::principals::TxFactory,
+        user: &setjoin_authz::principals::UserPrincipal,
         mut r: Request<Body>,
         out: &Out<'_>,
         actor: &setjoin_authz::AuthContext,
@@ -554,13 +563,14 @@ impl<K: KeySource + 'static> ContactsRoute<K> {
             Ok(x) => x,
             Err(response) => return response,
         };
-        let owner = match self.gate(out, actor, book).await {
+        let owner = match self.gate(tx, user, out, book).await {
             Ok(owner) => owner,
             Err(response) => return response,
         };
         let data = csv::text(&form.file.unwrap_or_default());
         let ctx = Ctx {
-            exec: &self.exec,
+            tx,
+            user,
             owner,
             book,
         };
@@ -601,9 +611,10 @@ impl<K: KeySource + 'static> ContactsRoute<K> {
 
     async fn export_book(
         &self,
+        tx: &setjoin_authz::principals::TxFactory,
+        user: &setjoin_authz::principals::UserPrincipal,
         r: &Request<Body>,
         out: &Out<'_>,
-        actor: &setjoin_authz::AuthContext,
         vcf: bool,
     ) -> Response<Body> {
         let (query, _) = parse_query(r.uri().query());
@@ -611,12 +622,11 @@ impl<K: KeySource + 'static> ContactsRoute<K> {
             Ok(id) if id > 0 => id,
             _ => return out.bare(400, "invalid addressBookId"),
         };
-        if let Err(response) = self.gate(out, actor, book).await {
+        if let Err(response) = self.gate(tx, user, out, book).await {
             return response;
         }
-        let user = actor.user_id();
         if vcf {
-            let Ok(rows) = db::export_vcard_rows(&self.exec, book, user).await else {
+            let Ok(rows) = db::export_vcard_rows(tx, user, book).await else {
                 return out.bare(500, "export failed");
             };
             let mut body = String::new();
@@ -628,7 +638,7 @@ impl<K: KeySource + 'static> ContactsRoute<K> {
             }
             return out.download("text/vcard; charset=utf-8", "contacts.vcf", body);
         }
-        let Ok(rows) = db::export_csv_rows(&self.exec, book, user).await else {
+        let Ok(rows) = db::export_csv_rows(tx, user, book).await else {
             return out.bare(500, "export failed");
         };
         let mut body = String::new();
@@ -672,21 +682,22 @@ impl<K: KeySource + 'static> ContactsRoute<K> {
 
     async fn export_contact(
         &self,
+        tx: &setjoin_authz::principals::TxFactory,
+        user: &setjoin_authz::principals::UserPrincipal,
         r: &Request<Body>,
         out: &Out<'_>,
-        actor: &setjoin_authz::AuthContext,
     ) -> Response<Body> {
         let (query, _) = parse_query(r.uri().query());
         let contact = match first(&query, "contactId").unwrap_or("").parse::<i64>() {
             Ok(id) if id > 0 => id,
             _ => return out.bare(400, "invalid contactId"),
         };
-        match db::owns_contact(&self.exec, contact, actor.user_id()).await {
+        match db::owns_contact(tx, user, contact).await {
             Err(_) => return out.bare(500, "database error"),
             Ok(false) => return out.bare(403, "contact not found"),
             Ok(true) => {}
         }
-        let row = match db::export_vcard_row(&self.exec, contact, actor.user_id()).await {
+        let row = match db::export_vcard_row(tx, user, contact).await {
             Err(_) => return out.bare(500, "export failed"),
             Ok(None) => return out.bare(404, "contact not found"),
             Ok(Some(row)) => row,
@@ -733,9 +744,27 @@ impl<K: KeySource + 'static> Intercept for ContactsRoute<K> {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
+            let Some(tx) = crate::policy_composition::tx_factory_from_executors(&this.exec, None)
+            else {
+                let id = crate::jmap::reply::request_id(
+                    r.headers().get("x-request-id"),
+                    crate::jmap::random().unwrap_or([0; 16]),
+                );
+                let out = Out { c: &c, id };
+                return out.bare(500, "database unavailable");
+            };
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user) = tx.mint_user_from_authorized(&auth, &client_ip).await else {
+                let id = crate::jmap::reply::request_id(
+                    r.headers().get("x-request-id"),
+                    crate::jmap::random().unwrap_or([0; 16]),
+                );
+                let out = Out { c: &c, id };
+                return out.bare(500, "database error");
+            };
             let entitled = tokio::time::timeout(
                 setjoin_authz::precheck_timeout(),
-                setjoin_calendar::entitled_app(&this.exec, auth.context(), "contacts"),
+                setjoin_calendar::entitled_app(&tx, &user, "contacts"),
             )
             .await;
             if !matches!(entitled, Ok(Ok(true))) {
@@ -784,17 +813,17 @@ impl<K: KeySource + 'static> Intercept for ContactsRoute<K> {
             if post && path.ends_with("/import/csv/preview") {
                 this.preview(r, &out).await
             } else if post && path.ends_with("/import/csv") {
-                this.import_csv(r, &out, actor).await
+                this.import_csv(&tx, &user, r, &out, actor).await
             } else if post && path.ends_with("/import/vcf") {
-                this.import_vcf(r, &out, actor).await
+                this.import_vcf(&tx, &user, r, &out, actor).await
             } else if get && path.ends_with("/export/csv") {
-                this.export_book(&r, &out, actor, false).await
+                this.export_book(&tx, &user, &r, &out, false).await
             } else if get && path.ends_with("/export/vcf") {
                 let (query, _) = parse_query(r.uri().query());
                 if first(&query, "contactId").is_some_and(|v| !v.is_empty()) {
-                    this.export_contact(&r, &out, actor).await
+                    this.export_contact(&tx, &user, &r, &out).await
                 } else {
-                    this.export_book(&r, &out, actor, true).await
+                    this.export_book(&tx, &user, &r, &out, true).await
                 }
             } else {
                 out.bare(404, "not found")

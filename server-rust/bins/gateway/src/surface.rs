@@ -67,6 +67,7 @@ impl SurfaceConfig {
 
 pub struct SurfaceRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
     pub config: Arc<SurfaceConfig>,
@@ -499,19 +500,31 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                     "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\"><text y=\"28\" font-size=\"28\">\u{1F4E7}</text></svg>",
                 )
             }
-            Kind::Health => match self.health.public(&self.exec).await {
-                setjoin_static::health::Outcome::Json { status, overall } => json(
-                    status,
-                    format!("{{\"status\":\"{overall}\"}}\n"),
-                    "no-store",
-                ),
-                setjoin_static::health::Outcome::Internal => text_error(500, "internal error"),
-                setjoin_static::health::Outcome::Defer => {
-                    json(503, "{\"status\":\"error\"}\n", "no-store")
+            Kind::Health => {
+                let outcome =
+                    match crate::policy_composition::tx_factory_from_executors(&self.exec, None) {
+                        Some(factory) => self.health.public(&factory).await,
+                        None => setjoin_static::health::Outcome::Internal,
+                    };
+                match outcome {
+                    setjoin_static::health::Outcome::Json { status, overall } => json(
+                        status,
+                        format!("{{\"status\":\"{overall}\"}}\n"),
+                        "no-store",
+                    ),
+                    setjoin_static::health::Outcome::Internal => text_error(500, "internal error"),
+                    setjoin_static::health::Outcome::Defer => {
+                        json(503, "{\"status\":\"error\"}\n", "no-store")
+                    }
                 }
-            },
+            }
             Kind::Ready => {
-                if setjoin_static::health::ready(&self.exec).await {
+                let is_ready =
+                    match crate::policy_composition::tx_factory_from_executors(&self.exec, None) {
+                        Some(factory) => setjoin_static::health::ready(&factory).await,
+                        None => false,
+                    };
+                if is_ready {
                     json(200, "{\"status\":\"ok\"}\n", "no-store")
                 } else {
                     text_error(503, "database unreachable")
@@ -526,7 +539,23 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                 if !cfg.metrics.admits(authorization) {
                     Reply::new(401, None, "no-store", Bytes::new())
                 } else {
-                    let identity = metrics::collect_identity(&self.exec).await;
+                    let identity =
+                        match self.worker.as_ref().unwrap_or(&self.exec).try_worker_pool() {
+                            Some(pool) => match pool.begin_repeatable_read_only().await {
+                                Ok(mut tx) => {
+                                    let rows = tx
+                                        .query_contract(&setjoin_static::sql::METRICS_IDENTITY, &[])
+                                        .await;
+                                    let _ = tx.rollback().await;
+                                    match rows {
+                                        Ok(rows) => metrics::decode_identity(&rows),
+                                        Err(_) => metrics::Identity::default(),
+                                    }
+                                }
+                                Err(_) => metrics::Identity::default(),
+                            },
+                            None => metrics::Identity::default(),
+                        };
                     Reply::new(
                         200,
                         Some("text/plain; version=0.0.4"),
@@ -549,7 +578,12 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                     .or_else(|| r.uri().authority().map(|a| a.as_str()))
                     .unwrap_or_default();
                 let domain = wellknown::autoconfig_domain(host);
-                if wellknown::local_domain_exists(&self.exec, &domain).await {
+                let exists =
+                    match crate::policy_composition::tx_factory_from_executors(&self.exec, None) {
+                        Some(factory) => wellknown::local_domain_exists(&factory, &domain).await,
+                        None => false,
+                    };
+                if exists {
                     Reply::new(
                         200,
                         Some("application/xml"),
@@ -618,6 +652,7 @@ impl<K: KeySource + 'static> Intercept for SurfaceRoute<K> {
         };
         let this = Self {
             exec: self.exec.clone(),
+            worker: self.worker.clone(),
             keys: self.keys.clone(),
             issuer: self.issuer.clone(),
             config: self.config.clone(),

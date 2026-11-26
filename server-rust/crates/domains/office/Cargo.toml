@@ -12,3 +12,4 @@ sha2 = "=0.10.9"
 setjoin-contracts = { path = "../../contracts" }
 setjoin-db = { path = "../../db" }
 setjoin-authz = { path = "../../authz" }
+setjoin-sql-catalog = { path = "../../sql-catalog" }

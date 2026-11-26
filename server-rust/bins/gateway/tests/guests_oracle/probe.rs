@@ -33,13 +33,13 @@ impl<K: KeySource + 'static> Intercept for Probe<K> {
                     return c.upstream.forward(r, &c.identity).await;
                 };
                 let user = auth.context().user_id();
-                let source = include_str!("../../../../crates/domains/guests/src/guest_list.sql");
+                let source = setjoin_guests::sql::GUEST_LIST.sql;
                 let guarded="WHERE guest_admin_can_reach_with_permission($1,g.user_id,'guests.view')\n\t\t   OR guest_admin_can_reach_with_permission($1,g.user_id,'guests.manage')";
                 assert!(source.contains(guarded));
                 let sql = source.replace(guarded, "WHERE $1::bigint>0");
                 let rows = worker
                     .read_scoped(
-                        &setjoin_guests::scope(auth.context()),
+                        &auth.context().database_scope(),
                         &sql,
                         &[(&user, setjoin_pg::Type::INT8)],
                     )

@@ -16,10 +16,7 @@ pub async fn route_enabled(exec: &ScopedExecutor, flag: &str) -> bool {
 
 /// Shared security gates for a route that has no Go feature toggle.
 pub(crate) async fn admission_allowed(exec: &ScopedExecutor, flag: Option<&str>) -> bool {
-    let keys: Vec<String> = flag
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
+    let keys: Vec<String> = flag.into_iter().map(str::to_owned).collect();
     let Ok(rows) = exec
         .read(
             "SELECT s.mode::text, ft.key, ft.enabled \
@@ -118,7 +115,7 @@ pub(crate) async fn caller(exec: &ScopedExecutor, s: &Session) -> Caller {
                      OR (r.scope = 'jti' AND $3 <> '' AND r.jti = $3) \
                      OR (r.scope = 'family' AND $4 <> '' AND r.family_id = $4))), \
         p.id, p.allowed, \
-        st.email, st.mailbox, st.thread, st.tag, st.calendar, st.contact, st.task, st.identity \
+        st.email, st.mailbox, st.thread, st.tag, st.identity \
       FROM (SELECT 1) one \
       LEFT JOIN LATERAL ( \
         SELECT id, mailbox_lifecycle_access_allowed(id) AS allowed FROM mailboxes \
@@ -126,26 +123,37 @@ pub(crate) async fn caller(exec: &ScopedExecutor, s: &Session) -> Caller {
       LEFT JOIN LATERAL ( \
         SELECT m.jmap_email_state::int8 AS email, m.jmap_mailbox_state::int8 AS mailbox, \
                m.jmap_thread_state::int8 AS thread, m.jmap_tag_state::int8 AS tag, \
-               COALESCE((SELECT MAX(jmap_state) FROM calendars WHERE mailbox_id = m.id), 0)::int8 AS calendar, \
-               COALESCE((SELECT MAX(jmap_state) FROM addressbooks WHERE mailbox_id = m.id), 0)::int8 AS contact, \
-               COALESCE((SELECT MAX(jmap_state) FROM tasks WHERE mailbox_id = m.id), 0)::int8 AS task, \
                floor(extract(epoch FROM u.updated_at))::int8 AS identity \
           FROM mailboxes m JOIN users u ON u.id = m.user_id \
          WHERE m.user_id = $1 AND m.is_primary = TRUE LIMIT 1) st ON TRUE";
     let iat = s.issued_at as f64;
     let Ok(rows) = exec
-        .read(SQL, &[(&s.user_id, Type::INT8), (&iat, Type::FLOAT8), (&s.jti, Type::TEXT), (&s.family, Type::TEXT)])
+        .read(
+            SQL,
+            &[
+                (&s.user_id, Type::INT8),
+                (&iat, Type::FLOAT8),
+                (&s.jti, Type::TEXT),
+                (&s.family, Type::TEXT),
+            ],
+        )
         .await
     else {
         return Caller::Unavailable;
     };
-    let Some(r) = rows.first() else { return Caller::Unavailable };
+    let Some(r) = rows.first() else {
+        return Caller::Unavailable;
+    };
     let guest_rows: i64 = r.get(0);
     let revoked: bool = r.get(1);
     let mailbox: Option<i64> = r.get(2);
     let allowed: Option<bool> = r.get(3);
-    if guest_rows != 0 { return Caller::Guest; }
-    if revoked { return Caller::Revoked; }
+    if guest_rows != 0 {
+        return Caller::Guest;
+    }
+    if revoked {
+        return Caller::Revoked;
+    }
     let Some(mailbox) = mailbox else {
         return Caller::Member {
             mailbox: 0,
@@ -164,15 +172,59 @@ pub(crate) async fn caller(exec: &ScopedExecutor, s: &Session) -> Caller {
     };
     let mailbox_blocked = allowed != Some(true);
     let c = |i: usize| r.get::<_, Option<i64>>(i);
-    let (Some(email), Some(mailbox_state), Some(thread), Some(tag), Some(calendar), Some(contact), Some(task), Some(identity)) =
-        (c(4), c(5), c(6), c(7), c(8), c(9), c(10), c(11))
+    let (Some(email), Some(mailbox_state), Some(thread), Some(tag), Some(identity)) =
+        (c(4), c(5), c(6), c(7), c(8))
     else {
+        return Caller::Unavailable;
+    };
+    // Wave A FORCE RLS (#546b): calendars and addressbooks require app.current_mailbox_id.
+    let (Ok(actor_id), Ok(mb_id)) = (
+        setjoin_contracts::ids::ActorId::new(s.user_id),
+        setjoin_contracts::ids::MailboxId::new(mailbox),
+    ) else {
+        return Caller::Unavailable;
+    };
+    let mb_scope = setjoin_pg::MailboxAuthContext::from_authenticated_session(
+        actor_id,
+        mb_id,
+        setjoin_contracts::ids::Generation(1),
+    );
+    let Ok(st_rows) = exec
+        .read_scoped(
+            &mb_scope,
+            "SELECT \
+                COALESCE((SELECT MAX(jmap_state) FROM calendars WHERE mailbox_id = $1), 0)::int8, \
+                COALESCE((SELECT MAX(jmap_state) FROM addressbooks WHERE mailbox_id = $1), 0)::int8, \
+                COALESCE((SELECT MAX(jmap_state) FROM tasks WHERE mailbox_id = $1), 0)::int8",
+            &[(&mailbox, Type::INT8)],
+        )
+        .await
+    else {
+        return Caller::Unavailable;
+    };
+    let Some(sr) = st_rows.first() else {
+        return Caller::Unavailable;
+    };
+    let (Some(calendar), Some(contact), Some(task)) = (
+        sr.get::<_, Option<i64>>(0),
+        sr.get::<_, Option<i64>>(1),
+        sr.get::<_, Option<i64>>(2),
+    ) else {
         return Caller::Unavailable;
     };
     Caller::Member {
         mailbox,
         mailbox_blocked,
-        state: SessionState { email, mailbox: mailbox_state, thread, tag, calendar, contact, task, identity },
+        state: SessionState {
+            email,
+            mailbox: mailbox_state,
+            thread,
+            tag,
+            calendar,
+            contact,
+            task,
+            identity,
+        },
     }
 }
 

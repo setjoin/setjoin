@@ -857,6 +857,27 @@ impl MailboxTx<ReadWrite> {
         self.execute(contract.sql, &params).await
     }
 
+    /// Insert a durable operation receipt into `public.rust_operation_receipts`
+    /// in the same transaction before `COMMIT`.
+    pub async fn record_receipt(
+        &mut self,
+        operation: OperationId,
+        command: ReceiptCommand,
+    ) -> Result<(), StatementFailure> {
+        let op_hex = operation_hex(operation);
+        let _ = self
+            .execute(
+                RECEIPT_INSERT_SQL,
+                &[
+                    (&op_hex, Type::TEXT),
+                    (&command.family, Type::TEXT),
+                    (&command.command, Type::TEXT),
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
     /// Acquire `#481` canonical parent row locks (`users FOR KEY SHARE` ->
     /// `mailboxes FOR UPDATE`) strictly after the transaction preamble's
     /// advisory lock (`setjoin-command:...`) and before locking child
@@ -1117,6 +1138,27 @@ impl UserTx<ReadWrite> {
         )?;
         let params = zip_contract_params(contract, values)?;
         self.execute(contract.sql, &params).await
+    }
+
+    /// Insert a durable operation receipt into `public.rust_operation_receipts`
+    /// in the same transaction before `COMMIT`.
+    pub async fn record_receipt(
+        &mut self,
+        operation: OperationId,
+        command: ReceiptCommand,
+    ) -> Result<(), StatementFailure> {
+        let op_hex = operation_hex(operation);
+        let _ = self
+            .execute(
+                RECEIPT_INSERT_SQL,
+                &[
+                    (&op_hex, Type::TEXT),
+                    (&command.family, Type::TEXT),
+                    (&command.command, Type::TEXT),
+                ],
+            )
+            .await?;
+        Ok(())
     }
 
     async fn run_rw_stmt(
@@ -1772,6 +1814,26 @@ impl AdminWriteTx<Unaudited> {
 }
 
 impl AdminWriteTx<Audited> {
+    /// Insert a durable operation receipt into `public.rust_operation_receipts`
+    /// for this audited admin write transaction before `COMMIT`.
+    pub async fn record_receipt(
+        &mut self,
+        command: ReceiptCommand,
+    ) -> Result<(), StatementFailure> {
+        let op_hex = operation_hex(self.operation);
+        let _ = self
+            .execute(
+                RECEIPT_INSERT_SQL,
+                &[
+                    (&op_hex, Type::TEXT),
+                    (&command.family, Type::TEXT),
+                    (&command.command, Type::TEXT),
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
     /// Commit the audited admin write transaction.
     pub async fn commit(mut self) -> CommandOutcome<(), StatementFailure> {
         let operation = self.operation;
@@ -1959,6 +2021,148 @@ pub struct AppPool {
 }
 
 impl AppPool {
+    pub(crate) fn from_parts(pool: SetjoinPool, audit_keys: Option<Arc<AuditKeys>>) -> Self {
+        Self {
+            pool,
+            audit_keys,
+            effect_sem: Arc::new(Semaphore::new(DEFAULT_EFFECT_CONCURRENCY)),
+        }
+    }
+
+    /// Run a 1-RTT pipelined `BEGIN READ ONLY` public/system contract query on
+    /// `setjoin_app` (`NOBYPASSRLS`) with empty tenant GUCs (strictly
+    /// `SqlScope::AuthPreScope`; RLS-protected user tables fail closed).
+    pub async fn run_public_read_contract(
+        &self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AuthPreScope],
+            "contract scope mismatch for AppPool::run_public_read_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        let preamble = Preamble {
+            mailbox: String::new(),
+            actor: String::new(),
+            operation_id: None,
+            audit_keys: self.audit_keys.clone(),
+            lock_key: None,
+        };
+        execute_read_pipeline(&self.pool, &preamble, contract.sql, &params, None).await
+    }
+
+    /// Run a 1-RTT pipelined `BEGIN READ ONLY` mailbox [`SqlContract`] query.
+    pub async fn run_mailbox_read_contract(
+        &self,
+        principal: &VerifiedMailbox,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::MailboxReadOnly],
+            "contract scope mismatch for AppPool::run_mailbox_read_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.run_mailbox_read_pipelined(principal, contract.sql, &params)
+            .await
+    }
+
+    /// Run a 1-RTT pipelined `BEGIN READ WRITE` mailbox [`SqlContract`] write.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_mailbox_write_contract_pipelined<C, T, P>(
+        &self,
+        envelope: &CommandEnvelope<C>,
+        principal: &VerifiedMailbox,
+        deadline: Instant,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+        receipt: Option<ReceiptCommand>,
+        project: P,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
+    {
+        if let Err(e) = check_contract_scope(
+            contract,
+            &[SqlScope::MailboxReadWrite],
+            "contract scope mismatch for AppPool::run_mailbox_write_contract_pipelined",
+        ) {
+            return CommandOutcome::RolledBack(Rejection::Statement(e));
+        }
+        let params = match zip_contract_params(contract, values) {
+            Ok(p) => p,
+            Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
+        };
+        self.run_mailbox_write_pipelined(
+            envelope,
+            principal,
+            deadline,
+            contract.sql,
+            &params,
+            receipt,
+            project,
+        )
+        .await
+    }
+
+    /// Run a 1-RTT pipelined `BEGIN READ ONLY` user [`SqlContract`] query.
+    pub async fn run_user_read_contract(
+        &self,
+        principal: &VerifiedUser,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::UserScoped],
+            "contract scope mismatch for AppPool::run_user_read_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.run_user_read_pipelined(principal, contract.sql, &params)
+            .await
+    }
+
+    /// Run a 1-RTT pipelined `BEGIN READ WRITE` user [`SqlContract`] write.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_user_write_contract_pipelined<C, T, P>(
+        &self,
+        envelope: &CommandEnvelope<C>,
+        principal: &VerifiedUser,
+        deadline: Instant,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+        receipt: Option<ReceiptCommand>,
+        project: P,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
+    {
+        if let Err(e) = check_contract_scope(
+            contract,
+            &[SqlScope::UserScoped],
+            "contract scope mismatch for AppPool::run_user_write_contract_pipelined",
+        ) {
+            return CommandOutcome::RolledBack(Rejection::Statement(e));
+        }
+        let params = match zip_contract_params(contract, values) {
+            Ok(p) => p,
+            Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
+        };
+        self.run_user_write_pipelined(
+            envelope,
+            principal,
+            deadline,
+            contract.sql,
+            &params,
+            receipt,
+            project,
+        )
+        .await
+    }
+
     /// Build an `AppPool` with [`Timeouts::resolved`] and unnamed statements.
     pub fn from_dsn(dsn: &str, max_size: usize) -> Result<Self, ConfigError> {
         Self::from_dsn_with(dsn, max_size, Timeouts::resolved())
@@ -2665,7 +2869,7 @@ impl AppPool {
             principal: principal.clone(),
         };
         let value = body(&mut handle).await?;
-        match handle.lease.client().batch_execute("COMMIT").await {
+        match handle.lease.client().batch_execute("ROLLBACK").await {
             Ok(()) => {
                 if !handle.lease.is_closed() {
                     handle.lease.keep();
@@ -3054,6 +3258,64 @@ impl AdminWorkerPool {
         execute_read_pipeline(&self.pool, &preamble, sql, params, None).await
     }
 
+    /// Run a 1-RTT pipelined cross-tenant standard admin [`SqlContract`] read.
+    pub async fn run_admin_read_contract(
+        &self,
+        principal: &VerifiedAdmin,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AdminRead],
+            "contract scope mismatch for AdminWorkerPool::run_admin_read_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.run_admin_read_pipelined(principal, contract.sql, &params)
+            .await
+    }
+
+    /// Run a 1-RTT pipelined cross-tenant admin [`SqlContract`] write with
+    /// explicit `AuditEvent`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_admin_write_contract_pipelined<C, T, P>(
+        &self,
+        envelope: &CommandEnvelope<C>,
+        principal: &VerifiedAdmin,
+        deadline: Instant,
+        audit: &AuditEvent,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+        receipt: Option<ReceiptCommand>,
+        project: P,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
+    {
+        if let Err(e) = check_contract_scope(
+            contract,
+            &[SqlScope::AdminWrite],
+            "contract scope mismatch for AdminWorkerPool::run_admin_write_contract_pipelined",
+        ) {
+            return CommandOutcome::RolledBack(Rejection::Statement(e));
+        }
+        let params = match zip_contract_params(contract, values) {
+            Ok(p) => p,
+            Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
+        };
+        self.run_admin_write_pipelined(
+            envelope,
+            principal,
+            deadline,
+            audit,
+            contract.sql,
+            &params,
+            receipt,
+            project,
+        )
+        .await
+    }
+
     /// Cross-tenant audit-before-read single-call API for sensitive admin /
     /// eDiscovery reads (Tx 1 `audit_write(..., 'core')` -> Tx 2 `BEGIN READ ONLY`).
     pub async fn run_admin_sensitive_read(
@@ -3091,7 +3353,7 @@ impl AdminWorkerPool {
             principal: principal.clone(),
         };
         let value = body(&mut handle).await?;
-        match handle.lease.client().batch_execute("COMMIT").await {
+        match handle.lease.client().batch_execute("ROLLBACK").await {
             Ok(()) => {
                 if !handle.lease.is_closed() {
                     handle.lease.keep();
@@ -3232,6 +3494,10 @@ pub struct WorkerPool {
 
 #[cfg(feature = "worker-pool")]
 impl WorkerPool {
+    pub(crate) fn from_parts(pool: SetjoinPool, audit_keys: Option<Arc<AuditKeys>>) -> Self {
+        Self { pool, audit_keys }
+    }
+
     pub fn from_dsn(dsn: &str, max_size: usize) -> Result<Self, ConfigError> {
         Self::from_dsn_with(dsn, max_size, Timeouts::resolved())
     }

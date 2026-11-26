@@ -15,9 +15,13 @@ serde_json = "=1.0.145"
 setjoin-approvals = { path = "../../crates/domains/approvals" }
 setjoin-blobs = { path = "../../crates/domains/blobs" }
 setjoin-calendar = { path = "../../crates/domains/calendar" }
+setjoin-devices = { path = "../../crates/domains/devices" }
+setjoin-guests = { path = "../../crates/domains/guests" }
+setjoin-office = { path = "../../crates/domains/office" }
 setjoin-pg = { path = "../../crates/pg" }
 setjoin-rules = { path = "../../crates/domains/rules" }
 setjoin-sql-catalog = { path = "../../crates/sql-catalog" }
+setjoin-static = { path = "../../crates/domains/static" }
 setjoin-user-settings = { path = "../../crates/domains/user-settings" }
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "time"] }
 tokio-postgres = "0.7.18"

@@ -79,9 +79,6 @@ LEGACY_PATTERNS = [
 ]
 
 WAVE_1_8_LEGACY_ALLOWLIST = {
-    "crates/domains/approvals/src/email.rs": {"from_authenticated_session"},
-    "crates/domains/calendar/src/carddav.rs": {"from_authenticated_session"},
-    "crates/domains/calendar/src/dav.rs": {"from_authenticated_session"},
     "crates/domains/chat/src/workers.rs": {"WorkerDatabase"},
     "crates/domains/compliance/src/chat_export.rs": {"WorkerDatabase"},
     "crates/domains/compliance/src/search.rs": {"WorkerDatabase"},
@@ -97,8 +94,6 @@ WAVE_1_8_LEGACY_ALLOWLIST = {
     "crates/domains/identity/src/totp.rs": {"ScopedExecutor::from_dsn"},
     "crates/domains/identity/src/webauthn.rs": {"ScopedExecutor::from_dsn"},
     "crates/domains/mail-security/src/dlp.rs": {"from_authenticated_session"},
-    "crates/domains/office/src/lib.rs": {"from_authenticated_session"},
-    "crates/domains/static/src/telemetry.rs": {"WorkerDatabase"},
 }
 
 

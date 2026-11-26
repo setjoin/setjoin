@@ -201,6 +201,39 @@ impl<K: KeySource + 'static> PolicyRuntime<K> {
     }
 }
 
+/// Derive a capability-gated [`TxFactory`] sharing the underlying `SetjoinPool`
+/// of an expand-phase `ScopedExecutor` pair (zero extra connections).
+///
+/// When `worker` is supplied, its pool backs `AdminWorkerPool` for RBAC-proved
+/// cross-tenant `AdminReadTx` / `AdminWriteTx` transactions; when omitted,
+/// `app`'s pool is used as the admin pool only if the caller constructed a
+/// single-DSN test executor.
+pub fn tx_factory_from_executors(
+    app: &ScopedExecutor,
+    worker: Option<&ScopedExecutor>,
+) -> Option<TxFactory> {
+    let app_pool = app.try_app_pool()?;
+    let groups = Arc::new(GroupResolver::new(app_pool.clone()));
+    match worker.and_then(ScopedExecutor::try_worker_pool) {
+        Some(worker_pool) => Some(TxFactory::with_admin_pool(
+            app_pool,
+            worker_pool.admin_pool(),
+            groups,
+        )),
+        None => {
+            if let Some(wp) = app.try_worker_pool() {
+                Some(TxFactory::with_admin_pool(
+                    app_pool,
+                    wp.admin_pool(),
+                    groups,
+                ))
+            } else {
+                Some(TxFactory::with_group_resolver(app_pool, groups))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

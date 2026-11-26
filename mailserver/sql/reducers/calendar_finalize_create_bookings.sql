@@ -38,6 +38,12 @@ DECLARE
   v_per_event JSONB;
   v_result    JSONB := '{}'::JSONB;
 BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    IF NOT public.rls_mailbox_in_scope(p_mailbox_id) THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   IF p_created_event_ids IS NULL OR array_length(p_created_event_ids, 1) IS NULL THEN
     RETURN '{}'::JSONB;
   END IF;
@@ -92,4 +98,6 @@ BEGIN
 
   RETURN v_result;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.calendar_finalize_create_bookings(bigint,bigint[])'::regprocedure);

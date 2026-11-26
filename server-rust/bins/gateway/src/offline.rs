@@ -190,12 +190,21 @@ impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return bare(503, "service unavailable", &c, "");
+            };
             let Some(operation) = crate::jmap::random() else {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return bare(500, "database error", &c, &id);
+            };
             let actor = auth.context();
-            if !matches!(what, Action::Size | Action::Ack) {
+            let admin_proof = if !matches!(what, Action::Size | Action::Ack) {
                 let permission = if matches!(what, Action::Device(_)) {
                     "mam.write"
                 } else if matches!(what, Action::Pending) {
@@ -203,21 +212,30 @@ impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
                 } else {
                     "mail.offline_policy"
                 };
-                if !matches!(
-                    setjoin_devices::authority(&exec, actor).await,
-                    Ok(authority) if authority.allows_any(&[permission])
-                ) {
+                let proof = if actor.signed_admin() {
+                    factory
+                        .mint_admin_from_authorized(&auth, &client_ip)
+                        .await
+                        .ok()
+                        .and_then(|admin| admin.require_permission(permission).ok())
+                } else {
+                    None
+                };
+                let Some(proof) = proof else {
                     let _ = setjoin_devices::console_denied(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user,
                         &segment_path(r.uri().path()),
                         permission,
                         operation,
                     )
                     .await;
                     return bare(403, "Forbidden", &c, &id);
-                }
-            }
+                };
+                Some(proof)
+            } else {
+                None
+            };
             let path = r.uri().path().to_owned();
             let head = r.method() == Method::HEAD;
             let reply = |status: u16, body: String| {
@@ -242,14 +260,22 @@ impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
                 out
             };
             let result = match what {
-                Action::Policies => offline::policies(&exec).await,
-                Action::Enabled => offline::enabled(&exec).await,
-                Action::Pending => offline::pending(&exec, actor).await,
+                Action::Policies => {
+                    offline::policies(&factory, admin_proof.as_ref().expect("admin")).await
+                }
+                Action::Enabled => {
+                    offline::enabled(&factory, admin_proof.as_ref().expect("admin")).await
+                }
+                Action::Pending => {
+                    offline::pending(&factory, admin_proof.as_ref().expect("admin")).await
+                }
                 Action::Policy => {
                     let Ok(policy) = segment(&path, 5).parse::<i64>() else {
                         return bare(400, "invalid id", &c, &id);
                     };
-                    match offline::policy(&exec, policy).await {
+                    match offline::policy(&factory, admin_proof.as_ref().expect("admin"), policy)
+                        .await
+                    {
                         Ok(Some(body)) => Ok(body),
                         Ok(None) => return bare(404, "policy not found", &c, &id),
                         Err(e) => Err(e),
@@ -272,8 +298,9 @@ impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
                         }
                     };
                     match offline::command(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user,
+                        actor.mailbox_id(),
                         name,
                         serde_json::json!({"id":target}),
                         operation,
@@ -304,7 +331,35 @@ impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
                         }
                     }
                 }
-                Action::Size => offline::size(&worker, actor).await,
+                Action::Size => {
+                    let uid = user.user().get();
+                    match worker.try_worker_pool() {
+                        Some(wp) => match wp.begin_repeatable_read_only().await {
+                            Ok(mut tx) => {
+                                let res = tx
+                                    .query_contract(&setjoin_devices::sql::OFFLINE_SIZE, &[&uid])
+                                    .await
+                                    .and_then(|rows| {
+                                        rows.first()
+                                            .ok_or_else(|| StatementFailure {
+                                                sqlstate: None,
+                                                hint: None,
+                                                message: "invalid devices result".into(),
+                                            })
+                                            .and_then(offline::format_size_buckets)
+                                    });
+                                let _ = tx.rollback().await;
+                                res
+                            }
+                            Err(e) => Err(e),
+                        },
+                        None => Err(StatementFailure {
+                            sqlstate: None,
+                            hint: None,
+                            message: "worker pool unavailable".into(),
+                        }),
+                    }
+                }
                 Action::Ack => {
                     let Some(bytes) = read_body(&mut r, usize::MAX).await else {
                         return bare(400, "device_id required", &c, &id);
@@ -316,7 +371,16 @@ impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
                     if actor.mailbox_id() == 0 {
                         return bare(404, "mailbox not found", &c, &id);
                     }
-                    match offline::command(&exec, actor, "ack", payload, operation).await {
+                    match offline::command(
+                        &factory,
+                        &user,
+                        actor.mailbox_id(),
+                        "ack",
+                        payload,
+                        operation,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(_) => {
                             return reply(200, "{\"status\":\"ok\"}\n".into())
                         }
@@ -356,7 +420,14 @@ impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
                             )
                         }
                     };
-                    match offline::preview(&exec, actor, target, device).await {
+                    match offline::preview(
+                        &factory,
+                        admin_proof.as_ref().expect("admin"),
+                        target,
+                        device,
+                    )
+                    .await
+                    {
                         Ok(body) => Ok(body),
                         Err(e) => {
                             return classified(
@@ -378,7 +449,16 @@ impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
                         Err(_) => return bare(400, "invalid JSON", &c, &id),
                     };
                     let value = payload["enabled"].as_bool().unwrap_or(false);
-                    match offline::command(&exec, actor, "toggle", payload, operation).await {
+                    match offline::command(
+                        &factory,
+                        &user,
+                        actor.mailbox_id(),
+                        "toggle",
+                        payload,
+                        operation,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(_) => {
                             return reply(200, format!("{{\"enabled\":{value}}}\n"))
                         }
@@ -416,7 +496,16 @@ impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
                         Action::Update => "update",
                         _ => "delete",
                     };
-                    match offline::command(&exec, actor, name, payload, operation).await {
+                    match offline::command(
+                        &factory,
+                        &user,
+                        actor.mailbox_id(),
+                        name,
+                        payload,
+                        operation,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(value) => {
                             return if matches!(what, Action::Delete) {
                                 reply(200, "{\"status\":\"deleted\"}\n".into())

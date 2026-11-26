@@ -348,6 +348,31 @@ impl ScopedExecutor {
         self
     }
 
+    /// Derive a capability-gated [`crate::AppPool`] sharing this executor's
+    /// underlying [`SetjoinPool`] and deployment audit keys (zero extra connections).
+    pub fn try_app_pool(&self) -> Option<crate::AppPool> {
+        match &self.pool {
+            PoolBackend::Fast(pool) => Some(crate::AppPool::from_parts(
+                pool.clone(),
+                self.audit_keys.clone(),
+            )),
+            PoolBackend::Legacy { .. } => None,
+        }
+    }
+
+    /// Derive a cross-tenant [`crate::WorkerPool`] sharing this executor's
+    /// underlying [`SetjoinPool`] and deployment audit keys (composition-root only).
+    #[cfg(feature = "worker-pool")]
+    pub fn try_worker_pool(&self) -> Option<crate::WorkerPool> {
+        match &self.pool {
+            PoolBackend::Fast(pool) => Some(crate::WorkerPool::from_parts(
+                pool.clone(),
+                self.audit_keys.clone(),
+            )),
+            PoolBackend::Legacy { .. } => None,
+        }
+    }
+
     fn transaction_auth(&self, auth: &MailboxAuthContext) -> MailboxAuthContext {
         let mut auth = auth.clone();
         auth.audit_keys = self.audit_keys.clone();

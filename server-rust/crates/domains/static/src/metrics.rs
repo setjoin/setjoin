@@ -6,7 +6,6 @@
 //! and per-method families only exist while Go mail protocols record into
 //! them, so they are omitted (the SMTP queue depth gauge is never set in Go
 //! and stays 0).
-use setjoin_pg::ScopedExecutor;
 
 /// `MetricsAuth`'s decision from `METRICS_TOKEN` / `METRICS_ALLOW_UNAUTHENTICATED`.
 #[derive(Clone, Debug)]
@@ -67,34 +66,10 @@ pub struct Identity {
     pub grant_changes: i64,
 }
 
-const IDENTITY_SQL: &str = "SELECT
- (SELECT count(*) FROM identity_shadow_divergences WHERE state='open' AND divergence_class<>'expected_legacy_ambiguity'),
- (SELECT count(*) FROM identity_sources WHERE state IN ('error','paused') OR last_error_code IS NOT NULL),
- (SELECT count(*) FROM identity_source_inbox WHERE state IN ('pending','quarantined')),
- (SELECT count(*) FROM identity_source_inbox WHERE state='quarantined'),
- (SELECT count(*) FROM identity_match_candidates WHERE status IN ('pending','deferred')),
- (SELECT count(*) FROM identity_transitions WHERE state NOT IN ('completed','rolled_back')),
- (SELECT count(*) FROM identity_transition_effects WHERE state<>'completed'),
- (SELECT count(*) FROM identity_read_cohort),
- (SELECT count(*) FROM identity_sync_log WHERE source_id IS NOT NULL),
- COALESCE((SELECT max(duration_ms)/1000 FROM identity_sync_log WHERE source_id IS NOT NULL),0),
- COALESCE((SELECT max(extract(epoch FROM statement_timestamp()-last_success_at))::bigint FROM identity_sources WHERE last_success_at IS NOT NULL),0),
- (SELECT count(*) FROM identity_source_inbox WHERE last_error_code='BZ229'),
- COALESCE((SELECT max(extract(epoch FROM statement_timestamp()-created_at))::bigint FROM identity_transitions WHERE state NOT IN ('completed','rolled_back','cancelled','expired')),0),
- COALESCE((SELECT max(extract(epoch FROM statement_timestamp()-created_at))::bigint FROM approval_requests WHERE consumer_type='identity.transition' AND status='pending'),0),
- (SELECT count(*) FROM approval_requests WHERE consumer_type='identity.transition' AND status='pending'),
- COALESCE((SELECT greatest(0,min(extract(epoch FROM expires_at-statement_timestamp())))::bigint FROM approval_requests WHERE consumer_type='identity.transition' AND status='pending'),0),
- COALESCE((SELECT max(extract(epoch FROM statement_timestamp()-updated_at))::bigint FROM identity_transition_effects WHERE state<>'completed'),0),
- COALESCE((SELECT sum(attempt_count)::bigint FROM identity_transition_effects),0),
- (SELECT count(*) FROM identity_link_events WHERE action IN ('auth_jit_created','auth_linked','auth_resolved')),
- (SELECT count(*) FROM identity_link_events WHERE action IN ('entitlements_reconciled','authority_changed','transition_committed'))";
-
-/// One collection round; `success = 0` with zeroed values when it fails, as
-/// Go's collector publishes on a failed query.
-pub async fn collect_identity(exec: &ScopedExecutor) -> Identity {
-    let Ok(rows) = exec.read(IDENTITY_SQL, &[]).await else {
-        return Identity::default();
-    };
+/// Decode one identity-metrics query row (`sql::METRICS_IDENTITY`); returns
+/// `success = 0` with zeroed values when empty, matching Go's collector on a
+/// failed query.
+pub fn decode_identity(rows: &[setjoin_pg::Row]) -> Identity {
     let Some(row) = rows.first() else {
         return Identity::default();
     };

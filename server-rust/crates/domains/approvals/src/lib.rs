@@ -1,15 +1,41 @@
 //! Approvals family (F10). Reducers own business authority.
 #![forbid(unsafe_code)]
+pub mod email;
+pub mod notify;
 pub mod sql;
 pub use sql::SQL_CONTRACTS;
-use serde::Serialize;
-use setjoin_authz::AuthContext;
-use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
-use setjoin_pg::{MailboxAuthContext, Row, ScopedExecutor, StatementFailure, Type};
 
-pub fn scope(actor: &AuthContext) -> MailboxAuthContext {
-    actor.database_scope()
+use serde::Serialize;
+use setjoin_authz::{
+    principals::{TxFactory, UserPrincipal},
+    AuthContext,
+};
+use setjoin_contracts::{
+    authority::{AuthorityKey, ResourceScope},
+    command::CommandEnvelope,
+    ids::{Digest, Generation, OperationId},
+};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, Row, StatementFailure};
+use sha2::{Digest as _, Sha256};
+
+fn deadline() -> std::time::Instant {
+    std::time::Instant::now() + std::time::Duration::from_secs(30)
 }
+
+fn envelope(user: &UserPrincipal, operation: [u8; 16], digest_bytes: &[u8]) -> CommandEnvelope<()> {
+    CommandEnvelope {
+        operation: OperationId(operation),
+        authority: AuthorityKey {
+            actor: user.user(),
+            scope: ResourceScope::User(user.user()),
+            generation: Generation(1),
+        },
+        binding: setjoin_db::lifecycle::accepted_contract(),
+        payload_digest: Digest(Sha256::digest(digest_bytes).into()),
+        command: (),
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Item {
@@ -32,6 +58,7 @@ struct Item {
     #[serde(skip_serializing_if = "Option::is_none")]
     payload: Option<Box<serde_json::value::RawValue>>,
 }
+
 fn timestamp(mut value: String) -> String {
     if value.ends_with('Z') && value.contains('.') {
         value.pop();
@@ -45,6 +72,7 @@ fn timestamp(mut value: String) -> String {
     }
     value
 }
+
 fn item(r: &Row) -> Result<Item, StatementFailure> {
     let ct: String = r.get(1);
     let payload: Option<Box<serde_json::value::RawValue>> = if matches!(
@@ -74,6 +102,7 @@ fn item(r: &Row) -> Result<Item, StatementFailure> {
         payload,
     })
 }
+
 fn invalid() -> StatementFailure {
     StatementFailure {
         hint: None,
@@ -81,18 +110,18 @@ fn invalid() -> StatementFailure {
         message: "invalid approval result".into(),
     }
 }
+
 /// Same-statement requester/active approver fence remains effective on owner pools.
 pub async fn my_approvals(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
 ) -> Result<String, StatementFailure> {
-    let auth = scope(actor);
-    let uid = actor.user_id();
-    let pending = exec
-        .read_scoped(&auth, sql::MY_APPROVALS_PENDING.sql, &[(&uid, Type::INT8)])
+    let uid = user.user().get();
+    let pending = tx_factory
+        .run_user_read_contract(user, &sql::MY_APPROVALS_PENDING, &[&uid])
         .await?;
-    let mine = exec
-        .read_scoped(&auth, sql::MY_APPROVALS_MINE.sql, &[(&uid, Type::INT8)])
+    let mine = tx_factory
+        .run_user_read_contract(user, &sql::MY_APPROVALS_MINE, &[&uid])
         .await?;
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -107,6 +136,7 @@ pub async fn my_approvals(
     .map(|s| go_json(&s) + "\n")
     .map_err(|_| invalid())
 }
+
 /// encoding/json's HTML escaping, also applied to RawMessage fields.
 pub fn go_json(s: &str) -> String {
     let (mut compact, mut quoted, mut escaped) = (String::with_capacity(s.len()), false, false);
@@ -138,117 +168,89 @@ pub fn go_json(s: &str) -> String {
 /// Requester-bound cancellation. The existing reducer commits its pending
 /// guard, request status, core audit and approval_decided notification together.
 pub async fn cancel_request(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     request: i64,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    use setjoin_contracts::{
-        command::CommandEnvelope,
-        ids::{Digest, OperationId},
-    };
-    use sha2::{Digest as _, Sha256};
-    let auth = scope(actor);
-    let envelope = CommandEnvelope {
-        operation: OperationId(operation),
-        authority: auth.authority(),
-        binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(Sha256::digest(request.to_be_bytes()).into()),
-        command: (),
-    };
-    setjoin_pg::run_receipted_command(
-        exec,
-        setjoin_pg::ReceiptCommand {
-            family: "F10",
-            command: "approval_request_cancel",
-        },
-        &envelope,
-        &auth,
-        std::time::Instant::now() + std::time::Duration::from_secs(30),
-        sql::CANCEL_REQUEST.sql,
-        &[(&request, Type::INT8)],
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get(0).ok())
-                .ok_or_else(invalid)
-        },
-    )
-    .await
+) -> CommandOutcome<String, StatementFailure> {
+    let uid = user.user().get();
+    let env = envelope(user, operation, &request.to_be_bytes());
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::CANCEL_REQUEST,
+            &[&request, &uid],
+            Some(ReceiptCommand {
+                family: "F10",
+                command: "approval_request_cancel",
+            }),
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }
 
 /// Application fence mirrors approval_requests' user/active-role/admin RLS
 /// predicate even when a request pool is configured with an owner credential.
 pub async fn visible_consumer(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     request: i64,
 ) -> Result<Option<String>, StatementFailure> {
-    let user = actor.user_id();
-    let rows = exec
-        .read_scoped(
-            &scope(actor),
-            sql::VISIBLE_CONSUMER.sql,
-            &[(&request, Type::INT8), (&user, Type::INT8)],
-        )
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &sql::VISIBLE_CONSUMER, &[&request, &uid])
         .await?;
     Ok(rows.first().map(|r| r.get(0)))
 }
 
 pub async fn decide_consumer(
-    exec: &ScopedExecutor,
-    auth: &MailboxAuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     consumer: &str,
     request: i64,
     decision: &str,
     comment: Option<&str>,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    let (command, sql) = match consumer {
-        "hr.leave" | "hr.expense" => ("hr_approval_decide", sql::DECIDE_HR.sql),
-        "rbac.jit_activation" => ("rbac_approval_decide", sql::DECIDE_RBAC.sql),
-        "drive.export" => ("drive_export_approval_decide", sql::DECIDE_DRIVE_EXPORT.sql),
-        "drive.share" => ("drive_share_approval_decide", sql::DECIDE_DRIVE_SHARE.sql),
-        "mail.external_send" => ("mail_external_approval_decide", sql::DECIDE_MAIL_EXTERNAL.sql),
+) -> CommandOutcome<String, StatementFailure> {
+    let (command, contract) = match consumer {
+        "hr.leave" | "hr.expense" => ("hr_approval_decide", &sql::DECIDE_HR),
+        "rbac.jit_activation" => ("rbac_approval_decide", &sql::DECIDE_RBAC),
+        "drive.export" => ("drive_export_approval_decide", &sql::DECIDE_DRIVE_EXPORT),
+        "drive.share" => ("drive_share_approval_decide", &sql::DECIDE_DRIVE_SHARE),
+        "mail.external_send" => ("mail_external_approval_decide", &sql::DECIDE_MAIL_EXTERNAL),
         "mail.group_moderation" => (
             "group_moderation_approval_decide",
-            sql::DECIDE_GROUP_MODERATION.sql,
+            &sql::DECIDE_GROUP_MODERATION,
         ),
-        _ => return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Body(invalid())),
+        _ => return CommandOutcome::RolledBack(setjoin_pg::Rejection::Body(invalid())),
     };
-    use setjoin_contracts::{
-        command::CommandEnvelope,
-        ids::{Digest, OperationId},
-    };
-    use sha2::{Digest as _, Sha256};
-    let envelope = CommandEnvelope {
-        operation: OperationId(operation),
-        authority: auth.authority(),
-        binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(Sha256::digest(format!("{request}:{decision}:{comment:?}")).into()),
-        command: (),
-    };
-    setjoin_pg::run_receipted_command(
-        exec,
-        setjoin_pg::ReceiptCommand {
-            family: "F10",
-            command,
-        },
-        &envelope,
-        auth,
-        std::time::Instant::now() + std::time::Duration::from_secs(30),
-        sql,
-        &[
-            (&request, Type::INT8),
-            (&decision, Type::TEXT),
-            (&comment, Type::TEXT),
-        ],
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get(0).ok())
-                .ok_or_else(invalid)
-        },
-    )
-    .await
+    let uid = user.user().get();
+    let digest = format!("{request}:{decision}:{comment:?}");
+    let env = envelope(user, operation, digest.as_bytes());
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            contract,
+            &[&request, &uid, &decision, &comment],
+            Some(ReceiptCommand {
+                family: "F10",
+                command,
+            }),
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }
 
 /// Live request-time projection, never authority from signed permission claims.
@@ -277,8 +279,10 @@ fn signed_admin_authority(permissions: &[String], domain_scope: Option<i64>) -> 
         domain_scope,
     }
 }
+
 pub async fn admin_authority(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     actor: &AuthContext,
 ) -> Result<AdminAuthority, StatementFailure> {
     if !actor.signed_admin() {
@@ -287,9 +291,9 @@ pub async fn admin_authority(
             actor.signed_domain_scope(),
         ));
     }
-    let user = actor.user_id();
-    let rows = exec
-        .read(sql::ADMIN_AUTHORITY.sql, &[(&user, Type::INT8)])
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &sql::ADMIN_AUTHORITY, &[&uid])
         .await?;
     let row = rows.first().ok_or_else(invalid)?;
     Ok(AdminAuthority {
@@ -298,6 +302,7 @@ pub async fn admin_authority(
         domain_scope: row.get(2),
     })
 }
+
 pub fn valid_consumer(value: &str) -> bool {
     matches!(
         value,
@@ -310,6 +315,7 @@ pub fn valid_consumer(value: &str) -> bool {
             | "drive.share"
     )
 }
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Policy {
@@ -324,18 +330,15 @@ struct Policy {
     created_at: String,
     updated_at: String,
 }
+
 pub async fn policies(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     consumer: &str,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    let rows = exec
-        .read_scoped(
-            &scope(actor),
-            sql::POLICIES_LIST.sql,
-            &[(&consumer, Type::TEXT), (&user, Type::INT8)],
-        )
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &sql::POLICIES_LIST, &[&consumer, &uid])
         .await?;
     let mut policies = vec![];
     for r in rows {
@@ -362,176 +365,220 @@ pub async fn policies(
 /// Go's permission middleware writes a best-effort SYSTEM audit: actor stays
 /// NULL, while the verified display email is inside before_state.
 pub async fn console_denied(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+    email: &str,
     path: &str,
     permission: &str,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
-    use setjoin_contracts::{
-        command::CommandEnvelope,
-        ids::{Digest, OperationId},
-    };
-    use sha2::{Digest as _, Sha256};
+) -> CommandOutcome<(), StatementFailure> {
     let before =
-        serde_json::json!({"actor":actor.email(),"target":path,"missingPermission":permission})
-            .to_string();
-    let auth = scope(actor);
-    let envelope = CommandEnvelope {
-        operation: OperationId(operation),
-        authority: auth.authority(),
-        binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(Sha256::digest(before.as_bytes()).into()),
-        command: (),
-    };
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F10",command:"console.denied"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- sql::CONSOLE_DENIED.sql,&[(&before,Type::TEXT),(&path,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
+        serde_json::json!({"actor":email,"target":path,"missingPermission":permission}).to_string();
+    let env = envelope(user, operation, before.as_bytes());
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::CONSOLE_DENIED,
+            &[&before, &path],
+            Some(ReceiptCommand {
+                family: "F10",
+                command: "console.denied",
+            }),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 pub async fn create_policy(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     body: &str,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<i64, StatementFailure> {
-    use setjoin_contracts::{
-        command::CommandEnvelope,
-        ids::{Digest, OperationId},
-    };
-    use sha2::{Digest as _, Sha256};
-    let auth = scope(actor);
-    let envelope = CommandEnvelope {
-        operation: OperationId(operation),
-        authority: auth.authority(),
-        binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(Sha256::digest(body.as_bytes()).into()),
-        command: (),
-    };
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F10",command:"rust_approval_policy_create"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- sql::POLICY_CREATE.sql,&[(&body,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
+) -> CommandOutcome<i64, StatementFailure> {
+    let uid = user.user().get();
+    let env = envelope(user, operation, body.as_bytes());
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::POLICY_CREATE,
+            &[&uid, &body],
+            Some(ReceiptCommand {
+                family: "F10",
+                command: "rust_approval_policy_create",
+            }),
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }
 
 /// Preserve Go's independent, best-effort post-commit policy audit.
 pub async fn audit_policy_created(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     id: i64,
     consumer: &str,
     name: &str,
     ip: &str,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
-    use setjoin_contracts::{
-        command::CommandEnvelope,
-        ids::{Digest, OperationId},
-    };
-    use sha2::{Digest as _, Sha256};
+) -> CommandOutcome<(), StatementFailure> {
+    let uid = user.user().get();
     let after = serde_json::json!({"id":id,"consumerType":consumer,"name":name}).to_string();
-    let auth = scope(actor);
-    let envelope = CommandEnvelope {
-        operation: OperationId(operation),
-        authority: auth.authority(),
-        binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(Sha256::digest(after.as_bytes()).into()),
-        command: (),
-    };
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F10",command:"approval_policy_create_audit"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- sql::AUDIT_POLICY_CREATED.sql,&[(&id,Type::INT8),(&after,Type::TEXT),(&ip,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
+    let env = envelope(user, operation, after.as_bytes());
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::AUDIT_POLICY_CREATED,
+            &[&uid, &id, &after, &ip],
+            Some(ReceiptCommand {
+                family: "F10",
+                command: "approval_policy_create_audit",
+            }),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 /// A static canonical policy command, with no caller-controlled SQL identifiers.
 pub async fn update_policy(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     id: i64,
     body: &str,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<i64, StatementFailure> {
-    policy_command(exec,actor,"rust_approval_policy_update",sql::POLICY_UPDATE.sql,id,body,operation).await
+) -> CommandOutcome<i64, StatementFailure> {
+    let uid = user.user().get();
+    let digest = format!("{id}:{body}");
+    let env = envelope(user, operation, digest.as_bytes());
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::POLICY_UPDATE,
+            &[&uid, &id, &body],
+            Some(ReceiptCommand {
+                family: "F10",
+                command: "rust_approval_policy_update",
+            }),
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }
-async fn policy_command(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    command: &'static str,
-    sql: &str,
-    id: i64,
-    body: &str,
-    operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<i64, StatementFailure> {
-    use setjoin_contracts::{
-        command::CommandEnvelope,
-        ids::{Digest, OperationId},
-    };
-    use sha2::{Digest as _, Sha256};
-    let auth = scope(actor);
-    let envelope = CommandEnvelope {
-        operation: OperationId(operation),
-        authority: auth.authority(),
-        binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(Sha256::digest(format!("{id}:{body}")).into()),
-        command: (),
-    };
-    setjoin_pg::run_receipted_command(
-        exec,
-        setjoin_pg::ReceiptCommand {
-            family: "F10",
-            command,
-        },
-        &envelope,
-        &auth,
-        std::time::Instant::now() + std::time::Duration::from_secs(30),
-        sql,
-        &[(&id, Type::INT8), (&body, Type::TEXT)],
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get(0).ok())
-                .ok_or_else(invalid)
-        },
-    )
-    .await
-}
+
 pub async fn audit_policy_change(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     action: &str,
     id: Option<i64>,
     after: Option<&str>,
     ip: &str,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
-    use setjoin_contracts::{
-        command::CommandEnvelope,
-        ids::{Digest, OperationId},
-    };
-    use sha2::{Digest as _, Sha256};
-    let auth = scope(actor);
-    let envelope = CommandEnvelope {
-        operation: OperationId(operation),
-        authority: auth.authority(),
-        binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(Sha256::digest(format!("{action}:{id:?}:{after:?}")).into()),
-        command: (),
-    };
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F10",command:"approval_policy_audit"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
-    sql::AUDIT_POLICY_CHANGE.sql,&[(&action,Type::TEXT),(&id,Type::INT8),(&after,Type::TEXT),(&ip,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
+) -> CommandOutcome<(), StatementFailure> {
+    let uid = user.user().get();
+    let digest = format!("{action}:{id:?}:{after:?}");
+    let env = envelope(user, operation, digest.as_bytes());
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::AUDIT_POLICY_CHANGE,
+            &[&uid, &action, &id, &after, &ip],
+            Some(ReceiptCommand {
+                family: "F10",
+                command: "approval_policy_audit",
+            }),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 pub async fn delete_policy(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     id: i64,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<i64, StatementFailure> {
-    policy_command(exec,actor,"rust_approval_policy_delete",sql::POLICY_DELETE.sql,id,"",operation).await
+) -> CommandOutcome<i64, StatementFailure> {
+    let uid = user.user().get();
+    let env = envelope(user, operation, &id.to_be_bytes());
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::POLICY_DELETE,
+            &[&uid, &id],
+            Some(ReceiptCommand {
+                family: "F10",
+                command: "rust_approval_policy_delete",
+            }),
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }
 
 pub async fn reorder_policies(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     body: &str,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<i64, StatementFailure> {
-    policy_command(exec,actor,"rust_approval_policy_reorder",sql::POLICY_REORDER.sql,0,body,operation).await
+) -> CommandOutcome<i64, StatementFailure> {
+    let uid = user.user().get();
+    let env = envelope(user, operation, body.as_bytes());
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::POLICY_REORDER,
+            &[&uid, &body],
+            Some(ReceiptCommand {
+                family: "F10",
+                command: "rust_approval_policy_reorder",
+            }),
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }
 
 #[derive(Serialize)]
@@ -554,25 +601,21 @@ struct AuditItem {
     created_at: String,
     expires_at: String,
 }
+
 pub async fn audit_requests(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     domain: Option<i64>,
     limit: i64,
     offset: i64,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
+    let uid = user.user().get();
     let domain = domain.unwrap_or(0);
-    let rows = exec
-        .read_scoped(
-            &scope(actor),
-            sql::AUDIT_REQUESTS.sql,
-            &[
-                (&user, Type::INT8),
-                (&domain, Type::INT8),
-                (&limit, Type::INT8),
-                (&offset, Type::INT8),
-            ],
+    let rows = tx_factory
+        .run_user_read_contract(
+            user,
+            &sql::AUDIT_REQUESTS,
+            &[&uid, &domain, &limit, &offset],
         )
         .await?;
     let items = rows
@@ -597,59 +640,48 @@ pub async fn audit_requests(
         .map_err(|_| invalid())
 }
 
-pub async fn hr_enabled(exec: &ScopedExecutor, kind: &str) -> Result<bool, StatementFailure> {
+pub async fn hr_enabled(tx_factory: &TxFactory, kind: &str) -> Result<bool, StatementFailure> {
     let key = match kind {
         "hr.leave" => "approval.hr_leave",
         "hr.expense" => "approval.hr_expense",
         _ => return Ok(false),
     };
-    let rows = exec
-        .read(sql::HR_ENABLED.sql, &[(&key, Type::TEXT)])
+    let rows = tx_factory
+        .run_public_read_contract(&sql::HR_ENABLED, &[&key])
         .await?;
     Ok(rows.first().is_some_and(|r| r.get(0)))
 }
+
 pub async fn submit_hr(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     kind: &str,
     form: &str,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<Option<i64>, StatementFailure> {
-    use setjoin_contracts::{
-        command::CommandEnvelope,
-        ids::{Digest, OperationId},
-    };
-    use sha2::{Digest as _, Sha256};
-    let auth = scope(actor);
-    let envelope = CommandEnvelope {
-        operation: OperationId(operation),
-        authority: auth.authority(),
-        binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(Sha256::digest(format!("{kind}:{form}")).into()),
-        command: (),
-    };
-    setjoin_pg::run_receipted_command(
-        exec,
-        setjoin_pg::ReceiptCommand {
-            family: "F10",
-            command: "hr_request_create",
-        },
-        &envelope,
-        &auth,
-        std::time::Instant::now() + std::time::Duration::from_secs(30),
-        sql::SUBMIT_HR.sql,
-        &[(&kind, Type::TEXT), (&form, Type::TEXT)],
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get(0).ok())
-                .ok_or_else(invalid)
-        },
-    )
-    .await
+) -> CommandOutcome<Option<i64>, StatementFailure> {
+    let uid = user.user().get();
+    let digest = format!("{kind}:{form}");
+    let env = envelope(user, operation, digest.as_bytes());
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::SUBMIT_HR,
+            &[&uid, &kind, &form],
+            Some(ReceiptCommand {
+                family: "F10",
+                command: "hr_request_create",
+            }),
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }
 
-pub mod email;
-pub mod notify;
 /// Go's Drive decision parameters; request defaults are resolved inside the SQL statement.
 pub struct DriveDecision<'a> {
     pub capabilities: Option<&'a [String]>,
@@ -658,41 +690,55 @@ pub struct DriveDecision<'a> {
     pub max_uses: Option<i64>,
     pub expected_epoch: Option<i64>,
 }
+
 pub async fn decide_drive_access(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     request: i64,
     decision: &str,
     comment: Option<&str>,
     body: DriveDecision<'_>,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    use setjoin_contracts::{
-        command::CommandEnvelope,
-        ids::{Digest, OperationId},
-    };
-    use sha2::{Digest as _, Sha256};
-    let auth = scope(actor);
-    let envelope = CommandEnvelope {
-        operation: OperationId(operation),
-        authority: auth.authority(),
-        binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(
-            Sha256::digest(format!(
-                "{request}:{decision}:{comment:?}:{:?}:{:?}:{:?}:{:?}:{:?}",
-                body.capabilities,
-                body.propagation,
-                body.expires_at,
-                body.max_uses,
-                body.expected_epoch
-            ))
-            .into(),
-        ),
-        command: (),
-    };
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F10",command:"drive_access_approval_decide"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- sql::DECIDE_DRIVE_ACCESS.sql,
- &[(&request,Type::INT8),(&decision,Type::TEXT),(&comment,Type::TEXT),(&body.capabilities,Type::TEXT_ARRAY),(&body.propagation,Type::TEXT),(&body.expires_at,Type::TEXT),(&body.max_uses,Type::INT8),(&body.expected_epoch,Type::INT8)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
+) -> CommandOutcome<String, StatementFailure> {
+    let uid = user.user().get();
+    let digest = format!(
+        "{request}:{decision}:{comment:?}:{:?}:{:?}:{:?}:{:?}:{:?}",
+        body.capabilities, body.propagation, body.expires_at, body.max_uses, body.expected_epoch
+    );
+    let env = envelope(user, operation, digest.as_bytes());
+    tx_factory
+        .run_user_write(user, &env, deadline(), async |tx| {
+            let rows = tx
+                .query_contract(
+                    &sql::DECIDE_DRIVE_ACCESS,
+                    &[
+                        &request,
+                        &uid,
+                        &decision,
+                        &comment,
+                        &body.capabilities,
+                        &body.propagation,
+                        &body.expires_at,
+                        &body.max_uses,
+                        &body.expected_epoch,
+                    ],
+                )
+                .await?;
+            let status: String = rows
+                .first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(invalid)?;
+            tx.record_receipt(
+                OperationId(operation),
+                ReceiptCommand {
+                    family: "F10",
+                    command: "drive_access_approval_decide",
+                },
+            )
+            .await?;
+            Ok(status)
+        })
+        .await
 }
 
 #[cfg(test)]

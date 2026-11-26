@@ -45,9 +45,11 @@ async fn run(kill: bool, rollback: bool) -> Result<(), common::BoxError> {
         })
         .await;
         let s3 = common::fake_upstream(|_| async { Response::new(common::full("")) }).await;
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
+            .map_err(|e| e.0)?;
         let config = setjoin_gateway::f15::F15Config {
-            exec: setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
-                .map_err(|e| e.0)?,
+            worker: exec.clone(),
+            exec,
             keys: Arc::new(common::recovery_keys()),
             issuer: "mailserver".into(),
             store: Some(Arc::new(setjoin_gateway::recovery_worker::S3Store::new(

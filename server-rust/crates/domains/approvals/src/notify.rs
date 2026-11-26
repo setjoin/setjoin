@@ -27,7 +27,10 @@ impl ApprovalNotify {
         let (client, connection) = tokio_postgres::connect(&self.dsn, NoTls).await?;
         let driver = tokio::spawn(connection);
         let rows = client
-            .query_typed(crate::sql::NOTIFY_REQUEST_LOOKUP.sql, &[(&request, Type::INT8)])
+            .query_typed(
+                crate::sql::NOTIFY_REQUEST_LOOKUP.sql,
+                &[(&request, Type::INT8)],
+            )
             .await?;
         let Some(row) = rows.first() else {
             return Ok(());
@@ -102,7 +105,26 @@ impl ApprovalNotify {
             let size = (text.len() + html.len()) as i64;
             let title = format!("Approval required: {subject}");
             // Go's entire delivery transaction is this canonical reducer call. Do not retry an unknown commit.
-            if client.query_typed(crate::sql::NOTIFY_DELIVER.sql,&[(&raw,Type::TEXT),(&message,Type::TEXT),(&from,Type::TEXT),(&email,Type::TEXT),(&to,Type::TEXT),(&title,Type::TEXT),(&text,Type::TEXT),(&html,Type::TEXT),(&size,Type::INT8)]).await.is_err(){eprintln!("approval notify: delivery failed");}
+            if client
+                .query_typed(
+                    crate::sql::NOTIFY_DELIVER.sql,
+                    &[
+                        (&raw, Type::TEXT),
+                        (&message, Type::TEXT),
+                        (&from, Type::TEXT),
+                        (&email, Type::TEXT),
+                        (&to, Type::TEXT),
+                        (&title, Type::TEXT),
+                        (&text, Type::TEXT),
+                        (&html, Type::TEXT),
+                        (&size, Type::INT8),
+                    ],
+                )
+                .await
+                .is_err()
+            {
+                eprintln!("approval notify: delivery failed");
+            }
         }
         drop(client);
         driver.await??;

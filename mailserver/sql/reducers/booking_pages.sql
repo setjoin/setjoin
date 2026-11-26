@@ -235,7 +235,9 @@ BEGIN
 
     RETURN v_slots;   -- ONLY {start,end} pairs — the no-leak contract
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.booking_slots(text,date,date)'::regprocedure);
 
 -- ============================================================
 -- Booking state machine (unauthenticated; token-gated)
@@ -312,7 +314,9 @@ BEGIN
                               'ownerEmail', (SELECT m.email FROM mailboxes m WHERE m.id = v_page.mailbox_id),
                               'pageTitle', v_page.title);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.booking_create(text,timestamptz,text,text,jsonb,text,inet)'::regprocedure);
 
 CREATE OR REPLACE FUNCTION booking_confirm(
     p_verify_token_hash TEXT,
@@ -409,7 +413,9 @@ BEGIN
         'slotStart', v_req.slot_start, 'slotEnd', v_req.slot_end,
         'pageTitle', v_page.title, 'pageTimezone', v_page.timezone);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.booking_confirm(text,text)'::regprocedure);
 
 CREATE OR REPLACE FUNCTION booking_cancel(
     p_cancel_token_hash TEXT
@@ -435,7 +441,9 @@ BEGIN
     END IF;
     RETURN jsonb_build_object('cancelled', TRUE);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.booking_cancel(text)'::regprocedure);
 
 CREATE OR REPLACE FUNCTION booking_expire_due() RETURNS INT AS $$
 DECLARE

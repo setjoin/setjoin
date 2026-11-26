@@ -124,7 +124,9 @@ pub struct FinalizeRoute<K: KeySource + 'static>(
     pub Option<Arc<dyn MalwareScanner>>,
 );
 impl<K: KeySource + 'static> Intercept for FinalizeRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         r.method() == Method::POST && target(r.uri().path()).is_some()
     }
@@ -159,8 +161,20 @@ impl<K: KeySource + 'static> Intercept for FinalizeRoute<K> {
             let Some(session) = session else {
                 return problem(400, "invalid recovery identifier", c.identity.proto, id);
             };
-            let Ok(Some(meta)) =
-                setjoin_blobs::finalize_item(&commands.worker_exec, a.context(), &session).await
+            let Some(factory) = commands.tx_factory() else {
+                return fail("mail recovery operation failed");
+            };
+            let Ok(user) = factory
+                .mint_user_from_authorized(&a, &c.identity.client_ip.to_string())
+                .await
+            else {
+                return fail("mail recovery operation failed");
+            };
+            let uid = user.user().get();
+            let Ok(Some(meta)) = commands
+                .worker_read_contract(&setjoin_blobs::sql::FINALIZE_ITEM, &[&session, &uid])
+                .await
+                .map(|rows| setjoin_blobs::decode_finalize_item(&rows))
             else {
                 return fail("mail recovery operation failed");
             };
@@ -171,9 +185,10 @@ impl<K: KeySource + 'static> Intercept for FinalizeRoute<K> {
                 meta.status.as_str(),
                 "quarantined" | "deduplicated" | "rejected"
             ) {
-                if let Ok(Some(raw)) =
-                    setjoin_blobs::replay_finalize(&commands.worker_exec, a.context(), &session)
-                        .await
+                if let Ok(Some(raw)) = commands
+                    .worker_read_contract(&setjoin_blobs::sql::REPLAY_FINALIZE, &[&session, &uid])
+                    .await
+                    .map(|rows| setjoin_blobs::decode_replay_finalize(&rows))
                 {
                     if let Ok(value) = serde_json::from_str::<Value>(&raw) {
                         let mut response =
@@ -224,8 +239,8 @@ impl<K: KeySource + 'static> Intercept for FinalizeRoute<K> {
             let artifact = crate::jmap::reply::request_id(None, artifact_rand);
             let parsed = parsed.to_string();
             match setjoin_blobs::quarantine(
-                &commands.worker_exec,
-                a.context(),
+                &factory,
+                &user,
                 setjoin_blobs::Quarantine {
                     session: &session,
                     artifact: &artifact,

@@ -1,33 +1,21 @@
 //! Token-authenticated Office reducer boundary. No family dependencies.
 #![forbid(unsafe_code)]
+
+pub mod sql;
+pub use sql::SQL_CONTRACTS;
+
 use serde_json::Value;
-use setjoin_pg::{ScopedExecutor, StatementFailure, Type};
-use sha2::{Digest, Sha256};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_contracts::{
+    authority::{AuthorityKey, ResourceScope},
+    command::CommandEnvelope,
+    ids::{ActorId, Digest, Generation, OperationId},
+};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, Row, StatementFailure};
+use sha2::{Digest as _, Sha256};
+
 pub fn token_hash(token: &str) -> String {
     format!("{:x}", Sha256::digest(token))
-}
-/// The opaque launch bearer is the reducer's credential; a URL supplies only
-/// the target file. The reducer repeats live membership, launch and fence checks.
-pub async fn projection(
-    exec: &ScopedExecutor,
-    file: i64,
-    token: &str,
-) -> Result<Launch, StatementFailure> {
-    let hash = token_hash(token);
-    let rows = exec
-        .read(
-            "SELECT office_wopi_file_query($1,$2)::text",
-            &[(&file, Type::INT8), (&hash, Type::TEXT)],
-        )
-        .await?;
-    let raw: String = rows[0].get(0);
-    serde_json::from_str(&raw)
-        .map(Launch)
-        .map_err(|_| StatementFailure {
-            sqlstate: None,
-            hint: None,
-            message: "invalid Office projection".into(),
-        })
 }
 
 pub fn token_hash_bytes(bytes: &[u8]) -> String {
@@ -43,6 +31,14 @@ impl std::ops::Deref for Launch {
         &self.0
     }
 }
+impl Launch {
+    pub fn actor_user_id(&self) -> Option<ActorId> {
+        self.0["actorUserId"]
+            .as_i64()
+            .and_then(|id| ActorId::new(id).ok())
+    }
+}
+
 fn invalid() -> StatementFailure {
     StatementFailure {
         sqlstate: None,
@@ -50,109 +46,165 @@ fn invalid() -> StatementFailure {
         message: "invalid Office authority".into(),
     }
 }
-async fn launch_auth(
-    exec: &ScopedExecutor,
-    p: &Launch,
-) -> Result<setjoin_pg::MailboxAuthContext, StatementFailure> {
-    let actor = p["actorUserId"].as_i64().ok_or_else(invalid)?;
-    let rows = exec
-        .read(
-            "SELECT id FROM mailboxes WHERE user_id=$1 AND is_primary",
-            &[(&actor, Type::INT8)],
-        )
-        .await?;
-    let mailbox: i64 = rows.first().ok_or_else(invalid)?.get(0);
-    Ok(setjoin_pg::MailboxAuthContext::from_authenticated_session(
-        setjoin_contracts::ids::ActorId::new(actor).map_err(|_| invalid())?,
-        setjoin_contracts::ids::MailboxId::new(mailbox).map_err(|_| invalid())?,
-        setjoin_contracts::ids::Generation(1),
-    ))
+
+fn deadline() -> std::time::Instant {
+    std::time::Instant::now() + std::time::Duration::from_secs(30)
 }
-fn envelope(
-    auth: &setjoin_pg::MailboxAuthContext,
+
+fn user_envelope(
+    actor: ActorId,
+    generation: Generation,
     operation: [u8; 16],
-) -> setjoin_contracts::command::CommandEnvelope<()> {
-    setjoin_contracts::command::CommandEnvelope {
-        operation: setjoin_contracts::ids::OperationId(operation),
-        authority: auth.authority(),
+) -> CommandEnvelope<()> {
+    CommandEnvelope {
+        operation: OperationId(operation),
+        authority: AuthorityKey {
+            actor,
+            scope: ResourceScope::User(actor),
+            generation,
+        },
         binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: setjoin_contracts::ids::Digest([0; 32]),
+        payload_digest: Digest([0; 32]),
         command: (),
     }
 }
-fn decode(rows: &[setjoin_pg::Row]) -> Result<Value, StatementFailure> {
+
+fn decode(rows: &[Row]) -> Result<Value, StatementFailure> {
     let raw: String = rows.first().ok_or_else(invalid)?.get(0);
     serde_json::from_str(&raw).map_err(|_| invalid())
 }
+
+pub async fn wopi_enabled(factory: &TxFactory) -> Result<bool, StatementFailure> {
+    let rows = factory
+        .run_public_read_contract(&sql::WOPI_ENABLED, &[])
+        .await?;
+    Ok(rows.first().is_some_and(|r| r.get(0)))
+}
+
+/// The opaque launch bearer is the reducer's credential; a URL supplies only
+/// the target file. The reducer repeats live membership, launch and fence checks.
+pub async fn projection(
+    factory: &TxFactory,
+    file: i64,
+    token: &str,
+) -> Result<Launch, StatementFailure> {
+    let hash = token_hash(token);
+    let rows = factory
+        .run_public_read_contract(&sql::WOPI_FILE_QUERY, &[&file, &hash])
+        .await?;
+    let raw: String = rows[0].get(0);
+    serde_json::from_str(&raw)
+        .map(Launch)
+        .map_err(|_| StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "invalid Office projection".into(),
+        })
+}
+
+pub async fn callback_allowed(
+    factory: &TxFactory,
+    p: &Launch,
+    token: &str,
+) -> Result<bool, StatementFailure> {
+    let launch = p["launchId"].as_str().unwrap_or("");
+    let hash = token_hash(token);
+    Ok(factory
+        .run_public_read_contract(&sql::WOPI_CALLBACK_ALLOWED, &[&launch, &hash])
+        .await?[0]
+        .get(0))
+}
+
+#[allow(clippy::too_many_arguments)]
 pub async fn lock(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     p: &Launch,
     token: &str,
     operation: &str,
     value: &str,
     old: Option<&str>,
     id: [u8; 16],
-) -> setjoin_pg::CommandOutcome<Value, StatementFailure> {
-    let auth = match launch_auth(exec, p).await {
-        Ok(a) => a,
-        Err(e) => return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Body(e)),
-    };
+) -> CommandOutcome<Value, StatementFailure> {
     let launch = p["launchId"].as_str().unwrap_or("");
     let hash = token_hash(token);
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"office_wopi_lock_apply"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT office_wopi_lock_apply($4::text::uuid,$5,$6,$7,$8,1800)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text IS NOT NULL",
- &[(&launch,Type::TEXT),(&hash,Type::TEXT),(&operation,Type::TEXT),(&value,Type::TEXT),(&old,Type::TEXT)],decode).await
+    let env = user_envelope(user.user(), user.generation(), id);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::WOPI_LOCK_APPLY,
+            &[&launch, &hash, &operation, &value, &old],
+            Some(ReceiptCommand {
+                family: "F15",
+                command: "office_wopi_lock_apply",
+            }),
+            |rows| decode(&rows),
+        )
+        .await
 }
 
 /// Match Go's chunk transaction: authorize and lock, promote, register through
 /// the existing reducer, then commit. No canonical compensation after Unknown.
 pub async fn commit_chunk<F, Fut>(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     p: &Launch,
     sha: &str,
     size: i32,
     id: [u8; 16],
     promote: F,
-) -> setjoin_pg::CommandOutcome<(), StatementFailure>
+) -> CommandOutcome<(), StatementFailure>
 where
     F: FnOnce(String) -> Fut + Send,
     Fut: std::future::Future<Output = Result<(), StatementFailure>> + Send,
 {
-    let auth = match launch_auth(exec, p).await {
-        Ok(a) => a,
-        Err(e) => return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Body(e)),
-    };
-    let actor = auth.actor().get();
+    let actor = user.user().get();
     let space = p["spaceId"].as_i64().unwrap_or(0);
     let node = p["fileNodeId"].as_i64().unwrap_or(0);
     let epoch = p["aclEpoch"].as_i64().unwrap_or(0);
     let acl = p["aclMode"] == "acl";
-    setjoin_pg::command::run_receipted_effect(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"drive_chunk_register"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),async move|tx:&mut setjoin_pg::ScopedTx|{
- let scope:String=if acl {
- let rows=tx.query("SELECT CASE WHEN s.classification='regular' THEN 'g' ELSE 's'||s.id END FROM drive_nodes n JOIN drive_spaces s ON s.id=n.space_id JOIN drive_acl_generations g ON g.space_id=s.id WHERE n.id=$3 AND n.space_id=$2 AND s.acl_mode='acl' AND g.epoch=$4 AND drive_runtime_has_node_capability($1,n.id,CASE WHEN n.kind='folder' THEN 'create_child' ELSE 'modify_content' END)",&[(&actor,Type::INT8),(&space,Type::INT8),(&node,Type::INT8),(&epoch,Type::INT8)]).await?;rows.first().ok_or_else(invalid)?.get(0)
- }else{tx.query("SELECT drive_chunk_upload_require($1,$2)",&[(&actor,Type::INT8),(&space,Type::INT8)]).await?[0].get(0)};
- tx.query("SELECT pg_advisory_xact_lock(hashtextextended('drive-chunk:'||$1||':'||$2,0))",&[(&scope,Type::TEXT),(&sha,Type::TEXT)]).await?;
- promote(format!("drive/{scope}/{sha}")).await?;
- if acl{tx.query("SELECT drive_chunk_register_bound($1,$2,$3,$4,$5,$6)",&[(&actor,Type::INT8),(&space,Type::INT8),(&node,Type::INT8),(&epoch,Type::INT8),(&sha,Type::TEXT),(&size,Type::INT4)]).await?;}else{tx.query("SELECT drive_chunk_register($1,$2,$3,$4)",&[(&actor,Type::INT8),(&space,Type::INT8),(&sha,Type::TEXT),(&size,Type::INT4)]).await?;}
- Ok(())
- }).await
+    let env = user_envelope(user.user(), user.generation(), id);
+    factory
+        .run_user_effect_write(
+            user,
+            ReceiptCommand {
+                family: "F15",
+                command: "drive_chunk_register",
+            },
+            &env,
+            deadline(),
+            async move |tx| {
+                let scope: String = if acl {
+                    let rows = tx
+                        .query_contract(&sql::CHUNK_SCOPE_ACL, &[&actor, &space, &node, &epoch])
+                        .await?;
+                    rows.first().ok_or_else(invalid)?.get(0)
+                } else {
+                    tx.query_contract(&sql::CHUNK_UPLOAD_REQUIRE, &[&actor, &space])
+                        .await?[0]
+                        .get(0)
+                };
+                tx.query_contract(&sql::CHUNK_ADVISORY_LOCK, &[&scope, &sha])
+                    .await?;
+                promote(format!("drive/{scope}/{sha}")).await?;
+                if acl {
+                    tx.query_contract(
+                        &sql::CHUNK_REGISTER_BOUND,
+                        &[&actor, &space, &node, &epoch, &sha, &size],
+                    )
+                    .await?;
+                } else {
+                    tx.query_contract(&sql::CHUNK_REGISTER, &[&actor, &space, &sha, &size])
+                        .await?;
+                }
+                Ok(())
+            },
+        )
+        .await
 }
 
-pub async fn callback_allowed(
-    exec: &ScopedExecutor,
-    p: &Launch,
-    token: &str,
-) -> Result<bool, StatementFailure> {
-    let launch = p["launchId"].as_str().unwrap_or("");
-    let hash = token_hash(token);
-    Ok(exec
-        .read(
-            "SELECT office_wopi_callback_allowed($1::text::uuid,$2,'modify_content')",
-            &[(&launch, Type::TEXT), (&hash, Type::TEXT)],
-        )
-        .await?[0]
-        .get(0))
-}
 pub struct Save<'a> {
     pub token: &'a str,
     pub key: &'a str,
@@ -161,28 +213,66 @@ pub struct Save<'a> {
     pub manifest: &'a str,
     pub lock: Option<String>,
 }
+
 pub async fn save(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     p: &Launch,
     s: Save<'_>,
     id: [u8; 16],
-) -> setjoin_pg::CommandOutcome<Value, StatementFailure> {
-    let auth = match launch_auth(exec, p).await {
-        Ok(a) => a,
-        Err(e) => return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Body(e)),
-    };
+) -> CommandOutcome<Value, StatementFailure> {
     let launch = p["launchId"].as_str().unwrap_or("");
     let hash = token_hash(s.token);
     let base = p["versionId"].as_i64().unwrap_or(0);
     let content_type = p["contentType"].as_str();
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"office_save_accept"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT office_save_accept($4::text::uuid,$5,$6,$7,$8,$9,$10,$11::text::jsonb,$12)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text IS NOT NULL",
- &[(&launch,Type::TEXT),(&hash,Type::TEXT),(&s.key,Type::TEXT),(&base,Type::INT8),(&s.sha,Type::TEXT),(&s.size,Type::INT8),(&content_type,Type::TEXT),(&s.manifest,Type::TEXT),(&s.lock,Type::TEXT)],decode).await
+    let env = user_envelope(user.user(), user.generation(), id);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::WOPI_SAVE_ACCEPT,
+            &[
+                &launch,
+                &hash,
+                &s.key,
+                &base,
+                &s.sha,
+                &s.size,
+                &content_type,
+                &s.manifest,
+                &s.lock,
+            ],
+            Some(ReceiptCommand {
+                family: "F15",
+                command: "office_save_accept",
+            }),
+            |rows| decode(&rows),
+        )
+        .await
 }
 
-fn actor_auth(actor: &setjoin_authz::AuthContext) -> setjoin_pg::MailboxAuthContext {
-    actor.database_scope()
+pub async fn reason_required(
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
+) -> Result<bool, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::ADMIN_REASON_REQUIRED, &[])
+        .await?;
+    Ok(rows.first().is_some_and(|r| r.get(0)))
 }
+
+pub async fn admin_list(
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let user = proof.actor().get();
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::ADMIN_LIST, &[&user])
+        .await?;
+    Ok(rows.first().ok_or_else(invalid)?.get(0))
+}
+
 pub struct Configure<'a> {
     pub provider: &'a str,
     pub generation: i64,
@@ -192,33 +282,66 @@ pub struct Configure<'a> {
     pub config: &'a str,
     pub reason: &'a str,
 }
+
 pub async fn configure(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     p: Configure<'_>,
     id: [u8; 16],
-) -> setjoin_pg::CommandOutcome<Value, StatementFailure> {
-    let auth = actor_auth(actor);
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"office_provider_configure"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT office_provider_configure($2,$4,$5,$6,$7,$8,$9::text::jsonb,$10)::text WHERE $1::bigint>=0 AND $3::text IS NOT NULL",
- &[(&p.provider,Type::TEXT),(&p.generation,Type::INT8),(&p.profile,Type::TEXT),(&p.entitlement,Type::TEXT),(&p.build,Type::TEXT),(&p.config,Type::TEXT),(&p.reason,Type::TEXT)],decode).await
+) -> CommandOutcome<Value, StatementFailure> {
+    let env = user_envelope(proof.actor(), proof.generation(), id);
+    factory
+        .run_admin_audited_reducer_contract(
+            proof,
+            &env,
+            deadline(),
+            &sql::ADMIN_CONFIGURE,
+            &[
+                &p.provider,
+                &p.generation,
+                &p.profile,
+                &p.entitlement,
+                &p.build,
+                &p.config,
+                &p.reason,
+            ],
+            Some(ReceiptCommand {
+                family: "F15",
+                command: "office_provider_configure",
+            }),
+            |rows, _| decode(&rows),
+        )
+        .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn activate(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     provider: &str,
     generation: i64,
     qualification: &str,
     scope: &str,
     reason: &str,
     id: [u8; 16],
-) -> setjoin_pg::CommandOutcome<Value, StatementFailure> {
-    let auth = actor_auth(actor);
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"office_provider_activate"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT office_provider_activate($2,$4,$5,$6::text::uuid,$7::text::jsonb,$8)::text WHERE $1::bigint>=0 AND $3::text IS NOT NULL",
- &[(&provider,Type::TEXT),(&generation,Type::INT8),(&qualification,Type::TEXT),(&scope,Type::TEXT),(&reason,Type::TEXT)],decode).await
+) -> CommandOutcome<Value, StatementFailure> {
+    let env = user_envelope(proof.actor(), proof.generation(), id);
+    factory
+        .run_admin_audited_reducer_contract(
+            proof,
+            &env,
+            deadline(),
+            &sql::ADMIN_ACTIVATE,
+            &[&provider, &generation, &qualification, &scope, &reason],
+            Some(ReceiptCommand {
+                family: "F15",
+                command: "office_provider_activate",
+            }),
+            |rows, _| decode(&rows),
+        )
+        .await
 }
+
 /// Google UUID Parse forms, including the zero UUID accepted by Go's admin edge.
 pub fn uuid(raw: &str) -> Option<String> {
     if !raw.is_ascii() {
@@ -256,62 +379,72 @@ pub fn uuid(raw: &str) -> Option<String> {
 }
 
 pub async fn remove(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     provider: &str,
     reason: &str,
     id: [u8; 16],
-) -> setjoin_pg::CommandOutcome<Value, StatementFailure> {
-    let auth = actor_auth(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        setjoin_pg::ReceiptCommand {
-            family: "F15",
-            command: "office_provider_remove",
-        },
-        &envelope(&auth, id),
-        &auth,
-        std::time::Instant::now() + std::time::Duration::from_secs(30),
-        "SELECT office_provider_remove($2,$4,$5)::text WHERE $1::bigint>=0 AND $3::text IS NOT NULL",
-        &[(&provider, Type::TEXT), (&reason, Type::TEXT)],
-        decode,
-    )
-    .await
+) -> CommandOutcome<Value, StatementFailure> {
+    let env = user_envelope(proof.actor(), proof.generation(), id);
+    factory
+        .run_admin_audited_reducer_contract(
+            proof,
+            &env,
+            deadline(),
+            &sql::ADMIN_REMOVE,
+            &[&provider, &reason],
+            Some(ReceiptCommand {
+                family: "F15",
+                command: "office_provider_remove",
+            }),
+            |rows, _| decode(&rows),
+        )
+        .await
 }
 
 /// The middleware's best-effort system audit is a separate committed write,
 /// exactly as in Go. The caller has already verified the access token.
 pub async fn console_denied(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     before: &str,
     path: &str,
     id: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
-    let auth = actor_auth(actor);
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"console.denied"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text IS NOT NULL",&[(&before,Type::TEXT),(&path,Type::TEXT)],|_|Ok(())).await
+) -> CommandOutcome<(), StatementFailure> {
+    let env = user_envelope(user.user(), user.generation(), id);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::CONSOLE_DENIED,
+            &[&before, &path],
+            Some(ReceiptCommand {
+                family: "F15",
+                command: "console.denied",
+            }),
+            |_| Ok(()),
+        )
+        .await
 }
 
 pub async fn qualification_target(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     provider: &str,
     generation: i64,
 ) -> Result<Value, StatementFailure> {
-    let user = actor.user_id();
-    let rows = exec
-        .read(
-            "SELECT office_provider_qualification_target($1,$2,$3)::text",
-            &[
-                (&user, Type::INT8),
-                (&provider, Type::TEXT),
-                (&generation, Type::INT8),
-            ],
+    let user = proof.actor().get();
+    let rows = factory
+        .run_admin_read_contract(
+            proof,
+            &sql::ADMIN_QUALIFICATION_TARGET,
+            &[&user, &provider, &generation],
         )
         .await?;
     decode(&rows)
 }
+
 pub struct Qualification<'a> {
     pub provider: &'a str,
     pub generation: i64,
@@ -324,25 +457,61 @@ pub struct Qualification<'a> {
     pub receipt: i64,
     pub reason: &'a str,
 }
+
 pub async fn qualify(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     p: Qualification<'_>,
     id: [u8; 16],
-) -> setjoin_pg::CommandOutcome<Value, StatementFailure> {
-    let auth = actor_auth(actor);
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"office_provider_qualify"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT office_provider_qualify($2,$4,$5,$6,$7,$8::text::jsonb,$9,$10,$11,$12,$13)::text WHERE $1::bigint>=0 AND $3::text IS NOT NULL",
- &[(&p.provider,Type::TEXT),(&p.generation,Type::INT8),(&p.profile,Type::TEXT),(&p.config_sha,Type::TEXT),(&p.checks,Type::TEXT),(&p.fingerprint,Type::TEXT),(&p.build,Type::TEXT),(&p.route_revision,Type::INT8),(&p.receipt,Type::INT8),(&p.reason,Type::TEXT)],decode).await
+) -> CommandOutcome<Value, StatementFailure> {
+    let env = user_envelope(proof.actor(), proof.generation(), id);
+    factory
+        .run_admin_audited_reducer_contract(
+            proof,
+            &env,
+            deadline(),
+            &sql::ADMIN_QUALIFY,
+            &[
+                &p.provider,
+                &p.generation,
+                &p.profile,
+                &p.config_sha,
+                &p.checks,
+                &p.fingerprint,
+                &p.build,
+                &p.route_revision,
+                &p.receipt,
+                &p.reason,
+            ],
+            Some(ReceiptCommand {
+                family: "F15",
+                command: "office_provider_qualify",
+            }),
+            |rows, _| decode(&rows),
+        )
+        .await
 }
 
 pub async fn reason_missing(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     ip: &str,
     id: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
-    let auth = actor_auth(actor);
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"sensitive_action.reason_missing"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,$4::text::inet,'office.manage','core') WHERE $1::bigint>=0 AND $3::text IS NOT NULL",&[(&ip,Type::TEXT)],|_|Ok(())).await
+) -> CommandOutcome<(), StatementFailure> {
+    let actor = user.user().get();
+    let env = user_envelope(user.user(), user.generation(), id);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::REASON_MISSING,
+            &[&actor, &ip],
+            Some(ReceiptCommand {
+                family: "F15",
+                command: "sensitive_action.reason_missing",
+            }),
+            |_| Ok(()),
+        )
+        .await
 }

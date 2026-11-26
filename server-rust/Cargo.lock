@@ -6371,6 +6371,7 @@ dependencies = [
  "setjoin-contracts",
  "setjoin-db",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
 ]
 
@@ -6544,6 +6545,7 @@ dependencies = [
  "setjoin-contracts",
  "setjoin-db",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
  "url",
 ]
@@ -6745,6 +6747,7 @@ dependencies = [
  "setjoin-contracts",
  "setjoin-db",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
 ]
 
@@ -6933,9 +6936,13 @@ dependencies = [
  "setjoin-approvals",
  "setjoin-blobs",
  "setjoin-calendar",
+ "setjoin-devices",
+ "setjoin-guests",
+ "setjoin-office",
  "setjoin-pg",
  "setjoin-rules",
  "setjoin-sql-catalog",
+ "setjoin-static",
  "setjoin-user-settings",
  "tokio",
  "tokio-postgres",
@@ -6951,6 +6958,7 @@ dependencies = [
  "setjoin-authz",
  "setjoin-config-secret",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
  "tokio",
 ]

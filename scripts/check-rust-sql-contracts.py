@@ -773,7 +773,9 @@ def load_reducer_bodies(root: pathlib.Path) -> dict[str, list[tuple[str, str]]]:
     return bodies
 
 
-def analyze_reducer_audit(body: str) -> tuple[bool, bool]:
+def analyze_reducer_audit(
+    body: str, extra_core_fns: set[str] | None = None
+) -> tuple[bool, bool]:
     """Return `(has_core_audit, has_swallowed_audit)` for a PL/pgSQL function body."""
     toks = _tokenize_plpgsql(body)
     n = len(toks)
@@ -874,6 +876,17 @@ def analyze_reducer_audit(body: str) -> tuple[bool, bool]:
                 has_core_audit = True
             i = j
             continue
+        if (
+            extra_core_fns
+            and kind == "word"
+            and val in extra_core_fns
+            and i + 1 < n
+            and toks[i + 1] == ("punct", "(")
+        ):
+            cur = _current_begin()
+            if cur is not None:
+                cur[1] = True
+            has_core_audit = True
         i += 1
 
     # Handle any unclosed top-level frame defensively.
@@ -882,6 +895,28 @@ def analyze_reducer_audit(body: str) -> tuple[bool, bool]:
             has_swallowed_audit = True
 
     return (has_core_audit, has_swallowed_audit)
+
+
+def compute_core_audit_closure(
+    reducer_bodies: dict[str, list[tuple[str, str]]],
+) -> set[str]:
+    """Fixed-point set of reducers that directly or transitively invoke
+    `audit_write(..., 'core')` without swallowing it in EXCEPTION WHEN OTHERS."""
+    core_fns: set[str] = set()
+    for _ in range(4):
+        changed = False
+        for fn, defs in reducer_bodies.items():
+            if fn in core_fns:
+                continue
+            for _rel, body in defs:
+                has_core, has_swallowed = analyze_reducer_audit(body, core_fns)
+                if has_core and not has_swallowed:
+                    core_fns.add(fn)
+                    changed = True
+                    break
+        if not changed:
+            break
+    return core_fns
 
 
 def _extract_const_sql_expr(expr_tokens: list[Token]) -> str | None:
@@ -980,6 +1015,7 @@ def check_audit_posture_contracts(
 ) -> None:
     """Enforce all 4 `ReducerWritesCoreAudit` static security rules (#546a)."""
     reducer_bodies: dict[str, list[tuple[str, str]]] | None = None
+    core_audit_fns: set[str] | None = None
 
     for rs_path in sorted(server_rust.rglob("*.rs")):
         rel_parts = rs_path.relative_to(server_rust).parts
@@ -1015,6 +1051,7 @@ def check_audit_posture_contracts(
         # inside a `SqlContract { ... }` literal and pass Rules 2, 3, and 4.
         if reducer_bodies is None:
             reducer_bodies = load_reducer_bodies(root)
+            core_audit_fns = compute_core_audit_closure(reducer_bodies)
 
         covered_indices: set[int] = set()
         n = len(tokens)
@@ -1072,7 +1109,7 @@ def check_audit_posture_contracts(
                         continue
                     any_core = False
                     for def_rel, body in defs:
-                        has_core, has_swallowed = analyze_reducer_audit(body)
+                        has_core, has_swallowed = analyze_reducer_audit(body, core_audit_fns)
                         if has_swallowed:
                             errors.append(
                                 f"AUDIT_POSTURE_SWALLOWED_AUDIT: {rel}:{line} "

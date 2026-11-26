@@ -64,8 +64,8 @@ pub const MY_APPROVALS_MINE: SqlContract = SqlContract {
 pub const CANCEL_REQUEST: SqlContract = SqlContract {
     id: "approvals.cancel_request",
     domain: "approvals",
-    sql: "SELECT approval_request_cancel($4,$2) WHERE $1::bigint>=0 AND $3::text<>''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::INT8],
+    sql: "SELECT approval_request_cancel($1,$2)",
+    params: &[Type::INT8, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
@@ -86,15 +86,8 @@ pub const VISIBLE_CONSUMER: SqlContract = SqlContract {
 pub const DECIDE_HR: SqlContract = SqlContract {
     id: "approvals.decide_hr",
     domain: "approvals",
-    sql: "SELECT hr_approval_decide($4,$2,$5,$6) WHERE $1::bigint>=0 AND $3::text<>''",
-    params: &[
-        Type::INT8,
-        Type::INT8,
-        Type::TEXT,
-        Type::INT8,
-        Type::TEXT,
-        Type::TEXT,
-    ],
+    sql: "SELECT hr_approval_decide($1,$2,$3,$4)",
+    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
@@ -104,15 +97,8 @@ pub const DECIDE_HR: SqlContract = SqlContract {
 pub const DECIDE_RBAC: SqlContract = SqlContract {
     id: "approvals.decide_rbac",
     domain: "approvals",
-    sql: "SELECT rbac_approval_decide($4,$2,$5,$6) WHERE $1::bigint>=0 AND $3::text<>''",
-    params: &[
-        Type::INT8,
-        Type::INT8,
-        Type::TEXT,
-        Type::INT8,
-        Type::TEXT,
-        Type::TEXT,
-    ],
+    sql: "SELECT rbac_approval_decide($1,$2,$3,$4)",
+    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
@@ -122,15 +108,8 @@ pub const DECIDE_RBAC: SqlContract = SqlContract {
 pub const DECIDE_DRIVE_EXPORT: SqlContract = SqlContract {
     id: "approvals.decide_drive_export",
     domain: "approvals",
-    sql: "SELECT drive_export_approval_decide($4,$2,$5,$6) WHERE $1::bigint>=0 AND $3::text<>''",
-    params: &[
-        Type::INT8,
-        Type::INT8,
-        Type::TEXT,
-        Type::INT8,
-        Type::TEXT,
-        Type::TEXT,
-    ],
+    sql: "SELECT drive_export_approval_decide($1,$2,$3,$4)",
+    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
@@ -140,15 +119,8 @@ pub const DECIDE_DRIVE_EXPORT: SqlContract = SqlContract {
 pub const DECIDE_DRIVE_SHARE: SqlContract = SqlContract {
     id: "approvals.decide_drive_share",
     domain: "approvals",
-    sql: "SELECT drive_share_approval_decide($4,$2,$5,$6) WHERE $1::bigint>=0 AND $3::text<>''",
-    params: &[
-        Type::INT8,
-        Type::INT8,
-        Type::TEXT,
-        Type::INT8,
-        Type::TEXT,
-        Type::TEXT,
-    ],
+    sql: "SELECT drive_share_approval_decide($1,$2,$3,$4)",
+    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
@@ -158,17 +130,10 @@ pub const DECIDE_DRIVE_SHARE: SqlContract = SqlContract {
 pub const DECIDE_MAIL_EXTERNAL: SqlContract = SqlContract {
     id: "approvals.decide_mail_external",
     domain: "approvals",
-    sql: "SELECT mail_external_approval_decide($4,$2,$5,$6) WHERE $1::bigint>=0 AND $3::text<>''",
-    params: &[
-        Type::INT8,
-        Type::INT8,
-        Type::TEXT,
-        Type::INT8,
-        Type::TEXT,
-        Type::TEXT,
-    ],
+    sql: "SELECT mail_external_approval_decide($1,$2,$3,$4)",
+    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -176,18 +141,10 @@ pub const DECIDE_MAIL_EXTERNAL: SqlContract = SqlContract {
 pub const DECIDE_GROUP_MODERATION: SqlContract = SqlContract {
     id: "approvals.decide_group_moderation",
     domain: "approvals",
-    sql:
-        "SELECT group_moderation_approval_decide($4,$2,$5,$6) WHERE $1::bigint>=0 AND $3::text<>''",
-    params: &[
-        Type::INT8,
-        Type::INT8,
-        Type::TEXT,
-        Type::INT8,
-        Type::TEXT,
-        Type::TEXT,
-    ],
+    sql: "SELECT group_moderation_approval_decide($1,$2,$3,$4)",
+    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -202,7 +159,7 @@ pub const ADMIN_AUTHORITY: SqlContract = SqlContract {
         ColumnSpec::unnamed(Type::BOOL),
         ColumnSpec::unnamed(Type::INT8),
     ],
-    scope: SqlScope::AdminRead,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -224,7 +181,7 @@ pub const POLICIES_LIST: SqlContract = SqlContract {
         ColumnSpec::unnamed(Type::TEXT),
         ColumnSpec::unnamed(Type::TEXT),
     ],
-    scope: SqlScope::AdminRead,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
     audit: SqlAuditPosture::Standard,
 };
@@ -232,10 +189,10 @@ pub const POLICIES_LIST: SqlContract = SqlContract {
 pub const CONSOLE_DENIED: SqlContract = SqlContract {
     id: "approvals.console_denied",
     domain: "approvals",
-    sql: "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT, Type::TEXT],
+    sql: "SELECT audit_write(NULL,'console.denied','console',NULL,$1::text::jsonb,NULL,NULL,$2,'core')",
+    params: &[Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::VOID)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -243,10 +200,10 @@ pub const CONSOLE_DENIED: SqlContract = SqlContract {
 pub const POLICY_CREATE: SqlContract = SqlContract {
     id: "approvals.policy_create",
     domain: "approvals",
-    sql: "SELECT rust_approval_policy_create($2,$4::text::jsonb) WHERE $1::bigint>=0 AND $3::text<>''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
+    sql: "SELECT rust_approval_policy_create($1,$2::text::jsonb)",
+    params: &[Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -254,17 +211,10 @@ pub const POLICY_CREATE: SqlContract = SqlContract {
 pub const AUDIT_POLICY_CREATED: SqlContract = SqlContract {
     id: "approvals.audit_policy_created",
     domain: "approvals",
-    sql: "SELECT audit_write($2,'approval_policy_create','approval_policy',$4,NULL,$5::text::jsonb,NULLIF($6,'')::inet,'','core') WHERE $1::bigint>=0 AND $3::text<>''",
-    params: &[
-        Type::INT8,
-        Type::INT8,
-        Type::TEXT,
-        Type::INT8,
-        Type::TEXT,
-        Type::TEXT,
-    ],
+    sql: "SELECT audit_write($1,'approval_policy_create','approval_policy',$2,NULL,$3::text::jsonb,NULLIF($4,'')::inet,'','core')",
+    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::VOID)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -272,10 +222,10 @@ pub const AUDIT_POLICY_CREATED: SqlContract = SqlContract {
 pub const POLICY_UPDATE: SqlContract = SqlContract {
     id: "approvals.policy_update",
     domain: "approvals",
-    sql: "SELECT rust_approval_policy_update($2,$4,$5::text::jsonb) WHERE $1::bigint>=0 AND $3::text<>''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::INT8, Type::TEXT],
+    sql: "SELECT rust_approval_policy_update($1,$2,$3::text::jsonb)",
+    params: &[Type::INT8, Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -283,18 +233,10 @@ pub const POLICY_UPDATE: SqlContract = SqlContract {
 pub const AUDIT_POLICY_CHANGE: SqlContract = SqlContract {
     id: "approvals.audit_policy_change",
     domain: "approvals",
-    sql: "SELECT audit_write($2,$4,'approval_policy',$5,NULL,$6::text::jsonb,NULLIF($7,'')::inet,'','core') WHERE $1::bigint>=0 AND $3::text<>''",
-    params: &[
-        Type::INT8,
-        Type::INT8,
-        Type::TEXT,
-        Type::TEXT,
-        Type::INT8,
-        Type::TEXT,
-        Type::TEXT,
-    ],
+    sql: "SELECT audit_write($1,$2,'approval_policy',$3,NULL,$4::text::jsonb,NULLIF($5,'')::inet,'','core')",
+    params: &[Type::INT8, Type::TEXT, Type::INT8, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::VOID)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -302,10 +244,10 @@ pub const AUDIT_POLICY_CHANGE: SqlContract = SqlContract {
 pub const POLICY_DELETE: SqlContract = SqlContract {
     id: "approvals.policy_delete",
     domain: "approvals",
-    sql: "SELECT rust_approval_policy_delete($2,$4) WHERE $1::bigint>=0 AND $3::text<>'' AND $5::text=''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::INT8, Type::TEXT],
+    sql: "SELECT rust_approval_policy_delete($1,$2)",
+    params: &[Type::INT8, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -313,10 +255,10 @@ pub const POLICY_DELETE: SqlContract = SqlContract {
 pub const POLICY_REORDER: SqlContract = SqlContract {
     id: "approvals.policy_reorder",
     domain: "approvals",
-    sql: "SELECT rust_approval_policy_reorder($2,$5::text::jsonb) WHERE $1::bigint>=0 AND $3::text<>'' AND $4::bigint=0",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::INT8, Type::TEXT],
+    sql: "SELECT rust_approval_policy_reorder($1,$2::text::jsonb)",
+    params: &[Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -340,7 +282,7 @@ pub const AUDIT_REQUESTS: SqlContract = SqlContract {
         ColumnSpec::unnamed(Type::TEXT),
         ColumnSpec::unnamed(Type::TEXT),
     ],
-    scope: SqlScope::AdminRead,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
     audit: SqlAuditPosture::Standard,
 };
@@ -359,8 +301,8 @@ pub const HR_ENABLED: SqlContract = SqlContract {
 pub const SUBMIT_HR: SqlContract = SqlContract {
     id: "approvals.submit_hr",
     domain: "approvals",
-    sql: "SELECT hr_request_create($2,$4,$5::text::jsonb) WHERE $1::bigint>=0 AND $3::text<>''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT, Type::TEXT],
+    sql: "SELECT hr_request_create($1,$2,$3::text::jsonb)",
+    params: &[Type::INT8, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
@@ -370,11 +312,9 @@ pub const SUBMIT_HR: SqlContract = SqlContract {
 pub const DECIDE_DRIVE_ACCESS: SqlContract = SqlContract {
     id: "approvals.decide_drive_access",
     domain: "approvals",
-    sql: "SELECT (drive_access_approval_decide($4,$2,$5,$6,COALESCE($7::text[],d.requested_capabilities),COALESCE($8,d.requested_propagation),COALESCE($9::text::timestamptz,d.requested_expires_at),COALESCE($10::bigint::integer,d.requested_max_uses),$11))->>'status' FROM drive_access_request_details d WHERE d.request_id=$4 AND EXISTS(SELECT 1 FROM approval_requests r WHERE r.id=d.request_id AND (r.requester_user_id=$2 OR (r.approver_kind='user' AND r.approver_ref=$2) OR (r.approver_kind='role_group' AND EXISTS(SELECT 1 FROM public.admin_role_assignments a WHERE a.user_id=$2 AND a.role_group_id=r.approver_ref AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until))) OR EXISTS(SELECT 1 FROM public.admin_role_assignments a JOIN public.admin_role_groups g ON g.id=a.role_group_id WHERE a.user_id=$2 AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until) AND g.permissions && ARRAY['approvals.view','approvals.manage']::text[]))) AND $1::bigint>=0 AND $3::text<>''",
+    sql: "SELECT (drive_access_approval_decide($1,$2,$3,$4,COALESCE($5::text[],d.requested_capabilities),COALESCE($6,d.requested_propagation),COALESCE($7::text::timestamptz,d.requested_expires_at),COALESCE($8::bigint::integer,d.requested_max_uses),$9))->>'status' FROM drive_access_request_details d WHERE d.request_id=$1 AND EXISTS(SELECT 1 FROM approval_requests r WHERE r.id=d.request_id AND (r.requester_user_id=$2 OR (r.approver_kind='user' AND r.approver_ref=$2) OR (r.approver_kind='role_group' AND EXISTS(SELECT 1 FROM public.admin_role_assignments a WHERE a.user_id=$2 AND a.role_group_id=r.approver_ref AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until))) OR EXISTS(SELECT 1 FROM public.admin_role_assignments a JOIN public.admin_role_groups g ON g.id=a.role_group_id WHERE a.user_id=$2 AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until) AND g.permissions && ARRAY['approvals.view','approvals.manage']::text[])))",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::INT8,
         Type::TEXT,
         Type::TEXT,
@@ -386,17 +326,6 @@ pub const DECIDE_DRIVE_ACCESS: SqlContract = SqlContract {
     ],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
-    rls_check: RlsCheck::PrepareAndExplain,
-    audit: SqlAuditPosture::Standard,
-};
-
-pub const EMAIL_PRIMARY_MAILBOX: SqlContract = SqlContract {
-    id: "approvals.email_primary_mailbox",
-    domain: "approvals",
-    sql: "SELECT id FROM mailboxes WHERE user_id=$1 AND is_primary=true LIMIT 1",
-    params: &[Type::INT8],
-    columns: &[ColumnSpec::named("id", Type::INT8)],
-    scope: SqlScope::AuthPreScope,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -500,7 +429,6 @@ pub const SQL_CONTRACTS: &[SqlContract] = &[
     HR_ENABLED,
     SUBMIT_HR,
     DECIDE_DRIVE_ACCESS,
-    EMAIL_PRIMARY_MAILBOX,
     EMAIL_REQUEST,
     NOTIFY_REQUEST_LOOKUP,
     NOTIFY_ROLE_GROUP_USERS,

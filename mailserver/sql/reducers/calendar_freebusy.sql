@@ -559,6 +559,12 @@ DECLARE
   v_viewer_uid BIGINT;
   v_owner_uid  BIGINT;
 BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    IF NOT public.rls_mailbox_in_scope(p_account_id) THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   -- Defaults gate (computed once): ON ⇒ personal targets route through
   -- calendar_effective_acl; OFF ⇒ org-open, byte-identical to the pre-toggle path.
   v_gate := COALESCE((SELECT enabled FROM feature_toggles WHERE key = 'sharing.defaults'), FALSE);
@@ -592,7 +598,9 @@ BEGIN
 
   RETURN v_result;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.calendar_free_busy(bigint,bigint[],timestamptz,timestamptz)'::regprocedure);
 
 -- calendar_check_conflict: return event IDs that overlap a proposed time range.
 CREATE OR REPLACE FUNCTION calendar_check_conflict(
@@ -606,6 +614,12 @@ CREATE OR REPLACE FUNCTION calendar_check_conflict(
 DECLARE
   v_conflicts BIGINT[];
 BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    IF NOT public.rls_mailbox_in_scope(p_mailbox_id) THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   -- Existence + R1 auth-context only. The target calendar is fully pinned by
   -- ce.calendar_id = p_calendar_id below, and rooms are org-shared resources (never owned
   -- by the booker), so we do NOT couple the calendar to the caller via ownership. We
@@ -635,7 +649,9 @@ BEGIN
 
   RETURN COALESCE(v_conflicts, '{}'::BIGINT[]);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.calendar_check_conflict(bigint,bigint,timestamptz,timestamptz,bigint,bigint)'::regprocedure);
 
 -- calendar_find_free_slots: ranked free time slots for a group of attendees.
 -- Given a date range, desired meeting duration, and working hours, finds all
@@ -832,6 +848,16 @@ DECLARE
   v_booking_id BIGINT;
   v_conflicts  BIGINT[];
 BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    IF NOT public.rls_mailbox_in_scope(p_mailbox_id)
+       OR (
+         p_booked_by IS NOT NULL
+         AND p_booked_by IS DISTINCT FROM NULLIF(current_setting('app.current_user_id', true), '')::bigint
+       ) THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   SELECT * INTO v_cal FROM calendars WHERE id = p_resource_calendar_id
     AND (p_owner_mailbox_id IS NULL OR mailbox_id = p_owner_mailbox_id);
   IF NOT FOUND THEN
@@ -856,6 +882,7 @@ BEGIN
   FROM calendar_events ce
   JOIN calendars c ON c.id = ce.calendar_id
   WHERE ce.id = p_event_id
+    AND c.mailbox_id = p_mailbox_id
     AND (p_owner_mailbox_id IS NULL OR c.mailbox_id = p_owner_mailbox_id);
 
   IF NOT FOUND THEN
@@ -923,7 +950,9 @@ BEGIN
     'conflicts', COALESCE(to_jsonb(v_conflicts), '[]'::JSONB)
   );
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.calendar_book_resource(bigint,bigint,bigint,bigint,bigint)'::regprocedure);
 
 -- jmap_calendar_resource_list: bookable room/equipment calendars for the RoomFinder UI.
 -- Returns calendars whose resource_type is 'room' or 'equipment' (personal calendars are
@@ -937,6 +966,12 @@ DECLARE
   v_result JSONB := '[]'::JSONB;
   v_row    RECORD;
 BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    IF NOT public.rls_mailbox_in_scope(p_mailbox_id) THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   -- p_mailbox_id is required for R1 auth-context propagation (the caller must be a real
   -- account); rooms themselves are org-shared, so the projection lists all of them.
   PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id;
@@ -966,4 +1001,6 @@ BEGIN
     'list', v_result
   );
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.jmap_calendar_resource_list(bigint)'::regprocedure);

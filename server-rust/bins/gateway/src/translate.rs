@@ -99,7 +99,19 @@ pub(crate) async fn serve(
     let Some((body, channel)) = found else {
         return crate::chat::problem(404, "message not found", path, c, id);
     };
-    let config = match logic::load_config(exec).await {
+    let Some(factory) = crate::policy_composition::tx_factory_from_executors(exec, None) else {
+        return typed_problem(
+            503,
+            "service-unavailable",
+            "Service Unavailable",
+            "AI assist is not configured.",
+            path,
+            language,
+            c,
+            id,
+        );
+    };
+    let config = match logic::load_config(&factory).await {
         Ok(config) => config,
         Err(_) => {
             return typed_problem(

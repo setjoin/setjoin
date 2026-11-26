@@ -4,9 +4,9 @@ use crate::{Body, RequestContext};
 use hyper::{Request, Response};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use setjoin_authz::AuthContext;
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
 use setjoin_calendar::carddav::{self, Operation};
-use setjoin_pg::{CommandOutcome, ScopedExecutor};
+use setjoin_pg::CommandOutcome;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 #[derive(Default, Deserialize)]
@@ -71,10 +71,10 @@ pub(super) fn unknown(
     response
 }
 pub(super) async fn handle(
-    exec: &ScopedExecutor,
+    tx: &TxFactory,
+    user: &UserPrincipal,
     mut r: Request<Body>,
     c: &RequestContext,
-    actor: &AuthContext,
     id: String,
 ) -> Response<Body> {
     let (_, parts) = path(&r);
@@ -91,13 +91,7 @@ pub(super) async fn handle(
         Err(_) => return empty(if put { 409 } else { 404 }, id),
     };
     let uid = parts[1].strip_suffix(".vcf").unwrap_or(&parts[1]);
-    if put
-        && carddav::book(exec, actor.user_id(), book)
-            .await
-            .ok()
-            .flatten()
-            .is_none()
-    {
+    if put && carddav::book(tx, user, book).await.ok().flatten().is_none() {
         return empty(404, id);
     }
     let vc = if put {
@@ -112,7 +106,7 @@ pub(super) async fn handle(
     } else {
         None
     };
-    let existing = carddav::get_contact(exec, actor.user_id(), book, uid)
+    let existing = carddav::get_contact(tx, user, book, uid)
         .await
         .ok()
         .flatten()
@@ -138,13 +132,7 @@ pub(super) async fn handle(
     {
         return empty(412, id);
     }
-    if !put
-        && carddav::book(exec, actor.user_id(), book)
-            .await
-            .ok()
-            .flatten()
-            .is_none()
-    {
+    if !put && carddav::book(tx, user, book).await.ok().flatten().is_none() {
         return empty(404, id);
     }
     let (kind, key, contact) = if !put {
@@ -171,7 +159,7 @@ pub(super) async fn handle(
             id,
         );
     };
-    let raw = match carddav::publish(exec, actor, book, contact, &payload, kind, operation).await {
+    let raw = match carddav::publish(tx, user, book, contact, &payload, kind, operation).await {
         CommandOutcome::Committed(raw) => raw,
         CommandOutcome::Unknown { operation } => return unknown(operation, c, id),
         CommandOutcome::RolledBack(_) => return empty(500, id),
@@ -206,7 +194,7 @@ pub(super) async fn handle(
     if !put {
         return empty(204, id);
     }
-    let etag = carddav::get_contact(exec, actor.user_id(), book, uid)
+    let etag = carddav::get_contact(tx, user, book, uid)
         .await
         .ok()
         .flatten()

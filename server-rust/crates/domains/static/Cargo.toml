@@ -9,6 +9,7 @@ publish.workspace = true
 # Depends on no other family crate: the executor comes from setjoin-pg only.
 [dependencies]
 setjoin-pg = { path = "../../pg" }
+setjoin-sql-catalog = { path = "../../sql-catalog" }
 setjoin-config-secret = { path = "../../config-secret" }
 setjoin-authz = { path = "../../authz" }
 serde = { version = "=1.0.229", features = ["derive"] }

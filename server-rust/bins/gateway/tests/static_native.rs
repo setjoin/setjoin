@@ -50,6 +50,7 @@ async fn call(
         discovery: None,
         fallback: None,
         exec,
+        worker: None,
         keys: Arc::new(common::recovery_keys()),
         issuer: "mailserver".into(),
         health: Arc::new(setjoin_static::health::HealthGate::new(
@@ -218,6 +219,7 @@ async fn both_kill_switches_return_every_route_to_go() -> Result<(), BoxError> {
             discovery: None,
             fallback: None,
             exec: exec.clone(),
+            worker: None,
             keys: Arc::new(common::recovery_keys()),
             issuer: "mailserver".into(),
             health: Arc::new(setjoin_static::health::HealthGate::new(false)),

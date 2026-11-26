@@ -12,11 +12,13 @@ pub async fn stale() -> Result<(), BoxError> {
         let exec=common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn),1)?;
         let keys=std::sync::Arc::new(common::recovery_keys());let mut headers=hyper::HeaderMap::new();headers.insert("authorization",format!("Bearer {}",common::recovery_token(a.user)).parse()?);
         let auth=setjoin_authz::authorize_user_request(&exec,&keys,"mailserver",&headers,"http").await.ok_or("authority")?;
+        let tx=setjoin_gateway::policy_composition::tx_factory_from_executors(&exec,None).ok_or("tx factory unavailable")?;
+        let user=tx.mint_user_from_authorized(&auth,"127.0.0.1").await.map_err(|e|format!("{e:?}"))?;
         owner.execute("DELETE FROM contacts WHERE id=$1",&[&contact]).await?;
         use setjoin_calendar::carddav::{publish,Operation};
         for (kind,failed) in [(Operation::Update,"notUpdated"),(Operation::Delete,"notDestroyed")] {
             let payload=json!({contact.to_string():{"displayName":"Changed","addressbookId":book}}).to_string();
-            let outcome=publish(&exec,auth.context(),book,contact,&payload,kind,{let mut id=[0;16];ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(),&mut id).map_err(|_|"random operation")?;id}).await;
+            let outcome=publish(&tx,&user,book,contact,&payload,kind,{let mut id=[0;16];ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(),&mut id).map_err(|_|"random operation")?;id}).await;
             let setjoin_pg::CommandOutcome::Committed(raw)=outcome else{return Err("canonical missing contact was not accounted".into())};
             let raw:serde_json::Value=serde_json::from_str(&raw)?;
             if raw[failed][contact.to_string()]["type"]!="notFound" {return Err(format!("missing contact lost per-item accounting: {raw}").into())}

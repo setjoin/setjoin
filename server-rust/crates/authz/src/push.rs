@@ -223,9 +223,38 @@ impl PushIdentity {
     /// account ID or HTTP-only admission gate enters this authorization.
     pub async fn command_authorization(&self, exec: &ScopedExecutor) -> Option<crate::Authorized> {
         let user = self.user_id();
-        let rows=exec.read("SELECT m.id,m.jmap_email_state::int8,m.jmap_mailbox_state::int8,m.jmap_thread_state::int8,m.jmap_tag_state::int8,coalesce((SELECT max(jmap_state) FROM calendars WHERE mailbox_id=m.id),0)::int8,coalesce((SELECT max(jmap_state) FROM addressbooks WHERE mailbox_id=m.id),0)::int8,coalesce((SELECT max(jmap_state) FROM tasks WHERE mailbox_id=m.id),0)::int8,floor(extract(epoch FROM u.updated_at))::int8,mailbox_lifecycle_access_allowed(m.id) FROM mailboxes m JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND m.is_primary",&[(&user,Type::INT8)]).await.ok()?;
+        let rows = exec
+            .read(
+                "SELECT m.id,m.jmap_email_state::int8,m.jmap_mailbox_state::int8,\
+                 m.jmap_thread_state::int8,m.jmap_tag_state::int8,\
+                 floor(extract(epoch FROM u.updated_at))::int8,\
+                 mailbox_lifecycle_access_allowed(m.id) \
+                 FROM mailboxes m JOIN users u ON u.id=m.user_id \
+                 WHERE m.user_id=$1 AND m.is_primary",
+                &[(&user, Type::INT8)],
+            )
+            .await
+            .ok()?;
         let row = rows.first()?;
-        let mailbox_blocked = row.try_get::<_, Option<bool>>(9).ok().flatten() != Some(true);
+        let mailbox: i64 = row.get(0);
+        let mailbox_blocked = row.try_get::<_, Option<bool>>(6).ok().flatten() != Some(true);
+        // Wave A FORCE RLS (#546b): calendars and addressbooks require app.current_mailbox_id.
+        let mb_scope = setjoin_pg::MailboxAuthContext::from_authenticated_session(
+            setjoin_contracts::ids::ActorId::new(user).ok()?,
+            setjoin_contracts::ids::MailboxId::new(mailbox).ok()?,
+            setjoin_contracts::ids::Generation(1),
+        );
+        let state_rows = exec
+            .read_scoped(
+                &mb_scope,
+                "SELECT coalesce((SELECT max(jmap_state) FROM calendars WHERE mailbox_id=$1),0)::int8,\
+                 coalesce((SELECT max(jmap_state) FROM addressbooks WHERE mailbox_id=$1),0)::int8,\
+                 coalesce((SELECT max(jmap_state) FROM tasks WHERE mailbox_id=$1),0)::int8",
+                &[(&mailbox, Type::INT8)],
+            )
+            .await
+            .ok()?;
+        let st = state_rows.first()?;
         let admin = self
             .claims
             .get("admin")
@@ -253,7 +282,7 @@ impl PushIdentity {
                 guest: self.guest,
                 user_id: user,
                 email: self.text("email").into(),
-                mailbox_id: row.get(0),
+                mailbox_id: mailbox,
                 domain_scope: self.claims.get("domain").and_then(Value::as_i64),
                 admin,
                 permissions: strings("perms"),
@@ -267,10 +296,10 @@ impl PushIdentity {
                 mailbox: row.get(2),
                 thread: row.get(3),
                 tag: row.get(4),
-                calendar: row.get(5),
-                contact: row.get(6),
-                task: row.get(7),
-                identity: row.get(8),
+                calendar: st.get(0),
+                contact: st.get(1),
+                task: st.get(2),
+                identity: row.get(5),
             },
             issued_at: self.issued_at(),
             token_id: self.token_id().into(),
@@ -391,6 +420,9 @@ mod accessor_tests {
         assert_eq!(id.token_id(), "");
         assert_eq!(id.token_family(), "");
         assert_eq!(id.account_type(), "");
-        assert_eq!(identity(json!({"exp": 1_700_000_000})).expires_at(), Some(1_700_000_000));
+        assert_eq!(
+            identity(json!({"exp": 1_700_000_000})).expires_at(),
+            Some(1_700_000_000)
+        );
     }
 }

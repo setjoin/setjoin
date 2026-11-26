@@ -30,6 +30,12 @@ CREATE OR REPLACE FUNCTION recipients_ooo_status(
 DECLARE
   v_result JSONB := '[]'::JSONB;
 BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    IF NOT public.rls_mailbox_in_scope(p_mailbox_id) THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   -- R1: the caller must be a real mailbox (org-scoped advisory, like free/busy).
   PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id;
   IF NOT FOUND THEN
@@ -58,7 +64,9 @@ BEGIN
 
   RETURN v_result;
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.recipients_ooo_status(bigint,jsonb)'::regprocedure);
 
 COMMENT ON FUNCTION recipients_ooo_status(BIGINT, JSONB) IS
   'Compose OOO advisory (QoL #7): given recipient addresses, return {email, until} '

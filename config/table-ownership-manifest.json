@@ -1,21 +1,9 @@
 {
   "schema_version": 1,
-  "legacy_rls_pending_ceiling": 57,
+  "legacy_rls_pending_ceiling": 37,
   "legacy_rls_pending_tables": [
-    "addressbooks",
     "aliases",
     "app_passwords",
-    "approval_delegations",
-    "blob_user_charges",
-    "blob_user_usage",
-    "calendar_acls",
-    "calendar_events",
-    "calendars",
-    "contact_group_members",
-    "contact_groups",
-    "contacts",
-    "email_templates",
-    "event_attendees",
     "folders",
     "mailbox_audit_log",
     "mailboxes",
@@ -34,28 +22,20 @@
     "quick_steps",
     "read_receipts",
     "recipient_smime_certs",
-    "reminders",
     "rules",
     "scheduled_actions",
     "sessions",
-    "signatures",
     "tags",
     "task_activity",
     "tasks",
     "totp_pending_enrollments",
     "totp_removal_step_ups",
     "user_app_entitlements",
-    "user_imap_settings",
-    "user_notification_prefs",
     "user_sender_list",
-    "user_signatures",
     "user_smime_certs",
     "user_spam_model",
     "users",
-    "vacation_replies",
-    "vacation_settings",
     "vote_responses",
-    "vt_timezone",
     "webauthn_ceremonies",
     "webhook_subscriptions",
     "ws_subscriptions"
@@ -73,17 +53,17 @@
       "reason": "Admin department listing counting member users per department across org."
     },
     {
-      "file": "server-rust/crates/domains/approvals/src/lib.rs",
+      "file": "server-rust/crates/domains/approvals/src/sql.rs",
       "table": "drive_access_request_details",
       "reason": "Approval detail projection fragment joined inside approval_requests scoped query."
     },
     {
-      "file": "server-rust/crates/domains/approvals/src/notify.rs",
+      "file": "server-rust/crates/domains/approvals/src/sql.rs",
       "table": "approval_requests",
       "reason": "Internal approver notification lookup by already-authorized approval request id."
     },
     {
-      "file": "server-rust/crates/domains/calendar/src/dav.rs",
+      "file": "server-rust/crates/domains/calendar/src/sql.rs",
       "table": "vt_timezone",
       "reason": "CalDAV VTIMEZONE fragment composed with caller-scoped calendar_id predicate."
     },
@@ -118,17 +98,12 @@
       "reason": "Admin Conditional Access what-if console lookup of target user by email."
     },
     {
-      "file": "server-rust/crates/domains/devices/src/lockdown.rs",
+      "file": "server-rust/crates/domains/devices/src/sql.rs",
       "table": "devices",
       "reason": "Admin device lockdown target user_id resolution passed into admin_can_reach_perm."
     },
     {
-      "file": "server-rust/crates/domains/devices/src/mdm.rs",
-      "table": "mdm_device_state",
-      "reason": "Admin MDM fleet listing base SELECT composed dynamically with domain/scope WHERE suffix."
-    },
-    {
-      "file": "server-rust/crates/domains/devices/src/offline.rs",
+      "file": "server-rust/crates/domains/devices/src/sql.rs",
       "table": "user_devices",
       "reason": "Admin offline command target user_id resolution passed into admin_can_reach_perm."
     },
@@ -148,7 +123,7 @@
       "reason": "Admin Drive audit alarm listing gated by SQL drive_has_admin_perm($1, 'drive.manage')."
     },
     {
-      "file": "server-rust/crates/domains/guests/src/sponsors.sql",
+      "file": "server-rust/crates/domains/guests/src/sql.rs",
       "table": "users",
       "reason": "Guest admin sponsor transfer search filtered by SQL guest_admin_can_transfer_to($1, $2, u.id)."
     },
@@ -263,17 +238,17 @@
       "reason": "Admin webhook subscriptions listing across org."
     },
     {
-      "file": "server-rust/crates/domains/rules/src/lib.rs",
+      "file": "server-rust/crates/domains/rules/src/sql.rs",
       "table": "rules",
       "reason": "Admin transport rules listing/inspection/dry-run gated by admin permission."
     },
     {
-      "file": "server-rust/crates/domains/static/src/metrics.rs",
+      "file": "server-rust/crates/domains/static/src/sql.rs",
       "table": "approval_requests",
       "reason": "Prometheus metrics aggregate count of pending approval_requests."
     },
     {
-      "file": "server-rust/crates/domains/static/src/website.rs",
+      "file": "server-rust/crates/domains/static/src/sql.rs",
       "table": "users",
       "reason": "First-run bootstrap setup check counting total users."
     }
@@ -300,8 +275,7 @@
     "addressbooks": {
       "owner": "calendar",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": [
         {
@@ -552,8 +526,7 @@
     "approval_delegations": {
       "owner": "approvals",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "delegator_user_id",
       "read_contracts": []
     },
@@ -623,6 +596,11 @@
           "consumer": "platform",
           "mode": "read_only",
           "reason": "Admin audit policy/reason-required gate check."
+        },
+        {
+          "consumer": "office",
+          "mode": "read_only",
+          "reason": "Office admin audit reason-requirement policy lookup."
         }
       ]
     },
@@ -677,8 +655,7 @@
     "blob_user_charges": {
       "owner": "blobs",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": [
         {
@@ -691,8 +668,7 @@
     "blob_user_usage": {
       "owner": "blobs",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
@@ -759,8 +735,7 @@
     "calendar_acls": {
       "owner": "calendar",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "calendar_id -> calendars.mailbox_id",
       "read_contracts": [
         {
@@ -773,8 +748,7 @@
     "calendar_events": {
       "owner": "calendar",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "calendar_id -> calendars.mailbox_id",
       "read_contracts": []
     },
@@ -788,8 +762,7 @@
     "calendars": {
       "owner": "calendar",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": [
         {
@@ -1038,24 +1011,21 @@
     "contact_group_members": {
       "owner": "calendar",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "group_id -> contact_groups.mailbox_id",
       "read_contracts": []
     },
     "contact_groups": {
       "owner": "calendar",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": []
     },
     "contacts": {
       "owner": "calendar",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "addressbook_id -> addressbooks.mailbox_id",
       "read_contracts": []
     },
@@ -1630,16 +1600,14 @@
     "email_templates": {
       "owner": "rules",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": []
     },
     "event_attendees": {
       "owner": "calendar",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "event_id -> calendar_events.calendar_id -> calendars.mailbox_id",
       "read_contracts": []
     },
@@ -1826,6 +1794,11 @@
           "consumer": "user-settings",
           "mode": "read_only",
           "reason": "Runtime feature toggle admission check."
+        },
+        {
+          "consumer": "office",
+          "mode": "read_only",
+          "reason": "Office feature toggle lookup."
         }
       ]
     },
@@ -3255,8 +3228,7 @@
     "reminders": {
       "owner": "calendar",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": []
     },
@@ -3459,8 +3431,7 @@
     "signatures": {
       "owner": "user-settings",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": []
     },
@@ -3846,8 +3817,7 @@
     "user_imap_settings": {
       "owner": "user-settings",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
@@ -3866,8 +3836,7 @@
     "user_notification_prefs": {
       "owner": "user-settings",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
@@ -3901,8 +3870,7 @@
     "user_signatures": {
       "owner": "user-settings",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
@@ -4014,16 +3982,14 @@
     "vacation_replies": {
       "owner": "user-settings",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": []
     },
     "vacation_settings": {
       "owner": "user-settings",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "mailbox_id",
       "read_contracts": []
     },
@@ -4045,8 +4011,7 @@
     "vt_timezone": {
       "owner": "calendar",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "calendar_id -> calendars.mailbox_id",
       "read_contracts": []
     },

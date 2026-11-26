@@ -36,6 +36,10 @@ const ALL_CONTRACTS: &[&[SqlContract]] = &[
     setjoin_user_settings::SQL_CONTRACTS,
     setjoin_approvals::SQL_CONTRACTS,
     setjoin_calendar::SQL_CONTRACTS,
+    setjoin_guests::SQL_CONTRACTS,
+    setjoin_office::SQL_CONTRACTS,
+    setjoin_static::SQL_CONTRACTS,
+    setjoin_devices::SQL_CONTRACTS,
 ];
 
 const FIRST_CUSTOM_OID: u32 = 16384;

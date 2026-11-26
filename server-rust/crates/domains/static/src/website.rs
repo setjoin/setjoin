@@ -321,8 +321,9 @@ pub fn content_type(path: &str) -> Option<String> {
 
 /// The existing public first-boot predicate: disclose only whether setup is
 /// required, never an identity row. Go serves normally on a database error.
-pub async fn needs_setup(exec: &setjoin_pg::ScopedExecutor) -> bool {
-    exec.read("SELECT COUNT(*) FROM users", &[])
+pub async fn needs_setup(factory: &setjoin_authz::principals::TxFactory) -> bool {
+    factory
+        .run_public_read_contract(&crate::sql::WEBSITE_NEEDS_SETUP, &[])
         .await
         .is_ok_and(|rows| rows[0].get::<_, i64>(0) == 0)
 }

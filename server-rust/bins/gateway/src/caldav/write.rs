@@ -5,8 +5,8 @@ use super::{body_error, path, read_body, reply};
 use crate::{Body, RequestContext};
 use hyper::{Request, Response};
 use serde_json::{json, Value};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor};
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
+use setjoin_pg::CommandOutcome;
 use std::collections::{HashMap, HashSet};
 
 fn timestamp(unix: Option<i64>) -> String {
@@ -47,10 +47,11 @@ fn object(event: &crate::ics::Event) -> Value {
     json!({"uid":event.uid,"title":event.title,"description":event.description,"location":event.location,"start":timestamp(event.start),"end":timestamp(event.end),"isAllDay":event.all_day,"timeZone":event.timezone,"status":event.status,"recurrenceRule":event.rrule,"attendees":event.attendees})
 }
 pub(super) async fn put(
-    exec: &ScopedExecutor,
+    tx: &TxFactory,
+    user: &UserPrincipal,
     mut r: Request<Body>,
     c: RequestContext,
-    actor: &AuthContext,
+    email: &str,
 ) -> Response<Body> {
     let id = crate::jmap::reply::request_id(
         r.headers().get("x-request-id"),
@@ -64,7 +65,7 @@ pub(super) async fn put(
         return reply(409, String::new(), None, c.identity.proto, id);
     };
     let uid = parts[1].strip_suffix(".ics").unwrap_or(&parts[1]);
-    if setjoin_calendar::dav::calendar(exec, calendar, actor.user_id())
+    if setjoin_calendar::dav::calendar(tx, user, calendar)
         .await
         .ok()
         .flatten()
@@ -84,7 +85,7 @@ pub(super) async fn put(
     if event.uid != uid {
         return reply(403, String::new(), None, c.identity.proto, id);
     }
-    let existing = setjoin_calendar::dav::event(exec, calendar, uid, actor.user_id())
+    let existing = setjoin_calendar::dav::event(tx, user, calendar, uid)
         .await
         .ok()
         .flatten()
@@ -116,12 +117,13 @@ pub(super) async fn put(
     let outcome = if let Some(existing) = &existing {
         let event_id = existing["id"].as_i64().unwrap_or(0);
         let payload = json!({event_id.to_string():value}).to_string();
-        setjoin_calendar::dav::update(exec, actor, calendar, event_id, &payload, operation).await
+        setjoin_calendar::dav::update(tx, user, calendar, event_id, &payload, operation).await
     } else {
         value["calendarId"] = json!(calendar);
         setjoin_calendar::dav::create(
-            exec,
-            actor,
+            tx,
+            user,
+            email,
             calendar,
             &json!({"k1":value}).to_string(),
             operation,
@@ -153,7 +155,7 @@ pub(super) async fn put(
     // Go reads only created, so PUT-update returns a quoted empty ETag. For a
     // recurring create this value is captured BEFORE reconciliation changes it.
     let etag = if let Some(created) = created {
-        setjoin_calendar::dav::event_etag(exec, created, actor.user_id())
+        setjoin_calendar::dav::event_etag(tx, user, created)
             .await
             .unwrap_or_default()
     } else {
@@ -172,8 +174,7 @@ pub(super) async fn put(
             }
         }
         let exclusions: HashSet<i64> = event.exdates.iter().copied().collect();
-        let overrides =
-            setjoin_calendar::dav::overrides(exec, calendar, uid, actor.user_id()).await;
+        let overrides = setjoin_calendar::dav::overrides(tx, user, calendar, uid).await;
         // A failed list aborts only reconciliation, retaining the master result.
         if let Ok(overrides) = overrides {
             let mut patches = vec![];
@@ -203,8 +204,8 @@ pub(super) async fn put(
                     return unavailable(&c, id);
                 };
                 if let CommandOutcome::Unknown { operation } = setjoin_calendar::dav::occurrence(
-                    exec,
-                    actor,
+                    tx,
+                    user,
                     calendar,
                     master,
                     &timestamp(Some(instant)),
@@ -233,10 +234,10 @@ pub(super) async fn put(
 }
 
 pub(super) async fn delete(
-    exec: &ScopedExecutor,
+    tx: &TxFactory,
+    user: &UserPrincipal,
     r: Request<Body>,
     c: RequestContext,
-    actor: &AuthContext,
 ) -> Response<Body> {
     let id = crate::jmap::reply::request_id(
         r.headers().get("x-request-id"),
@@ -248,7 +249,7 @@ pub(super) async fn delete(
     }
     let calendar = parts[0].parse::<i64>().unwrap_or(0);
     let uid = parts[1].strip_suffix(".ics").unwrap_or(&parts[1]);
-    let Some(event) = setjoin_calendar::dav::event(exec, calendar, uid, actor.user_id())
+    let Some(event) = setjoin_calendar::dav::event(tx, user, calendar, uid)
         .await
         .ok()
         .flatten()
@@ -267,7 +268,7 @@ pub(super) async fn delete(
     {
         return reply(412, String::new(), None, c.identity.proto, id);
     }
-    if setjoin_calendar::dav::calendar(exec, calendar, actor.user_id())
+    if setjoin_calendar::dav::calendar(tx, user, calendar)
         .await
         .ok()
         .flatten()
@@ -279,8 +280,8 @@ pub(super) async fn delete(
         return unavailable(&c, id);
     };
     match setjoin_calendar::dav::destroy(
-        exec,
-        actor,
+        tx,
+        user,
         calendar,
         event["id"].as_i64().unwrap_or(0),
         operation,

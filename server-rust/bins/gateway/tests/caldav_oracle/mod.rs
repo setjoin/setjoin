@@ -53,8 +53,16 @@ fn spec(route: &str, label: &str) -> Spec {
     if route == "entitlement" {
         return Spec {
             method: "OPTIONS",
-            path: if label=="cross-tenant" {format!("/caldav/{OTHER}/")} else {"/caldav/".into()},
-            body: if label=="invalid-input" {"<invalid".into()} else {String::new()},
+            path: if label == "cross-tenant" {
+                format!("/caldav/{OTHER}/")
+            } else {
+                "/caldav/".into()
+            },
+            body: if label == "invalid-input" {
+                "<invalid".into()
+            } else {
+                String::new()
+            },
             headers: vec![],
             repeat: false,
             wanted: 403,
@@ -337,7 +345,10 @@ pub async fn run(route: &str, label: &str, mutant: Option<&'static str>) -> Resu
         )
         .await?;
     owner.batch_execute(&format!("UPDATE feature_toggles SET enabled=true WHERE key='feature.caldav'; DELETE FROM calendars WHERE mailbox_id IN ({},{}); INSERT INTO calendars(id,mailbox_id,name,timezone) VALUES({CAL},{},'CAL4 Owner','UTC'),({OTHER},{},'CAL4 Other','UTC'); SELECT setval(pg_get_serial_sequence('calendars','id'),greatest(995000,(SELECT last_value FROM calendars_id_seq)))",a.mailbox,b.mailbox,a.mailbox,b.mailbox)).await?;
-    if matches!(route, "put" | "delete" | "mkcalendar" | "session" | "executable") {
+    if matches!(
+        route,
+        "put" | "delete" | "mkcalendar" | "session" | "executable"
+    ) {
         owner.batch_execute("SELECT setval(pg_get_serial_sequence('calendar_events','id'),greatest(9942700,(SELECT last_value FROM calendar_events_id_seq)))").await?;
     }
     let audit_level: String = owner
@@ -395,7 +406,7 @@ pub async fn run(route: &str, label: &str, mutant: Option<&'static str>) -> Resu
         let app=db.app.as_deref().unwrap_or(&db.dsn);
         let cut=match mutant {Some("commit-before")=>Some(common::commit::CommitCut::BeforeCommit),Some("commit-after")=>Some(common::commit::CommitCut::AfterCommit),_=>None};
         let mut commit_wire=if let Some(cut)=cut {Some(common::commit::commit_cut_proxy(app,cut).await)} else {None};
-        let wire=if mutant==Some("no-tenant-filter") {Some(wire::no_tenant_filter(app).await?)} else {None};
+        let wire=if mutant==Some("no-tenant-filter") {Some(wire::no_tenant_filter(&db.dsn).await?)} else {None};
         let target=wire.as_ref().map(|w|w.dsn.as_str()).or_else(||commit_wire.as_ref().map(|(dsn,_)|dsn.as_str())).unwrap_or(app);
         let exec=common::patient_exec(target,if cut.is_some(){1}else{4})?;
         let inner=setjoin_gateway::caldav::CalDavRoute::new(exec,Arc::new(common::recovery_keys()),"mailserver".into()).await;
@@ -450,11 +461,12 @@ pub async fn run(route: &str, label: &str, mutant: Option<&'static str>) -> Resu
             let (_,task)=commit_wire.take().ok_or("missing cut proxy")?;
             let observed=tokio::time::timeout(std::time::Duration::from_secs(30),task).await???;
             if observed!=cut {return Err("wrong COMMIT barrier".into());}
-            let fresh=common::patient_exec(app,1)?;let keys=Arc::new(common::recovery_keys());
+            let fresh=common::patient_exec(app,1)?;let fresh_tx=setjoin_gateway::policy_composition::tx_factory_from_executors(&fresh,None).ok_or("fresh tx factory unavailable")?;let keys=Arc::new(common::recovery_keys());
             for (user,expected) in [(a.user,cut==common::commit::CommitCut::AfterCommit),(b.user,false)] {
                 let mut h=hyper::HeaderMap::new();h.insert("authorization",format!("Bearer {}",common::recovery_token(user)).parse()?);
                 let auth=setjoin_authz::authorize_user_request(&fresh,&keys,"mailserver",&h,"http").await.ok_or("fresh lookup authority unavailable")?;
-                let found=setjoin_calendar::dav::lookup_operation(&fresh,auth.context(),op,setjoin_calendar::dav::Operation::Create).await.map_err(|_|"outcome lookup unavailable")?;
+                let principal=fresh_tx.mint_user_from_authorized(&auth,"127.0.0.1").await.map_err(|_|"fresh lookup principal unavailable")?;
+                let found=setjoin_calendar::dav::lookup_operation(&fresh_tx,&principal,op,setjoin_calendar::dav::Operation::Create).await.map_err(|_|"outcome lookup unavailable")?;
                 if found!=expected {return Err("actor-bound COMMIT outcome mismatch".into());}
             }
         }

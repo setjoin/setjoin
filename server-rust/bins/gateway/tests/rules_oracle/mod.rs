@@ -38,9 +38,11 @@ impl Intercept for Probe {
                         .is_some(),
                     "mutant must authenticate"
                 );
-                let body = setjoin_rules::admin_list(&w, None)
+                let rows = w
+                    .read_iterated(setjoin_rules::sql::ADMIN_LIST_ALL.sql, &[])
                     .await
                     .expect("unscoped read mutant");
+                let body = setjoin_rules::format_rules_json(&rows);
                 setjoin_gateway::jmap::reply::response(
                     body,
                     c.identity.proto,
@@ -328,7 +330,11 @@ pub async fn record_selected(cases: &str) -> Result<(), BoxError> {
     for pair in cases.split(',').filter(|s| !s.is_empty()) {
         let (action, label) = pair.split_once(':').ok_or("case must be action:label")?;
         // Fresh process prevents legacy-fixture prepared descriptions leaking into the absent schema.
-        let address=if label.ends_with("schema-missing"){None}else{Some(go.address)};
+        let address = if label.ends_with("schema-missing") {
+            None
+        } else {
+            Some(go.address)
+        };
         run_at(action, label, None, address).await?;
         eprintln!("GO-RECORDED: {action} :: {label}");
     }

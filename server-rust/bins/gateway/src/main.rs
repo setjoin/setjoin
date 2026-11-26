@@ -1274,8 +1274,6 @@ async fn routes(
         issuer.clone(),
         denylist.clone(),
     )?;
-    let office =
-        setjoin_gateway::f15::F15Config::from_env(exec.clone(), keys.clone(), issuer.clone())?;
     let compliance_worker_dsn = env("DB_WORKER_DSN").unwrap_or_else(|| dsn.clone());
     let worm = setjoin_gateway::compliance::WormConfig::from_settings(settings);
     let compliance = setjoin_gateway::compliance::ComplianceRoute {
@@ -1298,6 +1296,13 @@ async fn routes(
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
+    let surface_worker = compliance.worker.clone();
+    let office = setjoin_gateway::f15::F15Config::from_env(
+        exec.clone(),
+        compliance.worker.clone(),
+        keys.clone(),
+        issuer.clone(),
+    )?;
     let (attachment_secret, attachment_previous_secret) =
         setjoin_gateway::f16::attachment_secrets_from_env();
     let runtime = Arc::new(
@@ -1499,7 +1504,9 @@ async fn routes(
     };
     // Go snapshots feature.caldav while mounting the listener. The process-local
     // timezone cache stays active in both processes until Go is deleted.
-    let caldav = if setjoin_calendar::caldav_enabled(&exec)
+    let cal_tx = setjoin_gateway::policy_composition::tx_factory_from_executors(&exec, None)
+        .ok_or_else(|| "CalDAV boot TxFactory unavailable".to_owned())?;
+    let caldav = if setjoin_calendar::caldav_enabled(&cal_tx)
         .await
         .map_err(|_| "CalDAV boot feature unavailable".to_owned())?
     {
@@ -1515,7 +1522,7 @@ async fn routes(
         None
     };
     // Like Go, snapshot the bridge registration flag at process startup.
-    let carddav = if setjoin_calendar::flag(&exec, "feature.carddav", true)
+    let carddav = if setjoin_calendar::flag(&cal_tx, "feature.carddav", true)
         .await
         .map_err(|_| "CardDAV boot feature unavailable".to_owned())?
     {
@@ -1774,6 +1781,7 @@ async fn routes(
     };
     let devices = setjoin_gateway::devices::DevicesRoute {
         exec: exec.clone(),
+        worker: compliance.worker.clone(),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
@@ -2001,6 +2009,7 @@ async fn routes(
             discovery: None,
             fallback: Some(Arc::new(catchall.clone())),
             exec: assist_exec.clone(),
+            worker: Some(surface_worker),
             keys: assist_keys.clone(),
             issuer: assist_issuer.clone(),
             health: Arc::new({

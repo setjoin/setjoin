@@ -1,17 +1,8 @@
-//! Slice `settings` (#306): the eleven `/settings/*` routes of Go's `UserIMAPSettingsHandler`,
-//! `ViewPrefsHandler`, `UndoSendHandler` (delay half), `NewsletterBundlesHandler` and
-//! `SignatureHandler`.
-//!
-//! `users.view_prefs` is one JSONB document three handlers share. Go reads it as text and
-//! decodes it into a Go map, so every number is a `float64` and every response renders in
-//! sorted key order; this module does the same. Write shapes follow the statement-or-reducer
-//! rule: IMAP PUT, view PUT, newsletter PUT and signature DELETE are Go's one statement (one
-//! receipted Rust statement, ownership in its WHERE); undo-send PUT (read, merge, write) and
-//! signature PUT (count, clear, upsert, role flip) call reducers.
-use super::{command, deadline, done, envelope, first_i64, go_marshal, invalid, s, scope};
+//! Slice `settings` (#306): `/settings/*` routes.
+use super::{command, deadline, done, first_i64, go_marshal, invalid, s, user_envelope};
 use serde_json::Value;
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, Row, ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, Row, StatementFailure};
 use std::collections::BTreeMap;
 
 /// Go's `status: ok` document (`json.NewEncoder(w).Encode` after `WriteHeader(200)`).
@@ -22,10 +13,10 @@ pub fn ok_body() -> String {
 // ---- GET/PUT /settings/imap ----
 
 /// Go answers defaults for ANY read or scan error, not only a missing row.
-pub async fn imap_get(exec: &ScopedExecutor, actor: &AuthContext) -> String {
-    let user = actor.user_id();
-    let row = exec
-        .read_scoped(&scope(actor), crate::sql::IMAP_GET.sql, &[(&user, Type::INT8)])
+pub async fn imap_get(factory: &TxFactory, user: &UserPrincipal) -> String {
+    let uid = user.user().get();
+    let row = factory
+        .run_user_read_contract(user, &crate::sql::IMAP_GET, &[&uid])
         .await
         .ok()
         .and_then(|rows| rows.into_iter().next());
@@ -54,62 +45,56 @@ pub struct ImapPut {
     pub folder_separator: Option<String>,
 }
 
-/// Go's single upsert. A nil field is bound as NULL, so the INSERT half violates the table's
-/// NOT NULL columns and the request fails with Go's 500 unless the body carried all four.
+/// Go's single upsert.
 pub async fn imap_put(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     body: &ImapPut,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
+    let uid = user.user().get();
     let payload = format!(
         "imap:{:?}:{:?}:{:?}:{:?}",
         body.expose_all, body.show_subscribed_only, body.exposed_tag_ids, body.folder_separator
     );
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("imap.put"),
-        &envelope(&auth, operation, &payload),
-        &auth,
-        deadline(),
-        crate::sql::IMAP_PUT.sql,
-        &[
-            (&body.expose_all, Type::BOOL),
-            (&body.show_subscribed_only, Type::BOOL),
-            (&body.exposed_tag_ids, Type::INT8_ARRAY),
-            (&body.folder_separator, Type::TEXT),
-        ],
-        |rows| {
-            if rows.len() == 1 {
-                Ok(())
-            } else {
-                Err(invalid())
-            }
-        },
-    )
-    .await
+    let env = user_envelope(user, operation, &payload);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::IMAP_PUT,
+            &[
+                &uid,
+                &body.expose_all,
+                &body.show_subscribed_only,
+                &body.exposed_tag_ids,
+                &body.folder_separator,
+            ],
+            Some(command("imap.put")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 // ---- users.view_prefs ----
 
-/// `SELECT view_prefs FROM users WHERE id = $1` as Go reads it: `None` for any error, a NULL
-/// column, an empty document or JSON `null` (every caller then takes its defaults).
-async fn prefs_text(exec: &ScopedExecutor, actor: &AuthContext) -> Option<String> {
-    let user = actor.user_id();
-    let rows = exec
-        .read_scoped(
-            &scope(actor),
-            crate::sql::VIEW_PREFS_GET.sql,
-            &[(&user, Type::INT8)],
-        )
+async fn prefs_text(factory: &TxFactory, user: &UserPrincipal) -> Option<String> {
+    let uid = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &crate::sql::VIEW_PREFS_GET, &[&uid])
         .await
         .ok()?;
     let text: Option<String> = rows.first()?.try_get(0).ok()?;
     text.filter(|t| !t.is_empty() && t != "null")
 }
 
-/// `json.Unmarshal` into `map[string]interface{}`: `None` unless the document is an object.
 fn prefs_map(text: &str) -> Option<serde_json::Map<String, Value>> {
     match serde_json::from_str::<Value>(text).ok()? {
         Value::Object(map) => Some(map),
@@ -132,9 +117,9 @@ fn default_prefs() -> BTreeMap<String, Value> {
     .collect()
 }
 
-pub async fn view_get(exec: &ScopedExecutor, actor: &AuthContext) -> String {
+pub async fn view_get(factory: &TxFactory, user: &UserPrincipal) -> String {
     let mut merged = default_prefs();
-    if let Some(stored) = prefs_text(exec, actor).await.and_then(|t| prefs_map(&t)) {
+    if let Some(stored) = prefs_text(factory, user).await.and_then(|t| prefs_map(&t)) {
         merged.extend(stored);
     }
     done(go_marshal(&Value::Object(merged.into_iter().collect())))
@@ -147,28 +132,28 @@ pub fn valid_offline_window(value: &str) -> bool {
 
 /// Go's `UPDATE users SET view_prefs = $2 WHERE id = $1`; `prefs` is the re-marshalled body.
 pub async fn view_put(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     prefs: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("view.put"),
-        &envelope(&auth, operation, prefs),
-        &auth,
-        deadline(),
-        crate::sql::VIEW_PREFS_PUT.sql,
-        &[(&prefs, Type::TEXT)],
-        |rows| rows.first().map(|_| ()).ok_or_else(invalid),
-    )
-    .await
+    let uid = user.user().get();
+    let env = user_envelope(user, operation, prefs);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::VIEW_PREFS_PUT,
+            &[&uid, &prefs],
+            Some(command("view.put")),
+            |rows| rows.first().map(|_| ()).ok_or_else(invalid),
+        )
+        .await
 }
 
 // ---- undo-send ----
 
-/// `int(float64)` as Go compiles it on amd64: an out-of-range value is the minimum int64.
 fn go_int(f: f64) -> i64 {
     if f.is_nan() || f >= 9_223_372_036_854_775_808.0 || f < -9_223_372_036_854_775_808.0 {
         i64::MIN
@@ -177,9 +162,9 @@ fn go_int(f: f64) -> i64 {
     }
 }
 
-pub async fn undo_get(exec: &ScopedExecutor, actor: &AuthContext) -> String {
+pub async fn undo_get(factory: &TxFactory, user: &UserPrincipal) -> String {
     let mut delay = 5;
-    if let Some(map) = prefs_text(exec, actor).await.and_then(|t| prefs_map(&t)) {
+    if let Some(map) = prefs_text(factory, user).await.and_then(|t| prefs_map(&t)) {
         if let Some(Value::Number(n)) = map.get("undoSendDelay") {
             delay = go_int(n.as_f64().unwrap_or(0.0));
         }
@@ -187,31 +172,29 @@ pub async fn undo_get(exec: &ScopedExecutor, actor: &AuthContext) -> String {
     done(format!("{{\"undoSendDelay\":{delay}}}"))
 }
 
-/// Clamp as Go's `PutDelay` does.
 pub fn clamp_delay(requested: i64) -> i64 {
     requested.clamp(5, 30)
 }
 
-/// Read, merge, write: `rust_settings_undo_delay_put` keeps Go's "other keys are preserved"
-/// (a non-object document is replaced) in one transaction.
 pub async fn undo_put(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     delay: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("undo.put"),
-        &envelope(&auth, operation, &format!("undo:{delay}")),
-        &auth,
-        deadline(),
-        crate::sql::UNDO_DELAY_PUT.sql,
-        &[(&delay, Type::INT8)],
-        |rows| rows.first().map(|_| ()).ok_or_else(invalid),
-    )
-    .await
+    let uid = user.user().get();
+    let env = user_envelope(user, operation, &format!("undo:{delay}"));
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::UNDO_DELAY_PUT,
+            &[&uid, &delay],
+            Some(command("undo.put")),
+            |rows| rows.first().map(|_| ()).ok_or_else(invalid),
+        )
+        .await
 }
 
 pub fn undo_body(delay: i64) -> String {
@@ -220,14 +203,13 @@ pub fn undo_body(delay: i64) -> String {
 
 // ---- newsletter bundles ----
 
-pub async fn newsletter_get(exec: &ScopedExecutor, actor: &AuthContext) -> String {
+pub async fn newsletter_get(factory: &TxFactory, user: &UserPrincipal) -> String {
     let (mut bundle, mut optouts) = (true, Vec::<String>::new());
-    if let Some(map) = prefs_text(exec, actor).await.and_then(|t| prefs_map(&t)) {
+    if let Some(map) = prefs_text(factory, user).await.and_then(|t| prefs_map(&t)) {
         if let Some(Value::Bool(b)) = map.get("bundleNewsletters") {
             bundle = *b;
         }
         if let Some(Value::Array(items)) = map.get("newsletterOptouts") {
-            // []string: a null element is "", any other non-string fails the whole list.
             let list: Option<Vec<String>> = items
                 .iter()
                 .map(|v| match v {
@@ -247,41 +229,36 @@ pub async fn newsletter_get(exec: &ScopedExecutor, actor: &AuthContext) -> Strin
     ))
 }
 
-/// Go's merge `COALESCE(view_prefs, '{}') || $2::jsonb`; `patch` holds only the given keys.
 pub async fn newsletter_put(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     patch: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("newsletter.put"),
-        &envelope(&auth, operation, patch),
-        &auth,
-        deadline(),
-        crate::sql::NEWSLETTER_PUT.sql,
-        &[(&patch, Type::TEXT)],
-        |rows| rows.first().map(|_| ()).ok_or_else(invalid),
-    )
-    .await
+    let uid = user.user().get();
+    let env = user_envelope(user, operation, patch);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::NEWSLETTER_PUT,
+            &[&uid, &patch],
+            Some(command("newsletter.put")),
+            |rows| rows.first().map(|_| ()).ok_or_else(invalid),
+        )
+        .await
 }
 
 // ---- signatures ----
 
-/// `GET /settings/signatures-list`: Go skips a row whose scan fails and answers `[]` for none.
 pub async fn signature_list(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    let rows = exec
-        .read_scoped(
-            &scope(actor),
-            crate::sql::SIGNATURE_LIST.sql,
-            &[(&user, Type::INT8)],
-        )
+    let uid = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &crate::sql::SIGNATURE_LIST, &[&uid])
         .await?;
     let render = |r: &Row| -> Option<String> {
         Some(format!(
@@ -300,31 +277,24 @@ pub async fn signature_list(
     Ok(done(format!("[{}]", items.join(","))))
 }
 
-/// Go's `COUNT(*)` of the user's rows under other aliases (the 100-row admission).
 pub async fn signature_others(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     alias: &str,
 ) -> Result<i64, StatementFailure> {
-    let user = actor.user_id();
-    first_i64(
-        &exec
-            .read_scoped(
-                &scope(actor),
-                crate::sql::SIGNATURE_OTHERS.sql,
-                &[(&user, Type::INT8), (&alias, Type::TEXT)],
-            )
-            .await?,
-    )
+    let uid = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &crate::sql::SIGNATURE_OTHERS, &[&uid, &alias])
+        .await?;
+    first_i64(&rows)
 }
 
 pub const MAX_SIGNATURES: i64 = 100;
 
-/// `Ok(true)` stored, `Ok(false)` the cap refused a new alias (re-checked in the reducer).
 #[allow(clippy::too_many_arguments)]
 pub async fn signature_put(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     alias: &str,
     html: &str,
     text: &str,
@@ -332,47 +302,42 @@ pub async fn signature_put(
     default_for: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("signature.put"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("signature.put:{alias}:{is_default}:{default_for}"),
-        ),
-        &auth,
-        deadline(),
-        crate::sql::SIGNATURE_PUT.sql,
-        &[
-            (&alias, Type::TEXT),
-            (&html, Type::TEXT),
-            (&text, Type::TEXT),
-            (&is_default, Type::BOOL),
-            (&default_for, Type::TEXT),
-        ],
-        |rows| first_i64(rows).map(|id| id >= 0),
-    )
-    .await
+    let uid = user.user().get();
+    let env = user_envelope(
+        user,
+        operation,
+        &format!("signature.put:{alias}:{is_default}:{default_for}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::SIGNATURE_PUT,
+            &[&uid, &alias, &html, &text, &is_default, &default_for],
+            Some(command("signature.put")),
+            |rows| first_i64(&rows).map(|id| id >= 0),
+        )
+        .await
 }
 
-/// Go's `DELETE ... WHERE id = $1 AND user_id = $2`: `true` when a row went away.
 pub async fn signature_delete(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     id: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("signature.delete"),
-        &envelope(&auth, operation, &format!("signature.delete:{id}")),
-        &auth,
-        deadline(),
-        crate::sql::SIGNATURE_DELETE.sql,
-        &[(&id, Type::INT8)],
-        |rows| first_i64(rows).map(|n| n > 0),
-    )
-    .await
+    let uid = user.user().get();
+    let env = user_envelope(user, operation, &format!("signature.delete:{id}"));
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::SIGNATURE_DELETE,
+            &[&uid, &id],
+            Some(command("signature.delete")),
+            |rows| first_i64(&rows).map(|n| n > 0),
+        )
+        .await
 }

@@ -68,8 +68,14 @@ impl<K: KeySource + 'static> Intercept for CalDavRoute<K> {
             self.basic.clone(),
         );
         Box::pin(async move {
-            let auth = match crate::deny::admit(&exec, &*keys, &issuer, &r, crate::deny::Scope::User)
-                .await
+            let auth = match crate::deny::admit(
+                &exec,
+                &*keys,
+                &issuer,
+                &r,
+                crate::deny::Scope::User,
+            )
+            .await
             {
                 Ok(auth) => auth,
                 Err(crate::deny::Refusal::AlternativeCredential)
@@ -108,7 +114,22 @@ impl<K: KeySource + 'static> Intercept for CalDavRoute<K> {
                     return crate::deny::native_or_unauthorized(refusal, r.headers(), &c);
                 }
             };
-            if !setjoin_calendar::entitled(&exec, auth.context())
+            let Some(tx) = crate::policy_composition::tx_factory_from_executors(&exec, None) else {
+                let id = crate::jmap::reply::request_id(
+                    r.headers().get("x-request-id"),
+                    crate::jmap::random().unwrap_or([0; 16]),
+                );
+                return reply(500, String::new(), None, c.identity.proto, id);
+            };
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = tx.mint_user_from_authorized(&auth, &client_ip).await else {
+                let id = crate::jmap::reply::request_id(
+                    r.headers().get("x-request-id"),
+                    crate::jmap::random().unwrap_or([0; 16]),
+                );
+                return reply(500, String::new(), None, c.identity.proto, id);
+            };
+            if !setjoin_calendar::entitled(&tx, &user_principal)
                 .await
                 .unwrap_or(false)
             {
@@ -116,12 +137,8 @@ impl<K: KeySource + 'static> Intercept for CalDavRoute<K> {
                     r.headers().get("x-request-id"),
                     crate::jmap::random().unwrap_or([0; 16]),
                 );
-                let _ = setjoin_calendar::dav::blocked_audit(
-                    &exec,
-                    auth.context().user_id(),
-                    &c.identity.client_ip.to_string(),
-                )
-                .await;
+                let _ =
+                    setjoin_calendar::dav::blocked_audit(&tx, &user_principal, &client_ip).await;
                 let instance =
                     crate::guests_input::go_utf8(&crate::inventory::unescape(r.uri().path()));
                 let body = crate::problem::Problem::new(
@@ -166,10 +183,10 @@ impl<K: KeySource + 'static> Intercept for CalDavRoute<K> {
                     return reply(404, String::new(), None, c.identity.proto, id);
                 }
                 let event = setjoin_calendar::dav::event(
-                    &exec,
+                    &tx,
+                    &user_principal,
                     parts[0].parse().unwrap_or(0),
                     parts[1].strip_suffix(".ics").unwrap_or(&parts[1]),
-                    auth.context().user_id(),
                 )
                 .await
                 .ok()
@@ -181,7 +198,7 @@ impl<K: KeySource + 'static> Intercept for CalDavRoute<K> {
                 };
                 let mut response = reply(
                     200,
-                    render_event(&exec, auth.context().user_id(), &event).await,
+                    render_event(&tx, &user_principal, &event).await,
                     Some("text/calendar; charset=utf-8"),
                     c.identity.proto,
                     id,
@@ -192,28 +209,20 @@ impl<K: KeySource + 'static> Intercept for CalDavRoute<K> {
                 return response;
             }
             if r.method() == hyper::Method::DELETE {
-                return write::delete(&exec, r, c, auth.context()).await;
+                return write::delete(&tx, &user_principal, r, c).await;
             }
             if r.method().as_str() == "MKCALENDAR" {
                 return write::mkcalendar(r, c).await;
             }
             if r.method() == hyper::Method::PUT {
-                return write::put(&exec, r, c, auth.context()).await;
+                return write::put(&tx, &user_principal, r, c, auth.context().email()).await;
             }
             if r.method().as_str() == "REPORT" {
                 let id = crate::jmap::reply::request_id(
                     r.headers().get("x-request-id"),
                     crate::jmap::random().unwrap_or([0; 16]),
                 );
-                return report::handle(
-                    &exec,
-                    &mut r,
-                    &c,
-                    auth.context().user_id(),
-                    auth.context().mailbox_id(),
-                    id,
-                )
-                .await;
+                return report::handle(&tx, &auth, &user_principal, &mut r, &c, id).await;
             }
             if matches!(DavMethod::try_from(r.method()), Ok(DavMethod::Options)) {
                 let id = crate::jmap::reply::request_id(
@@ -272,15 +281,15 @@ impl<K: KeySource + 'static> Intercept for CalDavRoute<K> {
                         }))
                     }));
                     if r.headers().get("depth").and_then(|h| h.to_str().ok()) != Some("0") {
-                        for cal in setjoin_calendar::dav::calendars(&exec, user)
+                        for cal in setjoin_calendar::dav::calendars(&tx, &user_principal)
                             .await
                             .unwrap_or_default()
                         {
                             responses.push(
                                 calendar_props(
-                                    &exec,
+                                    &tx,
                                     &timezones,
-                                    user,
+                                    &user_principal,
                                     &format!("/{}/", cal.id),
                                     req.as_deref(),
                                     &cal,
@@ -290,19 +299,29 @@ impl<K: KeySource + 'static> Intercept for CalDavRoute<K> {
                         }
                     }
                 } else if parts.len() == 1 {
-                    if let Ok(Some(cal)) =
-                        setjoin_calendar::dav::calendar(&exec, parts[0].parse().unwrap_or(0), user)
-                            .await
+                    if let Ok(Some(cal)) = setjoin_calendar::dav::calendar(
+                        &tx,
+                        &user_principal,
+                        parts[0].parse().unwrap_or(0),
+                    )
+                    .await
                     {
                         responses.push(
-                            calendar_props(&exec, &timezones, user, &path, req.as_deref(), &cal)
-                                .await,
+                            calendar_props(
+                                &tx,
+                                &timezones,
+                                &user_principal,
+                                &path,
+                                req.as_deref(),
+                                &cal,
+                            )
+                            .await,
                         );
                         if r.headers().get("depth").and_then(|h| h.to_str().ok()) != Some("0") {
                             for event in setjoin_calendar::dav::events(
-                                &exec,
+                                &tx,
+                                &user_principal,
                                 cal.id,
-                                user,
                                 "",
                                 "",
                                 Some(500),
@@ -315,24 +334,31 @@ impl<K: KeySource + 'static> Intercept for CalDavRoute<K> {
                                     let href =
                                         format!("/{}/{}.ics", cal.id, ical::text(&event, "uid"));
                                     responses.push(
-                                        event_props(&exec, user, &href, req.as_deref(), &event)
-                                            .await,
+                                        event_props(
+                                            &tx,
+                                            &user_principal,
+                                            &href,
+                                            req.as_deref(),
+                                            &event,
+                                        )
+                                        .await,
                                     );
                                 }
                             }
                         }
                     }
                 } else if let Ok(Some(raw)) = setjoin_calendar::dav::event(
-                    &exec,
+                    &tx,
+                    &user_principal,
                     parts[0].parse().unwrap_or(0),
                     parts[1].strip_suffix(".ics").unwrap_or(&parts[1]),
-                    user,
                 )
                 .await
                 {
                     if let Ok(event) = serde_json::from_str::<serde_json::Value>(&raw) {
-                        responses
-                            .push(event_props(&exec, user, &path, req.as_deref(), &event).await);
+                        responses.push(
+                            event_props(&tx, &user_principal, &path, req.as_deref(), &event).await,
+                        );
                     }
                 }
                 return reply(
@@ -370,15 +396,15 @@ pub(crate) fn reply(
 }
 
 async fn calendar_props(
-    exec: &ScopedExecutor,
+    tx: &setjoin_authz::principals::TxFactory,
     timezones: &timezone::Timezones,
-    user: i64,
+    user: &setjoin_authz::principals::UserPrincipal,
     href: &str,
     req: Option<&[&str]>,
     cal: &setjoin_calendar::dav::Calendar,
 ) -> xml::Element {
     let timezone = if req.is_some_and(|r| r.contains(&"calendar-timezone")) {
-        timezones.lookup(exec, cal.id, user, &cal.timezone).await
+        timezones.lookup(tx, user, cal.id, &cal.timezone).await
     } else {
         None
     };
@@ -469,15 +495,19 @@ fn stored_timezone(tzid: &str, standard: &str) -> String {
     format!("BEGIN:VTIMEZONE\r\nTZID:{tzid}\r\nBEGIN:STANDARD\r\nDTSTART:19700101T000000\r\nTZOFFSETFROM:{standard}\r\nTZOFFSETTO:{standard}\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\n")
 }
 
-async fn render_event(exec: &ScopedExecutor, user: i64, event: &serde_json::Value) -> String {
+async fn render_event(
+    tx: &setjoin_authz::principals::TxFactory,
+    user: &setjoin_authz::principals::UserPrincipal,
+    event: &serde_json::Value,
+) -> String {
     let overrides = if matches!(ical::text(event, "component_type"), "" | "VEVENT")
         && !ical::text(event, "rrule").is_empty()
     {
         setjoin_calendar::dav::overrides(
-            exec,
+            tx,
+            user,
             event["calendar_id"].as_i64().unwrap_or(0),
             ical::text(event, "uid"),
-            user,
         )
         .await
         .unwrap_or_default()
@@ -491,14 +521,14 @@ async fn render_event(exec: &ScopedExecutor, user: i64, event: &serde_json::Valu
 }
 
 async fn event_props(
-    exec: &ScopedExecutor,
-    user: i64,
+    tx: &setjoin_authz::principals::TxFactory,
+    user: &setjoin_authz::principals::UserPrincipal,
     href: &str,
     req: Option<&[&str]>,
     event: &serde_json::Value,
 ) -> xml::Element {
     let data = if req.is_some_and(|r| r.contains(&"calendar-data")) {
-        render_event(exec, user, event).await
+        render_event(tx, user, event).await
     } else {
         String::new()
     };

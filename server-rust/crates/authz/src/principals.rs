@@ -849,6 +849,10 @@ impl AdminPermissionProof {
         self.verified.actor()
     }
 
+    pub const fn generation(&self) -> Generation {
+        self.verified.generation()
+    }
+
     pub const fn enforced_domain_scope(&self) -> Option<i64> {
         self.enforced_domain_scope
     }
@@ -1016,6 +1020,143 @@ impl TxFactory {
 
     pub fn group_resolver(&self) -> &Arc<GroupResolver> {
         &self.groups
+    }
+
+    /// Run a 1-RTT `BEGIN READ ONLY` public/system contract query (`SqlScope::AuthPreScope`)
+    /// on `AppPool` (`setjoin_app`, `NOBYPASSRLS`) with empty tenant GUCs.
+    pub async fn run_public_read_contract(
+        &self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        self.pool.run_public_read_contract(contract, values).await
+    }
+
+    /// Mint a sealed [`UserPrincipal`] from an already-admitted [`crate::Authorized`] session.
+    pub async fn mint_user_from_authorized(
+        &self,
+        auth: &crate::Authorized,
+        client_ip: &str,
+    ) -> Result<UserPrincipal, PrincipalError> {
+        let ctx = auth.context();
+        let actor = ActorId::new(ctx.user_id()).map_err(|_| PrincipalError::InvalidTarget)?;
+        let impersonator = ctx.actor_id().and_then(|id| ActorId::new(id).ok());
+        self.mint_user_principal(
+            actor,
+            ctx.is_guest(),
+            Generation(1),
+            impersonator,
+            BTreeSet::new(),
+            AuditMeta::new(ctx.email(), client_ip),
+        )
+        .await
+    }
+
+    /// Mint a sealed [`MailboxPrincipal`] for the admitted session's own primary mailbox.
+    pub async fn mint_primary_mailbox_from_authorized(
+        &self,
+        auth: &crate::Authorized,
+        client_ip: &str,
+    ) -> Result<MailboxPrincipal, PrincipalError> {
+        let mailbox = MailboxId::new(auth.context().mailbox_id())
+            .map_err(|_| PrincipalError::Forbidden("no primary mailbox"))?;
+        self.mint_mailbox_from_authorized(auth, mailbox, client_ip)
+            .await
+    }
+
+    /// Mint a sealed [`MailboxPrincipal`] for an explicit target mailbox (owner or delegate)
+    /// from an already-admitted [`crate::Authorized`] session.
+    pub async fn mint_mailbox_from_authorized(
+        &self,
+        auth: &crate::Authorized,
+        mailbox: MailboxId,
+        client_ip: &str,
+    ) -> Result<MailboxPrincipal, PrincipalError> {
+        let ctx = auth.context();
+        let actor = ActorId::new(ctx.user_id()).map_err(|_| PrincipalError::InvalidTarget)?;
+        let impersonator = ctx.actor_id().and_then(|id| ActorId::new(id).ok());
+        self.mint_mailbox_principal(
+            actor,
+            mailbox,
+            ctx.is_guest(),
+            Generation(1),
+            impersonator,
+            AuditMeta::new(ctx.email(), client_ip),
+        )
+        .await
+    }
+
+    /// Mint a sealed [`AdminPrincipal`] from an already-admitted [`crate::Authorized`] session
+    /// using live JIT/SoD-enforced DB role assignments.
+    pub async fn mint_admin_from_authorized(
+        &self,
+        auth: &crate::Authorized,
+        client_ip: &str,
+    ) -> Result<AdminPrincipal, PrincipalError> {
+        let ctx = auth.context();
+        let actor = ActorId::new(ctx.user_id()).map_err(|_| PrincipalError::InvalidTarget)?;
+        let impersonator = ctx.actor_id().and_then(|id| ActorId::new(id).ok());
+        self.mint_admin_principal(
+            actor,
+            ctx.is_guest(),
+            Generation(1),
+            impersonator,
+            AuditMeta::new(ctx.email(), client_ip),
+        )
+        .await
+    }
+
+    /// Mint a sealed [`UserPrincipal`] for a verified non-JWT capability actor
+    /// (such as a DB-verified WOPI launch token or HMAC approval-email token).
+    pub async fn mint_capability_user(
+        &self,
+        actor: ActorId,
+        email: &str,
+        client_ip: &str,
+    ) -> Result<UserPrincipal, PrincipalError> {
+        self.mint_user_principal(
+            actor,
+            false,
+            Generation(1),
+            None,
+            BTreeSet::new(),
+            AuditMeta::new(email, client_ip),
+        )
+        .await
+    }
+
+    /// Mint a sealed [`MailboxPrincipal`] for a verified non-JWT capability actor's
+    /// primary mailbox (e.g., HMAC approval-email link).
+    pub async fn mint_capability_primary_mailbox(
+        &self,
+        actor: ActorId,
+        email: &str,
+        client_ip: &str,
+    ) -> Result<MailboxPrincipal, PrincipalError> {
+        let verified_user = setjoin_pg::mint::user(actor, Generation(1));
+        let actor_id = actor.get();
+        let rows = self
+            .pool
+            .run_user_read_pipelined(
+                &verified_user,
+                "SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary LIMIT 1",
+                &[(&actor_id, Type::INT8)],
+            )
+            .await?;
+        let mb_id: i64 = rows
+            .first()
+            .and_then(|r| r.try_get(0).ok())
+            .ok_or(PrincipalError::Forbidden("no primary mailbox"))?;
+        let mailbox = MailboxId::new(mb_id).map_err(|_| PrincipalError::InvalidTarget)?;
+        self.mint_mailbox_principal(
+            actor,
+            mailbox,
+            false,
+            Generation(1),
+            None,
+            AuditMeta::new(email, client_ip),
+        )
+        .await
     }
 
     fn require_admin_pool(&self) -> Result<&AdminWorkerPool, StatementFailure> {
@@ -1325,6 +1466,98 @@ SELECT ra.role_group_id, \
             .await
     }
 
+    /// Run a 1-RTT pipelined `BEGIN READ ONLY` mailbox [`SqlContract`] query.
+    pub async fn run_mailbox_read_contract(
+        &self,
+        cap: &ReadCapability,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        self.pool
+            .run_mailbox_read_contract(cap.verified(), contract, values)
+            .await
+    }
+
+    /// Run a 1-RTT pipelined `BEGIN READ WRITE` mailbox [`SqlContract`] write.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_mailbox_write_contract_pipelined<C, T, P>(
+        &self,
+        cap: &MutateCapability,
+        envelope: &CommandEnvelope<C>,
+        deadline: Instant,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+        receipt: Option<ReceiptCommand>,
+        project: P,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
+    {
+        self.pool
+            .run_mailbox_write_contract_pipelined(
+                envelope,
+                cap.verified(),
+                deadline,
+                contract,
+                values,
+                receipt,
+                project,
+            )
+            .await
+    }
+
+    /// Run a 1-RTT pipelined `BEGIN READ ONLY` calendar [`SqlContract`] query.
+    pub async fn run_calendar_read_contract(
+        &self,
+        cap: &CalendarCapability,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        self.pool
+            .run_mailbox_read_contract(cap.verified(), contract, values)
+            .await
+    }
+
+    /// Run a 1-RTT pipelined `BEGIN READ WRITE` calendar [`SqlContract`] write.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_calendar_write_contract_pipelined<C, T, P>(
+        &self,
+        cap: &CalendarCapability,
+        envelope: &CommandEnvelope<C>,
+        deadline: Instant,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+        receipt: Option<ReceiptCommand>,
+        project: P,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
+    {
+        self.pool
+            .run_mailbox_write_contract_pipelined(
+                envelope,
+                cap.verified(),
+                deadline,
+                contract,
+                values,
+                receipt,
+                project,
+            )
+            .await
+    }
+
+    /// Look up whether a receipted calendar command committed under current authority.
+    pub async fn lookup_calendar_command(
+        &self,
+        cap: &CalendarCapability,
+        operation: OperationId,
+        command: ReceiptCommand,
+    ) -> Result<OperationLookup, StatementFailure> {
+        self.pool
+            .lookup_mailbox_command(cap.verified(), operation, command)
+            .await
+    }
+
     /// Run an interactive `MailboxTx<ReadWrite>` strictly from a [`MutateCapability`]
     /// (`Owner | full_access` ONLY).
     pub async fn run_mailbox_write<C, T, E, F>(
@@ -1566,6 +1799,44 @@ SELECT ra.role_group_id, \
             .await
     }
 
+    pub async fn run_user_read_contract(
+        &self,
+        principal: &UserPrincipal,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        self.pool
+            .run_user_read_contract(&principal.verified_user(), contract, values)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_user_write_contract_pipelined<C, T, P>(
+        &self,
+        principal: &UserPrincipal,
+        envelope: &CommandEnvelope<C>,
+        deadline: Instant,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+        receipt: Option<ReceiptCommand>,
+        project: P,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
+    {
+        self.pool
+            .run_user_write_contract_pipelined(
+                envelope,
+                &principal.verified_user(),
+                deadline,
+                contract,
+                values,
+                receipt,
+                project,
+            )
+            .await
+    }
+
     pub async fn run_user_write<C, T, E, F>(
         &self,
         principal: &UserPrincipal,
@@ -1667,6 +1938,105 @@ SELECT ra.role_group_id, \
         self.require_admin_pool()?
             .run_admin_read_pipelined(proof.verified(), sql, params)
             .await
+    }
+
+    pub async fn run_admin_read_contract(
+        &self,
+        proof: &AdminPermissionProof,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        self.require_admin_pool()?
+            .run_admin_read_contract(proof.verified(), contract, values)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_admin_write_contract_pipelined<C, T, P>(
+        &self,
+        proof: &AdminPermissionProof,
+        envelope: &CommandEnvelope<C>,
+        deadline: Instant,
+        audit: &AuditEvent,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+        receipt: Option<ReceiptCommand>,
+        project: P,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
+    {
+        let Some(admin) = self.admin_pool.as_ref() else {
+            return CommandOutcome::RolledBack(Rejection::Unavailable);
+        };
+        admin
+            .run_admin_write_contract_pipelined(
+                envelope,
+                proof.verified(),
+                deadline,
+                audit,
+                contract,
+                values,
+                receipt,
+                project,
+            )
+            .await
+    }
+
+    /// Run a [`SqlAuditPosture::ReducerWritesCoreAudit`] admin reducer contract
+    /// inside an [`AdminWriteTx<Unaudited>`], binding `$1` (`p_actor`) from `proof`,
+    /// recording optional `receipt` on `Audited`, and rolling back cleanly on `NoOp`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_admin_audited_reducer_contract<C, T, P>(
+        &self,
+        proof: &AdminPermissionProof,
+        envelope: &CommandEnvelope<C>,
+        deadline: Instant,
+        contract: &'static SqlContract,
+        rest_values: &[&(dyn ToSql + Sync)],
+        receipt: Option<ReceiptCommand>,
+        project: P,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(Vec<Row>, bool) -> Result<T, StatementFailure>,
+    {
+        let tx = match self.begin_admin_write(proof, envelope, deadline).await {
+            Ok(tx) => tx,
+            Err(r) => return CommandOutcome::RolledBack(r),
+        };
+        match tx
+            .execute_audited_reducer_contract(contract, rest_values)
+            .await
+        {
+            Ok(setjoin_pg::AdminReducerOutcome::Audited { mut tx, rows }) => {
+                let value = match project(rows, true) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        let _ = tx.rollback().await;
+                        return CommandOutcome::RolledBack(Rejection::Body(e));
+                    }
+                };
+                if let Some(cmd) = receipt {
+                    if let Err(e) = tx.record_receipt(cmd).await {
+                        let _ = tx.rollback().await;
+                        return CommandOutcome::RolledBack(Rejection::Statement(e));
+                    }
+                }
+                match tx.commit().await {
+                    CommandOutcome::Committed(()) => CommandOutcome::Committed(value),
+                    CommandOutcome::RolledBack(r) => CommandOutcome::RolledBack(r),
+                    CommandOutcome::Unknown { operation } => CommandOutcome::Unknown { operation },
+                }
+            }
+            Ok(setjoin_pg::AdminReducerOutcome::NoOp { tx, rows }) => {
+                let _ = tx.rollback().await;
+                match project(rows, false) {
+                    Ok(v) => CommandOutcome::Committed(v),
+                    Err(e) => CommandOutcome::RolledBack(Rejection::Body(e)),
+                }
+            }
+            Err(e) => CommandOutcome::RolledBack(Rejection::Statement(e)),
+        }
     }
 
     pub async fn run_admin_sensitive_read(

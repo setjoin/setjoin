@@ -1,29 +1,18 @@
 //! Slice `settings-b` (#307): `/user/notification-preferences`, `/user/vip-senders`,
 //! `/user/automatic-replies` and `/user/approval-delegation` (GET and PUT each).
-//!
-//! Every PUT is Go's whole transaction as ONE statement: an upsert (notification preferences)
-//! or one call of an existing reducer (`vip_sender_set`, `set_vacation`,
-//! `set_approval_delegation`), so each runs as one receipted statement with the verified user
-//! (or that user's primary mailbox) taken from the sealed context inside the same statement
-//! (R1-R3). No new reducer is needed. Business errors keep Go's mapping: the adapter turns the
-//! reducer SQLSTATE into Go's fixed 400 body, every other failure is Go's 500 `database error`.
-use super::{command, deadline, done, envelope, invalid, s, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, Row, ScopedExecutor, StatementFailure, Type};
+use super::{command, deadline, done, invalid, mailbox_envelope, s, user_envelope};
+use setjoin_authz::principals::{MutateCapability, ReadCapability, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, Row, StatementFailure};
 
 // ---- notification preferences ----
 
-/// `validReadReceiptPolicy`.
 pub fn valid_read_receipt_policy(v: &str) -> bool {
     matches!(v, "ask" | "always" | "never")
 }
-/// `validChatNotifications`.
 pub fn valid_chat_notifications(v: &str) -> bool {
     matches!(v, "all" | "mentions" | "off")
 }
 
-/// `github.com/google/uuid.Parse`: 36 bytes, `urn:uuid:`-prefixed, braced (the closing byte is
-/// not checked) or 32 plain hex digits. Returns the canonical lower-case text.
 pub fn go_uuid(raw: &str) -> Option<String> {
     let b = raw.as_bytes();
     let (text, plain): (&[u8], bool) = match b.len() {
@@ -62,19 +51,13 @@ pub fn go_uuid(raw: &str) -> Option<String> {
     ))
 }
 
-/// `GET /user/notification-preferences`: Go skips a row whose scan fails (a NULL in a column
-/// it scans into a plain bool, string or int) and answers `[]` for none.
 pub async fn notification_get(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    let rows = exec
-        .read_scoped(
-            &scope(actor),
-            crate::sql::NOTIFICATION_GET.sql,
-            &[(&user, Type::INT8)],
-        )
+    let uid = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &crate::sql::NOTIFICATION_GET, &[&uid])
         .await?;
     let render = |r: &Row| -> Option<String> {
         let mut out = String::from("{");
@@ -107,7 +90,6 @@ pub async fn notification_get(
     Ok(done(format!("{{\"preferences\":[{}]}}", items.join(","))))
 }
 
-/// The decoded PUT body (`fingerprint` already parsed to canonical text).
 #[derive(Default)]
 pub struct NotificationPut {
     pub fingerprint: Option<String>,
@@ -124,48 +106,49 @@ pub struct NotificationPut {
     pub chat_notifications: String,
 }
 
-/// Go's single upsert (an empty policy keeps the stored value, defaults on insert).
 pub async fn notification_put(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     b: &NotificationPut,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
+    let uid = user.user().get();
     let payload = format!(
         "notification.put:{:?}:{}:{}:{:?}:{:?}:{}",
         b.fingerprint, b.push_enabled, b.push_sound, b.dnd_start, b.dnd_end, b.dnd_days
     );
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("notification.put"),
-        &envelope(&auth, operation, &payload),
-        &auth,
-        deadline(),
-        crate::sql::NOTIFICATION_PUT.sql,
-        &[
-            (&b.fingerprint, Type::TEXT),
-            (&b.push_enabled, Type::BOOL),
-            (&b.push_sound, Type::TEXT),
-            (&b.stop_push_when_desktop_online, Type::BOOL),
-            (&b.dnd_start, Type::TEXT),
-            (&b.dnd_end, Type::TEXT),
-            (&b.dnd_days, Type::INT8),
-            (&b.mail_notifications, Type::TEXT),
-            (&b.calendar_reminders, Type::BOOL),
-            (&b.task_reminders, Type::BOOL),
-            (&b.read_receipt_policy, Type::TEXT),
-            (&b.chat_notifications, Type::TEXT),
-        ],
-        |rows| {
-            if rows.len() == 1 {
-                Ok(())
-            } else {
-                Err(invalid())
-            }
-        },
-    )
-    .await
+    let env = user_envelope(user, operation, &payload);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::NOTIFICATION_PUT,
+            &[
+                &uid,
+                &b.fingerprint,
+                &b.push_enabled,
+                &b.push_sound,
+                &b.stop_push_when_desktop_online,
+                &b.dnd_start,
+                &b.dnd_end,
+                &b.dnd_days,
+                &b.mail_notifications,
+                &b.calendar_reminders,
+                &b.task_reminders,
+                &b.read_receipt_policy,
+                &b.chat_notifications,
+            ],
+            Some(command("notification.put")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 pub fn saved_body() -> String {
@@ -174,14 +157,13 @@ pub fn saved_body() -> String {
 
 // ---- VIP senders ----
 
-/// `GET /user/vip-senders`: `vip_senders_list` is the user's own list (R1).
 pub async fn vip_get(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    let rows = exec
-        .read_scoped(&scope(actor), crate::sql::VIP_GET.sql, &[(&user, Type::INT8)])
+    let uid = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &crate::sql::VIP_GET, &[&uid])
         .await?;
     let raw: String = rows
         .first()
@@ -194,43 +176,39 @@ pub async fn vip_get(
     )))
 }
 
-/// Go's `SELECT vip_sender_set($1, $2, $3)`.
 pub async fn vip_put(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     email: &str,
     vip: bool,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("vip.put"),
-        &envelope(&auth, operation, &format!("vip.put:{email}:{vip}")),
-        &auth,
-        deadline(),
-        crate::sql::VIP_PUT.sql,
-        &[(&email, Type::TEXT), (&vip, Type::BOOL)],
-        |rows| rows.first().map(|_| ()).ok_or_else(invalid),
-    )
-    .await
+    let uid = user.user().get();
+    let env = user_envelope(user, operation, &format!("vip.put:{email}:{vip}"));
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::VIP_PUT,
+            &[&uid, &email, &vip],
+            Some(command("vip.put")),
+            |rows| rows.first().map(|_| ()).ok_or_else(invalid),
+        )
+        .await
 }
 
 // ---- automatic replies ----
 
-/// `identity.ResolvePrimaryMailbox`: `None` for no primary mailbox or any read error.
-pub async fn primary_mailbox(exec: &ScopedExecutor, actor: &AuthContext) -> Option<i64> {
-    let user = actor.user_id();
-    exec.read_scoped(
-        &scope(actor),
-        crate::sql::PRIMARY_MAILBOX.sql,
-        &[(&user, Type::INT8)],
-    )
-    .await
-    .ok()?
-    .first()?
-    .try_get(0)
-    .ok()
+pub async fn primary_mailbox(factory: &TxFactory, user: &UserPrincipal) -> Option<i64> {
+    let uid = user.user().get();
+    factory
+        .run_user_read_contract(user, &crate::sql::PRIMARY_MAILBOX, &[&uid])
+        .await
+        .ok()?
+        .first()?
+        .try_get(0)
+        .ok()
 }
 
 pub const VACATION_DEFAULT: &str = "{\"enabled\":false,\"subject\":\"\",\"body_internal\":\"\",\"body_internal_html\":\"\",\"body_external\":\"\",\"body_external_html\":\"\",\"start_date\":null,\"end_date\":null,\"external_audience\":\"all\"}";
@@ -239,19 +217,14 @@ fn opt_text(value: Option<String>) -> String {
     value.map_or("null".into(), |t| s(&t))
 }
 
-/// `GET /user/automatic-replies`. Go scans NULLs of an absent row into plain fields, so
-/// the failure is its generic 500: `Err` is that failure.
+/// `GET /user/automatic-replies` (mailbox-scoped under Wave A `FORCE RLS` on `vacation_settings`).
 pub async fn vacation_get(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    cap: &ReadCapability,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    let rows = exec
-        .read_scoped(
-            &scope(actor),
-            crate::sql::VACATION_GET.sql,
-            &[(&user, Type::INT8)],
-        )
+    let mb = cap.mailbox().get();
+    let rows = factory
+        .run_mailbox_read_contract(cap, &crate::sql::VACATION_GET, &[&mb])
         .await?;
     let Some(r) = rows.first() else {
         return Ok(done(VACATION_DEFAULT.into()));
@@ -287,62 +260,58 @@ pub struct VacationPut {
     pub external_audience: String,
 }
 
-/// `valid_external_audience`.
 pub fn valid_external_audience(v: &str) -> bool {
     matches!(v, "all" | "contacts" | "none")
 }
 
 /// Go's `SELECT set_vacation(...)` on the caller's primary mailbox.
 pub async fn vacation_put(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    cap: &MutateCapability,
     b: &VacationPut,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
+    let mb = cap.mailbox().get();
     let payload = format!(
         "vacation.put:{}:{}:{:?}:{:?}:{}",
         b.enabled, b.subject, b.start_date, b.end_date, b.external_audience
     );
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("vacation.put"),
-        &envelope(&auth, operation, &payload),
-        &auth,
-        deadline(),
-        crate::sql::VACATION_PUT.sql,
-        &[
-            (&b.enabled, Type::BOOL),
-            (&b.subject, Type::TEXT),
-            (&b.body_internal, Type::TEXT),
-            (&b.body_internal_html, Type::TEXT),
-            (&b.body_external, Type::TEXT),
-            (&b.body_external_html, Type::TEXT),
-            (&b.start_date, Type::TEXT),
-            (&b.end_date, Type::TEXT),
-            (&b.external_audience, Type::TEXT),
-        ],
-        |rows| rows.first().map(|_| ()).ok_or_else(invalid),
-    )
-    .await
+    let env = mailbox_envelope(cap, operation, &payload);
+    factory
+        .run_mailbox_write_contract_pipelined(
+            cap,
+            &env,
+            deadline(),
+            &crate::sql::VACATION_PUT,
+            &[
+                &mb,
+                &b.enabled,
+                &b.subject,
+                &b.body_internal,
+                &b.body_internal_html,
+                &b.body_external,
+                &b.body_external_html,
+                &b.start_date,
+                &b.end_date,
+                &b.external_audience,
+            ],
+            Some(command("vacation.put")),
+            |rows| rows.first().map(|_| ()).ok_or_else(invalid),
+        )
+        .await
 }
 
 // ---- approval delegation ----
 
 pub const DELEGATION_DEFAULT: &str = "{\"enabled\":false,\"delegate_user_id\":0,\"delegate_name\":\"\",\"delegate_email\":\"\",\"starts_at\":null,\"ends_at\":null}";
 
-/// `GET /user/approval-delegation`: the caller's own entrust joined to its delegate.
 pub async fn delegation_get(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    let rows = exec
-        .read_scoped(
-            &scope(actor),
-            crate::sql::DELEGATION_GET.sql,
-            &[(&user, Type::INT8)],
-        )
+    let uid = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &crate::sql::DELEGATION_GET, &[&uid])
         .await?;
     let Some(r) = rows.first() else {
         return Ok(done(DELEGATION_DEFAULT.into()));
@@ -362,33 +331,29 @@ pub async fn delegation_get(
     )))
 }
 
-/// Go's `SELECT set_approval_delegation(...)`: `delegate` `None` clears the entrust.
 pub async fn delegation_put(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     delegate: Option<i64>,
     starts: &Option<String>,
     ends: &Option<String>,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("delegation.put"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("delegation.put:{delegate:?}:{starts:?}:{ends:?}"),
-        ),
-        &auth,
-        deadline(),
-        crate::sql::DELEGATION_PUT.sql,
-        &[
-            (&delegate, Type::INT8),
-            (starts, Type::TEXT),
-            (ends, Type::TEXT),
-        ],
-        |rows| rows.first().map(|_| ()).ok_or_else(invalid),
-    )
-    .await
+    let uid = user.user().get();
+    let env = user_envelope(
+        user,
+        operation,
+        &format!("delegation.put:{delegate:?}:{starts:?}:{ends:?}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::DELEGATION_PUT,
+            &[&uid, &delegate, starts, ends],
+            Some(command("delegation.put")),
+            |rows| rows.first().map(|_| ()).ok_or_else(invalid),
+        )
+        .await
 }

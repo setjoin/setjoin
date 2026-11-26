@@ -60,6 +60,16 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
         let secret = self.secret.clone();
         let worker_exec = self.worker_exec.clone();
         Box::pin(async move {
+            let Some(tx) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker_exec))
+            else {
+                let id = crate::jmap::reply::request_id(
+                    r.headers().get("x-request-id"),
+                    crate::jmap::random().unwrap_or([0; 16]),
+                );
+                return crate::mailboxes::bare(500, "database unavailable", &c, &id);
+            };
+            let client_ip = c.identity.client_ip.to_string();
             if let Some(token) = email_target(r.uri().path()) {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -75,7 +85,36 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                 else {
                     return html(400, crate::approval_pages::BAD.into(), &c, id);
                 };
-                let Ok(Some((subject, status, consumer))) = cap.request(&exec).await else {
+                let Some(actor_id) = cap.actor_user_id() else {
+                    return html(400, crate::approval_pages::BAD.into(), &c, id);
+                };
+                // Preserve primary-mailbox requirement for email capability tokens.
+                if tx
+                    .mint_capability_primary_mailbox(actor_id, "", &client_ip)
+                    .await
+                    .is_err()
+                {
+                    return html(
+                        if r.method() == hyper::Method::POST {
+                            200
+                        } else {
+                            400
+                        },
+                        if r.method() == hyper::Method::POST {
+                            crate::approval_pages::INACTIVE
+                        } else {
+                            crate::approval_pages::BAD
+                        }
+                        .into(),
+                        &c,
+                        id,
+                    );
+                }
+                let Ok(cap_user) = tx.mint_capability_user(actor_id, "", &client_ip).await else {
+                    return html(400, crate::approval_pages::BAD.into(), &c, id);
+                };
+                let Ok(Some((subject, status, consumer))) = cap.request(&tx, &cap_user).await
+                else {
                     return html(
                         if r.method() == hyper::Method::POST {
                             200
@@ -106,7 +145,24 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                     let Some(operation) = crate::jmap::random() else {
                         return email_error(&c, id);
                     };
-                    return match cap.decide(&exec, &worker_exec, &consumer, operation).await {
+                    let outcome = if matches!(
+                        consumer.as_str(),
+                        "mail.external_send" | "mail.group_moderation"
+                    ) {
+                        worker_decide_mail(
+                            &worker_exec,
+                            cap_user.user().get(),
+                            &consumer,
+                            cap.request_id(),
+                            cap.decision(),
+                            None,
+                            operation,
+                        )
+                        .await
+                    } else {
+                        cap.decide(&tx, &cap_user, &consumer, operation).await
+                    };
+                    return match outcome {
                         setjoin_pg::CommandOutcome::Committed(status) => {
                             let verb = match cap.decision() {
                                 "approve" => "approved",
@@ -180,6 +236,9 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
             };
             let request_id =
                 crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+            let Ok(user) = tx.mint_user_from_authorized(&auth, &client_ip).await else {
+                return problem(500, "database error", r.uri().path(), &c, request_id);
+            };
             if r.uri().path() == "/api/admin/approval-requests/audit"
                 || r.uri().path() == "/api/admin/approval-policies"
                 || r.uri().path() == "/api/admin/approval-policies/reorder"
@@ -187,7 +246,7 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
             {
                 let actor = auth.context();
                 let manage = !matches!(*r.method(), hyper::Method::GET | hyper::Method::HEAD);
-                let authority = setjoin_approvals::admin_authority(&exec, actor)
+                let authority = setjoin_approvals::admin_authority(&tx, &user, actor)
                     .await
                     .ok()
                     .filter(|authority| {
@@ -204,8 +263,9 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                         .strip_prefix("/api")
                         .unwrap_or(r.uri().path());
                     let _ = setjoin_approvals::console_denied(
-                        &exec,
-                        actor,
+                        &tx,
+                        &user,
+                        actor.email(),
                         path,
                         if manage {
                             "approvals.manage"
@@ -229,8 +289,8 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                         .unwrap_or(0)
                         .clamp(0, 1_000_000);
                     return match setjoin_approvals::audit_requests(
-                        &exec,
-                        actor,
+                        &tx,
+                        &user,
                         authority.domain_scope(),
                         limit,
                         offset,
@@ -258,7 +318,7 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                     }
                     let payload=serde_json::json!({"consumerType":body.consumer_type,"orderedIds":body.ordered_ids}).to_string();
                     return match setjoin_approvals::reorder_policies(
-                        &exec, actor, &payload, operation,
+                        &tx, &user, &payload, operation,
                     )
                     .await
                     {
@@ -266,12 +326,12 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                             let mut secondary = operation;
                             secondary[15] ^= 0x80;
                             let _ = setjoin_approvals::audit_policy_change(
-                                &exec,
-                                actor,
+                                &tx,
+                                &user,
                                 "approval_policy_reorder",
                                 None,
                                 Some(&payload),
-                                &c.identity.client_ip.to_string(),
+                                &client_ip,
                                 secondary,
                             )
                             .await;
@@ -302,7 +362,7 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                         return problem(400, "invalid policy id", r.uri().path(), &c, request_id);
                     };
                     if r.method() == hyper::Method::DELETE {
-                        return match setjoin_approvals::delete_policy(&exec, actor, id, operation)
+                        return match setjoin_approvals::delete_policy(&tx, &user, id, operation)
                             .await
                         {
                             setjoin_pg::CommandOutcome::Committed(0) => {
@@ -312,12 +372,12 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                                 let mut secondary = operation;
                                 secondary[15] ^= 0x80;
                                 let _ = setjoin_approvals::audit_policy_change(
-                                    &exec,
-                                    actor,
+                                    &tx,
+                                    &user,
                                     "approval_policy_delete",
                                     Some(id),
                                     None,
-                                    &c.identity.client_ip.to_string(),
+                                    &client_ip,
                                     secondary,
                                 )
                                 .await;
@@ -359,7 +419,7 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                     }
                     let payload = serde_json::to_string(&body.fields).expect("patch");
                     return match setjoin_approvals::update_policy(
-                        &exec, actor, id, &payload, operation,
+                        &tx, &user, id, &payload, operation,
                     )
                     .await
                     {
@@ -372,12 +432,12 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                             let name = body.fields.get("name").map(|v| v.get()).unwrap_or("null");
                             let after = format!("{{\"id\":{id},\"name\":{name}}}");
                             let _ = setjoin_approvals::audit_policy_change(
-                                &exec,
-                                actor,
+                                &tx,
+                                &user,
                                 "approval_policy_update",
                                 Some(id),
                                 Some(&after),
-                                &c.identity.client_ip.to_string(),
+                                &client_ip,
                                 secondary,
                             )
                             .await;
@@ -435,19 +495,19 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                         );
                     };
                     let payload=format!("{{\"consumerType\":{},\"name\":{},\"enabled\":{},\"conditions\":{},\"requiresApproval\":{},\"approverSpec\":{}}}",serde_json::to_string(&body.consumer_type).expect("consumer"),serde_json::to_string(&body.name).expect("name"),body.enabled,conditions.get(),body.requires_approval,spec.get());
-                    return match setjoin_approvals::create_policy(&exec, actor, &payload, operation)
+                    return match setjoin_approvals::create_policy(&tx, &user, &payload, operation)
                         .await
                     {
                         setjoin_pg::CommandOutcome::Committed(id) => {
                             let mut audit_operation = operation;
                             audit_operation[15] ^= 0x80;
                             let _ = setjoin_approvals::audit_policy_created(
-                                &exec,
-                                actor,
+                                &tx,
+                                &user,
                                 id,
                                 &body.consumer_type,
                                 &body.name,
-                                &c.identity.client_ip.to_string(),
+                                &client_ip,
                                 audit_operation,
                             )
                             .await;
@@ -493,7 +553,7 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                 if !consumer.is_empty() && !setjoin_approvals::valid_consumer(&consumer) {
                     return problem(400, "invalid consumer_type", r.uri().path(), &c, request_id);
                 }
-                return match setjoin_approvals::policies(&exec, actor, &consumer).await {
+                return match setjoin_approvals::policies(&tx, &user, &consumer).await {
                     Ok(body) => crate::jmap::reply::response(body, c.identity.proto, request_id),
                     Err(_) => problem(500, "database error", r.uri().path(), &c, request_id),
                 };
@@ -502,7 +562,7 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                 let Ok(body) = read_one::<CreatePolicyBody>(&mut r, 1 << 20).await else {
                     return problem(400, "invalid JSON", r.uri().path(), &c, request_id);
                 };
-                match setjoin_approvals::hr_enabled(&exec, &body.kind).await {
+                match setjoin_approvals::hr_enabled(&tx, &body.kind).await {
                     Ok(true) => {}
                     Ok(false) => return problem(404, "not found", r.uri().path(), &c, request_id),
                     Err(_) => {
@@ -510,14 +570,8 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                     }
                 }
                 let form = body.form.as_ref().map(|v| v.get()).unwrap_or("null");
-                return match setjoin_approvals::submit_hr(
-                    &exec,
-                    auth.context(),
-                    &body.kind,
-                    form,
-                    operation,
-                )
-                .await
+                return match setjoin_approvals::submit_hr(&tx, &user, &body.kind, form, operation)
+                    .await
                 {
                     setjoin_pg::CommandOutcome::Committed(Some(id)) => {
                         let mut r = crate::jmap::reply::response(
@@ -550,7 +604,7 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                 let Some(id) = id else {
                     return problem(400, "invalid id", r.uri().path(), &c, request_id);
                 };
-                let consumer = setjoin_approvals::visible_consumer(&exec, auth.context(), id).await;
+                let consumer = setjoin_approvals::visible_consumer(&tx, &user, id).await;
                 let raw = read_body(&mut r, 4096).await;
                 let body = raw
                     .ok()
@@ -591,14 +645,12 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                     let Some((token, hash)) = credential else {
                         return problem(500, "database error", r.uri().path(), &c, request_id);
                     };
-                    let outcome = setjoin_guests::invite(
+                    let outcome = worker_decide_guest_invite(
                         &worker_exec,
-                        auth.context(),
-                        setjoin_guests::Invitation::Approval {
-                            request: id,
-                            decision: &body.decision,
-                            comment: body.comment.as_deref(),
-                        },
+                        user.user().get(),
+                        id,
+                        &body.decision,
+                        body.comment.as_deref(),
                         &hash,
                         operation,
                     )
@@ -612,7 +664,6 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                                     store
                                         .as_ref()
                                         .map(|s| s as &dyn crate::recovery_worker::ObjectStore),
-                                    auth.context(),
                                     &prepared,
                                     &token,
                                 )
@@ -663,8 +714,8 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                         );
                     }
                     let outcome = setjoin_approvals::decide_drive_access(
-                        &exec,
-                        auth.context(),
+                        &tx,
+                        &user,
                         id,
                         &body.decision,
                         body.comment.as_deref(),
@@ -715,24 +766,33 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                         request_id,
                     );
                 }
-                return match setjoin_approvals::decide_consumer(
-                    if matches!(
-                        consumer.as_str(),
-                        "mail.external_send" | "mail.group_moderation"
-                    ) {
-                        &worker_exec
-                    } else {
-                        &exec
-                    },
-                    &setjoin_approvals::scope(auth.context()),
-                    &consumer,
-                    id,
-                    &body.decision,
-                    body.comment.as_deref(),
-                    operation,
-                )
-                .await
-                {
+                let outcome = if matches!(
+                    consumer.as_str(),
+                    "mail.external_send" | "mail.group_moderation"
+                ) {
+                    worker_decide_mail(
+                        &worker_exec,
+                        user.user().get(),
+                        &consumer,
+                        id,
+                        &body.decision,
+                        body.comment.as_deref(),
+                        operation,
+                    )
+                    .await
+                } else {
+                    setjoin_approvals::decide_consumer(
+                        &tx,
+                        &user,
+                        &consumer,
+                        id,
+                        &body.decision,
+                        body.comment.as_deref(),
+                        operation,
+                    )
+                    .await
+                };
+                return match outcome {
                     setjoin_pg::CommandOutcome::Committed(status) => crate::jmap::reply::response(
                         format!(
                             "{{\"status\":{}}}\n",
@@ -769,9 +829,7 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                 let Some(id) = id else {
                     return problem(400, "invalid id", r.uri().path(), &c, request_id);
                 };
-                return match setjoin_approvals::cancel_request(&exec, auth.context(), id, operation)
-                    .await
-                {
+                return match setjoin_approvals::cancel_request(&tx, &user, id, operation).await {
                     setjoin_pg::CommandOutcome::Committed(status) => crate::jmap::reply::response(
                         format!(
                             "{{\"status\":{}}}\n",
@@ -801,7 +859,7 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                     }
                 };
             }
-            match setjoin_approvals::my_approvals(&exec, auth.context()).await {
+            match setjoin_approvals::my_approvals(&tx, &user).await {
                 Ok(body) => crate::jmap::reply::response(body, c.identity.proto, request_id),
                 Err(_) => problem(500, "database error", r.uri().path(), &c, request_id),
             }
@@ -1354,4 +1412,164 @@ fn email_error(c: &RequestContext, id: String) -> Response<Body> {
         hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
     );
     r
+}
+
+/// Cross-tenant mail-delivery approval decisions (`mail.external_send`,
+/// `mail.group_moderation`) run on `WorkerPool` (`BYPASSRLS`) rather than a
+/// tenant `UserTx`, because approving delivers held messages to recipient
+/// mailboxes and `outbound_queue`.
+async fn worker_decide_mail(
+    worker_exec: &ScopedExecutor,
+    actor: i64,
+    consumer: &str,
+    request_id: i64,
+    decision: &str,
+    comment: Option<&str>,
+    operation: [u8; 16],
+) -> setjoin_pg::CommandOutcome<String, setjoin_pg::StatementFailure> {
+    let op = setjoin_contracts::ids::OperationId(operation);
+    let (cmd, contract) = match consumer {
+        "mail.external_send" => (
+            "mail_external_approval_decide",
+            &setjoin_approvals::sql::DECIDE_MAIL_EXTERNAL,
+        ),
+        "mail.group_moderation" => (
+            "group_moderation_approval_decide",
+            &setjoin_approvals::sql::DECIDE_GROUP_MODERATION,
+        ),
+        _ => {
+            return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
+        }
+    };
+    let Some(pool) = worker_exec.try_worker_pool() else {
+        return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
+    };
+    let mut tx = match pool.begin_read_write().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e));
+        }
+    };
+    let op_hex = setjoin_pg::operation_hex(op);
+    let body: Result<String, setjoin_pg::StatementFailure> = async {
+        let rows = tx
+            .query_contract(contract, &[&request_id, &actor, &decision, &comment])
+            .await?;
+        let status: String = rows
+            .first()
+            .and_then(|r| r.try_get(0).ok())
+            .ok_or_else(|| setjoin_pg::StatementFailure {
+                sqlstate: None,
+                hint: None,
+                message: "approval reducer returned no status".into(),
+            })?;
+        tx.execute(
+            "INSERT INTO public.rust_operation_receipts(operation_id, family, command) \
+             VALUES ($1::text::uuid, $2, $3)",
+            &[
+                (&op_hex, setjoin_pg::Type::TEXT),
+                (&"F10", setjoin_pg::Type::TEXT),
+                (&cmd, setjoin_pg::Type::TEXT),
+            ],
+        )
+        .await?;
+        Ok(status)
+    }
+    .await;
+    match body {
+        Ok(status) => match tx.commit().await {
+            Ok(()) => setjoin_pg::CommandOutcome::Committed(status),
+            Err(e) => {
+                if let Some(code) = e.sqlstate.as_deref() {
+                    if setjoin_pg::commit_failure_observation(Some(code))
+                        == setjoin_contracts::command::CommitObservation::RolledBack
+                    {
+                        return setjoin_pg::CommandOutcome::RolledBack(
+                            setjoin_pg::Rejection::CommitRefused(code.to_owned()),
+                        );
+                    }
+                }
+                setjoin_pg::CommandOutcome::Unknown { operation: op }
+            }
+        },
+        Err(e) => {
+            let _ = tx.rollback().await;
+            setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e))
+        }
+    }
+}
+
+/// Cross-tenant `guest.invite` approval decision runs on `WorkerPool`
+/// (`BYPASSRLS`) because approval provisions an external guest account and
+/// invite record.
+async fn worker_decide_guest_invite(
+    worker_exec: &ScopedExecutor,
+    actor: i64,
+    request_id: i64,
+    decision: &str,
+    comment: Option<&str>,
+    hash: &str,
+    operation: [u8; 16],
+) -> setjoin_pg::CommandOutcome<setjoin_guests::Prepared, setjoin_pg::StatementFailure> {
+    let op = setjoin_contracts::ids::OperationId(operation);
+    let Some(pool) = worker_exec.try_worker_pool() else {
+        return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
+    };
+    let mut tx = match pool.begin_read_write().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e));
+        }
+    };
+    let op_hex = setjoin_pg::operation_hex(op);
+    let body: Result<setjoin_guests::Prepared, setjoin_pg::StatementFailure> = async {
+        let rows = tx
+            .query_contract(
+                &setjoin_guests::sql::INVITE_APPROVAL_DECIDE,
+                &[&request_id, &actor, &decision, &comment, &hash],
+            )
+            .await?;
+        let raw: String = rows
+            .first()
+            .and_then(|r| r.try_get(0).ok())
+            .ok_or_else(|| setjoin_pg::StatementFailure {
+                sqlstate: None,
+                hint: None,
+                message: "guest invite approval returned no payload".into(),
+            })?;
+        let prepared = setjoin_guests::Prepared::decode(raw)?;
+        tx.execute(
+            "INSERT INTO public.rust_operation_receipts(operation_id, family, command) \
+             VALUES ($1::text::uuid, $2, $3)",
+            &[
+                (&op_hex, setjoin_pg::Type::TEXT),
+                (&"F10", setjoin_pg::Type::TEXT),
+                (&"guest_invite_approval", setjoin_pg::Type::TEXT),
+            ],
+        )
+        .await?;
+        Ok(prepared)
+    }
+    .await;
+    match body {
+        Ok(prepared) => match tx.commit().await {
+            Ok(()) => setjoin_pg::CommandOutcome::Committed(prepared),
+            Err(e) => {
+                if let Some(code) = e.sqlstate.as_deref() {
+                    if setjoin_pg::commit_failure_observation(Some(code))
+                        == setjoin_contracts::command::CommitObservation::RolledBack
+                    {
+                        return setjoin_pg::CommandOutcome::RolledBack(
+                            setjoin_pg::Rejection::CommitRefused(code.to_owned()),
+                        );
+                    }
+                }
+                setjoin_pg::CommandOutcome::Unknown { operation: op }
+            }
+        },
+        Err(e) => {
+            let _ = tx.rollback().await;
+            setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e))
+        }
+    }
 }

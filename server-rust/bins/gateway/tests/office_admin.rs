@@ -84,7 +84,8 @@ async fn run(route: &str, case: &str, mutation: Option<&str>) -> Result<(), comm
  let s3=common::fake_upstream(|_|async{Response::new(common::full(""))}).await;let oracle=office_go::start(&db,s3).await?;let recording=oracle.is_some();
  let command_dsn=if let Some(kind)=mutation.filter(|m|*m!="status"){let(dsn,schema)=office_fixture::mutant_dsn(&c,&db,kind).await?;owned_schema=Some(schema);dsn}else{db.app.as_deref().unwrap_or(&db.dsn).to_owned()};
  let exec=setjoin_pg::ScopedExecutor::from_dsn(&command_dsn,4).map_err(|e|e.0)?;
- let adapter=setjoin_gateway::office::OfficeAdminRoute{exec,keys:std::sync::Arc::new(common::recovery_keys()),issuer:"mailserver".into(),provider_client:provider.as_ref().map(office_provider::client).transpose()?};
+ let worker=setjoin_pg::ScopedExecutor::from_dsn(&command_dsn,4).map_err(|e|e.0)?;
+ let adapter=setjoin_gateway::office::OfficeAdminRoute{exec,worker,keys:std::sync::Arc::new(common::recovery_keys()),issuer:"mailserver".into(),provider_client:provider.as_ref().map(office_provider::client).transpose()?};
  let table=if recording{RouteTable::proxy_all()}else if mutation==Some("status"){RouteTable::proxy_all().with(ChangedStatus(adapter))}else{RouteTable::proxy_all().with(adapter)};
  let mut inventory:Value=serde_json::from_str(setjoin_gateway::inventory::BUNDLED)?;for r in inventory["routes"].as_array_mut().unwrap(){if r["family"]=="F15"{r["state"]="ON".into();r["upstream"]="local-rust".into();}}
  let gateway=Gateway::new(Config{upstream:oracle.as_ref().map(|o|format!("http://{}",o.address).parse()).transpose()?,trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,edge_limit:None},table)?.with_inventory(&inventory.to_string())?;
