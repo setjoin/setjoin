@@ -6749,10 +6749,12 @@ dependencies = [
 name = "setjoin-pg"
 version = "0.0.0"
 dependencies = [
+ "deadpool",
  "deadpool-postgres",
  "futures-util",
  "setjoin-contracts",
  "setjoin-db",
+ "setjoin-pg",
  "tokio",
  "tokio-postgres",
 ]

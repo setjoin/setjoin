@@ -82,7 +82,7 @@ setjoin-blobs = { path = "../../crates/domains/blobs" }
 setjoin-contracts = { path = "../../crates/contracts" }
 setjoin-db = { path = "../../crates/db" }
 setjoin-jmap = { path = "../../crates/domains/jmap" }
-setjoin-pg = { path = "../../crates/pg" }
+setjoin-pg = { path = "../../crates/pg", features = ["mint", "worker-pool"] }
 # Whole-listener IMAP swap (#345): runs in this process behind systemd sockets.
 setjoin-imap = { path = "../../crates/protocols/imap" }
 # Push-intent drain (#408): provider transports shared with mailctl.

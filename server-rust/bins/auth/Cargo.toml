@@ -17,7 +17,7 @@ setjoin-contracts = { path = "../../crates/contracts" }
 setjoin-schema = { path = "../../crates/schema" }
 setjoin-identity = { path = "../../crates/domains/identity" }
 setjoin-authz = { path = "../../crates/authz" }
-setjoin-pg = { path = "../../crates/pg" }
+setjoin-pg = { path = "../../crates/pg", features = ["mint", "worker-pool"] }
 setjoin-config-secret = { path = "../../crates/config-secret" }
 uuid = { version = "=1.29.0", features = ["v4"] }
 bytes = "=1.12.1"

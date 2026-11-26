@@ -19,7 +19,7 @@ bcrypt = "=0.17.1"
 pbkdf2 = "=0.12.2"
 sm3 = "=0.4.2"
 subtle = "=2.6.1"
-setjoin-pg = { path = "../pg" }
+setjoin-pg = { path = "../pg", features = ["mint"] }
 base64 = "=0.22.1"
 bytes = "=1.12.1"
 http-body-util = "=0.1.5"

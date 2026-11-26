@@ -9,14 +9,21 @@ publish.workspace = true
 name = "setjoin_pg"
 path = "src/lib.rs"
 
+[features]
+default = []
+mint = []
+worker-pool = []
+
 [dependencies]
 setjoin-contracts = { path = "../contracts" }
 setjoin-db = { path = "../db" }
 tokio-postgres = "0.7.18"
+deadpool = { version = "0.13.1", default-features = false, features = ["managed", "rt_tokio_1"] }
 deadpool-postgres = "0.14.2"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # Client-side read deadlines (review item 1); already in the lock via the driver.
 tokio = { version = "1.54", features = ["rt", "sync", "time", "macros"] }
 
 [dev-dependencies]
+setjoin-pg = { path = ".", features = ["mint", "worker-pool"] }
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }
