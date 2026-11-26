@@ -1,6 +1,8 @@
 //! Initial immutable cohort capture; orphaned flat *.prev files are evidence only.
 use crate::{files::*, stage};
-use anyhow::{ensure, Context, Result};
+#[cfg(not(feature = "oracle-mutants"))]
+use anyhow::Context;
+use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
 use setjoin_release_format::{hash_artifact, sha256};
 use std::{

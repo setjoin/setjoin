@@ -444,6 +444,7 @@ fn validate_cohort(root: &Path, id: &str, require_index: bool) -> Result<()> {
 /// clock is the manifest's own published_at), and every installed core file must
 /// match its signed artifact size and SHA-256. Local `manifest.digest` and
 /// `installed.evidence.json` are only self-consistency and prove nothing alone.
+#[cfg_attr(feature = "oracle-mutants", allow(dead_code))]
 pub fn verify_authentic(dir: &Path, id: &str, roots: &Path) -> Result<()> {
     use setjoin_release_format::{
         Purpose, TrustStore, VerifyOptions, MIN_VERIFICATION_THRESHOLD,

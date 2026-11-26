@@ -1,4 +1,7 @@
-//! Pre-listener server initialization, preserving frozen Go's refusal classes.
+//! Pre-listener server initialization, preserving frozen Go's refusal classes
+//! while surfacing Wave 1.7 (#545) Release N least-privilege RLS posture.
+use setjoin_pg::rls_preflight::{inspect_rls_posture_worker, DsnRoleSummary, PostureContext};
+pub use setjoin_pg::rls_preflight::{BootPosture, EnforcementMode};
 use setjoin_pg::workers::{WorkerConnection, WorkerDatabase};
 pub mod geoip;
 mod secrets;
@@ -42,9 +45,15 @@ fn refuse_detail(exit_code: u8, message: &str, error: &str) -> Refusal {
 
 /// No database means the established bare front door, with no local boot work.
 /// Server deployments run these checks before constructing workers/listeners.
-pub async fn run() -> Result<(), Refusal> {
+pub async fn run() -> Result<BootPosture, Refusal> {
+    run_with_mode(EnforcementMode::WarnReleaseN).await
+}
+
+/// Same pre-listener boot checks parameterized by Release N (`WarnReleaseN`)
+/// vs Release N+1 (`FailClosedReleaseNPlus1`) enforcement mode.
+pub async fn run_with_mode(mode: EnforcementMode) -> Result<BootPosture, Refusal> {
     let Some(dsn) = std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()) else {
-        return Ok(());
+        return Ok(BootPosture::bare());
     };
     let configured = std::env::var("GEOIP_DB_PATH").unwrap_or_default();
     let path = if configured.is_empty() {
@@ -62,20 +71,23 @@ pub async fn run() -> Result<(), Refusal> {
     let db = connect(&dsn)
         .await
         .map_err(|_| refuse(0, "database pool failed"))?;
-    let worker_dsn = std::env::var("DB_WORKER_DSN")
+    let raw_worker_dsn = std::env::var("DB_WORKER_DSN")
         .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| dsn.clone());
+        .filter(|s| !s.is_empty());
+    let worker_dsn = raw_worker_dsn.clone().unwrap_or_else(|| dsn.clone());
     let worker = connect(&worker_dsn)
         .await
         .map_err(|_| refuse(0, "worker database pool failed"))?;
-    let owner_dsn = std::env::var("DB_OWNER_DSN")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| dsn.clone());
+    let raw_owner_dsn = std::env::var("DB_OWNER_DSN").ok().filter(|s| !s.is_empty());
+    let owner_dsn = raw_owner_dsn.clone().unwrap_or_else(|| dsn.clone());
     let owner = connect(&owner_dsn)
         .await
         .map_err(|_| refuse(0, "owner database pool failed"))?;
+    let dsn_roles = DsnRoleSummary::from_dsns(
+        Some(&dsn),
+        raw_worker_dsn.as_deref(),
+        raw_owner_dsn.as_deref(),
+    );
     let rows = db
         .query(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -106,7 +118,7 @@ pub async fn run() -> Result<(), Refusal> {
     log("INFO", "database schema version verified");
     let store =
         storage::Store::from_env().map_err(|_| refuse(0, "object storage client init failed"))?;
-    assert_rls(&db)
+    let boot_posture = assert_rls(&db, mode, dsn_roles)
         .await
         .map_err(|_| refuse(1, "native-RLS boot check FAILED — refusing to start"))?;
     if owner
@@ -200,7 +212,7 @@ pub async fn run() -> Result<(), Refusal> {
         );
     }
     log("INFO", "server boot checks completed");
-    Ok(())
+    Ok(boot_posture)
 }
 
 async fn report(db: &setjoin_pg::workers::WorkerConnection, result: &str) {
@@ -264,19 +276,37 @@ async fn report(db: &setjoin_pg::workers::WorkerConnection, result: &str) {
     }
 }
 
-async fn assert_rls(db: &WorkerConnection) -> Result<(), String> {
-    let role = db.query("SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user", &[]).await?;
-    let owned = db.query("SELECT c.relname FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE c.relforcerowsecurity AND c.relkind IN ('r','p') AND r.rolname=current_user ORDER BY c.relname", &[]).await?;
-    let disabled = db.query("SELECT DISTINCT c.relname FROM pg_policy pol JOIN pg_class c ON c.oid=pol.polrelid WHERE c.relkind IN ('r','p') AND NOT c.relrowsecurity ORDER BY c.relname", &[]).await?;
-    if role[0].get::<_, bool>(1) {
-        log("INFO", "native-RLS boot check: runtime is a superuser identity — FORCE is inert (flip not live), skipping");
-        return Ok(());
+async fn assert_rls(
+    db: &WorkerConnection,
+    mode: EnforcementMode,
+    dsn_roles: DsnRoleSummary,
+) -> Result<BootPosture, String> {
+    let report =
+        inspect_rls_posture_worker(db, PostureContext::RuntimeApp, Some(dsn_roles)).await?;
+    if !report.hard_errors.is_empty() {
+        for err in &report.hard_errors {
+            log("ERROR", &format!("native-RLS boot check: {err}"));
+        }
+        return Err(report.hard_errors.join("; "));
     }
-    if role[0].get::<_, bool>(2) || !owned.is_empty() || !disabled.is_empty() {
-        return Err("runtime role or policy catalog violates native-RLS invariants".into());
+    if !report.warnings.is_empty() {
+        match mode {
+            EnforcementMode::WarnReleaseN => {
+                for warning in &report.warnings {
+                    log("WARN", &format!("native-RLS boot check: {warning}"));
+                }
+                return Ok(BootPosture::from_report(report, mode));
+            }
+            EnforcementMode::FailClosedReleaseNPlus1 => {
+                for warning in &report.warnings {
+                    log("ERROR", &format!("native-RLS boot check: {warning}"));
+                }
+                return Err(report.warnings.join("; "));
+            }
+        }
     }
     log("INFO", "native-RLS boot check: passed");
-    Ok(())
+    Ok(BootPosture::from_report(report, mode))
 }
 
 async fn connect(dsn: &str) -> Result<WorkerConnection, String> {
@@ -292,14 +322,13 @@ async fn connect(dsn: &str) -> Result<WorkerConnection, String> {
 }
 
 fn env_last_ci(target: &str) -> Option<String> {
-    std::env::vars()
-        .fold(None, |acc, (k, v)| {
-            if k.eq_ignore_ascii_case(target) {
-                Some(v)
-            } else {
-                acc
-            }
-        })
+    std::env::vars().fold(None, |acc, (k, v)| {
+        if k.eq_ignore_ascii_case(target) {
+            Some(v)
+        } else {
+            acc
+        }
+    })
 }
 
 fn resolve_worm_mode_from_env() -> String {
@@ -344,7 +373,9 @@ fn parse_go_hex_float64(s: &str) -> Option<f64> {
     } else {
         (false, s)
     };
-    let rest = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X"))?;
+    let rest = rest
+        .strip_prefix("0x")
+        .or_else(|| rest.strip_prefix("0X"))?;
     let p_idx = rest.find(['p', 'P'])?;
     let mant_raw = &rest[..p_idx];
     let exp_raw = &rest[p_idx + 1..];
@@ -362,13 +393,10 @@ fn parse_go_hex_float64(s: &str) -> Option<f64> {
     let exp_p = if exp_neg { -exp_mag } else { exp_mag };
     let (int_hex, frac_hex) = match mant_raw.split_once('.') {
         Some((i, f)) => {
-            if !i.is_empty()
-                && !valid_digits_with_underscores(i, true, |b| b.is_ascii_hexdigit())
-            {
+            if !i.is_empty() && !valid_digits_with_underscores(i, true, |b| b.is_ascii_hexdigit()) {
                 return None;
             }
-            if !f.is_empty()
-                && !valid_digits_with_underscores(f, false, |b| b.is_ascii_hexdigit())
+            if !f.is_empty() && !valid_digits_with_underscores(f, false, |b| b.is_ascii_hexdigit())
             {
                 return None;
             }
@@ -460,8 +488,7 @@ fn parse_worm_retention_days(raw: Option<&str>) -> Result<i64, String> {
     if let Ok(days) = s.parse::<i64>() {
         return Ok(days);
     }
-    let v = parse_go_float64(s)
-        .ok_or_else(|| format!("invalid WORM_RETENTION_DAYS: {s:?}"))?;
+    let v = parse_go_float64(s).ok_or_else(|| format!("invalid WORM_RETENTION_DAYS: {s:?}"))?;
     if !v.is_finite() || v < (i64::MIN as f64) || v >= 9_223_372_036_854_775_808.0 {
         return Err(format!("invalid WORM_RETENTION_DAYS: {s:?}"));
     }

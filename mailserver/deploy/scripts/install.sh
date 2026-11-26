@@ -169,6 +169,10 @@ say()  { printf '==> %s\n' "$1"; }
 info() { printf '    %s\n' "$1"; }
 die()  { printf 'ERROR: %s\n' "$1" >&2; exit 1; }
 
+if [ "$PERMISSIVE_DSN" = "1" ]; then
+  info "WARN: --permissive-dsn / PERMISSIVE_DSN=1 is DEPRECATED in Release N (#545); Release N+1 will refuse to start on a privileged runtime DB_DSN. Migrate with 'mailctl schema provision-roles --write-dsns'."
+fi
+
 # ask <var> <prompt> <default> [redact-default]
 #   4th arg "1" marks the default as a RECOVERED SECRET (e.g. the owner DSN on
 #   a re-run): the default is never echoed — the prompt shows no value and only
@@ -1174,6 +1178,15 @@ export PGCONNECT_TIMEOUT=5
 psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -tAc 'SELECT 1' >/dev/null 2>&1 \
   || die "cannot reach Postgres at $DB_HOST:$DB_PORT as $DB_USER. Start it and create the role first. (Stock Debian/Ubuntu pg_hba.conf uses scram-sha-256 on 127.0.0.1 — a passwordless role/DSN cannot authenticate; see SINGLE_NODE_SETUP.md step 2 for the password or loopback-trust options.)"
 
+# Wave 1.7 (#545): CVE-2026-14666 PostgreSQL version floor preflight
+# (requires >= 17.11 or >= 18.6; explicitly warns on < 17.11 and 18.0-18.5).
+PG_VER_NUM="$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -tAc 'SHOW server_version_num' 2>/dev/null | tr -d '[:space:]' || true)"
+if [ -n "$PG_VER_NUM" ] && [ "$PG_VER_NUM" -eq "$PG_VER_NUM" ] 2>/dev/null; then
+  if ! { { [ "$PG_VER_NUM" -ge 170011 ] && [ "$PG_VER_NUM" -lt 180000 ]; } || [ "$PG_VER_NUM" -ge 180006 ]; }; then
+    info "WARN: PostgreSQL server_version_num=$PG_VER_NUM is vulnerable to CVE-2026-14666 (RLS + prepared statements); upgrade PostgreSQL to >= 17.11 or >= 18.6 before Release N+1."
+  fi
+fi
+
 if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -lqt | cut -d'|' -f1 | grep -qw "$DB_NAME"; then
   info "Database '$DB_NAME' already exists — preserving it."
 else
@@ -1251,6 +1264,21 @@ DB_NAME="$DB_NAME" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_USER="$DB_USER" \
 # exist (the pre-pass above only guaranteed the roles for the migration loop).
 ( cd "$ROOT/scripts" && psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
     -v ON_ERROR_STOP=1 -f provision-roles.sql >/dev/null )
+
+# Wave 1.7 (#545): verify/repair ARCH-018 scope-helper ownership and run
+# native-RLS + CVE-2026-14666 preflight via the matching mailctl binary.
+info "Verifying native-RLS roles, grants, and ARCH-018 scope helpers via mailctl."
+DB_DIRECT_OWNER_DSN="$DB_DIRECT_DSN" DB_OWNER_DSN="$DB_DSN" \
+  "$ROOT/server-rust/mailctl" schema provision-roles --yes >/dev/null \
+  || die "mailctl schema provision-roles failed — inspect role/grant posture and re-run."
+_preflight_rc=0
+DB_DIRECT_OWNER_DSN="$DB_DIRECT_DSN" DB_OWNER_DSN="$DB_DSN" \
+  "$ROOT/server-rust/mailctl" schema preflight || _preflight_rc=$?
+if [ "$_preflight_rc" -eq 2 ]; then
+  info "WARN: mailctl schema preflight reported Release N advisory warning(s) — remediate before Release N+1."
+elif [ "$_preflight_rc" -ne 0 ]; then
+  die "mailctl schema preflight failed (exit $_preflight_rc) — refusing to continue."
+fi
 
 if [ "$PERMISSIVE_DSN" != "1" ]; then
   # Give the constrained runtime roles their LOGIN passwords (provision-roles.sql

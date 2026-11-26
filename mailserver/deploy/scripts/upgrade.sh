@@ -761,6 +761,15 @@ if [ -n "$MAILCTL_BIN" ] && [ -n "$SCHEMA_DSN" ]; then
             echo "   ✗ schema apply FAILED — the new gateway would refuse to start on this schema."
             roll_back_and_exit
         fi
+        # Wave 1.7 (#545): verify PG CVE-2026-14666 floor and native-RLS posture.
+        _preflight_rc=0
+        DB_DIRECT_OWNER_DSN="$SCHEMA_DSN" "$MAILCTL_BIN" schema preflight || _preflight_rc=$?
+        if [ "$_preflight_rc" -eq 2 ]; then
+            echo "   ! WARN: native-RLS preflight reported Release N warning(s) — remediate with 'mailctl schema provision-roles --write-dsns' before Release N+1."
+        elif [ "$_preflight_rc" -ne 0 ]; then
+            echo "   ✗ native-RLS preflight FAILED (exit $_preflight_rc) — rolling back."
+            roll_back_and_exit
+        fi
     else
         echo "   ! mailctl on PATH may not match the new gateway; checking only:"
         DB_DSN="$SCHEMA_DSN" "$MAILCTL_BIN" schema check || \

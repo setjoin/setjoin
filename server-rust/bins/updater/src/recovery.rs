@@ -400,7 +400,7 @@ fn stdin_is_terminal() -> bool {
     {
         // Restored Go bug: any character device on fd 0 counts.
         use std::os::unix::fs::FileTypeExt;
-        return std::fs::metadata("/proc/self/fd/0").is_ok_and(|m| m.file_type().is_char_device());
+        std::fs::metadata("/proc/self/fd/0").is_ok_and(|m| m.file_type().is_char_device())
     }
     #[cfg(not(feature = "oracle-mutants"))]
     {

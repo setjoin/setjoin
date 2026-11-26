@@ -142,10 +142,11 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    if let Err(refusal) = runtime.block_on(setjoin_boot::run()) {
-        return ExitCode::from(refusal.exit_code);
-    }
-    match runtime.block_on(run(configuration)) {
+    let boot_posture = match runtime.block_on(setjoin_boot::run()) {
+        Ok(posture) => Arc::new(posture),
+        Err(refusal) => return ExitCode::from(refusal.exit_code),
+    };
+    match runtime.block_on(run(configuration, boot_posture)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("setjoin-gateway: {err}");
@@ -156,6 +157,7 @@ fn main() -> ExitCode {
 
 async fn run(
     configuration: Arc<setjoin_gateway::configuration::Runtime>,
+    boot_posture: Arc<setjoin_boot::BootPosture>,
 ) -> Result<(), String> {
     let mut reload_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
         .map_err(|e| format!("SIGHUP registration: {e}"))?;
@@ -322,6 +324,7 @@ async fn run(
         webhook.clone(),
         federation.as_ref().map(|runtime| runtime.service.clone()),
         platform_storage.clone(),
+        boot_posture.clone(),
     )
     .await?;
     let chain_task = if let Some((dsn, direct)) = chain_config {
@@ -1155,6 +1158,7 @@ async fn routes(
     webhook: Option<setjoin_gateway::webhook::Dispatcher>,
     federation: Option<Arc<setjoin_federation::service::Service>>,
     platform_storage: Option<Arc<setjoin_gateway::platform_storage::Runtime>>,
+    boot_posture: Arc<setjoin_boot::BootPosture>,
 ) -> Result<(RouteTable, Option<EdgeLimit>), String> {
     // The final route is the positional catch-all; concrete namespaces must
     // be registered before it in both the public-only and full tables.
@@ -1539,7 +1543,8 @@ async fn routes(
             .with_overrides(setjoin_platform::features::Overrides::from_env(&|name| {
                 std::env::var(name).ok()
             }))
-            .with_livekit(setjoin_gateway::meet_livekit::LiveKit::from_env());
+            .with_livekit(setjoin_gateway::meet_livekit::LiveKit::from_env())
+            .with_boot_posture(boot_posture.clone());
     if let Some(alerts) = &health_alerts {
         platform = platform.with_health_alerts(alerts.clone());
     }
@@ -1980,6 +1985,7 @@ async fn routes(
                 let livekit = setjoin_gateway::meet_livekit::LiveKit::from_env();
                 let gate =
                     setjoin_static::health::HealthGate::new(surface_config.probes_configured)
+                        .with_boot_posture(boot_posture.clone())
                         .with_probes(Arc::new(move || {
                             let livekit = livekit.clone();
                             Box::pin(async move {

@@ -172,6 +172,12 @@ pub async fn apply(db: &mut Connection, root: &Path, m: &Manifest, digest: &str)
         version = migration.to_schema;
     }
     ensure!(version == m.schema_to, "migration chain ended early");
+    // Wave 1.7 (#545): owner-safe DB-local role/grant & ARCH-018 scope-helper
+    // pass after schema expansion (zero /etc/setjoin writes; verify-only Pass 1
+    // when running as non-superuser setjoin_owner).
+    setjoin_pg::rls_preflight::provision_roles_and_verify_client(&mut db.client, None)
+        .await
+        .map_err(|e| anyhow::anyhow!("post-migration role/grant provisioning failed: {e}"))?;
     Ok(())
 }
 fn validate_sql(sql: &str) -> Result<()> {

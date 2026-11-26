@@ -33,7 +33,7 @@ pub fn trusted_owner(uid: u32) -> bool {
     #[cfg(feature = "oracle-mutants")]
     {
         let _ = uid;
-        return true;
+        true
     }
     #[cfg(not(feature = "oracle-mutants"))]
     {

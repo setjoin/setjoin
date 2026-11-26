@@ -660,7 +660,9 @@ fn parse_go_hex_float64(s: &str) -> Option<f64> {
     } else {
         (false, s)
     };
-    let rest = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X"))?;
+    let rest = rest
+        .strip_prefix("0x")
+        .or_else(|| rest.strip_prefix("0X"))?;
     let p_idx = rest.find(['p', 'P'])?;
     let mant_raw = &rest[..p_idx];
     let exp_raw = &rest[p_idx + 1..];
@@ -675,9 +677,7 @@ fn parse_go_hex_float64(s: &str) -> Option<f64> {
         || exp_digits.starts_with('_')
         || exp_digits.ends_with('_')
         || exp_digits.contains("__")
-        || !exp_digits
-            .bytes()
-            .all(|b| b == b'_' || b.is_ascii_digit())
+        || !exp_digits.bytes().all(|b| b == b'_' || b.is_ascii_digit())
     {
         return None;
     }
@@ -789,7 +789,10 @@ fn parse_yaml_float(raw: &str) -> Option<f64> {
         };
         let int_ok = |part: &str| {
             part == "0"
-                || (part.as_bytes().first().is_some_and(|b| matches!(b, b'1'..=b'9'))
+                || (part
+                    .as_bytes()
+                    .first()
+                    .is_some_and(|b| matches!(b, b'1'..=b'9'))
                     && valid_dec_underscores(part))
         };
         match mantissa.split_once('.') {
@@ -1010,10 +1013,7 @@ impl<'a> YamlParser<'a> {
     }
 
     fn is_prop_char(b: u8) -> bool {
-        !matches!(
-            b,
-            b' ' | b'\t' | b'\n' | b',' | b'[' | b']' | b'{' | b'}'
-        )
+        !matches!(b, b' ' | b'\t' | b'\n' | b',' | b'[' | b']' | b'{' | b'}')
     }
 
     fn read_indicator_name(&mut self, prefix: u8) -> Result<String, &'static str> {
@@ -1092,26 +1092,35 @@ impl<'a> YamlParser<'a> {
         } else {
             (false, cleaned.as_str())
         };
-        if let Some(hex) = unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
+        if let Some(hex) = unsigned
+            .strip_prefix("0x")
+            .or_else(|| unsigned.strip_prefix("0X"))
+        {
             if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
                 return None;
             }
             let v = i64::from_str_radix(hex, 16).ok()?;
-            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+            return if neg { v.checked_neg() } else { Some(v) };
         }
-        if let Some(oct) = unsigned.strip_prefix("0o").or_else(|| unsigned.strip_prefix("0O")) {
+        if let Some(oct) = unsigned
+            .strip_prefix("0o")
+            .or_else(|| unsigned.strip_prefix("0O"))
+        {
             if oct.is_empty() || !oct.bytes().all(|b| matches!(b, b'0'..=b'7')) {
                 return None;
             }
             let v = i64::from_str_radix(oct, 8).ok()?;
-            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+            return if neg { v.checked_neg() } else { Some(v) };
         }
-        if let Some(bin) = unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B")) {
+        if let Some(bin) = unsigned
+            .strip_prefix("0b")
+            .or_else(|| unsigned.strip_prefix("0B"))
+        {
             if bin.is_empty() || !bin.bytes().all(|b| matches!(b, b'0' | b'1')) {
                 return None;
             }
             let v = i64::from_str_radix(bin, 2).ok()?;
-            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+            return if neg { v.checked_neg() } else { Some(v) };
         }
         if unsigned.starts_with('0') && unsigned.len() > 1 {
             let digits = &unsigned[1..];
@@ -1119,7 +1128,7 @@ impl<'a> YamlParser<'a> {
                 return None;
             }
             let v = i64::from_str_radix(digits, 8).ok()?;
-            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+            return if neg { v.checked_neg() } else { Some(v) };
         }
         cleaned.parse::<i64>().ok()
     }
@@ -1142,7 +1151,7 @@ impl<'a> YamlParser<'a> {
                 return None;
             }
             let v = i64::from_str_radix(digits, 8).ok()?;
-            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+            return if neg { v.checked_neg() } else { Some(v) };
         }
         None
     }
@@ -1273,10 +1282,10 @@ impl<'a> YamlParser<'a> {
                 break;
             }
             if ch == b':'
-                && self
-                    .b
-                    .get(self.i + 1)
-                    .is_none_or(|c| matches!(c, b' ' | b'\t' | b'\n') || (in_flow && matches!(c, b',' | b'}' | b']')))
+                && self.b.get(self.i + 1).is_none_or(|c| {
+                    matches!(c, b' ' | b'\t' | b'\n')
+                        || (in_flow && matches!(c, b',' | b'}' | b']'))
+                })
             {
                 break;
             }
@@ -1411,7 +1420,9 @@ impl<'a> YamlParser<'a> {
                     {
                         return true;
                     }
-                    if self.b[p] == b'#' && matches!(self.b.get(p.wrapping_sub(1)), Some(b' ' | b'\t')) {
+                    if self.b[p] == b'#'
+                        && matches!(self.b.get(p.wrapping_sub(1)), Some(b' ' | b'\t'))
+                    {
                         return false;
                     }
                     p += 1;
@@ -1657,7 +1668,8 @@ impl<'a> YamlParser<'a> {
                     continue;
                 }
                 if let Some(ref prev) = prev_text {
-                    let more_indented = prev.starts_with([' ', '\t']) || text.starts_with([' ', '\t']);
+                    let more_indented =
+                        prev.starts_with([' ', '\t']) || text.starts_with([' ', '\t']);
                     if blanks > 0 {
                         let count = if more_indented { blanks + 1 } else { blanks };
                         for _ in 0..count {
@@ -2403,8 +2415,11 @@ fn parse_unit_env_spec_into(unit: &str, unit_name: &str, spec: &mut UnitEnvSpec)
                 spec.unset_env.clear();
             } else {
                 for word in split_systemd_words(rhs).map_err(anyhow::Error::msg)? {
-                    spec.unset_env
-                        .push(expand_systemd_specifiers(&word, unit_name, "UnsetEnvironment")?);
+                    spec.unset_env.push(expand_systemd_specifiers(
+                        &word,
+                        unit_name,
+                        "UnsetEnvironment",
+                    )?);
                 }
             }
             continue;
@@ -2480,7 +2495,8 @@ fn default_dropin_dirs(unit_path: &Path) -> Vec<std::path::PathBuf> {
     } else {
         vec![parent]
     };
-    let mut dirs = Vec::with_capacity(tiers.len() * (unit_rels.len() + usize::from(type_rel.is_some())));
+    let mut dirs =
+        Vec::with_capacity(tiers.len() * (unit_rels.len() + usize::from(type_rel.is_some())));
     if let Some(ref t) = type_rel {
         for tier in &tiers {
             dirs.push(tier.join(t));
@@ -2514,8 +2530,8 @@ fn load_unit_env_spec_with_dirs(
         match std::fs::read_dir(dir) {
             Ok(entries) => {
                 for entry in entries {
-                    let entry =
-                        entry.with_context(|| format!("reading drop-in entry in {}", dir.display()))?;
+                    let entry = entry
+                        .with_context(|| format!("reading drop-in entry in {}", dir.display()))?;
                     let name = entry.file_name();
                     let Some(name_str) = name.to_str() else {
                         continue;
@@ -2726,7 +2742,10 @@ fn expand_env_file_glob(pattern: &Path) -> Result<Vec<std::path::PathBuf>> {
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                         Err(e) => {
                             return Err(e).with_context(|| {
-                                format!("inspecting EnvironmentFile glob dir {}", read_target.display())
+                                format!(
+                                    "inspecting EnvironmentFile glob dir {}",
+                                    read_target.display()
+                                )
                             });
                         }
                     }
@@ -2736,7 +2755,10 @@ fn expand_env_file_glob(pattern: &Path) -> Result<Vec<std::path::PathBuf>> {
                     let mut names = Vec::new();
                     for entry in entries {
                         let entry = entry.with_context(|| {
-                            format!("reading EnvironmentFile glob entry in {}", read_target.display())
+                            format!(
+                                "reading EnvironmentFile glob entry in {}",
+                                read_target.display()
+                            )
                         })?;
                         if let Some(name) = entry.file_name().to_str() {
                             if glob_match(seg, name) {
@@ -2802,13 +2824,15 @@ fn load_effective_gateway_env(spec: &UnitEnvSpec) -> Result<EffectiveGatewayEnv>
                 pairs.extend(parsed);
             }
             Err(err) if !optional => {
-                return Err(err)
-                    .with_context(|| format!("reading required EnvironmentFile {}", path.display()));
+                return Err(err).with_context(|| {
+                    format!("reading required EnvironmentFile {}", path.display())
+                });
             }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
             Err(err) => {
-                return Err(err)
-                    .with_context(|| format!("reading optional EnvironmentFile {}", path.display()));
+                return Err(err).with_context(|| {
+                    format!("reading optional EnvironmentFile {}", path.display())
+                });
             }
         }
     }
@@ -2822,7 +2846,8 @@ fn load_effective_gateway_env(spec: &UnitEnvSpec) -> Result<EffectiveGatewayEnv>
             pairs.retain(|(name, _)| name != entry);
         }
     }
-    let gateway_file_worm_mode = env_lookup_precedence(&gateway_file_pairs, &["WORM__MODE", "WORM_MODE"]);
+    let gateway_file_worm_mode =
+        env_lookup_precedence(&gateway_file_pairs, &["WORM__MODE", "WORM_MODE"]);
     Ok(EffectiveGatewayEnv {
         pairs,
         has_storage_file,
@@ -2900,8 +2925,9 @@ fn check_db_gateway_startup_prereqs(gw: &EffectiveGatewayEnv) -> Result<()> {
             );
         }
         if let Some(raw_ret) = env_lookup_precedence(&gw.pairs, &["WORM_RETENTION_DAYS"]) {
-            let days = parse_koanf_env_retention_days(&raw_ret)
-                .map_err(|reason| anyhow::anyhow!("{reason}; run upgrade.sh refresh-gateway-env"))?;
+            let days = parse_koanf_env_retention_days(&raw_ret).map_err(|reason| {
+                anyhow::anyhow!("{reason}; run upgrade.sh refresh-gateway-env")
+            })?;
             if days.to_string() != raw_ret.trim() {
                 bail!(
                     "DB-backed setjoin-gateway unit/gateway.env WORM_RETENTION_DAYS must be canonical integer days (got {raw_ret:?}); run upgrade.sh refresh-gateway-env"
@@ -2911,7 +2937,9 @@ fn check_db_gateway_startup_prereqs(gw: &EffectiveGatewayEnv) -> Result<()> {
             env_lookup(&gw.pairs, "SETJOIN_CONFIG").filter(|p| !p.is_empty())
         {
             let yaml = std::fs::read_to_string(&yaml_path).with_context(|| {
-                format!("cannot inspect SETJOIN_CONFIG ({yaml_path}) while verifying WORM retention")
+                format!(
+                    "cannot inspect SETJOIN_CONFIG ({yaml_path}) while verifying WORM retention"
+                )
             })?;
             let parsed = yaml_worm_settings(&yaml).map_err(|reason| {
                 anyhow::anyhow!(
@@ -3091,6 +3119,78 @@ pub(crate) fn check_worm_gateway_ready(
     }
     Ok(())
 }
+
+/// Derive redacted `DB_DSN` / `DB_WORKER_DSN` / `DB_OWNER_DSN` role usernames
+/// (never passwords or raw DSNs) from `setjoin-gateway.service`'s unit spec and
+/// root-readable `EnvironmentFile`s, gracefully degrading on `EACCES` when
+/// reading `0600 setjoin:setjoin` `config.env` under the zero-capability sandbox.
+pub(crate) fn inspect_gateway_db_dsn_roles(
+    unit_path: &Path,
+) -> setjoin_pg::rls_preflight::DsnRoleSummary {
+    let dropin_dirs = default_dropin_dirs(unit_path);
+    inspect_gateway_db_dsn_roles_in(unit_path, &dropin_dirs)
+}
+
+pub(crate) fn inspect_gateway_db_dsn_roles_in(
+    unit_path: &Path,
+    dropin_dirs: &[PathBuf],
+) -> setjoin_pg::rls_preflight::DsnRoleSummary {
+    let Ok(spec) = load_unit_env_spec_with_dirs(unit_path, dropin_dirs) else {
+        return setjoin_pg::rls_preflight::DsnRoleSummary::default();
+    };
+    let mut pairs = Vec::new();
+    let mut saw_eacces = false;
+
+    for (pattern, _optional) in &spec.env_files {
+        let raw = pattern.to_string_lossy();
+        let has_glob = raw.contains('*') || raw.contains('?') || raw.contains('[');
+        let paths = if has_glob {
+            expand_env_file_glob(pattern).unwrap_or_default()
+        } else {
+            vec![pattern.clone()]
+        };
+        for path in paths {
+            match std::fs::read_to_string(&path) {
+                Ok(content) => pairs.extend(parse_env_assignments(&content)),
+                Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                    saw_eacces = true;
+                }
+                Err(_) => {}
+            }
+        }
+    }
+
+    // systemd applies inline `Environment=` after `EnvironmentFile=`.
+    pairs.extend(spec.inline_env.clone());
+    let mut pairs = systemd_env_merge(&pairs);
+    for entry in &spec.unset_env {
+        if let Some((k, v)) = entry.split_once('=') {
+            if env_lookup(&pairs, k).as_deref() == Some(v) {
+                pairs.retain(|(name, _)| name != k);
+            }
+        } else {
+            pairs.retain(|(name, _)| name != entry);
+        }
+    }
+
+    let app_dsn = env_lookup_precedence(&pairs, &["DB__DSN", "DB_DSN"]).filter(|v| !v.is_empty());
+    let worker_dsn = env_lookup_precedence(&pairs, &["DB__WORKER_DSN", "DB_WORKER_DSN"])
+        .filter(|v| !v.is_empty());
+    let owner_dsn = env_lookup_precedence(&pairs, &["DB_OWNER_DSN", "DB_DIRECT_OWNER_DSN"])
+        .filter(|v| !v.is_empty());
+
+    let mut summary = setjoin_pg::rls_preflight::DsnRoleSummary::from_dsns(
+        app_dsn.as_deref(),
+        worker_dsn.as_deref(),
+        owner_dsn.as_deref(),
+    );
+    // Only flag config_env_unreadable when EACCES prevented us from seeing DB_DSN.
+    if summary.app_role.is_none() && saw_eacces {
+        summary.config_env_unreadable = true;
+    }
+    summary
+}
+
 pub async fn stop() -> Result<()> {
     let mut args = vec!["stop"];
     args.extend(stop_units_in(Path::new("/etc/systemd/system")));
@@ -3146,12 +3246,12 @@ pub async fn readiness() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
     use super::{
         check_worm_gateway_ready, default_dropin_dirs, load_unit_env_files_with_dirs,
         load_unit_env_spec_with_dirs, parse_env_assignments, parse_koanf_env_retention_days,
         split_systemd_words, yaml_worm_settings,
     };
+    use std::path::Path;
 
     #[test]
     fn worm_gateway_ready_checks_unit_and_env() {
@@ -3210,7 +3310,11 @@ mod tests {
         // Mismatched WORM_MODE or WORM_LEGAL_HOLD_ENABLED -> Err
         std::fs::write(&cfg, "WORM_MODE=governance\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
-        std::fs::write(&cfg, "WORM_MODE=compliance\nWORM_LEGAL_HOLD_ENABLED=false\n").unwrap();
+        std::fs::write(
+            &cfg,
+            "WORM_MODE=compliance\nWORM_LEGAL_HOLD_ENABLED=false\n",
+        )
+        .unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
         std::fs::write(
             &gw,
@@ -3227,10 +3331,17 @@ mod tests {
         .unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
         let cont_pairs = parse_env_assignments("WORM_MODE=\\\n\"compliance\"\n");
-        assert_eq!(cont_pairs, vec![("WORM_MODE".into(), "\"compliance\"".into())]);
+        assert_eq!(
+            cont_pairs,
+            vec![("WORM_MODE".into(), "\"compliance\"".into())]
+        );
 
         // Tagged worm key + retention_days normalization and indented flow mapping beneath worm:
-        std::fs::write(&yaml, "!!str worm: {mode: compliance, retention_days: 3650.}\n").unwrap();
+        std::fs::write(
+            &yaml,
+            "!!str worm: {mode: compliance, retention_days: 3650.}\n",
+        )
+        .unwrap();
         std::fs::write(&cfg, format!("SETJOIN_CONFIG={}\n", yaml.display())).unwrap();
         std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
@@ -3247,7 +3358,11 @@ mod tests {
         )
         .unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
-        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\nWORM_RETENTION_DAYS=2557\n").unwrap();
+        std::fs::write(
+            &gw,
+            "GATEWAY_ENABLED=true\nWORM_MODE=compliance\nWORM_RETENTION_DAYS=2557\n",
+        )
+        .unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
 
         // Top-level flow YAML -> Err when mismatched or S3 bucket differs, Ok when both match
@@ -3265,7 +3380,11 @@ mod tests {
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
 
         // Explicit empty WORM_MODE= overrides YAML -> Ok
-        std::fs::write(&cfg, format!("SETJOIN_CONFIG={}\nWORM_MODE=\n", yaml.display())).unwrap();
+        std::fs::write(
+            &cfg,
+            format!("SETJOIN_CONFIG={}\nWORM_MODE=\n", yaml.display()),
+        )
+        .unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
 
         // Indented YAML root mapping -> detected
@@ -3406,7 +3525,11 @@ mod tests {
             ),
         )
         .unwrap();
-        std::fs::write(dropin_dir.join("20-reset.conf"), "[Service]\nEnvironmentFile=\n").unwrap();
+        std::fs::write(
+            dropin_dir.join("20-reset.conf"),
+            "[Service]\nEnvironmentFile=\n",
+        )
+        .unwrap();
         assert!(check_worm_gateway_ready(&dropin_unit, Some(&cfg), &stale_default).is_err());
         std::fs::remove_file(dropin_dir.join("20-reset.conf")).unwrap();
         assert!(check_worm_gateway_ready(&dropin_unit, Some(&cfg), &stale_default).is_ok());
@@ -3458,14 +3581,38 @@ mod tests {
         let f1 = dir.path().join("tier1.env");
         let f2 = dir.path().join("tier2.env");
         let f3 = dir.path().join("tier3.env");
-        std::fs::write(&tier_unit, format!("[Service]\nEnvironmentFile={}\n", f1.display())).unwrap();
-        std::fs::write(&tier_lib.join("10-a.conf"), format!("[Service]\nEnvironmentFile={}\n", f2.display())).unwrap();
-        std::fs::write(&tier_run.join("10-a.conf"), format!("[Service]\nEnvironmentFile={}\n", f3.display())).unwrap();
-        std::fs::write(&tier_etc.join("20-b.conf"), format!("[Service]\nEnvironmentFile={}\n", f2.display())).unwrap();
-        let tier_dirs = default_dropin_dirs(Path::new("/etc/systemd/system/setjoin-gateway.service"));
-        assert!(tier_dirs.contains(&Path::new("/run/systemd/system/setjoin-gateway.service.d").to_path_buf()));
-        assert!(tier_dirs.contains(&Path::new("/usr/lib/systemd/system/setjoin-gateway.service.d").to_path_buf()));
-        let merged = load_unit_env_files_with_dirs(&tier_unit, &[tier_lib, tier_run.clone(), tier_etc.clone()]).unwrap();
+        std::fs::write(
+            &tier_unit,
+            format!("[Service]\nEnvironmentFile={}\n", f1.display()),
+        )
+        .unwrap();
+        std::fs::write(
+            tier_lib.join("10-a.conf"),
+            format!("[Service]\nEnvironmentFile={}\n", f2.display()),
+        )
+        .unwrap();
+        std::fs::write(
+            tier_run.join("10-a.conf"),
+            format!("[Service]\nEnvironmentFile={}\n", f3.display()),
+        )
+        .unwrap();
+        std::fs::write(
+            tier_etc.join("20-b.conf"),
+            format!("[Service]\nEnvironmentFile={}\n", f2.display()),
+        )
+        .unwrap();
+        let tier_dirs =
+            default_dropin_dirs(Path::new("/etc/systemd/system/setjoin-gateway.service"));
+        assert!(tier_dirs
+            .contains(&Path::new("/run/systemd/system/setjoin-gateway.service.d").to_path_buf()));
+        assert!(tier_dirs.contains(
+            &Path::new("/usr/lib/systemd/system/setjoin-gateway.service.d").to_path_buf()
+        ));
+        let merged = load_unit_env_files_with_dirs(
+            &tier_unit,
+            &[tier_lib, tier_run.clone(), tier_etc.clone()],
+        )
+        .unwrap();
         assert_eq!(merged, vec![(f1, false), (f3, false), (f2, false)]);
 
         #[cfg(unix)]
@@ -3490,14 +3637,15 @@ mod tests {
         .unwrap();
         let err_default =
             check_worm_gateway_ready(&missing_req_unit, None, &missing_default).unwrap_err();
-        assert!(err_default.to_string().contains("reading required EnvironmentFile"));
-        let err_explicit = check_worm_gateway_ready(
-            &missing_req_unit,
-            Some(&missing_default),
-            &missing_default,
-        )
-        .unwrap_err();
-        assert!(err_explicit.to_string().contains("reading required EnvironmentFile"));
+        assert!(err_default
+            .to_string()
+            .contains("reading required EnvironmentFile"));
+        let err_explicit =
+            check_worm_gateway_ready(&missing_req_unit, Some(&missing_default), &missing_default)
+                .unwrap_err();
+        assert!(err_explicit
+            .to_string()
+            .contains("reading required EnvironmentFile"));
 
         // Drop-in UnsetEnvironment= removes LiveKit after EnvironmentFile=, and empty UnsetEnvironment= resets it
         let unset_dir = dir.path().join("unset.service.d");
@@ -3521,7 +3669,11 @@ mod tests {
         let unset_lk_err =
             check_worm_gateway_ready(&unset_unit, Some(&lk_cfg), &stale_default).unwrap_err();
         assert!(unset_lk_err.to_string().contains("LIVEKIT_*"));
-        std::fs::write(unset_dir.join("20-reset.conf"), "[Service]\nUnsetEnvironment=\n").unwrap();
+        std::fs::write(
+            unset_dir.join("20-reset.conf"),
+            "[Service]\nUnsetEnvironment=\n",
+        )
+        .unwrap();
         assert!(check_worm_gateway_ready(&unset_unit, Some(&lk_cfg), &stale_default).is_ok());
 
         // Stale S3 settings in storage.env fail preflight even when WORM_MODE matches
@@ -3634,7 +3786,8 @@ mod tests {
         let unset_worm_err =
             check_worm_gateway_ready(&db_unset_unit, None, &stale_default).unwrap_err();
         assert!(unset_worm_err.to_string().contains("WORM_MODE"));
-        let sys_dirs = default_dropin_dirs(Path::new("/etc/systemd/system/setjoin-gateway.service"));
+        let sys_dirs =
+            default_dropin_dirs(Path::new("/etc/systemd/system/setjoin-gateway.service"));
         let etc_type_pos = sys_dirs
             .iter()
             .position(|p| p == Path::new("/etc/systemd/system/service.d"))
@@ -3668,12 +3821,26 @@ mod tests {
         std::fs::create_dir_all(&x_etc_prefix).unwrap();
         let x_unit = xtier.join("setjoin-gateway.service");
         std::fs::write(&x_unit, "[Service]\n").unwrap();
-        std::fs::write(x_etc_type.join("40-worm.conf"), format!("[Service]\nEnvironmentFile={}\n", gw.display())).unwrap();
-        std::fs::write(x_lib_unit.join("40-worm.conf"), format!("[Service]\nEnvironmentFile={}\n", storage.display())).unwrap();
-        let x_merged = load_unit_env_files_with_dirs(&x_unit, &[x_etc_type, x_lib_unit.clone()]).unwrap();
+        std::fs::write(
+            x_etc_type.join("40-worm.conf"),
+            format!("[Service]\nEnvironmentFile={}\n", gw.display()),
+        )
+        .unwrap();
+        std::fs::write(
+            x_lib_unit.join("40-worm.conf"),
+            format!("[Service]\nEnvironmentFile={}\n", storage.display()),
+        )
+        .unwrap();
+        let x_merged =
+            load_unit_env_files_with_dirs(&x_unit, &[x_etc_type, x_lib_unit.clone()]).unwrap();
         assert_eq!(x_merged, vec![(storage.clone(), false)]);
-        std::fs::write(x_etc_prefix.join("40-worm.conf"), format!("[Service]\nEnvironmentFile={}\n", fed.display())).unwrap();
-        let x_merged_tier = load_unit_env_files_with_dirs(&x_unit, &[x_lib_unit, x_etc_prefix]).unwrap();
+        std::fs::write(
+            x_etc_prefix.join("40-worm.conf"),
+            format!("[Service]\nEnvironmentFile={}\n", fed.display()),
+        )
+        .unwrap();
+        let x_merged_tier =
+            load_unit_env_files_with_dirs(&x_unit, &[x_lib_unit, x_etc_prefix]).unwrap();
         assert_eq!(x_merged_tier, vec![(fed.clone(), false)]);
 
         // Inline [Service] Environment= with C-style escapes supplies DB_DSN (caught even without config.env) and Environment= resets it
@@ -3691,9 +3858,14 @@ mod tests {
             ),
         )
         .unwrap();
-        let inline_err = check_worm_gateway_ready(&inline_unit, None, &missing_default).unwrap_err();
+        let inline_err =
+            check_worm_gateway_ready(&inline_unit, None, &missing_default).unwrap_err();
         assert!(inline_err.to_string().contains("WORM_MODE"));
-        std::fs::write(inline_dropin.join("10-reset.conf"), "[Service]\nEnvironment=\n").unwrap();
+        std::fs::write(
+            inline_dropin.join("10-reset.conf"),
+            "[Service]\nEnvironment=\n",
+        )
+        .unwrap();
         assert!(check_worm_gateway_ready(&inline_unit, None, &missing_default).is_ok());
 
         // C-style escapes in UnsetEnvironment= (both double- and single-quoted) remove WORM_MODE
@@ -3973,7 +4145,11 @@ mod tests {
         let db_yaml = dir.path().join("db-variant.yaml");
         std::fs::create_dir_all(db_gw.parent().unwrap()).unwrap();
         std::fs::write(&db_storage, "S3_BUCKET=mailblobs\n").unwrap();
-        std::fs::write(&db_gw, "GATEWAY_ENABLED=true\nDB__DSN=postgres://app@localhost/mail\n").unwrap();
+        std::fs::write(
+            &db_gw,
+            "GATEWAY_ENABLED=true\nDB__DSN=postgres://app@localhost/mail\n",
+        )
+        .unwrap();
         std::fs::write(
             &db_unit,
             format!(
@@ -3997,7 +4173,10 @@ mod tests {
         .unwrap();
         std::fs::write(
             &db_gw,
-            format!("GATEWAY_ENABLED=true\nSETJOIN_CONFIG={}\n", db_yaml.display()),
+            format!(
+                "GATEWAY_ENABLED=true\nSETJOIN_CONFIG={}\n",
+                db_yaml.display()
+            ),
         )
         .unwrap();
         assert!(check_worm_gateway_ready(&db_unit, Some(&db_missing_cfg), &stale_default).is_err());
@@ -4059,7 +4238,9 @@ mod tests {
             "[Service]\nEnvironmentFile=\"/etc/setjoin/gateway.env\"\n",
         )
         .unwrap();
-        assert!(load_unit_env_files_with_dirs(&spec_unit, &[]).unwrap().is_empty());
+        assert!(load_unit_env_files_with_dirs(&spec_unit, &[])
+            .unwrap()
+            .is_empty());
         std::fs::write(
             &spec_unit,
             "[Service]\nEnvironmentFile=-/etc/setjoin/%H/override.env\n",
@@ -4105,12 +4286,20 @@ mod tests {
         assert!(!redaction_err.contains("DB_DSN"));
 
         // Explicit YAML worm.retention_days: "" / null and overflowing 9223372036854775808 fail closed even when host config.env is absent
-        let empty_ret_yaml = yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: \"\"\n").unwrap();
+        let empty_ret_yaml =
+            yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: \"\"\n").unwrap();
         assert_eq!(empty_ret_yaml.retention_days.as_deref(), Some(""));
-        let null_ret_yaml = yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: null\n").unwrap();
+        let null_ret_yaml =
+            yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: null\n").unwrap();
         assert_eq!(null_ret_yaml.retention_days.as_deref(), Some(""));
-        let overflow_ret_yaml = yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: 9223372036854775808\n").unwrap();
-        assert_eq!(overflow_ret_yaml.retention_days.as_deref(), Some("9223372036854775808"));
+        let overflow_ret_yaml = yaml_worm_settings(
+            "worm:\n  mode: compliance\n  retention_days: 9223372036854775808\n",
+        )
+        .unwrap();
+        assert_eq!(
+            overflow_ret_yaml.retention_days.as_deref(),
+            Some("9223372036854775808")
+        );
         for bad_ret in ["\"\"", "null", "9223372036854775808"] {
             std::fs::write(
                 &db_yaml,
@@ -4127,16 +4316,17 @@ mod tests {
                 ),
             )
             .unwrap();
-            assert!(check_worm_gateway_ready(&db_unit, Some(&db_missing_cfg), &stale_default).is_err());
+            assert!(
+                check_worm_gateway_ready(&db_unit, Some(&db_missing_cfg), &stale_default).is_err()
+            );
         }
 
         // !!float / verbatim float tag on legacy octal and exact >2^53 i64 retention match Go, while tagged 0x/0o/0b radix floats fail closed
         let oct_float = yaml_worm_settings("worm:\n  retention_days: !!float \"0_10\"\n").unwrap();
         assert_eq!(oct_float.retention_days.as_deref(), Some("8"));
-        let verbatim_oct_float = yaml_worm_settings(
-            "worm:\n  retention_days: !<tag:yaml.org,2002:float> \"0_10\"\n",
-        )
-        .unwrap();
+        let verbatim_oct_float =
+            yaml_worm_settings("worm:\n  retention_days: !<tag:yaml.org,2002:float> \"0_10\"\n")
+                .unwrap();
         assert_eq!(verbatim_oct_float.retention_days.as_deref(), Some("8"));
         for tagged_radix in [
             "worm:\n  retention_days: !!float \"0x10\"\n",
@@ -4157,13 +4347,15 @@ mod tests {
         ] {
             assert!(yaml_worm_settings(tagged_radix).is_err());
         }
-        let dec_fallback = yaml_worm_settings("worm:\n  retention_days: !!float \"01000000000000000000000\"\n")
-            .unwrap()
-            .retention_days
-            .unwrap();
+        let dec_fallback =
+            yaml_worm_settings("worm:\n  retention_days: !!float \"01000000000000000000000\"\n")
+                .unwrap()
+                .retention_days
+                .unwrap();
         assert!(parse_koanf_env_retention_days(&dec_fallback).is_err());
         assert!(dec_fallback.parse::<f64>().unwrap() > 9.9e20);
-        let padded_oct_float = yaml_worm_settings("worm:\n  retention_days: !!float \" 010 \"\n").unwrap();
+        let padded_oct_float =
+            yaml_worm_settings("worm:\n  retention_days: !!float \" 010 \"\n").unwrap();
         assert_eq!(padded_oct_float.retention_days.as_deref(), Some("10"));
         assert_eq!(
             parse_koanf_env_retention_days("9007199254740993").unwrap(),
@@ -4272,8 +4464,14 @@ mod unit_binaries {
             "[Service]\nExecStart=/opt/setjoin/current/setjoin-server\n",
         )
         .unwrap();
-        assert_eq!(start_units_in(&units), vec!["setjoin-auth", "setjoin-gateway"]);
-        assert_eq!(stop_units_in(&units), vec!["setjoin-gateway", "setjoin-auth"]);
+        assert_eq!(
+            start_units_in(&units),
+            vec!["setjoin-auth", "setjoin-gateway"]
+        );
+        assert_eq!(
+            stop_units_in(&units),
+            vec!["setjoin-gateway", "setjoin-auth"]
+        );
         assert_eq!(
             check_required_units_in(&units).unwrap(),
             vec!["setjoin-gateway", "setjoin-auth"]
@@ -4299,5 +4497,76 @@ mod unit_binaries {
         assert!(check_required_units_in(&units).is_err());
 
         let _ = std::fs::remove_dir_all(&units);
+    }
+
+    #[test]
+    fn gateway_db_dsn_role_inspection_degrades_on_eacces_and_never_leaks_passwords() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = dir("rls-eacces");
+        let unit = root.join("setjoin-gateway.service");
+        let cfg = root.join("config.env");
+        let fed = root.join("federation.env");
+        std::fs::write(
+            &cfg,
+            "DB_DSN=postgres://setjoin_app:supersecret_cfg@127.0.0.1:5432/mail\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &fed,
+            "DB_DSN=postgres://setjoin_app:supersecret_fed@127.0.0.1:5432/mail\n\
+             DB_WORKER_DSN=postgres://setjoin_worker:supersecret_w@127.0.0.1:5432/mail\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &unit,
+            format!(
+                "[Service]\nEnvironmentFile={}\nEnvironmentFile={}\n",
+                cfg.display(),
+                fed.display()
+            ),
+        )
+        .unwrap();
+
+        // When both files are readable, usernames are extracted without passwords.
+        let summary = super::inspect_gateway_db_dsn_roles_in(&unit, &[]);
+        assert_eq!(summary.app_role.as_deref(), Some("setjoin_app"));
+        assert_eq!(summary.worker_role.as_deref(), Some("setjoin_worker"));
+        assert!(!summary.config_env_unreadable);
+        let serialized = serde_json::to_string(&summary).unwrap();
+        assert!(!serialized.contains("supersecret"), "{serialized}");
+
+        // Inline Environment= overrides EnvironmentFile= (systemd precedence).
+        std::fs::write(
+            &unit,
+            format!(
+                "[Service]\nEnvironmentFile={}\nEnvironment=\"DB_DSN=postgres://setjoin_override:supersecret_inline@127.0.0.1:5432/mail\"\n",
+                cfg.display()
+            ),
+        )
+        .unwrap();
+        let overridden = super::inspect_gateway_db_dsn_roles_in(&unit, &[]);
+        assert_eq!(overridden.app_role.as_deref(), Some("setjoin_override"));
+        let overridden_json = serde_json::to_string(&overridden).unwrap();
+        assert!(
+            !overridden_json.contains("supersecret"),
+            "{overridden_json}"
+        );
+
+        // When config.env is unreadable (0000 -> EACCES for non-root) and no
+        // other file supplies DB_DSN, inspect gracefully degrades instead of failing.
+        std::fs::write(
+            &unit,
+            format!("[Service]\nEnvironmentFile={}\n", cfg.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let degraded = super::inspect_gateway_db_dsn_roles_in(&unit, &[]);
+        let is_root = unsafe { libc::geteuid() } == 0;
+        if !is_root {
+            assert!(degraded.config_env_unreadable);
+            assert!(degraded.app_role.is_none());
+        }
+        let _ = std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o600));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

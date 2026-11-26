@@ -72,6 +72,8 @@ pub struct AuthServer {
     ca_engine: setjoin_authz::policy::eval::Engine,
     /// Captcha tokens already accepted by this process (#349 single-use).
     captcha_used: captcha::UsedSet,
+    /// Startup RLS/PG-version posture (#545). Defaults to `None` in constructors.
+    boot_posture: Option<Arc<setjoin_pg::rls_preflight::BootPosture>>,
 }
 impl AuthServer {
     fn oidc_cors(&self, req: &Request<Body>, mut reply: Response<Body>) -> Response<Body> {
@@ -189,6 +191,7 @@ impl AuthServer {
             gate: None,
             ca_engine,
             captcha_used: Default::default(),
+            boot_posture: None,
         }
     }
     pub async fn load(exec: setjoin_pg::ScopedExecutor, config: Config) -> Result<Self, String> {
@@ -371,6 +374,7 @@ impl AuthServer {
             gate: None,
             ca_engine,
             captcha_used: Default::default(),
+            boot_posture: None,
             exec,
             device_resolver,
             keys: Some(Arc::new(keys)),
@@ -397,6 +401,15 @@ impl AuthServer {
     /// feature/CA watchers keep fresh.
     pub fn with_gate(mut self, gate: Arc<setjoin_threat::Gate>) -> Self {
         self.gate = Some(gate);
+        self
+    }
+    /// Attach startup RLS/PG-version posture (#545). Defaults to `None` so
+    /// existing unit/oracle harnesses remain untouched.
+    pub fn with_boot_posture(
+        mut self,
+        boot_posture: Arc<setjoin_pg::rls_preflight::BootPosture>,
+    ) -> Self {
+        self.boot_posture = Some(boot_posture);
         self
     }
     /// Embedding/test seam (#349): build and attach a gate from this server's
@@ -974,10 +987,18 @@ impl AuthServer {
                         ),
                     }
                 }
-                "/health" => Response::builder()
-                    .header("content-type", "application/json")
-                    .body(body(r#"{"status":"ok"}"#))
-                    .unwrap(),
+                "/health" => {
+                    let overall = self
+                        .boot_posture
+                        .as_deref()
+                        .map_or("ok", |p| p.public_status());
+                    let status = if overall == "error" { 503 } else { 200 };
+                    Response::builder()
+                        .status(status)
+                        .header("content-type", "application/json")
+                        .body(body(format!(r#"{{"status":"{overall}"}}"#)))
+                        .unwrap()
+                }
                 "/ready" => match self.exec.read("SELECT 1", &[]).await {
                     Ok(_) => Response::new(body("")),
                     Err(_) => Response::builder()

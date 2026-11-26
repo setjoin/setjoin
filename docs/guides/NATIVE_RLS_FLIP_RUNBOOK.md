@@ -11,10 +11,50 @@ anything, then do the rollback rehearsal (step 6) *before* the real flip.
 > `config.env`, and writes the privileged tiers — `DB_WORKER_DSN` (worker) and
 > `DB_OWNER_DSN`/`DB_DIRECT_OWNER_DSN` (the owner credential you gave it) —
 > into `/etc/setjoin/db-credentials.d/db-credentials.env` (0600 root:root)
-> (`--permissive-dsn` opts out). This runbook is for flipping an **existing**
-> pre-flip install — and its rollback step (§4.6) applies to fresh installs
-> too: point `DB_DSN`/`DB_DIRECT_DSN` in `config.env` back at the
-> `DB_OWNER_DSN` value from the credential file.
+> (`--permissive-dsn` is **deprecated in Release N** and will be refused in
+> Release N+1). This runbook covers both the automated Wave 1.7 (`#545`)
+> `mailctl schema preflight` / `provision-roles` workflow and manual rollback.
+
+## 0. Automated Wave 1.7 Preflight & Provisioning (Release N -> Release N+1)
+
+Starting in **Release N** (`#545`):
+
+- **PostgreSQL version floor (CVE-2026-14666):** PostgreSQL must be **`>= 17.11`**
+  (on the 17.x branch) or **`>= 18.6`** (on 18.x+). PG `< 17.11` and `18.0–18.5`
+  trigger a Release N warning across `mailctl`, `setjoin-updater`,
+  `setjoin-server`, `setjoin-auth`, `install.sh`, and `upgrade.sh`.
+- **Release N startup & health behavior (`WarnReleaseN`):**
+  - Hard invariant violations (`policy_tables_rls_disabled` — even when
+    connected as a superuser — or a non-superuser runtime role with `BYPASSRLS`
+    or owning `FORCE RLS` tables) **refuse to start immediately** (exit 1).
+  - Privileged runtime `DB_DSN` (superuser), vulnerable PG version, incomplete
+    roles, or drifted ARCH-018 scope helpers emit loud `WARN` logs, degrade
+    public `GET /health` to `200 {"status":"warn"}` (redacted), and append three
+    redacted check rows (`db_rls_posture`, `pg_version_cve_2026_14666`,
+    `rls_scope_helpers`) to `GET /admin/health`.
+  - In **Release N+1** (`#547`, `FailClosedReleaseNPlus1`), these warnings become
+    hard startup refusals.
+- **Automated CLI workflow:**
+  1. Inspect live posture (exit `0` clean, `2` Release N warning, `1` hard error):
+     ```bash
+     DB_DIRECT_OWNER_DSN=... DB_DSN=... mailctl schema preflight [--json]
+     ```
+  2. Provision roles, grants, ARCH-018 scope-helper ownership, and atomically
+     write split DSN files (`config.env` preserving `setjoin:setjoin`,
+     `db-credentials.d/db-credentials.env` `0600 root:root`, timestamped `0600`
+     backup, and derived `auth.env` / `federation.env` / `smtp.env` sync after
+     live login probes):
+     ```bash
+     DB_DIRECT_OWNER_DSN=... mailctl schema provision-roles --write-dsns --yes
+     ```
+     Pass `--rotate-passwords` only when intentionally rotating passwords
+     (refused automatically if `/etc/setjoin-updater/*-dsn` exist on host so
+     updater credentials cannot drift out of sync).
+  3. Post-migration automation: both `mailctl schema apply` and
+     `setjoin-updater` `apply_migrations` automatically run the owner-safe
+     post-migration role/grant & ARCH-018 scope-helper pass (verify-only Pass 1
+     when running as non-superuser `setjoin_owner`, with zero `/etc/setjoin`
+     writes from the zero-capability updater sandbox).
 
 ## 1. What the flip is
 

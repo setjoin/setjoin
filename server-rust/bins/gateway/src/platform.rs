@@ -32,6 +32,7 @@ struct HealthState {
     cache: tokio::sync::Mutex<Option<(Instant, health::Verdict)>>,
     bucket: std::sync::Mutex<health::Bucket>,
     alerts: Option<health::Alerts>,
+    boot_posture: Option<Arc<setjoin_pg::rls_preflight::BootPosture>>,
 }
 
 impl<K: KeySource + 'static> PlatformRoute<K> {
@@ -59,8 +60,24 @@ impl<K: KeySource + 'static> PlatformRoute<K> {
     }
     /// Where an ok-to-error transition seen by `/admin/health` raises `system.health_alert`.
     pub fn with_health_alerts(mut self, alerts: health::Alerts) -> Self {
+        let boot_posture = self.health.boot_posture.clone();
         self.health = Arc::new(HealthState {
             alerts: Some(alerts),
+            boot_posture,
+            ..HealthState::default()
+        });
+        self
+    }
+    /// Attach startup RLS/PG-version posture (#545) to `/admin/health`.
+    /// Defaults to `None` in `PlatformRoute::new(...)` so existing test suites remain untouched.
+    pub fn with_boot_posture(
+        mut self,
+        boot_posture: Arc<setjoin_pg::rls_preflight::BootPosture>,
+    ) -> Self {
+        let alerts = self.health.alerts.clone();
+        self.health = Arc::new(HealthState {
+            alerts,
+            boot_posture: Some(boot_posture),
             ..HealthState::default()
         });
         self
@@ -622,7 +639,13 @@ async fn verdict(
     let probes = probes(livekit).await;
     let fresh = tokio::time::timeout(
         std::time::Duration::from_secs(15),
-        health::evaluate(exec, &probes, &now_rfc3339(), state.alerts.as_ref()),
+        health::evaluate_with_boot_posture(
+            exec,
+            &probes,
+            state.boot_posture.as_deref(),
+            &now_rfc3339(),
+            state.alerts.as_ref(),
+        ),
     )
     .await
     .unwrap_or(health::Verdict::Internal);

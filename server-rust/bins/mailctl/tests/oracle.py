@@ -164,11 +164,26 @@ def observe(binary, case):
 
 
 def comparable(observation, case):
+    result = observation.copy()
+    # Recorded Wave 1.7 (#545) divergence: mailctl added schema preflight and
+    # schema provision-roles to help/usage output while goldens/ retains
+    # frozen-Go provenance (applies to help and incomplete-usage cases).
+    new_help = "  schema check|apply|preflight|provision-roles\n"
+    if new_help in result.get("stdout", ""):
+        result["stdout"] = result["stdout"].replace(
+            new_help,
+            "  schema check|apply\n",
+        )
+    new_usage = "Usage: mailctl schema check|apply|preflight|provision-roles"
+    if new_usage in result.get("stderr", ""):
+        result["stderr"] = result["stderr"].replace(
+            new_usage,
+            "Usage: mailctl schema check|apply",
+        )
     if not case.get("map_table"):
-        return observation
+        return result
     # Go ranges over first-row map keys: column order varies between processes.
     # Keep exact cell contents and row order; normalize only column permutation.
-    result = observation.copy()
     lines = result["stdout"].splitlines()
     if lines and lines[0] != "(empty)":
         columns = list(re.finditer(r"\S+", lines[0]))

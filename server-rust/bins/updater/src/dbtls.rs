@@ -120,8 +120,7 @@ fn words(dsn: &str) -> Result<Vec<(String, String, String)>> {
 }
 pub fn parse(dsn: &str) -> Result<Parsed> {
     let (mut found, mut root) = (None, None);
-    let rest;
-    if dsn.starts_with("postgres://") || dsn.starts_with("postgresql://") {
+    let rest = if dsn.starts_with("postgres://") || dsn.starts_with("postgresql://") {
         let (base, query) = dsn.split_once('?').unwrap_or((dsn, ""));
         let mut keep = Vec::new();
         for pair in query.split('&').filter(|p| !p.is_empty()) {
@@ -132,11 +131,11 @@ pub fn parse(dsn: &str) -> Result<Parsed> {
                 _ => keep.push(pair),
             }
         }
-        rest = if keep.is_empty() {
+        if keep.is_empty() {
             base.to_owned()
         } else {
             format!("{base}?{}", keep.join("&"))
-        };
+        }
     } else {
         let mut keep = Vec::new();
         for (k, v, raw) in words(dsn)? {
@@ -146,8 +145,8 @@ pub fn parse(dsn: &str) -> Result<Parsed> {
                 _ => keep.push(raw),
             }
         }
-        rest = keep.join(" ");
-    }
+        keep.join(" ")
+    };
     Ok(Parsed {
         dsn: rest,
         mode: match found {

@@ -3,6 +3,7 @@ use setjoin_pg::operator::OperatorConnection;
 use std::collections::BTreeMap;
 mod bootstrap;
 mod push;
+pub mod rls;
 mod scim;
 mod smime;
 mod sources;
@@ -108,6 +109,8 @@ async fn execute(cmd: &str, action: &str, args: &[String]) -> Result<i32, String
                 db.apply_migration(name, sql).await?;
                 println!("  applied {name}");
             }
+            // Wave 1.7 (#545): owner-safe post-migration role/grant & ARCH-018 scope-helper pass.
+            setjoin_pg::rls_preflight::provision_roles_and_verify_operator(&mut db, None).await?;
             println!("database schema is now at version {expected}");
             Ok(0)
         }
@@ -131,6 +134,7 @@ async fn execute(cmd: &str, action: &str, args: &[String]) -> Result<i32, String
                 .filter(|m| m.0 > current)
                 .map(|m| m.1)
                 .collect();
+            let advisory = rls::advisory_check(&db).await;
             if fs.boolean("json") {
                 println!(
                     "{}",
@@ -147,11 +151,22 @@ async fn execute(cmd: &str, action: &str, args: &[String]) -> Result<i32, String
                         pending.join(", ")
                     );
                 }
+                if let Some(report) = advisory {
+                    if !report.hard_errors.is_empty() || !report.warnings.is_empty() {
+                        eprintln!(
+                            "WARNING: native-RLS preflight reported {} error(s), {} warning(s) — run 'mailctl schema preflight' for details",
+                            report.hard_errors.len(),
+                            report.warnings.len()
+                        );
+                    }
+                }
             }
             Ok(if current >= expected { 0 } else { 1 })
         }
+        ("schema", "preflight") => rls::preflight(args).await,
+        ("schema", "provision-roles") => rls::provision_roles(args).await,
         ("schema", _) => Err(format!(
-            "unknown schema action: {action}. Try: check, apply"
+            "unknown schema action: {action}. Try: check, apply, preflight, provision-roles"
         )),
         _ => unreachable!(),
     }

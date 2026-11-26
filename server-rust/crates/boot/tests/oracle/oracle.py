@@ -205,6 +205,13 @@ def observe(case, binary, go):
                 if env.get("BOOT_INSPECT_SECRETS") == "1":
                     decrypted = [line.removeprefix("BOOT_DECRYPT ") for line in result.stdout.splitlines() if line.startswith("BOOT_DECRYPT ")]
                     observed["secrets"] = json.loads(decrypted[-1]) if decrypted else None
+                if env.get("BOOT_PRINT_POSTURE") == "1":
+                    postures = [
+                        line.removeprefix("BOOT_POSTURE ")
+                        for line in result.stdout.splitlines()
+                        if line.startswith("BOOT_POSTURE ")
+                    ]
+                    observed["posture"] = json.loads(postures[-1]) if postures else None
                 if not events:
                     raise AssertionError(f"{case['id']}: no boot events: {result.stderr}\n{result.stdout}")
                 return observed
@@ -218,6 +225,36 @@ def observe(case, binary, go):
         server.shutdown()
         server.server_close()
         thread.join()
+
+
+def normalize_wave17_divergence(observed):
+    """Recorded Wave 1.7 (#545) Release N divergence from frozen Go boot logs:
+    frozen Go logged a single INFO skip on superuser DB_DSN and omitted
+    per-finding ERROR detail lines before 'native-RLS boot check FAILED'.
+    Keep goldens.json immutable while verifying exact parity on every other
+    boot stage; recorded.rs tests the unnormalized Wave 1.7 events directly."""
+    out = dict(observed)
+    normalized = []
+    emitted_super_info = False
+    for level, msg in observed["events"]:
+        if level == "INFO" and msg == "database schema version verified":
+            emitted_super_info = False
+        if level == "WARN" and msg.startswith("native-RLS boot check: "):
+            if "connects as superuser" in msg and not emitted_super_info:
+                normalized.append(
+                    [
+                        "INFO",
+                        "native-RLS boot check: runtime is a superuser identity"
+                        " — FORCE is inert (flip not live), skipping",
+                    ]
+                )
+                emitted_super_info = True
+            continue
+        if level == "ERROR" and msg.startswith("native-RLS boot check: "):
+            continue
+        normalized.append([level, msg])
+    out["events"] = normalized
+    return out
 
 
 def main():
@@ -239,7 +276,11 @@ def main():
         if args.mode == "record":
             goldens[case["id"]] = actual
         else:
-            assert actual == goldens[case["id"]], f"{case['id']}\nexpected: {json.dumps(goldens[case['id']], indent=2)}\nactual: {json.dumps(actual, indent=2)}"
+            comparable = normalize_wave17_divergence(actual)
+            assert comparable == goldens[case["id"]], (
+                f"{case['id']}\nexpected: {json.dumps(goldens[case['id']], indent=2)}\n"
+                f"actual: {json.dumps(comparable, indent=2)}"
+            )
         print(f"BOOT {args.mode} {case['id']}: ok", flush=True)
     if args.mode == "record":
         assert args.output and not args.output.exists(), "record into a NEW path; never overwrite goldens"

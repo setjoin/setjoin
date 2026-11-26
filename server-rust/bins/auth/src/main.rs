@@ -32,6 +32,31 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if version != expected {
         return Err("schema version mismatch".into());
     }
+    let dsn_roles = setjoin_pg::rls_preflight::DsnRoleSummary::from_dsns(
+        Some(&config.dsn),
+        config.worker_dsn.as_deref(),
+        None,
+    );
+    let rls_report = setjoin_pg::rls_preflight::inspect_rls_posture_executor(
+        &exec,
+        setjoin_pg::rls_preflight::PostureContext::RuntimeApp,
+        Some(dsn_roles),
+    )
+    .await
+    .map_err(|e| format!("native-RLS preflight failed: {e}"))?;
+    if !rls_report.hard_errors.is_empty() {
+        for err in &rls_report.hard_errors {
+            eprintln!("setjoin-auth: ERROR: native-RLS boot check: {err}");
+        }
+        return Err("native-RLS boot check FAILED — refusing to start".into());
+    }
+    for warning in &rls_report.warnings {
+        eprintln!("setjoin-auth: WARN: native-RLS boot check: {warning}");
+    }
+    let boot_posture = Arc::new(setjoin_pg::rls_preflight::BootPosture::from_report(
+        rls_report,
+        setjoin_pg::rls_preflight::EnforcementMode::WarnReleaseN,
+    ));
     if let Err(error)=setjoin_identity::rp::reseal(&config.dsn,config.secret.as_bytes(),config.profile).await{
         eprintln!("OIDC client secret re-seal migration failed; plaintext providers will fail closed: {error}");
     }
@@ -84,7 +109,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     } else {
         None
     };
-    let server = Arc::new(AuthServer::load(exec, config).await?.with_gate(gate));
+    let server = Arc::new(
+        AuthServer::load(exec, config)
+            .await?
+            .with_gate(gate)
+            .with_boot_posture(boot_posture),
+    );
     let reload_server = server.clone();
     setjoin_auth::serve_until(server, listener, tls, async move {
         #[cfg(unix)]

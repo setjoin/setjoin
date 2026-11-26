@@ -5,7 +5,9 @@ use std::process::Command;
 /// threads, so each takes this lock first (a poisoned lock only means an earlier test failed).
 static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn serial() -> std::sync::MutexGuard<'static, ()> {
-    SERIAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    SERIAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[test]
@@ -23,8 +25,15 @@ fn boot_probe_process() {
         ));
         std::process::exit(0);
     }
-    match runtime.block_on(setjoin_boot::run()) {
-        Ok(()) => {
+    let mode = match std::env::var("BOOT_ENFORCEMENT_MODE").as_deref() {
+        Ok("fail_closed") => setjoin_boot::EnforcementMode::FailClosedReleaseNPlus1,
+        _ => setjoin_boot::EnforcementMode::WarnReleaseN,
+    };
+    match runtime.block_on(setjoin_boot::run_with_mode(mode)) {
+        Ok(posture) => {
+            if std::env::var("BOOT_PRINT_POSTURE").as_deref() == Ok("1") {
+                println!("BOOT_POSTURE {}", serde_json::to_string(&posture).unwrap());
+            }
             if std::env::var("BOOT_INSPECT_SECRETS").as_deref() == Ok("1") {
                 let values = runtime.block_on(inspect_fixture_secrets());
                 println!("BOOT_DECRYPT {values}");
@@ -207,5 +216,74 @@ fn replay_frozen_go_boot() {
         "{}\n{}",
         String::from_utf8_lossy(&result.stdout),
         String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+fn wave17_release_n_warns_on_superuser_and_refuses_policy_table_rls_disabled_even_as_superuser() {
+    let _serial = serial();
+    if std::env::var("TEST_DB_DSN").is_err() {
+        assert_ne!(
+            std::env::var("REQUIRE_DB").as_deref(),
+            Ok("1"),
+            "TEST_DB_DSN is required"
+        );
+        eprintln!("BOOT-DB-SKIP (reason=no-dsn)");
+        return;
+    }
+
+    // 1. Release N (WarnReleaseN) on superuser TEST_DB_DSN succeeds with WARN log
+    //    and BootPosture overall_status = "warn".
+    let r = observe(serde_json::json!({
+        "id": "wave17-superuser-warn",
+        "env": { "BOOT_PRINT_POSTURE": "1" }
+    }));
+    assert_eq!(r["exit"], 0, "{r}");
+    let events = r["events"].as_array().unwrap();
+    assert!(
+        events.iter().any(|e| {
+            e[0] == "WARN"
+                && e[1]
+                    .as_str()
+                    .is_some_and(|m| m.contains("connects as superuser"))
+        }),
+        "expected Release N WARN event on superuser DB_DSN: {r}"
+    );
+    assert_eq!(r["posture"]["overall_status"], "warn", "{r}");
+
+    // 2. Superuser DB_DSN STILL refuses boot when a policy table has RLS disabled
+    //    (never skipped when rolsuper == true).
+    let r_hard = observe(serde_json::json!({
+        "id": "wave17-superuser-rls-disabled",
+        "before": "CREATE TABLE boot_rls_super_probe(id int); CREATE POLICY boot_super_pol ON boot_rls_super_probe USING (true)",
+        "after": "DROP TABLE boot_rls_super_probe"
+    }));
+    assert_eq!(r_hard["exit"], 1, "{r_hard}");
+    assert!(
+        r_hard["events"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!([
+                "ERROR",
+                "native-RLS boot check FAILED — refusing to start"
+            ])),
+        "{r_hard}"
+    );
+
+    // 3. Release N+1 (FailClosedReleaseNPlus1) refuses boot on superuser DB_DSN.
+    let r_n1 = observe(serde_json::json!({
+        "id": "wave17-fail-closed-superuser",
+        "env": { "BOOT_ENFORCEMENT_MODE": "fail_closed" }
+    }));
+    assert_eq!(r_n1["exit"], 1, "{r_n1}");
+    assert!(
+        r_n1["events"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!([
+                "ERROR",
+                "native-RLS boot check FAILED — refusing to start"
+            ])),
+        "{r_n1}"
     );
 }

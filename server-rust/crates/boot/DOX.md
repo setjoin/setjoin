@@ -61,3 +61,19 @@ source provenance, including adapter/case/harness SHA-256 per recording.
 Fixture-only `BOOT_DECRYPT` observations open selected known
 secrets after boot; no production path reads these probe flags. Random file
 keys and timestamps are normalized; the secret fixture is restored per case.
+
+## Wave 1.7 Release N posture (#545)
+
+`setjoin_boot::run()` returns `Result<BootPosture, Refusal>` using
+`EnforcementMode::WarnReleaseN` (`run_with_mode` accepts
+`FailClosedReleaseNPlus1` for Release N+1 `#547`). Hard invariants
+(`policy_tables_rls_disabled` — never skipped even when `rolsuper == true` —
+and non-superuser `BYPASSRLS` or `owns_forced_rls_tables`) still refuse boot
+with exit 1. Release N warnings (superuser `DB_DSN`, PG CVE-2026-14666 `< 17.11`
+or `18.0–18.5`, drifted roles or ARCH-018 scope helpers) log `WARN` and flow
+into `/health` (`200 {"status":"warn"}`) and `/admin/health` redacted check
+rows (`db_rls_posture`, `pg_version_cve_2026_14666`, `rls_scope_helpers`) via
+`.with_boot_posture(...)` wired only in `bins/gateway/src/main.rs` and
+`bins/auth/src/main.rs`. `tests/oracle/oracle.py` normalizes this documented
+Wave 1.7 event divergence during frozen-Go replay while `tests/recorded.rs`
+asserts the raw unnormalized Release N warnings and refusals directly.

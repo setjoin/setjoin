@@ -36,6 +36,14 @@ def schema_expectation(case, expected):
         expected[stream] = expected[stream].replace("V275__feature_toggle_registry_projection.sql", SCHEMA_FILENAME)
         expected[stream] = re.sub(r"(?<![A-Za-z0-9_])(?:274|275)(?![A-Za-z0-9_])",
             lambda m: str(SCHEMA_LATEST if m[0]=="275" else SCHEMA_PREVIOUS), expected[stream])
+    # Recorded Wave 1.7 (#545) divergences: `schema unknown` lists the new
+    # preflight/provision-roles subcommands, and `schema check` emits an
+    # advisory RLS preflight warning on stderr when connected as superuser.
+    if case["name"] == "schema-unknown":
+        expected["stderr"] = expected["stderr"].replace(
+            "Try: check, apply\n",
+            "Try: check, apply, preflight, provision-roles\n",
+        )
     for effect in ("schema_added", "schema_removed"):
         expected["database_effects"][effect] = [SCHEMA_LATEST if n==275 else n for n in expected["database_effects"][effect]]
     return expected
@@ -367,5 +375,19 @@ if __name__ == "__main__":
             path.write_text(json.dumps(result, indent=2) + "\n")
         else:
             expected = schema_expectation(case, expected_normalization(json.loads(path.read_text())))
+            if case["name"] == "schema-current-human":
+                # Recorded Wave 1.7 (#545) divergence: advisory stderr line when
+                # running schema check on superuser TEST_DB_DSN.
+                result = copy.deepcopy(result)
+                advisory_pat = (
+                    r"^WARNING: native-RLS preflight reported \d+ error\(s\), "
+                    r"\d+ warning\(s\) — run 'mailctl schema preflight' for details\n"
+                )
+                result["stderr"] = re.sub(
+                    advisory_pat,
+                    "",
+                    result["stderr"],
+                    flags=re.M,
+                )
             assert result == expected, f"{case['name']}\nexpected={expected}\nactual={result}"
         print("PASS " + case["name"],flush=True)
