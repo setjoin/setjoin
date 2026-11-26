@@ -3,8 +3,7 @@
 //! check-in reducer. Callers hold a `VerifiedDevice`; HTTP framing is in auth.
 use serde_json::{json, Value};
 use setjoin_authz::device::VerifiedDevice;
-use setjoin_contracts::ids::OperationId;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, Type};
+use setjoin_pg::{ScopedExecutor, Type};
 use std::collections::BTreeMap;
 
 /// Owner-approved security bound (#341): Go accepted any count in 64 KiB.
@@ -25,11 +24,10 @@ pub struct Effective {
     pub wipe_requested: bool,
 }
 
-/// A check-in that did not commit (`Failed`) or whose COMMIT was unacknowledged.
+/// A check-in whose transaction did not commit or could not be decoded.
 #[derive(Debug)]
 pub enum CheckinError {
     Failed,
-    Unknown(OperationId),
 }
 
 impl Effective {
@@ -90,9 +88,10 @@ pub async fn effective_policy(exec: &ScopedExecutor, device: &VerifiedDevice) ->
     Effective::decode(&rows.first()?.get::<_, Option<String>>(0)?)
 }
 
-/// POST /device/checkin effects in one acknowledged transaction: the reducer
-/// and its receipt commit together, COMMIT is sent only after both succeed
-/// inside the statement deadline, so a client timeout can never commit late.
+/// POST /device/checkin effects in one acknowledged transaction: COMMIT is
+/// sent only after the reducer succeeds inside the statement deadline, so a
+/// client timeout can never commit late. Writes no `rust_operation_receipts`
+/// row (#473: check-in is a periodic heartbeat retried with a fresh nonce).
 pub async fn checkin(
     exec: &ScopedExecutor,
     device: &VerifiedDevice,
@@ -106,26 +105,16 @@ pub async fn checkin(
             .collect(),
     )
     .to_string();
-    let outcome = exec
-        .run_protocol_command(
-            &format!("device:{id}"),
-            OperationId(*uuid::Uuid::new_v4().as_bytes()),
-            setjoin_pg::ReceiptCommand {
-                family: "F21",
-                command: "device-checkin",
-            },
+    let raw = exec
+        .run_protocol_tx(
             "SELECT rust_device_checkin($1,$2::text::jsonb)::text",
             &[(&id, Type::INT8), (&events, Type::TEXT)],
             |rows| Ok(rows.first().and_then(|r| r.get::<_, Option<String>>(0))),
         )
-        .await;
-    match outcome {
-        CommandOutcome::Committed(Some(text)) => {
-            Effective::decode(&text).ok_or(CheckinError::Failed)
-        }
-        CommandOutcome::Unknown { operation } => Err(CheckinError::Unknown(operation)),
-        _ => Err(CheckinError::Failed),
-    }
+        .await
+        .map_err(|_| CheckinError::Failed)?;
+    let text = raw.ok_or(CheckinError::Failed)?;
+    Effective::decode(&text).ok_or(CheckinError::Failed)
 }
 
 /// `time.Now().UTC()` as encoding/json writes it (RFC3339Nano, zeros trimmed).

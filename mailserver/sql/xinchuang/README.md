@@ -162,7 +162,7 @@ The reducers below are the certification critical path for the primary combinati
 | offline | 16 |
 | policy | 1 |
 | provision | 1 |
-| prune | 7 |
+| prune | 8 |
 | purge | 2 |
 | push | 1 |
 | quarantine | 1 |

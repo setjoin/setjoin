@@ -137,8 +137,9 @@ one `device proof refused route= device_id= reason=` warn line (never proof
 material); then the handler (valid-proof HEAD → Go's JSON 405; decode error →
 400 after the nonce). Owner-approved security fix: more than 100 events → 400
 before any proof work. Policy reads `mdm_effective_policy`; check-in runs
-`rust_device_checkin` in one acknowledged protocol transaction (no late commit;
-lost COMMIT → 500 + `x-operation-id`). ETag is Go's FNV policy version; equal
+`rust_device_checkin` in one acknowledged receipt-free protocol transaction
+(`run_protocol_tx`, #473: no late commit, no `rust_operation_receipts` row,
+failure returns Go's 500 `internal error` with no `x-operation-id`). ETag is Go's FNV policy version; equal
 If-None-Match → bare 304 after effects; 200s `private, max-age=300`, errors
 `no-store`. Tests: `device_oracle`, `device_faults`
 ([corpus](../../tests/conformance/identity-device/README.md)).
