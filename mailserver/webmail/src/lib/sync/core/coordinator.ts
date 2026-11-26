@@ -86,6 +86,8 @@ interface ConsumerEntry {
 	/** Preserved step mode across SyncBudget yield boundaries (e.g. multi-page fullResync/reconcile). */
 	pendingMode: 'delta' | 'fullResync' | 'reconcile' | null;
 	budgetYieldPending: boolean;
+	budgetYieldTimer: ReturnType<typeof setTimeout> | null;
+	budgetYieldPromise: Promise<void> | null;
 	reconnectPending: boolean;
 	storageFull: boolean;
 	storageFullDetail: string | null;
@@ -98,6 +100,36 @@ interface ConsumerEntry {
 
 function defaultNowMonoMs(): number {
 	return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+/**
+ * Coalesces a newly-arriving wakeup onto an already-pending wakeup for the same
+ * consumer (Fix #1): preserves the union of `dataTypes` (keeping `undefined` if
+ * either wakeup meant "all types"), merges `changed` state maps, and keeps the
+ * highest monotonic `seq`.
+ */
+function mergeWakeups(prev: SyncWakeup | undefined, next: SyncWakeup): SyncWakeup {
+	if (!prev) return next;
+	const dataTypes =
+		prev.dataTypes === undefined || next.dataTypes === undefined
+			? undefined
+			: [...new Set([...prev.dataTypes, ...next.dataTypes])];
+	const changed =
+		prev.changed || next.changed
+			? { ...(prev.changed ?? {}), ...(next.changed ?? {}) }
+			: undefined;
+	return {
+		scopeKind: next.scopeKind,
+		scopeId: next.scopeId,
+		seq: Math.max(prev.seq, next.seq),
+		...(dataTypes !== undefined ? { dataTypes } : {}),
+		...(changed !== undefined ? { changed } : {}),
+		...(next.reason !== undefined
+			? { reason: next.reason }
+			: prev.reason !== undefined
+				? { reason: prev.reason }
+				: {}),
+	};
 }
 
 function isAbortError(err: unknown): boolean {
@@ -145,6 +177,8 @@ export class SyncCoordinator {
 
 	#activeRunCount = 0;
 	#wipeFenceDepth = 0;
+	#wipeFencePromise: Promise<void> | null = null;
+	#resolveWipeFence: (() => void) | null = null;
 	#sessionGeneration = 0;
 	#disposed = false;
 
@@ -236,6 +270,8 @@ export class SyncCoordinator {
 			pendingWakeup: undefined,
 			pendingMode: null,
 			budgetYieldPending: false,
+			budgetYieldTimer: null,
+			budgetYieldPromise: null,
 			reconnectPending: false,
 			storageFull: false,
 			storageFullDetail: null,
@@ -404,6 +440,14 @@ export class SyncCoordinator {
 				if (inFlightToWait.length > 0) {
 					await Promise.allSettled(inFlightToWait);
 				}
+				// Fence scope_revoked cache writes behind any active offline.wipe (#555):
+				// synchronous epoch bump + in-flight aborts already happened above; wait
+				// for db.wipe() to finish before running purgeScopeCache so SQLite writes
+				// can never race an active wipe.
+				while (this.#wipeFenceDepth > 0 && this.#wipeFencePromise) {
+					await this.#wipeFencePromise;
+				}
+				if (this.#disposed) return;
 				for (const entry of consumers) {
 					if (!entry.adapter.purgeScopeCache) continue;
 					try {
@@ -461,18 +505,30 @@ export class SyncCoordinator {
 	 */
 	async beginWipeFence(reason = 'offline.wipe'): Promise<() => void> {
 		this.#wipeFenceDepth += 1;
-		let released = false;
-		try {
-			await this.abortAllInFlightAndFence(reason);
-		} catch (err) {
-			this.#wipeFenceDepth = Math.max(0, this.#wipeFenceDepth - 1);
-			throw err;
+		if (this.#wipeFenceDepth === 1) {
+			this.#wipeFencePromise = new Promise<void>((resolve) => {
+				this.#resolveWipeFence = resolve;
+			});
 		}
-		return () => {
+		let released = false;
+		const releaseFence = (): void => {
 			if (released) return;
 			released = true;
 			this.#wipeFenceDepth = Math.max(0, this.#wipeFenceDepth - 1);
+			if (this.#wipeFenceDepth === 0) {
+				const resolve = this.#resolveWipeFence;
+				this.#resolveWipeFence = null;
+				this.#wipeFencePromise = null;
+				resolve?.();
+			}
 		};
+		try {
+			await this.abortAllInFlightAndFence(reason);
+		} catch (err) {
+			releaseFence();
+			throw err;
+		}
+		return releaseFence;
 	}
 
 	/** Runs `fn` with all sync admission fenced closed across the entire async wipe. */
@@ -541,16 +597,20 @@ export class SyncCoordinator {
 		this.#transport?.setAttachedScopes?.([]);
 	}
 
-	/** Awaits any currently running steps (and pending purges / queued concurrency slots) for the given scope or all scopes. */
+	/** Awaits any currently running steps, scheduled budget-yield continuations, and pending purges. */
 	async flush(scope?: ScopeKey): Promise<void> {
 		const targetKey = scope ? scopeKeyString(scope) : null;
-		// Loop because bounded global concurrency may start queued entries once
-		// earlier runs settle.
+		// Loop because bounded global concurrency or budget-yield continuations may
+		// start queued entries once earlier runs settle.
 		while (true) {
 			const waits: Promise<void>[] = [];
 			for (const entry of this.#entries.values()) {
-				if (entry.inFlight && (!targetKey || entry.scopeKey === targetKey || this.#queuedForConcurrency.size > 0)) {
+				const relevant = !targetKey || entry.scopeKey === targetKey;
+				if (entry.inFlight && (relevant || this.#queuedForConcurrency.size > 0)) {
 					waits.push(entry.inFlight.catch(() => {}));
+				}
+				if (relevant && entry.budgetYieldPromise) {
+					waits.push(entry.budgetYieldPromise.catch(() => {}));
 				}
 			}
 			for (const [k, p] of this.#purgeMutexByScope) {
@@ -559,12 +619,12 @@ export class SyncCoordinator {
 			}
 			if (waits.length === 0) break;
 			await Promise.allSettled(waits);
-			// If nothing matching targetKey is still in-flight or queued, stop.
+			// If nothing matching targetKey is still in-flight, yielding, or queued, stop.
 			const stillPending =
 				[...this.#entries.values()].some(
 					(e) =>
 						(!targetKey || e.scopeKey === targetKey) &&
-						(e.inFlight !== null || this.#queuedForConcurrency.has(e)),
+						(e.inFlight !== null || e.budgetYieldPromise !== null || this.#queuedForConcurrency.has(e)),
 				) ||
 				[...this.#purgeMutexByScope.keys()].some((k) => !targetKey || k === targetKey);
 			if (!stillPending) break;
@@ -641,6 +701,11 @@ export class SyncCoordinator {
 			clearTimeout(entry.debounceTimer);
 			entry.debounceTimer = null;
 		}
+		if (entry.budgetYieldTimer !== null) {
+			clearTimeout(entry.budgetYieldTimer);
+			entry.budgetYieldTimer = null;
+		}
+		entry.budgetYieldPromise = null;
 		if (entry.backoffTimer !== null) {
 			clearTimeout(entry.backoffTimer);
 			entry.backoffTimer = null;
@@ -691,7 +756,7 @@ export class SyncCoordinator {
 			entry.pendingTrigger = trigger;
 		}
 		if (wakeup) {
-			entry.pendingWakeup = wakeup;
+			entry.pendingWakeup = mergeWakeups(entry.pendingWakeup, wakeup);
 		}
 
 		// Preemptible lanes defer while CriticalActivityCounter is active.
@@ -776,18 +841,25 @@ export class SyncCoordinator {
 					this.#emitState(entry);
 				} else if (yieldContinuation) {
 					// Yield one turn before resuming a SyncBudget-paused multi-page resync/reconcile.
-					entry.debounceTimer = setTimeout(() => {
-						entry.debounceTimer = null;
-						if (this.#disposed || this.#wipeFenceDepth > 0 || entry.disposed || entry.detached || entry.storageFull) {
-							return;
-						}
-						if (isPreemptibleLane(entry.lane) && this.#critical?.isActive()) {
-							entry.deferredByCritical = true;
-							this.#emitState(entry);
-							return;
-						}
-						this.#startEntryRun(entry);
-					}, 0);
+					// Track budgetYieldPromise so flush() awaits the continuation cleanly.
+					entry.budgetYieldPromise = new Promise<void>((resolve) => {
+						entry.budgetYieldTimer = setTimeout(() => {
+							entry.budgetYieldTimer = null;
+							entry.budgetYieldPromise = null;
+							if (this.#disposed || this.#wipeFenceDepth > 0 || entry.disposed || entry.detached || entry.storageFull) {
+								resolve();
+								return;
+							}
+							if (isPreemptibleLane(entry.lane) && this.#critical?.isActive()) {
+								entry.deferredByCritical = true;
+								this.#emitState(entry);
+								resolve();
+								return;
+							}
+							this.#startEntryRun(entry);
+							resolve();
+						}, 0);
+					});
 				} else {
 					this.#scheduleEntry(entry, entry.pendingTrigger, entry.pendingWakeup, entry.debounceMs === 0);
 				}

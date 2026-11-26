@@ -385,11 +385,13 @@ describe('SyncCoordinator core', () => {
 			},
 		});
 		coord.trigger({ kind: 'space', id: '11' });
-		await coord.flush();
+		const flushP = coord.flush();
+		for (let i = 0; i < 6; i++) await Promise.resolve();
 		expect(budgetsSeen).toEqual([64, 32]);
-		// After yield turn (setTimeout 0), continuation finishes page 3 automatically!
+		// After yield turn (setTimeout 0), continuation finishes page 3 automatically
+		// and flush() drains the budget-yield continuation before resolving!
 		await vi.advanceTimersByTimeAsync(1);
-		await coord.flush();
+		await flushP;
 		expect(budgetsSeen).toEqual([64, 32, 64]);
 
 		// MailPageCapacityError pauses background sync without retry-looping.
@@ -588,6 +590,69 @@ describe('SyncCoordinator core', () => {
 		coord.trigger({ kind: 'mailbox', id: 'primary' });
 		await coord.flush();
 		expect(runs).toBe(1);
+		coord.dispose();
+	});
+
+	it('unions wakeup dataTypes when coalescing during debounce/in-flight and preserves undefined wildcard (Delta #1)', async () => {
+		const coord = new SyncCoordinator();
+		const seenDataTypes: Array<readonly string[] | undefined> = [];
+		coord.register({
+			consumerId: 'pim-all',
+			scope: { kind: 'mailbox', id: 'primary' },
+			debounceMs: 50,
+			runDeltaStep: async (ctx) => {
+				seenDataTypes.push(ctx.wakeup?.dataTypes);
+				return { kind: 'complete' };
+			},
+		});
+
+		coord.handleWakeup({ scopeKind: 'mailbox', scopeId: 'primary', seq: 1, dataTypes: ['CalendarEvent'] });
+		coord.handleWakeup({ scopeKind: 'mailbox', scopeId: 'primary', seq: 2, dataTypes: ['Contact'] });
+		await vi.advanceTimersByTimeAsync(60);
+		await coord.flush();
+		expect(seenDataTypes[0]).toEqual(['CalendarEvent', 'Contact']);
+
+		// Coalescing a typed wakeup with an untyped ("all types") wakeup keeps dataTypes === undefined.
+		coord.handleWakeup({ scopeKind: 'mailbox', scopeId: 'primary', seq: 3, dataTypes: ['Task'] });
+		coord.handleWakeup({ scopeKind: 'mailbox', scopeId: 'primary', seq: 4 });
+		await vi.advanceTimersByTimeAsync(60);
+		await coord.flush();
+		expect(seenDataTypes[1]).toBeUndefined();
+		coord.dispose();
+	});
+
+	it('fences scope_revoked purgeScopeCache behind active wipe fence so SQLite writes never race db.wipe (Delta #4)', async () => {
+		const coord = new SyncCoordinator();
+		const order: string[] = [];
+		coord.register({
+			consumerId: 'drive-vault',
+			scope: { kind: 'space', id: '33' },
+			runDeltaStep: async () => ({ kind: 'complete' }),
+			purgeScopeCache: async () => {
+				order.push('purge-scope');
+			},
+		});
+
+		let finishWipe!: () => void;
+		const wipeGate = new Promise<void>((r) => {
+			finishWipe = r;
+		});
+
+		const wipeP = coord.runWithWipeFence('offline.wipe', async () => {
+			order.push('wipe-start');
+			await wipeGate;
+			order.push('wipe-end');
+		});
+
+		for (let i = 0; i < 4; i++) await Promise.resolve();
+		const revokeP = coord.handleScopeRevoked({ scopeKind: 'space', scopeId: '33' });
+		for (let i = 0; i < 6; i++) await Promise.resolve();
+		// purgeScopeCache MUST NOT run while wipe fence is held!
+		expect(order).toEqual(['wipe-start']);
+
+		finishWipe();
+		await Promise.all([wipeP, revokeP]);
+		expect(order).toEqual(['wipe-start', 'wipe-end', 'purge-scope']);
 		coord.dispose();
 	});
 });

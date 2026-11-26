@@ -36,7 +36,7 @@ export type ChangesResult =
  *  without instantiating the real HTTP class (DriveHttp structurally
  *  satisfies this already). */
 export interface DriveHttpLike {
-	changes(spaceId: number, since: string | null, max?: number): Promise<ChangesResult>;
+	changes(spaceId: number, since: string | null, max?: number, maxPages?: number): Promise<ChangesResult>;
 	accessInvalidations(spaceId: number, cursor: string | null, max?: number): Promise<AccessInvalidationPage>;
 	visibilitySnapshot(
 		spaceId: number,
@@ -315,9 +315,15 @@ export class SyncEngine {
 		}
 	}
 
-	async syncOnce(
-		exec?: SyncExecutionFence,
-	): Promise<{ uploaded: number; downloaded: number; issues: number; hasMore?: boolean }> {
+	async syncOnce(exec?: SyncExecutionFence): Promise<{
+		uploaded: number;
+		downloaded: number;
+		issues: number;
+		appliedChanges?: number;
+		cursorAdvanced?: boolean;
+		bytesProcessed?: number;
+		hasMore?: boolean;
+	}> {
 		this.assertAllowed(exec);
 		await this.drainPendingRevocations();
 		this.assertAllowed(exec);
@@ -330,6 +336,9 @@ export class SyncEngine {
 			uploaded: up.uploaded,
 			downloaded: access.downloaded + down.downloaded,
 			issues: access.issues + up.issues + down.issues,
+			appliedChanges: down.appliedChanges,
+			cursorAdvanced: down.cursorAdvanced,
+			bytesProcessed: down.bytesProcessed,
 			...(up.hasMore || down.hasMore ? { hasMore: true } : {}),
 		};
 	}
@@ -455,10 +464,11 @@ export class SyncEngine {
 
 	// ── upload leg ────────────────────────────────────────────────────────────
 
-	private isBudgetExceeded(exec: SyncExecutionFence | undefined, processed: number): boolean {
+	private isBudgetExceeded(exec: SyncExecutionFence | undefined, processed: number, bytesProcessed = 0): boolean {
 		const budget = exec?.budget;
 		if (!budget) return false;
 		if (processed >= budget.maxRecords) return true;
+		if (bytesProcessed >= budget.maxBytes) return true;
 		const mono = typeof performance !== 'undefined' ? performance.now() : Date.now();
 		return mono >= budget.deadlineMonoMs;
 	}
@@ -729,26 +739,45 @@ export class SyncEngine {
 
 	// ── download leg ──────────────────────────────────────────────────────────
 
-	private async pullAndApply(
-		exec?: SyncExecutionFence,
-	): Promise<{ downloaded: number; issues: number; hasMore: boolean }> {
+	private async pullAndApply(exec?: SyncExecutionFence): Promise<{
+		downloaded: number;
+		appliedChanges: number;
+		cursorAdvanced: boolean;
+		bytesProcessed: number;
+		issues: number;
+		hasMore: boolean;
+	}> {
 		this.assertAllowed(exec);
 		const state = await this.d.index.getSyncState(this.d.spaceId);
 		const cursor = state.contentState;
 		if (cursor === null) {
 			const res = await this.fullVisibilityReconcile(state.accessCursor, state.aclEpoch, exec);
-			return { ...res, hasMore: false };
+			return {
+				...res,
+				appliedChanges: res.downloaded,
+				cursorAdvanced: true,
+				bytesProcessed: 0,
+				hasMore: false,
+			};
 		}
 
+		// When a SyncBudget is supplied, bound DriveHttp.changes() to at most 1 page
+		// capped by maxRecords so a large backlog yields cleanly between steps (#555).
 		const pageMax = exec?.budget ? Math.max(1, Math.min(200, exec.budget.maxRecords)) : undefined;
 		const res =
 			pageMax !== undefined
-				? await this.d.http.changes(this.d.spaceId, cursor, pageMax)
+				? await this.d.http.changes(this.d.spaceId, cursor, pageMax, 1)
 				: await this.d.http.changes(this.d.spaceId, cursor);
 		this.assertAllowed(exec);
 		if (res.resync) {
 			const full = await this.fullVisibilityReconcile(state.accessCursor, state.aclEpoch, exec);
-			return { ...full, hasMore: false };
+			return {
+				...full,
+				appliedChanges: full.downloaded,
+				cursorAdvanced: true,
+				bytesProcessed: 0,
+				hasMore: false,
+			};
 		}
 
 		// Group by nodeId keeping the LAST op — the feed already arrives
@@ -761,20 +790,51 @@ export class SyncEngine {
 		const metaById = new Map(metas.map((m) => [m.nodeId, m]));
 
 		let downloaded = 0;
+		let appliedChanges = 0;
+		let bytesProcessed = 0;
 		let issues = 0;
+		let stoppedByBudget = false;
 		for (const nodeId of lastOpByNode.keys()) {
+			if (appliedChanges > 0 && this.isBudgetExceeded(exec, appliedChanges, bytesProcessed)) {
+				stoppedByBudget = true;
+				break;
+			}
 			this.assertAllowed(exec);
 			const meta = metaById.get(nodeId);
 			const r = meta ? await this.applyNode(meta) : await this.applyRemove(nodeId);
-			if (r === 'downloaded') downloaded++;
+			appliedChanges += 1;
+			if (r === 'downloaded') {
+				downloaded++;
+				bytesProcessed += meta?.sizeBytes ?? 0;
+			}
 			if (r === 'issue') issues++;
+		}
+		if (stoppedByBudget) {
+			// Leave cursor unmoved so the next step finishes the remaining nodes
+			// (every already-applied file is sha-gated and idempotent).
+			return {
+				downloaded,
+				appliedChanges,
+				cursorAdvanced: false,
+				bytesProcessed,
+				issues,
+				hasMore: true,
+			};
 		}
 		// Cursor persists only after the WHOLE batch applies — a crash mid-loop
 		// leaves the cursor unmoved, so the next run re-applies the same batch
 		// (every apply is sha-gated, so re-applying is a no-op).
 		this.assertAllowed(exec);
+		const cursorAdvanced = res.newState !== cursor;
 		await this.d.index.setSyncState(this.d.spaceId, { ...state, contentState: res.newState });
-		return { downloaded, issues, hasMore: Boolean(res.hasMore) };
+		return {
+			downloaded,
+			appliedChanges,
+			cursorAdvanced,
+			bytesProcessed,
+			issues,
+			hasMore: Boolean(res.hasMore),
+		};
 	}
 
 	private async applyNode(meta: NodeMeta): Promise<'downloaded' | 'ok' | 'issue'> {

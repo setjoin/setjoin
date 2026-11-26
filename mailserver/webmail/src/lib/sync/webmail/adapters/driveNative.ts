@@ -140,9 +140,15 @@ export function createDriveMirrorSyncAdapter(options: DriveMirrorSyncAdapterOpti
 					budget: ctx.budget,
 				});
 				ctx.fence.assertCommitAllowed();
+				const recordsProcessed = Math.max(
+					res.appliedChanges ?? 0,
+					res.uploaded + res.downloaded,
+					res.cursorAdvanced ? 1 : 0,
+				);
 				return {
 					kind: res.hasMore ? 'partial' : 'complete',
-					recordsProcessed: res.uploaded + res.downloaded,
+					recordsProcessed,
+					bytesProcessed: res.bytesProcessed ?? 0,
 				};
 			} catch (err) {
 				if (err instanceof DriveApiError && err.status === 409) {

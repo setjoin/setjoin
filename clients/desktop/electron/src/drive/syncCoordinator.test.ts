@@ -146,20 +146,26 @@ describe('Electron MirrorService SyncCoordinator integration (#555)', () => {
 		expect(svc.isRunning()).toBe(true);
 	});
 
-	it('routes renderer bridge.driveMirror wakeup hints through makeDriveMirrorHandlers, enforces rate-limits, refuses unconfirmed full-space revoke, and detaches only server-confirmed revocations (#555 Findings #1, #2, #4)', async () => {
+	it('routes renderer bridge.driveMirror wakeup hints through makeDriveMirrorHandlers, enforces rate-limits, refuses unconfirmed/404 full-space revoke, and detaches only server-confirmed 403/spaces-omitted revocations (#555 Findings #1, #2, #4, Delta #2)', async () => {
 		let changeCalls = 0;
-		let spaceRevokedOnServer = false;
+		let serverMode: 'ok' | 'transient-404' | 'revoked-403' = 'ok';
 		const svc = new MirrorService({
 			native: fakeNative(),
 			userDataDir,
 			fetchFn: async (input: string) => {
 				const url = new URL(input);
 				if (url.pathname === '/api/drive/spaces') {
-					const list = spaceRevokedOnServer ? [] : [{ id: 2, name: 'Docs', aclMode: 'legacy' }];
+					if (serverMode === 'transient-404') {
+						return new Response(JSON.stringify({ error: 'feature flag lookup failed' }), { status: 404 });
+					}
+					const list = serverMode === 'revoked-403' ? [] : [{ id: 2, name: 'Docs', aclMode: 'legacy' }];
 					return new Response(JSON.stringify(list), { status: 200 });
 				}
 				if (url.pathname.endsWith('/access-invalidations')) {
-					if (spaceRevokedOnServer) {
+					if (serverMode === 'transient-404') {
+						return new Response(JSON.stringify({ error: 'not found' }), { status: 404 });
+					}
+					if (serverMode === 'revoked-403') {
 						return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 });
 					}
 					return new Response(
@@ -244,10 +250,18 @@ describe('Electron MirrorService SyncCoordinator integration (#555)', () => {
 		await bridge.driveMirror.resync(2);
 		expect(changeCalls).toBeGreaterThan(callsBeforeManualResync);
 
+		// Delta #2: bare HTTP 404 (e.g. drive_core.rs feature-flag lookup failure) MUST NOT
+		// be treated as confirmed revocation or delete mirrored files!
+		await new Promise((r) => setTimeout(r, 170));
+		serverMode = 'transient-404';
+		expect(await bridge.driveMirror.notifyScopeRevoked({ scopeKind: 'space', scopeId: '2' })).toBe(true);
+		await svc.flushSyncCoordinator();
+		expect((await svc.status()).perSpace.some((s) => s.spaceId === 2)).toBe(true);
+
 		// Finding #1: once the authenticated server actually returns 403, the revocation hint
 		// confirms access loss, detaches the space, and blocks subsequent wakeups!
 		await new Promise((r) => setTimeout(r, 170));
-		spaceRevokedOnServer = true;
+		serverMode = 'revoked-403';
 		expect(await bridge.driveMirror.notifyScopeRevoked({ scopeKind: 'space', scopeId: '2' })).toBe(true);
 		await svc.flushSyncCoordinator();
 		const callsAfterRevoke = changeCalls;

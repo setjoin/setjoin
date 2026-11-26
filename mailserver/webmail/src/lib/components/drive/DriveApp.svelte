@@ -300,6 +300,13 @@
 			listing = nextListing;
 		} catch (e) {
 			if (isStale()) return;
+			const status = (e as { status?: unknown } | null)?.status;
+			if (status === 403 || status === 404) {
+				// Revoked folder / subtree: never leave stale revoked rows visible (#555).
+				listing = [];
+				selectedFile = null;
+				accessNode = null;
+			}
 			bannerError = driveErrorMessage(e);
 		} finally {
 			if (gen === listingGen) listingLoading = false;
@@ -433,6 +440,7 @@
 					reloadListing: (signal, fence) => loadListing({ signal, fence }),
 					clearSpaceView: () => {
 						bumpSpaceRevocationEpoch(spaceId);
+						listingLoading = false;
 						listing = [];
 						selectedFile = null;
 						accessNode = null;

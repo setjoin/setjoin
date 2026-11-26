@@ -111,6 +111,7 @@ interface SpaceRuntime {
 	lastPolledAtMs: number;
 	verifyBeforeNextPass: boolean;
 	manualResyncRequested: boolean;
+	pendingFullRevocationVerify: ScopeRevokedEvent | null;
 	aclMode: 'legacy' | 'shadow' | 'acl';
 	unmanagedAclRiskAccepted: boolean;
 }
@@ -164,6 +165,7 @@ export class MirrorService {
 	private wakeupConnectedAll = false;
 	private wakeupConnectedSpaces = new Set<number>();
 	private pollTimer: ReturnType<typeof setInterval> | null = null;
+	private activePollIntervalMs: number | null = null;
 	/** Global concurrency = 1 serializes shared SQLCipher `drive` store transactions across spaces (#555). */
 	private syncCoordinator = new SyncCoordinator({ maxGlobalConcurrency: 1 });
 	private adapterUnsubs = new Map<number, () => void>();
@@ -189,7 +191,7 @@ export class MirrorService {
 	async configure(cfg: { serverOrigin: string; spaces: MirrorSpaceConfig[] }): Promise<void> {
 		this.serverOrigin = cfg.serverOrigin;
 		this.pendingSpaces = cfg.spaces;
-		if (!(await this.ensureReady())) return; // vault-locked -- nothing else to do until unlocked
+		if (!(await this.ensureReady(true))) return; // vault-locked -- nothing else to do until unlocked
 		await this.reconcileSpaces();
 		this.startPollLoop();
 	}
@@ -197,7 +199,7 @@ export class MirrorService {
 	async refreshToken(token: string, expiresAt: string): Promise<void> {
 		this.token = token;
 		this.tokenExpiresAt = Date.parse(expiresAt);
-		if (await this.ensureReady()) {
+		if (await this.ensureReady(true)) {
 			await this.reconcileSpaces();
 			this.startPollLoop();
 		}
@@ -470,12 +472,12 @@ export class MirrorService {
 			return true;
 		}
 
-		// Full-space revocation hint: confirm access loss with the authenticated server
-		// BEFORE detaching or deleting any local mirrored files.
-		const confirmedRevoked = await this.confirmFullSpaceRevocation(rt);
-		if (confirmedRevoked) {
-			await this.syncCoordinator.handleScopeRevoked(evt);
-		}
+		// Full-space revocation hint: route server-authoritative confirmation through
+		// SyncCoordinator's serialized single-flight loop so confirmFullSpaceRevocation()
+		// NEVER runs concurrently with runPass() or overlapping SQLite transactions (#555).
+		rt.pendingFullRevocationVerify = evt;
+		this.syncCoordinator.trigger({ kind: 'space', id: String(rt.spaceId) }, { immediate: true });
+		await this.syncCoordinator.flush({ kind: 'space', id: String(rt.spaceId) });
 		return true;
 	}
 
@@ -483,19 +485,26 @@ export class MirrorService {
 		try {
 			await rt.engine.reconcileVisibility();
 		} catch (err) {
-			if (err instanceof DriveApiError && (err.status === 403 || err.status === 404)) {
+			// Only explicit HTTP 403 proves access revocation here — HTTP 404 can
+			// arise from a transient feature-flag lookup failure (drive_core.rs:85)
+			// and must NOT delete local mirrored files unless /spaces also returns
+			// 200 OK omitting this spaceId (#555).
+			if (err instanceof DriveApiError && err.status === 403) {
 				return true;
 			}
-			// Transient network/5xx/401: fail safe — do NOT delete user files.
-			return false;
+			if (!(err instanceof DriveApiError && err.status === 404)) {
+				// Transient network/5xx/401: fail safe — do NOT delete user files.
+				return false;
+			}
 		}
-		// Visibility probe returned 200 OK; double-check membership in /spaces in case
-		// the space was removed without returning 403/404 on invalidations.
+		// Visibility probe returned 200 OK or ambiguous 404; check authoritative
+		// membership via GET /spaces. Only 403 or a 200 OK list omitting rt.spaceId
+		// confirms revocation.
 		try {
 			const remoteSpaces = await rt.http.spaces();
 			return !remoteSpaces.some((s) => s.id === rt.spaceId);
 		} catch (err) {
-			if (err instanceof DriveApiError && (err.status === 403 || err.status === 404)) {
+			if (err instanceof DriveApiError && err.status === 403) {
 				return true;
 			}
 			return false;
@@ -515,6 +524,7 @@ export class MirrorService {
 		this.wakeupConnectedSpaces.clear();
 		if (this.pollTimer) clearInterval(this.pollTimer);
 		this.pollTimer = null;
+		this.activePollIntervalMs = null;
 		for (const timer of this.busyRetryTimers.values()) clearTimeout(timer);
 		this.busyRetryTimers.clear();
 		for (const unsub of this.adapterUnsubs.values()) unsub();
@@ -533,14 +543,17 @@ export class MirrorService {
 
 	// ── internals ────────────────────────────────────────────────────────────
 
-	private async ensureReady(): Promise<boolean> {
-		if (this.index) return true;
+	private async ensureReady(recheckSchema = false): Promise<boolean> {
+		if (this.index && !recheckSchema) return true;
 		try {
 			const dbPath = path.join(this.deps.userDataDir, appKeyDbFile('drive'));
 			this.deps.native.dbOpen(dbPath, 'drive', 'standard');
 			const db = nativeDbLike(this.deps.native);
 			await applySchema(db);
-			this.index = new SqlMirrorIndex(db);
+			if (!this.index) {
+				this.index = new SqlMirrorIndex(db);
+			}
+			this.vaultLocked = false;
 			return true;
 		} catch {
 			this.vaultLocked = true;
@@ -631,6 +644,7 @@ export class MirrorService {
 				lastPolledAtMs: 0,
 				verifyBeforeNextPass: false,
 				manualResyncRequested: false,
+				pendingFullRevocationVerify: null,
 				aclMode: remoteSpace?.aclMode ?? 'legacy',
 				unmanagedAclRiskAccepted: cfg.acceptUnmanagedAclRisk === true,
 			};
@@ -672,11 +686,36 @@ export class MirrorService {
 			debounceMs: 0,
 			runDeltaStep: async (ctx: SyncStepContext): Promise<StepOutcome> => {
 				ctx.fence.assertCommitAllowed();
+				if (!this.spaces.has(rt.spaceId)) {
+					rt.manualResyncRequested = false;
+					rt.verifyBeforeNextPass = false;
+					rt.pendingFullRevocationVerify = null;
+					return { kind: 'complete', recordsProcessed: 0 };
+				}
+				// Serialized server-authoritative confirmation for untrusted full-space
+				// revocation hints (#555): runs inside coordinator single-flight so it
+				// never races runPass() or shared SQLite transactions.
+				if (rt.pendingFullRevocationVerify) {
+					rt.pendingFullRevocationVerify = null;
+					await this.maybeRenewToken();
+					ctx.fence.assertCommitAllowed();
+					if (this.token) {
+						const confirmed = await this.confirmFullSpaceRevocation(rt);
+						ctx.fence.assertCommitAllowed();
+						if (confirmed) {
+							rt.manualResyncRequested = false;
+							rt.verifyBeforeNextPass = false;
+							return { kind: 'scopeRevoked', detail: 'server_confirmed_space_revoked' };
+						}
+					}
+					if (this.paused && !rt.manualResyncRequested) {
+						return { kind: 'complete', recordsProcessed: 0 };
+					}
+				}
 				const manual = rt.manualResyncRequested;
 				const verify = rt.verifyBeforeNextPass;
-				rt.manualResyncRequested = false;
 				rt.verifyBeforeNextPass = false;
-				if ((this.paused && !manual) || !this.spaces.has(rt.spaceId)) {
+				if (this.paused && !manual) {
 					return { kind: 'complete', recordsProcessed: 0 };
 				}
 				await this.maybeRenewToken();
@@ -690,9 +729,15 @@ export class MirrorService {
 					fence: ctx.fence,
 					budget: ctx.budget,
 				});
+				// Preserve manualResyncRequested across 'partial' pages so a paused
+				// manual resync finishes every page before clearing the flag (#555).
+				if (!pass.hasMore) {
+					rt.manualResyncRequested = false;
+				}
 				return {
 					kind: pass.hasMore ? 'partial' : 'complete',
 					recordsProcessed: pass.processed,
+					bytesProcessed: pass.bytesProcessed,
 				};
 			},
 			reconcileScopeMembership: async (ctx: SyncStepContext): Promise<StepOutcome> => {
@@ -746,12 +791,24 @@ export class MirrorService {
 	}
 
 	private reschedulePollTimer(): void {
+		if (!this.running) {
+			if (this.pollTimer) clearInterval(this.pollTimer);
+			this.pollTimer = null;
+			this.activePollIntervalMs = null;
+			return;
+		}
+		const nextIntervalMs = this.currentPollIntervalMs();
+		// Keep existing timer running when effective interval did not change so
+		// repeated space switches / WS flaps never reset and starve uncovered spaces (#555).
+		if (this.pollTimer !== null && this.activePollIntervalMs === nextIntervalMs) {
+			return;
+		}
 		if (this.pollTimer) {
 			clearInterval(this.pollTimer);
 			this.pollTimer = null;
 		}
-		if (!this.running) return;
-		this.pollTimer = setInterval(() => void this.pollOnce(), this.currentPollIntervalMs());
+		this.activePollIntervalMs = nextIntervalMs;
+		this.pollTimer = setInterval(() => void this.pollOnce(), nextIntervalMs);
 	}
 
 	private startPollLoop(): void {
@@ -789,15 +846,16 @@ export class MirrorService {
 			fence?: { assertCommitAllowed(): void };
 			budget?: { maxRecords: number; maxBytes: number; deadlineMonoMs: number };
 		},
-	): Promise<{ processed: number; hasMore: boolean }> {
+	): Promise<{ processed: number; bytesProcessed: number; hasMore: boolean }> {
 		if (!this.token) {
 			rt.state = 'auth-expired';
 			this.notify();
-			return { processed: 0, hasMore: false };
+			return { processed: 0, bytesProcessed: 0, hasMore: false };
 		}
 		rt.state = 'syncing';
 		this.notify();
 		let processed = 0;
+		let bytesProcessed = 0;
 		let hasMore = false;
 		try {
 			exec?.fence?.assertCommitAllowed();
@@ -808,7 +866,12 @@ export class MirrorService {
 			for (const c of changesAfterScan) await rt.engine.onLocalChange(c);
 			await this.maybeSoftCheckout(rt, [...changesBeforeScan, ...changesAfterScan]);
 			const res = await rt.engine.syncOnce(exec);
-			processed = res.uploaded + res.downloaded;
+			processed = Math.max(
+				res.appliedChanges ?? 0,
+				res.uploaded + res.downloaded,
+				res.cursorAdvanced ? 1 : 0,
+			);
+			bytesProcessed = res.bytesProcessed ?? 0;
 			hasMore = Boolean(res.hasMore);
 			exec?.fence?.assertCommitAllowed();
 			await this.applyLockChmods(rt);
@@ -816,7 +879,14 @@ export class MirrorService {
 			rt.lastSyncMs = Date.now();
 		} catch (err) {
 			if (err instanceof Error && (err.name === 'SyncFenceAbortedError' || err.name === 'AbortError')) {
-				return { processed, hasMore: false };
+				return { processed, bytesProcessed, hasMore: false };
+			}
+			// If the Drive SQLite store was wiped mid-session (`db.wipe('drive')`),
+			// re-open and re-apply schema idempotently so sync recovers cleanly
+			// without restarting Electron (#555).
+			const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+			if (msg.includes('no such table') || msg.includes('not open')) {
+				await this.ensureReady(true);
 			}
 			if (err instanceof DriveApiError && err.status === 401) {
 				rt.state = 'auth-expired';
@@ -826,7 +896,7 @@ export class MirrorService {
 			}
 		}
 		this.notify();
-		return { processed, hasMore };
+		return { processed, bytesProcessed, hasMore };
 	}
 
 	/** LR-6: the poll cycle learns hard locks from the live per-space lock list

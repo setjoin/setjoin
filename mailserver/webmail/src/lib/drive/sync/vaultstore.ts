@@ -48,6 +48,13 @@ const APP = 'drive';
  *  `drive.sync.tlsUntrusted` hint instead of a generic sync-failure message. */
 export class DriveTlsError extends Error {}
 
+/**
+ * Per-OfflineDbBridge transaction mutex (#555): serializes `BEGIN ... COMMIT`
+ * across VaultStore instances sharing the single `'drive'` SQLite connection so
+ * concurrent puts/purges never trigger overlapping `BEGIN` errors.
+ */
+const vaultTxTailByDb = new WeakMap<OfflineDbBridge, Promise<void>>();
+
 export class VaultStore implements ContentStore {
 	private opened = false;
 	private openPromise: Promise<void> | null = null;
@@ -61,6 +68,29 @@ export class VaultStore implements ContentStore {
 		 *  from the server's `quota_bytes` (two separate knobs, spec §0.1-2). */
 		private quotaMb: () => number | null,
 	) {}
+
+	private async withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+		const prior = vaultTxTailByDb.get(this.db) ?? Promise.resolve();
+		let release!: () => void;
+		const next = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		vaultTxTailByDb.set(this.db, next);
+		await prior;
+		try {
+			await this.db.exec(APP, 'BEGIN', []);
+			try {
+				const out = await fn();
+				await this.db.exec(APP, 'COMMIT', []);
+				return out;
+			} catch (err) {
+				await this.db.exec(APP, 'ROLLBACK', []).catch(() => {});
+				throw err;
+			}
+		} finally {
+			release();
+		}
+	}
 
 	async open(): Promise<void> {
 		if (this.opened) return;
@@ -170,8 +200,7 @@ export class VaultStore implements ContentStore {
 		for (const c of plan.chunks) {
 			if (!(await this.hasChunk(c.sha256))) await this.fetchChunk(c, this.nativeChunkUrl(c.sha256), bearer);
 		}
-		await this.db.exec(APP, 'BEGIN', []);
-		try {
+		await this.withTransaction(async () => {
 			await this.db.exec(
 				APP,
 				`INSERT OR REPLACE INTO dc_manifests (node_id, manifest_json, pinned, updated_at)
@@ -191,11 +220,7 @@ export class VaultStore implements ContentStore {
 					[nodeId,c.sha256],
 				);
 			}
-			await this.db.exec(APP, 'COMMIT', []);
-		} catch (err) {
-			await this.db.exec(APP, 'ROLLBACK', []).catch(() => {});
-			throw err;
-		}
+		});
 	}
 
 	/** Pin = durable offline availability: marks every chunk of `nodeId`'s
@@ -253,8 +278,7 @@ export class VaultStore implements ContentStore {
 			// the authoritative manifest.  Native chunk deletion happens after the
 			// commit and is idempotent; a crash therefore resumes from this queue
 			// instead of forgetting which unreferenced chunks must be erased.
-			await this.db.exec(APP, 'BEGIN', []);
-			try {
+			await this.withTransaction(async () => {
 				await this.db.exec(
 					APP,
 					`INSERT OR REPLACE INTO dc_purge_queue (node_id,manifest_json,updated_at)
@@ -264,11 +288,7 @@ export class VaultStore implements ContentStore {
 				await this.db.exec(APP, 'DELETE FROM dc_manifests WHERE node_id = ?', [nodeId]);
 				await this.db.exec(APP, 'DELETE FROM dc_manifest_spaces WHERE node_id = ?', [nodeId]);
 				await this.db.exec(APP, 'DELETE FROM dc_manifest_chunks WHERE node_id = ?', [nodeId]);
-				await this.db.exec(APP, 'COMMIT', []);
-			} catch (err) {
-				await this.db.exec(APP, 'ROLLBACK', []).catch(() => {});
-				throw err;
-			}
+			});
 		} else {
 			manifest = await this.queuedPurgeManifest(nodeId);
 		}

@@ -817,6 +817,32 @@ describe('Webmail SyncCoordinator integration (#555)', () => {
 		pollSpy.mockRestore();
 	});
 
+	it('purges cached poll tallies on revokeChannelScope even after replaceChannelSnapshot drops the poll message (Delta #6)', async () => {
+		const chatApi = await import('$lib/chat/api');
+		const store = new ChatStore();
+		const pollSpy = vi.spyOn(chatApi, 'pollResults').mockResolvedValue({
+			pollId: 902,
+			question: 'Lunch?',
+			multi: false,
+			closesAt: null,
+			closed: false,
+			options: [],
+		});
+
+		store.messagesByChannel = {
+			88: [{ ...makeChatMsg(6, 6, 'poll-msg', { pollId: 902 }), channelId: 88, status: 'sent' }],
+		};
+		await store.loadPollResults(902);
+		expect(store.pollResultsByPollId[902]).toBeDefined();
+
+		// Earlier non-additive snapshot replacement drops the poll message from the timeline.
+		store.replaceChannelSnapshot(88, [makeChatMsg(7, 7, 'newer-msg')]);
+		// Revoking channel 88 MUST STILL purge pollResultsByPollId[902] via persistent ownership map!
+		store.revokeChannelScope(88);
+		expect(store.pollResultsByPollId[902]).toBeUndefined();
+		pollSpy.mockRestore();
+	});
+
 	it('real installWipeHandler honors appKey, enforces fail-closed deviceId targeting, and works after logout -> re-login (Finding #10)', async () => {
 		const { installWipeHandler } = await import('$lib/offline/wipe');
 		const { __handleRawMessage, disconnect } = await import('$lib/jmap/websocket');
