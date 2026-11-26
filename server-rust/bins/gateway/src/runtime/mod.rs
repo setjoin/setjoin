@@ -186,6 +186,12 @@ pub async fn run_with_options(
         return Err("at least one subsystem must be enabled".into());
     }
     options.activated.validate_for_subsystems(subsystems)?;
+    if let Some(warning) = crate::acme::deprecation_warning(
+        &|name| std::env::var(name).ok(),
+        options.activated.acme.is_some(),
+    ) {
+        eprintln!("setjoin-gateway: {warning}");
+    }
     if !options.allow_route_inventory_env
         && std::env::var("GATEWAY_ROUTE_INVENTORY")
             .ok()

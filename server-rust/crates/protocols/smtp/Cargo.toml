@@ -33,6 +33,7 @@ chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 ring = "=0.17.14"
 setjoin-pg = { path = "../../pg" }
 setjoin-threat = { path = "../../threat" }
+setjoin-tls = { path = "../../tls", default-features = false }
 setjoin-authz = { path = "../../authz" }
 smtp-proto = "=0.2.5"
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
@@ -45,6 +46,7 @@ serde_json = "=1.0.145"
 oracle-mutants = []
 
 [dev-dependencies]
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
 http-body-util = "=0.1.5"
 hyper = { version = "=1.12.0", features = ["http1", "server"] }
 hyper-util = { version = "=0.1.21", features = ["tokio"] }

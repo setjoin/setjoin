@@ -492,6 +492,9 @@ render_gateway_deployment() (
         rm -f "$tmp"
     done
     configure_tls_front "$CONFIG_ENV" || return 1
+    if [ -n "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_DOMAINS)" ]; then
+        echo "   ! DEPRECATION WARNING: TLS_AUTOCERT_DOMAINS (built-in ACME) is deprecated in Release N and will be removed in Release N+1 (#560); migrate to an edge TLS/ACME proxy + mailserver/deploy/scripts/export-edge-pem.sh (see docs/guides/EDGE_TLS_ACME_MIGRATION.md)." >&2
+    fi
     configure_imap_front "$CONFIG_ENV" || return 1
     configure_smtp_front "$CONFIG_ENV" || return 1
     _tls_cache=$(tls_import_cache_dir "$CONFIG_ENV")
@@ -561,6 +564,9 @@ render_setjoind_deployment() (
         FEDERATION_ENABLED=true
     fi
     configure_tls_front "$CONFIG_ENV" || return 1
+    if [ -n "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_DOMAINS)" ]; then
+        echo "   ! DEPRECATION WARNING: TLS_AUTOCERT_DOMAINS (built-in ACME) is deprecated in Release N and will be removed in Release N+1 (#560); migrate to an edge TLS/ACME proxy + mailserver/deploy/scripts/export-edge-pem.sh (see docs/guides/EDGE_TLS_ACME_MIGRATION.md)." >&2
+    fi
     configure_imap_front "$CONFIG_ENV" || return 1
     configure_smtp_front "$CONFIG_ENV" || return 1
     _tls_cache=$(tls_import_cache_dir "$CONFIG_ENV")

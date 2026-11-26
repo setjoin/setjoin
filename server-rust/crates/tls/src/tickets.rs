@@ -38,7 +38,7 @@ impl Tickets {
         let keys = self.keys.read().ok()?;
         // Go reserves hash[0..16] for its old public key name; these bytes
         // must never become encryption or authentication key material.
-        let expanded = Zeroizing::new(<[u8; 64]>::from(Sha512::digest(&*keys[0])));
+        let expanded = Zeroizing::new(<[u8; 64]>::from(Sha512::digest(keys[0].as_slice())));
         let mut iv = [0; 16];
         SystemRandom::new().fill(&mut iv).ok()?;
         let mut out = iv.to_vec();
@@ -57,7 +57,7 @@ impl Tickets {
         let split = ciphertext.len() - 32;
         let (authenticated, tag) = ciphertext.split_at(split);
         for key in self.keys.read().ok()?.iter() {
-            let expanded = Zeroizing::new(<[u8; 64]>::from(Sha512::digest(&**key)));
+            let expanded = Zeroizing::new(<[u8; 64]>::from(Sha512::digest(key.as_slice())));
             if hmac::verify(
                 &hmac::Key::new(hmac::HMAC_SHA256, &expanded[32..48]),
                 authenticated,

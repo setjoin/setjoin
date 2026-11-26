@@ -943,8 +943,9 @@ else
     -addext "basicConstraints=critical,CA:FALSE" 2>/dev/null
   chmod 600 "$TLS_KEY"
 fi
-info "For a PUBLICLY-TRUSTED cert: enable ACME (set TLS_AUTOCERT_DOMAINS=$HOSTNAME and"
-info "open :80 for the HTTP-01 challenge), or drop a real cert at $TLS_CERT / $TLS_KEY."
+info "For a PUBLICLY-TRUSTED cert: terminate TLS/ACME at an edge proxy (Caddy or certbot)"
+info "and export PEM files via mailserver/deploy/scripts/export-edge-pem.sh into /etc/mail/tls"
+info "(see docs/guides/EDGE_TLS_ACME_MIGRATION.md), or drop a real cert at $TLS_CERT / $TLS_KEY."
 
 # Self-signed trust for ON-BOX sidecars (Meet B1/B2): livekit-server delivers
 # every webhook to https://$HOSTNAME/api/meet/webhook and verifies the cert

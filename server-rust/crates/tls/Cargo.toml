@@ -5,17 +5,21 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+default = ["acme"]
+acme = ["dep:setjoin-acme"]
+
 [dependencies]
 aes = { version = "=0.8.4", features = ["zeroize"] }
 ctr = "=0.9.2"
 sha2 = "=0.10.9"
 ring = "=0.17.14"
 zeroize = "=1.9.1"
-setjoin-acme = { path = "../acme" }
+setjoin-acme = { path = "../acme", optional = true }
 # The session-state bridge is qualified against this exact rustls encoding.
 rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
-tokio = { version = "=1.54.1", features = ["net", "time"] }
+tokio = { version = "=1.54.1", features = ["io-util", "net", "time"] }
 
 [dev-dependencies]
 rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }

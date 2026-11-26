@@ -1,5 +1,13 @@
 # ACME DNS-01 Challenge -- Configuration Reference
 
+> **DEPRECATED (Release N / #559):** Built-in ACME (`setjoin-acme`, including
+> DNS-01, HTTP-01, and TLS-ALPN-01) is **deprecated in Release N** and will be
+> **removed in Release N+1 (#560)**. Migrate to an edge TLS/ACME terminator
+> (Caddy or certbot) exporting PEM files to `TLS_CERT` / `TLS_KEY` via
+> `mailserver/deploy/scripts/export-edge-pem.sh` (hot-reloaded automatically by
+> all Setjoin listeners with zero restarts). See
+> `docs/guides/EDGE_TLS_ACME_MIGRATION.md`.
+
 SetJoin supports three ACME challenge types for automatic TLS certificate issuance.
 
 | Challenge | Config Value | Requirements |

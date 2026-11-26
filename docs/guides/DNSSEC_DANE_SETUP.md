@@ -18,16 +18,22 @@ Choose ONE path:
 ### Path A: Static Certificate + Long-Lived Key (recommended for on-premise)
 
 ```
-TLS_CERT=/etc/mail/fullchain.pem
-TLS_KEY=/etc/mail/privkey.pem
+TLS_CERT=/etc/mail/tls/server.pem
+TLS_KEY=/etc/mail/tls/server-key.pem
 ```
 
-- Generate a strong ECDSA P-256 or RSA-2048 keypair once
-- Use the same keypair for all certificate renewals (CSR reuse)
+- Generate a strong ECDSA P-256 or RSA-2048 keypair once (or manage via certbot `--reuse-key` / Caddy with `mailserver/deploy/scripts/export-edge-pem.sh`)
+- Use the same keypair for all certificate renewals (CSR reuse); all Setjoin listeners hot-reload the PEM pair automatically without restarting
+- `export-edge-pem.sh` enforces `DANE_ENFORCE_KEY_PIN=1` by default and refuses accidental SPKI changes unless `--allow-key-rotation` is explicitly passed after double-TLSA pre-publication
 - SPKI hash never changes → TLSA DANE-EE (3 1 1) is publish-once, valid forever
-- Certificate renews annually, same key, same hash. Zero maintenance.
+- Certificate renews automatically, same key, same hash. Zero maintenance. See `docs/guides/EDGE_TLS_ACME_MIGRATION.md`.
 
-### Path B: DANE-TA (2 1 1) — Pin the CA (for autocert / Let's Encrypt)
+### Path B: DANE-TA (2 1 1) — Pin the CA (legacy autocert / Let's Encrypt)
+
+> **Deprecated in Release N (#559):** Built-in ACME/autocert is deprecated and
+> scheduled for removal in Release N+1 (#560). Prefer Path A with certbot
+> `--reuse-key` or Caddy + `export-edge-pem.sh` (see
+> `docs/guides/EDGE_TLS_ACME_MIGRATION.md`).
 
 Go's autocert generates new keypairs on each renewal. Since Go 1.26's autocert
 Manager has no KeyGenerator field, you cannot force key reuse.

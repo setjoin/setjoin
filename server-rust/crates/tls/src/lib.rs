@@ -1,11 +1,15 @@
-//! Serving-only TLS plumbing for the Go-free front door (#413).
+//! Serving-only TLS plumbing for the Go-free front door (#413) and pure-rustls
+//! hot-reloading PEM resolver (#559).
 mod certificates;
 mod policy;
+mod reloading_pem;
 #[doc(hidden)]
 pub mod state;
 pub use policy::aes_gcm_hardware;
+pub use reloading_pem::{ReloadingPem, DEFAULT_CHECK_INTERVAL, DEFAULT_FAILURE_COOLDOWN};
 #[doc(hidden)]
 pub mod tickets;
+#[cfg(feature = "acme")]
 use rustls::pki_types::pem::PemObject;
 use std::{io, sync::Arc};
 use tokio::net::TcpStream;
@@ -19,6 +23,7 @@ pub struct Frontend {
     config: Arc<rustls::ServerConfig>,
     chacha: Arc<rustls::ServerConfig>,
     aes_gcm: bool,
+    #[cfg(feature = "acme")]
     alpn: setjoin_acme::TlsAlpnStore,
     certificates: Arc<certificates::Certificates>,
     tickets: Arc<tickets::Tickets>,
@@ -78,6 +83,7 @@ impl Frontend {
         let config = build(false)?;
         let chacha = build(true)?;
         Ok(Some(Arc::new(Self {
+            #[cfg(feature = "acme")]
             alpn: setjoin_acme::TlsAlpnStore::default(),
             tickets,
             certificates,
@@ -111,6 +117,7 @@ impl Frontend {
     }
 
     /// Shared only with the renewal worker; normal handshakes never issue or publish.
+    #[cfg(feature = "acme")]
     pub fn tls_alpn_store(&self) -> setjoin_acme::TlsAlpnStore {
         self.alpn.clone()
     }
@@ -123,39 +130,42 @@ impl Frontend {
             let mut hello =
                 tokio_rustls::LazyConfigAcceptor::new(rustls::server::Acceptor::default(), stream)
                     .await?;
-            let client = hello.client_hello();
-            if client
-                .alpn()
-                .is_some_and(|mut p| p.any(|p| p == b"acme-tls/1"))
+            #[cfg(feature = "acme")]
             {
-                if let Some(blob) = self.alpn.get(client.server_name().unwrap_or_default()) {
-                    // The worker generated this pair together. WebPKI's application
-                    // certificate parser deliberately rejects RFC 8737's unknown critical
-                    // extension, so do not run its ordinary-certificate validation here.
-                    use rustls::{
-                        pki_types::{CertificateDer, PrivateKeyDer},
-                        sign::{CertifiedKey, SingleCertAndKey},
-                    };
-                    let provider = rustls::crypto::ring::default_provider();
-                    let certs = CertificateDer::pem_slice_iter(&blob)
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(io::Error::other)?;
-                    let key = provider
-                        .key_provider
-                        .load_private_key(
-                            PrivateKeyDer::from_pem_slice(&blob).map_err(io::Error::other)?,
-                        )
-                        .map_err(io::Error::other)?;
-                    let pair = CertifiedKey::new(certs, key);
-                    let mut challenge =
-                        rustls::ServerConfig::builder_with_provider(Arc::new(provider))
-                            .with_safe_default_protocol_versions()
-                            .map_err(io::Error::other)?
-                            .with_no_client_auth()
-                            .with_cert_resolver(Arc::new(SingleCertAndKey::from(pair)));
-                    challenge.alpn_protocols = vec![b"acme-tls/1".to_vec()];
-                    challenge.send_tls13_tickets = 0;
-                    return hello.into_stream(Arc::new(challenge)).await;
+                let client = hello.client_hello();
+                if client
+                    .alpn()
+                    .is_some_and(|mut p| p.any(|p| p == b"acme-tls/1"))
+                {
+                    if let Some(blob) = self.alpn.get(client.server_name().unwrap_or_default()) {
+                        // The worker generated this pair together. WebPKI's application
+                        // certificate parser deliberately rejects RFC 8737's unknown critical
+                        // extension, so do not run its ordinary-certificate validation here.
+                        use rustls::{
+                            pki_types::{CertificateDer, PrivateKeyDer},
+                            sign::{CertifiedKey, SingleCertAndKey},
+                        };
+                        let provider = rustls::crypto::ring::default_provider();
+                        let certs = CertificateDer::pem_slice_iter(&blob)
+                            .collect::<Result<Vec<_>, _>>()
+                            .map_err(io::Error::other)?;
+                        let key = provider
+                            .key_provider
+                            .load_private_key(
+                                PrivateKeyDer::from_pem_slice(&blob).map_err(io::Error::other)?,
+                            )
+                            .map_err(io::Error::other)?;
+                        let pair = CertifiedKey::new(certs, key);
+                        let mut challenge =
+                            rustls::ServerConfig::builder_with_provider(Arc::new(provider))
+                                .with_safe_default_protocol_versions()
+                                .map_err(io::Error::other)?
+                                .with_no_client_auth()
+                                .with_cert_resolver(Arc::new(SingleCertAndKey::from(pair)));
+                        challenge.alpn_protocols = vec![b"acme-tls/1".to_vec()];
+                        challenge.send_tls13_tickets = 0;
+                        return hello.into_stream(Arc::new(challenge)).await;
+                    }
                 }
             }
             let client = hello.client_hello();

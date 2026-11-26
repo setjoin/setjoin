@@ -230,8 +230,8 @@ HTTPS/cache, feature reload, recordings and preserved Go defects.
 
 ## Submission and the listener swap (#501)
 
-`submission.rs` ports Go's MSA: STARTTLS (files re-read per upgrade; AUTH is
-advertised only on an active TLS session), AUTH PLAIN/LOGIN, the shared threat gate
+`submission.rs` ports Go's MSA: STARTTLS (backed by `setjoin_tls::ReloadingPem` hot-reload
+with last-known-good fallback; AUTH is advertised only on an active TLS session), AUTH PLAIN/LOGIN, the shared threat gate
 (`setjoin-threat`, protocol `smtp`), the two `rate_limit_check` counters, app password then
 bcrypt/SM3, conditional-access post-auth, per-user slots, the revocation registry
 (moved to `setjoin-threat`, shared with IMAP), envelope-from ownership, and
@@ -243,8 +243,9 @@ replies and DB effects, including the real Rust threat gate over feed/IP/lockout
 policy/device cases. `reducer_reply::submission` keeps Go's split: a recognized class
 keeps its reply, an unmapped error is `554 5.3.0 Failed to send message`.
 
-Inbound `Server` gained `with_tls_files` (Go cipher/curve policy, files re-read per
-handshake) and `with_flags` (greylisting, SPF/DKIM/DMARC/ARC and the delivery GUCs follow
+Inbound `Server` gained `with_tls_files` (Go cipher/curve policy, backed by
+`setjoin_tls::ReloadingPem` for non-blocking PEM hot-reload with last-known-good
+fallback, #559) and `with_flags` (greylisting, SPF/DKIM/DMARC/ARC and the delivery GUCs follow
 live `feature_toggles` per session). Plain :25 has no STARTTLS, as in Go.
 
 Gateway activation, GO_LISTENERS_OFF names (`smtp` covers :25 and the implicit-TLS

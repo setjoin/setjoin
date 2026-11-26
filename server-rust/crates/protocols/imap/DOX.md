@@ -188,8 +188,9 @@ Whole-listener swap in the gateway (`bins/gateway/src/imap_runtime.rs`,
 `imaps` for 993 implicit TLS; the HTTP descriptor keeps working unnamed or under its unit
 name) and Go's listeners are switched off with `GO_LISTENERS_OFF=imap` (Go: `listenerEnabled`
 in `mailserver/cmd/mailserverd`). Production TLS is `src/tls.rs` (`production_tls`): TLS 1.2 floor,
-Go's four ECDHE-GCM suites and X25519/P-256 on top of rustls/ring; implicit TLS loads the pair at start,
-STARTTLS reloads it for every upgrade like Go. Limits: `IMAP_MAX_CONNS` (500) and
+Go's four ECDHE-GCM suites and X25519/P-256 on top of rustls/ring; both implicit IMAPS and
+STARTTLS are backed by `setjoin_tls::ReloadingPem` (#559) so atomic PEM rotations take effect
+on new handshakes without restarting while corrupt writes retain the last-known-good certificate. Limits: `IMAP_MAX_CONNS` (500) and
 `IMAP_PER_USER_MAX_CONNS` (10) per listener, as `imap.max_conns`/`imap.per_user_max_conns`.
 Activation refuses to start the gateway when Go's copy is not off, when the threat gate is `Unwired`,
 when `imaps` has no certificate, or when a non-loopback plain socket has none.

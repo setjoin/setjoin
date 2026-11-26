@@ -10,9 +10,21 @@ The complete TLS handshake (ClientHello plus negotiation) is bounded to 30 secon
 
 Certificate selection mirrors frozen `mailserverd`: managed hashed cache (exact configured
 SNI or one-label wildcard, currently unexpired) → autocert literal `name` / `name-rsa`
-cache (exact whitelist, hostname match, unexpired) → startup-loaded static pair. Managed
-blobs are reread at selection, so atomic ACME cache replacements affect new handshakes.
-Serving never registers an account, issues a certificate, or writes a cache entry.
+cache (exact whitelist, hostname match, unexpired) → hot-reloading static pair (`ReloadingPem`). Managed
+blobs and static PEM pairs are reloaded automatically without restarts, so atomic edge-proxy or
+ACME replacements affect new handshakes and `CertMonitor` (`served_chain()`) immediately after
+the debounce window. Serving never registers an account, issues a certificate, or writes a cache entry.
+
+`ReloadingPem` (#559, `src/reloading_pem.rs`) is pure `rustls` (ring) and available with
+`default-features = false` (zero `setjoin-acme` or `openssl` dependency edges), powering direct
+HTTPS, standalone auth, IMAPS/IMAP STARTTLS, SMTPS/Submission STARTTLS, LDAPS, and Federation
+mTLS. It validates regular files (`metadata.is_file()`), caps reads at `1 MiB`
+(`Read::take((1 << 20) + 1)`), watches subsecond metadata signatures via `std::fs::metadata()`
+(following symlinks), separates disk I/O from the `RwLock<State>` via a `try_lock()` reload
+mutex so concurrent handshakes never block, debounces stat checks (`1s` default), throttles
+repeated failures on the same `(cert_sig, key_sig)` (`3s` default) while recovering immediately
+on any new file signature, and retains the last-known-good `CertifiedKey` on corrupt/transient
+writes. `setjoin-acme` is gated behind the `acme` feature (default ON for Release N).
 
 Tests: `cargo test --locked -p setjoin-tls --test listener -- --test-threads=1` checks the
 external TLS socket: both ALPNs, exact served certificate, SNI fallback, live replacement,

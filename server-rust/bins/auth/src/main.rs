@@ -37,18 +37,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
     let listener = tokio::net::TcpListener::bind(&config.listen).await?;
     let tls = match (&config.tls_cert, &config.tls_key) {
-        (Some(cert), Some(key)) => {
-            use tokio_rustls::rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
-            let certs = CertificateDer::pem_file_iter(cert)?.collect::<Result<Vec<_>, _>>()?;
-            let key = PrivateKeyDer::from_pem_file(key)?;
-            let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
-            let mut tls = tokio_rustls::rustls::ServerConfig::builder_with_provider(provider)
-                .with_safe_default_protocol_versions()?
-                .with_no_client_auth()
-                .with_single_cert(certs, key)?;
-            tls.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-            Some(tokio_rustls::TlsAcceptor::from(Arc::new(tls)))
-        }
+        (Some(cert), Some(key)) => Some(setjoin_auth::load_reloading_tls_config(cert, key)?),
         _ => None,
     };
     // The original auth address is bound before any shared task can start:

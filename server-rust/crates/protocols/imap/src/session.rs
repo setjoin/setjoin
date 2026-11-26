@@ -298,16 +298,6 @@ impl Session {
         if !self.flush().await {
             return false;
         }
-        // Go loads the pair after the OK; a failure leaves the plaintext socket
-        // open with nothing sent. Here the connection ends instead (the client is
-        // mid-handshake and cannot continue either way).
-        let tls = match &self.server.tls_files {
-            Some((cert, key)) => match crate::tls::server_config(cert, key) {
-                Ok(fresh) => fresh,
-                Err(_) => return false,
-            },
-            None => tls,
-        };
         self.conn.discard_buffered();
         let Io::Plain(socket) = std::mem::replace(&mut self.conn.io, Io::Upgrading) else {
             return false;

@@ -21,6 +21,56 @@ fn listed(list: Option<&str>, name: &str) -> bool {
         .any(|s| s.trim() == name)
 }
 
+/// Go `strconv.ParseBool` / Rust bool parity for `TLS_AUTOCERT_ROLLOUT`.
+fn is_truthy_rollout(value: &str) -> bool {
+    matches!(value.trim(), "1" | "t" | "T" | "TRUE" | "true" | "True")
+}
+
+/// Release N (#559) deprecation detector for built-in ACME (`setjoin-acme`).
+///
+/// Logs ONLY active trigger names (never secret values such as `TLS_DNS_CONFIG`)
+/// and points operators to `docs/guides/EDGE_TLS_ACME_MIGRATION.md` and Release
+/// N+1 (`#560`). Returns `None` when only static PEM files (`TLS_CERT`/`TLS_KEY`)
+/// or no built-in ACME configuration is present.
+pub fn deprecation_warning(
+    get: &dyn Fn(&str) -> Option<String>,
+    acme_socket_activated: bool,
+) -> Option<String> {
+    let mut triggers: Vec<&'static str> = Vec::new();
+    let non_empty = |key: &str| get(key).is_some_and(|v| !v.trim().is_empty());
+    if non_empty("TLS_AUTOCERT_DOMAINS") {
+        triggers.push("TLS_AUTOCERT_DOMAINS");
+    }
+    if listed(get("RUST_WORKERS_ON").as_deref(), RENEWAL) {
+        triggers.push("RUST_WORKERS_ON=acme-renewal");
+    }
+    if acme_socket_activated {
+        triggers.push("activated_socket:acme");
+    }
+    if non_empty("TLS_AUTOCERT_EMAIL") {
+        triggers.push("TLS_AUTOCERT_EMAIL");
+    }
+    if non_empty("TLS_AUTOCERT_KEY_FILE") {
+        triggers.push("TLS_AUTOCERT_KEY_FILE");
+    }
+    if non_empty("TLS_DNS_PROVIDER") {
+        triggers.push("TLS_DNS_PROVIDER");
+    }
+    if non_empty("TLS_DNS_CONFIG") {
+        triggers.push("TLS_DNS_CONFIG");
+    }
+    if get("TLS_AUTOCERT_ROLLOUT").is_some_and(|v| is_truthy_rollout(&v)) {
+        triggers.push("TLS_AUTOCERT_ROLLOUT");
+    }
+    if triggers.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "DEPRECATION WARNING: built-in ACME (setjoin-acme, triggers=[{}]) is deprecated in Release N and will be removed in Release N+1 (#560). Migrate to an edge TLS/ACME terminator (Caddy or certbot) exporting PEM files to TLS_CERT/TLS_KEY (hot-reloaded without restart); see docs/guides/EDGE_TLS_ACME_MIGRATION.md.",
+        triggers.join(",")
+    ))
+}
+
 /// Settings read from the environment exactly as frozen Go's koanf environment layer names them.
 pub struct Settings {
     pub config: Config,
@@ -245,5 +295,105 @@ mod listener_ownership_tests {
         assert!(guard(Some(RENEWAL), None, true, false, "http-01").is_ok());
         assert!(guard(Some(RENEWAL), None, false, true, "tls-alpn-01").is_ok());
         assert!(guard(Some(RENEWAL), None, false, false, "dns-01").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod deprecation_warning_tests {
+    use super::*;
+
+    #[test]
+    fn silent_when_only_static_pem_is_configured() {
+        let warning = deprecation_warning(
+            &|k| match k {
+                "TLS_CERT" => Some("/etc/mail/tls/server.pem".into()),
+                "TLS_KEY" => Some("/etc/mail/tls/server-key.pem".into()),
+                "RUST_WORKERS_ON" => Some("http-tls,cert-monitor,tls-ticket-keys".into()),
+                "TLS_AUTOCERT_ROLLOUT" => Some("false".into()),
+                _ => None,
+            },
+            false,
+        );
+        assert!(warning.is_none(), "static PEM must not warn: {warning:?}");
+    }
+
+    #[test]
+    fn each_trigger_emits_deprecation_naming_guide_and_release_n_plus_1() {
+        let cases: &[(&str, &str, bool, &str)] = &[
+            (
+                "TLS_AUTOCERT_DOMAINS",
+                "mail.example.test",
+                false,
+                "TLS_AUTOCERT_DOMAINS",
+            ),
+            (
+                "RUST_WORKERS_ON",
+                "http-tls,acme-renewal",
+                false,
+                "RUST_WORKERS_ON=acme-renewal",
+            ),
+            ("", "", true, "activated_socket:acme"),
+            (
+                "TLS_AUTOCERT_EMAIL",
+                "ops@example.test",
+                false,
+                "TLS_AUTOCERT_EMAIL",
+            ),
+            (
+                "TLS_AUTOCERT_KEY_FILE",
+                "/etc/mail/acme-account.key",
+                false,
+                "TLS_AUTOCERT_KEY_FILE",
+            ),
+            ("TLS_DNS_PROVIDER", "cloudflare", false, "TLS_DNS_PROVIDER"),
+            (
+                "TLS_DNS_CONFIG",
+                r#"{"CF_API_TOKEN":"sentinel-secret-999"}"#,
+                false,
+                "TLS_DNS_CONFIG",
+            ),
+        ];
+        for &(key, val, sock, expected_trigger) in cases {
+            let msg = deprecation_warning(
+                &|k| (!key.is_empty() && k == key).then(|| val.to_owned()),
+                sock,
+            )
+            .unwrap_or_else(|| panic!("expected warning for {expected_trigger}"));
+            assert!(
+                msg.contains(expected_trigger),
+                "missing trigger {expected_trigger} in: {msg}"
+            );
+            assert!(
+                msg.contains("docs/guides/EDGE_TLS_ACME_MIGRATION.md"),
+                "missing migration guide path in: {msg}"
+            );
+            assert!(msg.contains("#560"), "missing #560 reference in: {msg}");
+            assert!(
+                !msg.contains("sentinel-secret-999"),
+                "secret value leaked into deprecation warning: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn rollout_flag_matches_go_rust_bool_parity() {
+        for truthy in ["1", "t", "T", "TRUE", "true", "True", " TRUE "] {
+            let msg = deprecation_warning(
+                &|k| (k == "TLS_AUTOCERT_ROLLOUT").then(|| truthy.to_owned()),
+                false,
+            )
+            .unwrap_or_else(|| panic!("expected trigger for TLS_AUTOCERT_ROLLOUT={truthy:?}"));
+            assert!(msg.contains("TLS_AUTOCERT_ROLLOUT"), "{msg}");
+        }
+        for falsy in ["", "0", "f", "F", "false", "FALSE", "False", "no", "yes"] {
+            assert!(
+                deprecation_warning(
+                    &|k| (k == "TLS_AUTOCERT_ROLLOUT").then(|| falsy.to_owned()),
+                    false,
+                )
+                .is_none(),
+                "unexpected warning for TLS_AUTOCERT_ROLLOUT={falsy:?}"
+            );
+        }
     }
 }

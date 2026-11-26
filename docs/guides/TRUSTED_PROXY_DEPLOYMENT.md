@@ -117,9 +117,14 @@ actually appears in the logs.
 
 ## Example: Caddy (automatic HTTPS)
 
+See the official template at `mailserver/deploy/Caddyfile.template` (and
+`docs/guides/EDGE_TLS_ACME_MIGRATION.md` for exporting PEM files to
+`/etc/mail/tls` for IMAP/SMTP/LDAP/Federation hot-reload, or
+`mailserver/deploy/angie-guomi.conf.template` for GuoMi TLCP deployments):
+
 ```
 mail.example.com {
-    reverse_proxy 127.0.0.1:80
+    reverse_proxy 127.0.0.1:8090
 }
 ```
 

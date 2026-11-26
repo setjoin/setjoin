@@ -284,8 +284,6 @@ impl Rewrite<'_> {
                         .unwrap_or_default();
                     let (text, n) = if parent == "style" {
                         self.css(text)
-                    } else if raw_text(parent) {
-                        (text.to_string(), 0)
                     } else {
                         (text.to_string(), 0)
                     };

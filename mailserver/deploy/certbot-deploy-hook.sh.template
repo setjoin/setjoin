@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Setjoin Certbot Deploy Hook Template (#559)
+#
+# Render placeholders and install to e.g.
+#   /etc/letsencrypt/renewal-hooks/deploy/setjoin-export-pem.sh (chmod 0750 root:root)
+# or pass directly via:
+#   certbot certonly --reuse-key --deploy-hook /etc/setjoin/certbot-deploy-hook.sh ...
+#
+# Verifies $RENEWED_LINEAGE is non-empty and matches EXPECTED_LINEAGE so
+# renewing an unrelated certificate on a multi-domain host cannot clobber
+# Setjoin's certificate or trip DANE-EE key pinning.
+set -euo pipefail
+
+EXPECTED_LINEAGE="{{CERTBOT_LINEAGE}}"
+EXPORT_SCRIPT="{{INSTALL_DIR}}/deploy/scripts/export-edge-pem.sh"
+TLS_DIR="{{TLS_DIR}}"
+
+if [ -z "${RENEWED_LINEAGE:-}" ]; then
+  echo "setjoin-certbot-hook: RENEWED_LINEAGE is empty; refusing to export" >&2
+  exit 1
+fi
+
+if [ "$RENEWED_LINEAGE" != "$EXPECTED_LINEAGE" ]; then
+  echo "setjoin-certbot-hook: RENEWED_LINEAGE ($RENEWED_LINEAGE) does not match EXPECTED_LINEAGE ($EXPECTED_LINEAGE); refusing to export" >&2
+  exit 1
+fi
+
+exec "$EXPORT_SCRIPT" \
+  --cert "$RENEWED_LINEAGE/fullchain.pem" \
+  --key "$RENEWED_LINEAGE/privkey.pem" \
+  --dest-dir "$TLS_DIR"
