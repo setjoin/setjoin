@@ -349,7 +349,23 @@ BEGIN
         -- #553 (V295): journal retention pruners stay strictly worker-only.
         ('public.prune_changes_journal(integer,integer)'),
         ('public.prune_chat_changes(integer,integer)'),
-        ('public.prune_drive_changes(integer,integer)')
+        ('public.prune_drive_changes(integer,integer)'),
+        -- #557 (V298): content-addressed search extraction GC sweep, monotonic outbox/watermark helpers, and outbox trigger.
+        ('public.search_scheduled_action_doc_id(uuid)'),
+        ('public.search_extracted_text_gc_sweep(integer,integer)'),
+        ('public.search_outbox_enqueue(text,text,bigint,bigint,bigint,timestamptz,text,uuid)'),
+        ('public.search_outbox_claim_batch(text,bigint,integer)'),
+        ('public.search_outbox_mark_processed(bigint[])'),
+        ('public.search_watermark_advance(text,bigint,bigint,bigint,text)'),
+        ('public.search_index_outbox_trg_fn()'),
+        -- #558 (V299): HA single-writer search leader lease reducers, chat revision ID helper, and purge eviction trigger/helper.
+        ('public.search_chat_revision_doc_id(bigint)'),
+        ('public.search_leader_try_acquire(text,text,integer)'),
+        ('public.search_leader_heartbeat(text,bigint,bigint,bigint,integer)'),
+        ('public.search_leader_release(text,bigint)'),
+        ('public.search_leader_current()'),
+        ('public.search_purge_enqueue(text,bigint,bigint,timestamptz,bigint)'),
+        ('public.search_purge_evict_trg_fn()')
       ) AS exact_worker(signature)
      WHERE to_regprocedure(signature) IS NOT NULL
   LOOP
@@ -547,4 +563,75 @@ DO $$ BEGIN
     GRANT SELECT, INSERT ON public.chat_changes TO setjoin_app;
     GRANT SELECT, INSERT, UPDATE, DELETE ON public.chat_changes TO setjoin_worker;
   END IF;
+END $$;
+
+-- V297/V298/V299 (#556/#557/#558): two-tier search freshness staging, extraction cache,
+-- monotonic outbox, and HA leader lease tables are worker-only (ENABLE + FORCE RLS, zero
+-- policies, owned by setjoin_owner). Restated here so the blanket GRANT ON ALL TABLES above
+-- does not re-widen setjoin_app.
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[
+    'search_dirty_keys',
+    'search_index_watermarks',
+    'search_extracted_text',
+    'search_index_outbox',
+    'search_leader_leases'
+  ] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE public.%I OWNER TO setjoin_owner', t);
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC, setjoin_app, setjoin_worker', t);
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO setjoin_worker', t);
+    END IF;
+  END LOOP;
+  IF to_regclass('public.search_index_outbox_seq_seq') IS NOT NULL THEN
+    ALTER SEQUENCE public.search_index_outbox_seq_seq OWNER TO setjoin_owner;
+    REVOKE ALL ON SEQUENCE public.search_index_outbox_seq_seq FROM PUBLIC, setjoin_app, setjoin_worker;
+    GRANT USAGE, SELECT ON SEQUENCE public.search_index_outbox_seq_seq TO setjoin_worker;
+  END IF;
+  IF to_regprocedure('public.search_index_outbox_trg_fn()') IS NOT NULL
+     OR to_regprocedure('public.search_purge_evict_trg_fn()') IS NOT NULL THEN
+    DECLARE
+      v_had_create boolean := false;
+    BEGIN
+      SELECT has_schema_privilege('setjoin_worker', 'public', 'CREATE') INTO v_had_create;
+      IF NOT v_had_create THEN
+        GRANT CREATE ON SCHEMA public TO setjoin_worker;
+      END IF;
+      IF to_regprocedure('public.search_index_outbox_trg_fn()') IS NOT NULL THEN
+        ALTER FUNCTION public.search_index_outbox_trg_fn() OWNER TO setjoin_worker;
+        REVOKE ALL ON FUNCTION public.search_index_outbox_trg_fn() FROM PUBLIC, setjoin_app;
+        GRANT EXECUTE ON FUNCTION public.search_index_outbox_trg_fn() TO setjoin_worker;
+      END IF;
+      IF to_regprocedure('public.search_purge_evict_trg_fn()') IS NOT NULL THEN
+        ALTER FUNCTION public.search_purge_evict_trg_fn() OWNER TO setjoin_worker;
+        REVOKE ALL ON FUNCTION public.search_purge_evict_trg_fn() FROM PUBLIC, setjoin_app;
+        GRANT EXECUTE ON FUNCTION public.search_purge_evict_trg_fn() TO setjoin_worker;
+      END IF;
+      IF NOT v_had_create THEN
+        REVOKE CREATE ON SCHEMA public FROM setjoin_worker;
+      END IF;
+    END;
+  END IF;
+  DECLARE
+    v_fn text;
+  BEGIN
+    FOREACH v_fn IN ARRAY ARRAY[
+      'public.search_chat_revision_doc_id(bigint)',
+      'public.search_leader_try_acquire(text,text,integer)',
+      'public.search_leader_heartbeat(text,bigint,bigint,bigint,integer)',
+      'public.search_leader_release(text,bigint)',
+      'public.search_leader_current()',
+      'public.search_fenced_settle_batch(text,bigint,bigint[],text,bigint,bigint,bigint,text)',
+      'public.search_purge_enqueue(text,bigint,bigint,timestamptz,bigint)',
+      'public.search_ediscovery_complete_atomic(bigint,bigint,bigint[],bigint,jsonb)',
+      'public.search_ediscovery_complete_kql_atomic(bigint,bigint,text,text[],jsonb)'
+    ] LOOP
+      IF to_regprocedure(v_fn) IS NOT NULL THEN
+        EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, setjoin_app', v_fn);
+        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO setjoin_worker', v_fn);
+      END IF;
+    END LOOP;
+  END;
 END $$;

@@ -23,6 +23,7 @@ oracle-mutants = ["setjoin-mail-security/oracle-mutants", "setjoin-contracts/ora
 percent-encoding = "=2.3.2"
 humantime = "=2.3.0"
 setjoin-calendar-format = { path = "../../crates/calendar-format" }
+setjoin-search = { path = "../../crates/search" }
 setjoin-spam = { path = "../../crates/spam" }
 negotiate-auth = "=0.4.0"
 setjoin-threat = { path = "../../crates/threat" }

@@ -8,6 +8,7 @@
 
 pub mod legacy;
 pub mod schedule;
+pub mod search_worker;
 pub mod worm;
 
 use std::future::Future;

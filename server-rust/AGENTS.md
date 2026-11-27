@@ -28,10 +28,8 @@ Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go se
   - `crates/sql-catalog` (`setjoin-sql-catalog`, #541) — zero-proc-macro typed
     SQL contract catalog (`SqlContract`, `SqlScope`, `pg_rfc3339!`);
     [contract](crates/sql-catalog/DOX.md).
-  - `tests/conformance` — DB-backed parity and recorded-golden harness; [contract](DOX.md#conformance-harness-contract).
-  - `tests/sql-contracts` (`setjoin-sql-contracts`, `verify-sql-contracts`, #541) —
-    disposable-Postgres SQL contract verifier gated by `scripts/check-rust-sql-contracts.sh`
-    and `scripts/check-rust-sql-contracts-selftest.sh`; [contract](crates/sql-catalog/DOX.md).
+  - `tests/conformance` — DB-backed parity/golden harness; [contract](DOX.md#conformance-harness-contract).
+  - `tests/sql-contracts` (`setjoin-sql-contracts`, #541) — disposable-Postgres SQL verifier (`scripts/check-rust-sql-contracts*.sh`); [contract](crates/sql-catalog/DOX.md).
 - `pilot/` — separate pilot workspace; [contract](DOX.md#pilot-workspace-contract).
 - `tools/schema-simulation/` — separate tooling workspace; [contract](DOX.md#schema-simulation-workspace).
 
@@ -144,3 +142,4 @@ Shared Go UUID identifiers (#455): [contracts](crates/contracts/DOX.md#go-uuid-i
 - `crates/calendar-format` — shared Go calendar parser; [contract](crates/calendar-format/DOX.md).
 - `crates/workqueue` (#548/#549) — durable WorkQueue, `worker_schedules` leases, DLQ (`operator`), privileged `worker` (family-isolated). `bins/gateway/src/supervisor/` owns `WorkerSupervisor`, boot `BYPASSRLS`, WORM arming, drain-then-retire.
 - `SyncWakeupHub` (`bins/gateway/src/jmap/sync_hub.rs`, #552), `chat_changes` (`#553`), IMAP CONDSTORE/QRESYNC (`#554`): [gateway DOX](bins/gateway/DOX.md), [IMAP DOX](crates/protocols/imap/DOX.md).
+- `crates/search` (`setjoin-search`, #556/#557/#558) — foundation two-tier search, pure-MIT `tantivy` + extraction/indexing + PG re-auth/eDiscovery/purge compaction/HA RPC; [contract](crates/search/DOX.md).

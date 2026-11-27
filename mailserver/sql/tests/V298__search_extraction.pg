@@ -1,0 +1,258 @@
+-- pgTAP for V298 search extraction cache, indexing outbox, commit-order visibility,
+-- epoch-safe monotonic watermark, cross-plane GC sweep, gated write-capture triggers,
+-- and worker-only FORCE RLS denial (#557).
+BEGIN;
+SELECT plan(49);
+
+-- 1. Isolation posture on search_extracted_text & search_index_outbox
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.search_extracted_text'::regclass),
+  true, 'V298: search_extracted_text has RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.search_extracted_text'::regclass),
+  true, 'V298: search_extracted_text RLS is FORCEd');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'search_extracted_text'),
+  0, 'V298: search_extracted_text has zero policies (deny-all)');
+SELECT is(
+  (SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'search_extracted_text'),
+  'setjoin_owner', 'V298: search_extracted_text owned by setjoin_owner');
+
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.search_index_outbox'::regclass),
+  true, 'V298: search_index_outbox has RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.search_index_outbox'::regclass),
+  true, 'V298: search_index_outbox RLS is FORCEd');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'search_index_outbox'),
+  0, 'V298: search_index_outbox has zero policies (deny-all)');
+SELECT is(
+  (SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'search_index_outbox'),
+  'setjoin_owner', 'V298: search_index_outbox owned by setjoin_owner');
+
+-- Trigger function ownership & SECURITY DEFINER posture
+SELECT is(
+  (SELECT pg_get_userbyid(p.proowner) FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'search_index_outbox_trg_fn'),
+  'setjoin_worker', 'V298: search_index_outbox_trg_fn owned by setjoin_worker');
+SELECT is(
+  (SELECT p.prosecdef FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'search_index_outbox_trg_fn'),
+  true, 'V298: search_index_outbox_trg_fn is SECURITY DEFINER');
+
+-- 2. Privilege posture: setjoin_app has zero table/function privileges; setjoin_worker has DML/EXECUTE
+SELECT is(
+  has_table_privilege('setjoin_app', 'public.search_extracted_text', 'SELECT'),
+  false, 'V298: setjoin_app has NO SELECT privilege on search_extracted_text');
+SELECT is(
+  has_table_privilege('setjoin_app', 'public.search_index_outbox', 'SELECT'),
+  false, 'V298: setjoin_app has NO SELECT privilege on search_index_outbox');
+SELECT is(
+  has_table_privilege('setjoin_worker', 'public.search_extracted_text', 'INSERT'),
+  true, 'V298: setjoin_worker holds INSERT privilege on search_extracted_text');
+SELECT is(
+  has_table_privilege('setjoin_worker', 'public.search_index_outbox', 'INSERT'),
+  true, 'V298: setjoin_worker holds INSERT privilege on search_index_outbox');
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.search_extracted_text_gc_sweep(integer,integer)', 'EXECUTE'),
+  false, 'V298: setjoin_app has NO EXECUTE on search_extracted_text_gc_sweep');
+SELECT is(
+  has_function_privilege('setjoin_worker', 'public.search_extracted_text_gc_sweep(integer,integer)', 'EXECUTE'),
+  true, 'V298: setjoin_worker has EXECUTE on search_extracted_text_gc_sweep');
+
+-- Deterministic negative scheduled action compliance doc ID
+SELECT ok(
+  public.search_scheduled_action_doc_id('550e8400-e29b-41d4-a716-446655440000'::uuid) < 0,
+  'V298: search_scheduled_action_doc_id returns strictly negative bigint');
+SELECT is(
+  public.search_scheduled_action_doc_id('550e8400-e29b-41d4-a716-446655440000'::uuid),
+  public.search_scheduled_action_doc_id('550e8400-e29b-41d4-a716-446655440000'::uuid),
+  'V298: search_scheduled_action_doc_id is deterministic');
+
+-- 3. Gated write-capture trigger inertness while search_index_watermarks is empty
+DELETE FROM public.search_index_watermarks;
+DELETE FROM public.search_index_outbox;
+WITH dom AS (
+  INSERT INTO public.domains (name) VALUES ('v291-trg.test')
+  ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id
+), u AS (
+  INSERT INTO public.users (domain_id, email, username, password_hash, display_name)
+  SELECT id, 'v291_trg@v291-trg.test', 'v291_trg', 'hash', 'V298' FROM dom RETURNING id, domain_id
+), mb AS (
+  INSERT INTO public.mailboxes (user_id, domain_id, email, display_name, is_primary)
+  SELECT u.id, u.domain_id, 'v291_trg@v291-trg.test', 'V298', true FROM u RETURNING id, user_id
+), f AS (
+  INSERT INTO public.folders (mailbox_id, name, path, role)
+  SELECT mb.id, 'Inbox', 'Inbox', 'inbox' FROM mb RETURNING id, mailbox_id
+)
+INSERT INTO public.messages (mailbox_id, folder_id, message_id, subject, from_addr, body_text, thread_id, raw_ref)
+SELECT f.mailbox_id, f.id, '<v291-inert@test>', 'Inert', 'a@b', 'body', '<v291-inert@test>', 'inline:v291' FROM f;
+
+SELECT is(
+  (SELECT count(*)::int FROM public.search_index_outbox),
+  0, 'V298: write-capture trigger is inert while search_index_watermarks is empty');
+
+-- 4. Worker BYPASSRLS functional control: cache constraints, outbox ordering, epoch-safe watermark, cross-plane GC
+SET LOCAL ROLE setjoin_worker;
+
+-- Cache status constraint: encrypted row must have NULL extracted_text
+SELECT throws_ok(
+  $stmt$INSERT INTO public.search_extracted_text
+        (content_sha256, storage_plane, extraction_status, extracted_text)
+        VALUES (repeat('a', 64), 'blob', 'encrypted', 'secret')$stmt$,
+  '23514', NULL, 'V298: encrypted extraction status rejects non-NULL extracted_text');
+
+INSERT INTO public.search_extracted_text
+  (content_sha256, storage_plane, extraction_status, extracted_text, extracted_bytes, detected_mime, extracted_at)
+VALUES
+  (repeat('b', 64), 'blob', 'extracted', 'orphaned blob text', 18, 'text/plain', now() - interval '2 days'),
+  (repeat('c', 64), 'drive_file_version', 'extracted', 'orphaned drive text', 19, 'text/plain', now() - interval '2 days'),
+  (repeat('d', 64), 'blob', 'encrypted', NULL, 0, 'application/zip', now());
+
+SELECT is(
+  (SELECT count(*)::int FROM public.search_extracted_text WHERE content_sha256 IN (repeat('b', 64), repeat('c', 64), repeat('d', 64))),
+  3, 'V298: setjoin_worker writes and reads search_extracted_text');
+
+-- Outbox enqueue & exact sequence-ordered self-tx visibility claim
+SELECT ok(
+  public.search_outbox_enqueue('mail', 'upsert', 101, 5001, 0, now(), repeat('d', 64)) > 0,
+  'V298: search_outbox_enqueue inserts mail row');
+SELECT ok(
+  public.search_outbox_enqueue('mail', 'delete', 101, 5002, 0, now(), NULL) > 0,
+  'V298: search_outbox_enqueue inserts second mail row');
+SELECT is(
+  (SELECT array_agg(entity_id ORDER BY seq) FROM public.search_outbox_claim_batch('mail', 0, 10)),
+  ARRAY[5001::bigint, 5002::bigint],
+  'V298: search_outbox_claim_batch returns unprocessed rows in exact seq order');
+
+-- Mark first row processed -> claim with after_seq = 0 returns ONLY the remaining unprocessed row!
+SELECT is(
+  public.search_outbox_mark_processed(ARRAY[(SELECT min(seq) FROM public.search_index_outbox WHERE corpus = 'mail')]),
+  1, 'V298: search_outbox_mark_processed marks exact seq processed');
+SELECT is(
+  (SELECT array_agg(entity_id ORDER BY seq) FROM public.search_outbox_claim_batch('mail', 0, 10)),
+  ARRAY[5002::bigint],
+  'V298: search_outbox_claim_batch skips processed_at IS NOT NULL rows');
+
+-- Epoch-safe strictly monotonic watermark advancement
+SELECT is(
+  (SELECT indexed_outbox_seq FROM public.search_watermark_advance('mail', 2, 10, 50, 'hash-v2')),
+  50::bigint, 'V298: search_watermark_advance sets initial epoch=2 indexed_outbox_seq');
+SELECT is(
+  (SELECT indexed_outbox_seq FROM public.search_watermark_advance('mail', 2, 9, 25, 'hash-v2')),
+  50::bigint, 'V298: search_watermark_advance never regresses indexed_outbox_seq within equal epoch');
+SELECT is(
+  (SELECT generation FROM public.search_index_watermarks WHERE corpus = 'mail'),
+  10::bigint, 'V298: search_watermark_advance never regresses generation within equal epoch');
+-- Stale epoch (epoch=1 < stored epoch=2) MUST leave epoch, generation, seq, schema_hash untouched!
+SELECT is(
+  (SELECT epoch FROM public.search_watermark_advance('mail', 1, 999, 999, 'hash-stale')),
+  2::bigint, 'V298: stale epoch (< stored) does not overwrite epoch');
+SELECT is(
+  (SELECT generation FROM public.search_index_watermarks WHERE corpus = 'mail'),
+  10::bigint, 'V298: stale epoch (< stored) leaves generation untouched');
+SELECT is(
+  (SELECT indexed_outbox_seq FROM public.search_index_watermarks WHERE corpus = 'mail'),
+  50::bigint, 'V298: stale epoch (< stored) leaves indexed_outbox_seq untouched');
+SELECT is(
+  (SELECT schema_hash FROM public.search_index_watermarks WHERE corpus = 'mail'),
+  'hash-v2', 'V298: stale epoch (< stored) leaves schema_hash untouched');
+-- Newer epoch (epoch=3 > stored epoch=2) advances cleanly to the new epoch's cursor!
+SELECT is(
+  (SELECT indexed_outbox_seq FROM public.search_watermark_advance('mail', 3, 1, 12, 'hash-v3')),
+  12::bigint, 'V298: newer epoch (> stored) resets indexed_outbox_seq to new epoch cursor');
+SELECT is(
+  (SELECT schema_hash FROM public.search_index_watermarks WHERE corpus = 'mail'),
+  'hash-v3', 'V298: newer epoch (> stored) updates schema_hash');
+
+-- Active trigger capture once search_index_watermarks is populated
+INSERT INTO public.messages (mailbox_id, folder_id, message_id, subject, from_addr, body_text, thread_id, raw_ref)
+SELECT f.mailbox_id, f.id, '<v291-active@test>', 'Active', 'a@b', 'body', '<v291-active@test>', 'inline:v291-active'
+  FROM public.folders f
+  JOIN public.mailboxes mb ON mb.id = f.mailbox_id
+ WHERE mb.email = 'v291_trg@v291-trg.test'
+ LIMIT 1;
+
+SELECT is(
+  (SELECT count(*)::int FROM public.search_index_outbox WHERE corpus = 'mail' AND op = 'upsert' AND entity_id NOT IN (5001, 5002)),
+  1, 'V298: write-capture trigger appends outbox row once search_index_watermarks is seeded');
+SELECT ok(
+  EXISTS (SELECT 1 FROM public.work_items WHERE kind = 'search.index_batch' AND idempotency_key = 'search.index_batch:mail'),
+  'V298: write-capture trigger enqueues deduplicated search.index_batch work item');
+
+-- Cross-plane GC sweep + Drive 30-day recoverable admin trash (purged_at IS NOT NULL)
+WITH u AS (SELECT id FROM public.users WHERE email = 'v291_trg@v291-trg.test' LIMIT 1),
+     sp AS (
+       INSERT INTO public.drive_spaces (name, classification, owner_user_id)
+       SELECT 'v291-gc-space', 'regular', id FROM u RETURNING id
+     ),
+     dn AS (
+       INSERT INTO public.drive_nodes (space_id, kind, name, created_by, deleted_at, purged_at)
+       SELECT sp.id, 'file', 'trashed.txt', u.id, now() - interval '1 day', now()
+         FROM sp, u RETURNING id, space_id
+     ),
+     df AS (
+       INSERT INTO public.drive_files (node_id, space_id, size_bytes, content_type)
+       SELECT dn.id, dn.space_id, 12, 'text/plain' FROM dn RETURNING node_id, space_id
+     )
+INSERT INTO public.drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, content_type, author_user_id)
+SELECT df.node_id, df.space_id, repeat('f', 64), 12, 'text/plain', u.id FROM df, u;
+
+-- Insert aged cache row tagged storage_plane='blob' whose ONLY live root is drive_file_versions (on a purged_at admin-trash node)
+INSERT INTO public.search_extracted_text
+  (content_sha256, storage_plane, extraction_status, extracted_text, extracted_bytes, detected_mime, extracted_at)
+VALUES
+  (repeat('f', 64), 'blob', 'extracted', 'cross-plane drive trash text', 28, 'text/plain', now() - interval '2 days');
+
+-- GC sweep reclaims old unreferenced blob + drive rows ('b', 'c') while keeping grace-window ('d') AND cross-plane Drive trash ('f')!
+SELECT is(
+  public.search_extracted_text_gc_sweep(1440, 100),
+  2, 'V298: search_extracted_text_gc_sweep deletes 2 unreferenced aged cache rows');
+SELECT is(
+  (SELECT count(*)::int FROM public.search_extracted_text WHERE content_sha256 = repeat('d', 64)),
+  1, 'V298: search_extracted_text_gc_sweep preserves row within grace window');
+SELECT is(
+  (SELECT count(*)::int FROM public.search_extracted_text WHERE content_sha256 = repeat('f', 64)),
+  1, 'V298: cross-plane GC sweep preserves cache row referenced by drive_file_versions even under admin-trash purged_at');
+
+-- Hard-deleting drive_file_versions finally allows GC sweep to reclaim repeat('f', 64)!
+DELETE FROM public.drive_file_versions WHERE content_sha256 = repeat('f', 64);
+SELECT is(
+  public.search_extracted_text_gc_sweep(1440, 100),
+  1, 'V298: hard-deleting drive_file_versions lets GC sweep reclaim cache row');
+
+RESET ROLE;
+
+-- 5. App credential denial (42501 on direct table and function access under SET LOCAL ROLE setjoin_app)
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(
+  $stmt$SELECT count(*) FROM public.search_extracted_text$stmt$,
+  '42501', NULL, 'search_extracted_text denies all setjoin_app SELECT access (42501)');
+SELECT throws_ok(
+  $stmt$INSERT INTO public.search_extracted_text (content_sha256, storage_plane, extraction_status) VALUES (repeat('e', 64), 'blob', 'unsupported')$stmt$,
+  '42501', NULL, 'search_extracted_text denies all setjoin_app INSERT access (42501)');
+SELECT throws_ok(
+  $stmt$SELECT count(*) FROM public.search_index_outbox$stmt$,
+  '42501', NULL, 'search_index_outbox denies all setjoin_app SELECT access (42501)');
+SELECT throws_ok(
+  $stmt$INSERT INTO public.search_index_outbox (corpus, op, scope_id, entity_id) VALUES ('mail', 'upsert', 1, 2)$stmt$,
+  '42501', NULL, 'search_index_outbox denies all setjoin_app INSERT access (42501)');
+SELECT throws_ok(
+  $stmt$SELECT public.search_extracted_text_gc_sweep(0, 10)$stmt$,
+  '42501', NULL, 'V298: setjoin_app cannot execute search_extracted_text_gc_sweep');
+SELECT throws_ok(
+  $stmt$SELECT public.search_outbox_enqueue('mail', 'upsert', 1, 2)$stmt$,
+  '42501', NULL, 'V298: setjoin_app cannot execute search_outbox_enqueue');
+SELECT throws_ok(
+  $stmt$SELECT public.search_outbox_mark_processed(ARRAY[1::bigint])$stmt$,
+  '42501', NULL, 'V298: setjoin_app cannot execute search_outbox_mark_processed');
+SELECT is(
+  has_function_privilege('setjoin_worker', 'public.search_outbox_mark_processed(bigint[])', 'EXECUTE'),
+  true, 'V298: setjoin_worker has EXECUTE on search_outbox_mark_processed');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -35,6 +35,9 @@ Restart=always
 RestartSec=2
 # The gateway drains active HTTP for 30s on SIGTERM.
 TimeoutStopSec=40
+# When SETJOIN_SEARCH_TIER2_ENABLED=true, raise MemoryMax (e.g. >= 768M) to
+# accommodate cgroup-charged Tantivy MmapDirectory faulted pages, lazy CJK
+# dictionaries, and the 32 MB default (<= 50 MB capped) writer heap.
 MemoryMax=512M
 TasksMax=512
 LimitNOFILE=65536
@@ -44,6 +47,9 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 NoNewPrivileges=true
 ProtectSystem=strict
+StateDirectory=setjoin/search
+StateDirectoryMode=0700
+ReadWritePaths=-/var/lib/setjoin/search
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true

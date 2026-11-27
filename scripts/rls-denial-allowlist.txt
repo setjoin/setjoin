@@ -330,3 +330,14 @@ scope_revocations	COVERED	scope_revocations.pg	setjoin_app direct SELECT on scop
 # ── V295 chat_changes monotonic journal & sync_tombstone_floor (Wave 2.6, #553). ──
 chat_changes	COVERED	chat_changes_retention.pg	non-member sees zero chat_changes rows under FORCE RLS	V295: member-scoped chat_member_role FORCE RLS (SELECT+INSERT only, fail-closed on unset GUC); SET LOCAL ROLE setjoin_app proves non-member SELECT 0-count, foreign INSERT 42501, and UPDATE/DELETE denied.
 sync_tombstone_floor	COVERED	chat_changes_retention.pg	setjoin_app direct SELECT on sync_tombstone_floor is denied	V295: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/UPDATE fail with 42501 while sync_tombstone_floor_at() reads the scalar floor.
+
+# ── V297 Two-tier search freshness fencing tables (#556). ───────────────────
+search_dirty_keys	COVERED	V297__search_two_tier.pg	search_dirty_keys denies all setjoin_app SELECT access (42501)	V297 (#556): worker-only search freshness staging table with ENABLE+FORCE RLS, zero policies, and REVOKE ALL FROM PUBLIC/setjoin_app; SET LOCAL ROLE setjoin_app SELECT/INSERT raise 42501.
+search_index_watermarks	COVERED	V297__search_two_tier.pg	search_index_watermarks denies all setjoin_app SELECT access (42501)	V297 (#556): worker-only search index watermark fence with ENABLE+FORCE RLS, zero policies, and REVOKE ALL FROM PUBLIC/setjoin_app; SET LOCAL ROLE setjoin_app SELECT/INSERT raise 42501.
+
+# ── V298 Content-addressed search extraction cache & indexing outbox (#557). ─
+search_extracted_text	COVERED	V298__search_extraction.pg	search_extracted_text denies all setjoin_app SELECT access (42501)	V298 (#557): worker-only content-addressed extraction cache with ENABLE+FORCE RLS, zero policies, and REVOKE ALL FROM PUBLIC/setjoin_app; SET LOCAL ROLE setjoin_app SELECT/INSERT raise 42501.
+search_index_outbox	COVERED	V298__search_extraction.pg	search_index_outbox denies all setjoin_app SELECT access (42501)	V298 (#557): worker-only monotonic search indexing outbox with ENABLE+FORCE RLS, zero policies, and REVOKE ALL FROM PUBLIC/setjoin_app; SET LOCAL ROLE setjoin_app SELECT/INSERT raise 42501.
+
+# ── V299 HA single-writer search leader leases (#558). ──────────────────────
+search_leader_leases	COVERED	V299__search_ediscovery_purge_ha.pg	search_leader_leases denies all setjoin_app SELECT access (42501)	V299 (#558): worker-only HA single-writer search leader lease table with ENABLE+FORCE RLS, zero policies, and REVOKE ALL FROM PUBLIC/setjoin_app; SET LOCAL ROLE setjoin_app SELECT/INSERT raise 42501.

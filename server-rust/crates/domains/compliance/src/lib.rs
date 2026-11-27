@@ -384,6 +384,7 @@ pub async fn get_search(
     let count: Option<i32> = r.try_get(9).map_err(|_| invalid())?;
     let case: Option<i64> = r.try_get(10).map_err(|_| invalid())?;
     let created: String = r.try_get(11).map_err(|_| invalid())?;
+    let provenance: Option<String> = r.try_get(12).ok().flatten();
     let mut search = format!(
         "{{\"id\":{id},\"name\":{},\"keywords\":{}",
         quote(&name),
@@ -425,6 +426,9 @@ pub async fn get_search(
     search += &format!(",\"status\":{}", quote(&status));
     if let Some(count) = count {
         search += &format!(",\"resultCount\":{count}");
+    }
+    if let Some(prov) = provenance.as_deref().filter(|s| !s.is_empty()) {
+        search += &format!(",\"searchProvenance\":{prov}");
     }
     search += &format!(",\"createdAt\":{}}}", quote(&created));
     let mut results = Vec::new();

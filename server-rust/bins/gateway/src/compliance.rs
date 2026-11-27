@@ -339,7 +339,14 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 .await
                 {
                     CommandOutcome::Committed(search) => {
-                        jobs.launch(actor.user_id(), search);
+                        if let Err(err) = jobs.launch(actor.user_id(), search).await {
+                            return problem(
+                                500,
+                                &format!("failed to enqueue search: {err}"),
+                                &c,
+                                &id,
+                            );
+                        }
                         json_response(
                             202,
                             format!("{{\"id\":{search},\"status\":\"pending\"}}\n"),
@@ -782,19 +789,46 @@ fn empty(c: &RequestContext, id: String) -> Response<Body> {
 }
 
 /// Bounded process-local jobs; the routed request chooses the single writer.
+/// When Tier-2 search is enabled (`work_queue` attached), eDiscovery searches
+/// enqueue onto durable `WorkQueue` (`"search.ediscovery"`) for watermark-complete
+/// settlement by `SearchEdiscoveryConsumer` (#558).
 #[derive(Clone)]
 pub struct SearchJobs {
     database: setjoin_pg::workers::WorkerDatabase,
     slots: Arc<tokio::sync::Semaphore>,
+    tier2_work_queue: Option<setjoin_workqueue::WorkQueue>,
 }
 impl SearchJobs {
     pub fn new(database: setjoin_pg::workers::WorkerDatabase, maximum: usize) -> Self {
         Self {
             database,
             slots: Arc::new(tokio::sync::Semaphore::new(maximum.max(1))),
+            tier2_work_queue: None,
         }
     }
-    fn launch(&self, actor: i64, id: i64) {
+    pub fn with_tier2_work_queue(mut self, queue: setjoin_workqueue::WorkQueue) -> Self {
+        self.tier2_work_queue = Some(queue);
+        self
+    }
+    /// Synchronously enqueue `"search.ediscovery"` onto durable `WorkQueue` BEFORE
+    /// returning `202` when Tier-2 search is enabled (crash-safe admission); preserves
+    /// exact legacy Tier-1 process-local execution when Tier-2 is OFF.
+    async fn launch(&self, actor: i64, id: i64) -> Result<(), String> {
+        if let Some(ref queue) = self.tier2_work_queue {
+            let req = setjoin_workqueue::WorkRequest::new(
+                setjoin_search::WORK_KIND_SEARCH_EDISCOVERY,
+                serde_json::json!({
+                    "search_id": id,
+                    "actor_id": actor,
+                }),
+            )
+            .with_idempotency_key(format!("search.ediscovery:{id}"));
+            queue
+                .enqueue(&req)
+                .await
+                .map_err(|err| format!("workqueue enqueue failed for search {id}: {err}"))?;
+            return Ok(());
+        }
         let jobs = self.clone();
         tokio::spawn(async move {
             let _ = tokio::time::timeout(std::time::Duration::from_secs(2 * 60 * 60), async move {
@@ -807,6 +841,7 @@ impl SearchJobs {
             })
             .await;
         });
+        Ok(())
     }
 }
 

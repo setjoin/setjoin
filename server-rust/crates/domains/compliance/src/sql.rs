@@ -166,7 +166,8 @@ pub const SEARCH_GET: SqlContract = SqlContract {
     domain: "compliance",
     sql: "SELECT id,name,query->>'keywords',query->>'kql',query->>'fromAddr',query->>'dateFrom',query->>'dateTo', \
           query::text,status,result_count,case_id, \
-          to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') \
+          to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), \
+          search_provenance::text \
           FROM ediscovery_searches WHERE id=$1",
     params: &[Type::INT8],
     columns: &[
@@ -181,6 +182,7 @@ pub const SEARCH_GET: SqlContract = SqlContract {
         ColumnSpec::named("status", Type::TEXT),
         ColumnSpec::named("result_count", Type::INT4),
         ColumnSpec::named("case_id", Type::INT8),
+        ColumnSpec::unnamed(Type::TEXT),
         ColumnSpec::unnamed(Type::TEXT),
     ],
     scope: SqlScope::AdminRead,
