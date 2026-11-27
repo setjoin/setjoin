@@ -34,7 +34,7 @@ impl AuthServer {
             .map(|s| s.into_owned())
             .unwrap_or_default();
         if parts.len() == 5 && parts[4] == "link" && req.method() == Method::POST {
-            return Box::pin(self.saml_link(req, &idp)).await;
+            return boxed(|| self.saml_link(req, &idp)).await;
         }
         // Same-site completion of a link the ACS held (the IdP's cross-site POST carries
         // no SameSite=Strict cookie, this request does).
@@ -51,7 +51,7 @@ impl AuthServer {
             let Some(reg) = self.saml.as_ref().and_then(|r| r.registration(&idp)) else {
                 return Self::not_found();
             };
-            return Box::pin(self.saml_link_complete(req, reg)).await;
+            return boxed(|| self.saml_link_complete(req, reg)).await;
         }
         let Some(reg) = self
             .saml
@@ -62,7 +62,7 @@ impl AuthServer {
             return Self::not_found();
         };
         if parts[4] == "acs" && req.method() == Method::POST {
-            return Box::pin(self.saml_acs(req, reg)).await;
+            return boxed(|| self.saml_acs(req, reg)).await;
         }
         if parts[4] == "login" {
             self.saml_login_reply(&req, &reg, "login", None)
@@ -604,9 +604,8 @@ impl AuthServer {
         let req = Request::from_parts(parts, body(raw.clone()));
         let linking = unbound && link_flow.is_some();
         let (mut reply, actor) = if let (true, Some(flow)) = (linking, link_flow) {
-            let (mut reply, actor) = self
-                .saml_link_callback(&req, Some(&assertion), None, &reg, &flow)
-                .await;
+            let (mut reply, actor) =
+                boxed(|| self.saml_link_callback(&req, Some(&assertion), None, &reg, &flow)).await;
             reply.headers_mut().append(
                 "set-cookie",
                 format!(
@@ -618,8 +617,7 @@ impl AuthServer {
             );
             (reply, actor)
         } else {
-            self.saml_login(&req, &raw, &assertion, &reg, &claims, &target)
-                .await
+            boxed(|| self.saml_login(&req, &raw, &assertion, &reg, &claims, &target)).await
         };
         if reply.status().is_redirection() {
             setjoin_identity::saml::audit(
@@ -742,8 +740,8 @@ impl AuthServer {
             }
         };
         let actor = resolution.user().user();
-        let reply = self
-            .rp_complete(
+        let reply = boxed(|| {
+            self.rp_complete(
                 req,
                 Some(raw_body),
                 assertion,
@@ -754,7 +752,8 @@ impl AuthServer {
                 dt_enabled,
                 "saml",
             )
-            .await;
+        })
+        .await;
         if reply.status() != 200 {
             return (reply, None);
         }
@@ -913,9 +912,8 @@ impl AuthServer {
         if token.is_empty() {
             return Self::failure(400, "invalid identity link flow", req.uri().path());
         }
-        let (mut reply, actor) = self
-            .saml_link_callback(&req, None, Some(&token), &reg, &flow)
-            .await;
+        let (mut reply, actor) =
+            boxed(|| self.saml_link_callback(&req, None, Some(&token), &reg, &flow)).await;
         reply.headers_mut().append(
             "set-cookie",
             format!(

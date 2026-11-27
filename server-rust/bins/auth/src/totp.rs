@@ -245,7 +245,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.totp_setup_admitted(req).await;
+        let reply = boxed(|| self.totp_setup_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn totp_setup_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -349,7 +349,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.totp_confirm_admitted(req).await;
+        let reply = boxed(|| self.totp_confirm_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn totp_confirm_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -536,7 +536,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.totp_bootstrap_setup_admitted(req).await;
+        let reply = boxed(|| self.totp_bootstrap_setup_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn totp_bootstrap_setup_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -682,8 +682,8 @@ impl AuthServer {
             .await;
         let factors = factors.unwrap_or_else(|| totp::factors(pending));
         let auth_method = Self::auth_method_from_completed_factors(&factors);
-        let ca_policy_id = self
-            .evaluate_ca(
+        let ca_policy_id = boxed(|| {
+            self.evaluate_ca(
                 ca_enabled,
                 self.ca_context(
                     user.user(),
@@ -697,20 +697,23 @@ impl AuthServer {
                 None,
                 path,
             )
-            .await?;
-        self.completion_tokens(
-            user,
-            path,
-            family,
-            factors,
-            GuestMint::Allow,
-            risk,
-            dpop_jkt,
-            ca_policy_id,
-            dt_enabled,
-            ip,
-            agent,
-        )
+        })
+        .await?;
+        boxed(|| {
+            self.completion_tokens(
+                user,
+                path,
+                family,
+                factors,
+                GuestMint::Allow,
+                risk,
+                dpop_jkt,
+                ca_policy_id,
+                dt_enabled,
+                ip,
+                agent,
+            )
+        })
         .await
     }
     #[allow(clippy::too_many_arguments)]
@@ -859,7 +862,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.totp_verify_admitted(req, ca_enabled, dt_enabled).await;
+        let reply = boxed(|| self.totp_verify_admitted(req, ca_enabled, dt_enabled)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn totp_verify_admitted(
@@ -944,8 +947,8 @@ impl AuthServer {
             Err(_) => return Self::failure(500, "internal error", &path),
         };
         let uri = parts.uri.path_and_query().map_or("/", |p| p.as_str());
-        let tokens = match self
-            .mfa_tokens(
+        let tokens = match boxed(|| {
+            self.mfa_tokens(
                 &user,
                 &pending,
                 &path,
@@ -964,7 +967,8 @@ impl AuthServer {
                 ca_enabled,
                 dt_enabled,
             )
-            .await
+        })
+        .await
         {
             Ok(t) => t,
             Err(r) => return r,
@@ -1048,9 +1052,8 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self
-            .totp_bootstrap_confirm_admitted(req, ca_enabled, dt_enabled)
-            .await;
+        let reply =
+            boxed(|| self.totp_bootstrap_confirm_admitted(req, ca_enabled, dt_enabled)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn totp_bootstrap_confirm_admitted(
@@ -1143,90 +1146,95 @@ impl AuthServer {
         let raw_ref = &raw;
         let ip_ref = ip.as_str();
         let agent_ref = agent.as_str();
-        let result = totp::bootstrap_confirm(
-            &self.auth_db,
-            &pending,
-            token,
-            id,
-            code,
-            &ip,
-            |family| async move {
-                let user = match early {
-                    Some(u) => u,
-                    None => match totp::CompletionUser::load(&self.auth_db, pending_ref).await {
-                        Ok(Some(u)) => u,
-                        Err(_) => {
-                            *failure.lock().unwrap() =
-                                Some(Self::failure(500, "internal error", path_ref));
-                            return Err(json!({"status":"completion_reply"}));
+        let result = boxed(|| {
+            totp::bootstrap_confirm(
+                &self.auth_db,
+                &pending,
+                token,
+                id,
+                code,
+                &ip,
+                |family| async move {
+                    let user = match early {
+                        Some(u) => u,
+                        None => {
+                            match totp::CompletionUser::load(&self.auth_db, pending_ref).await {
+                                Ok(Some(u)) => u,
+                                Err(_) => {
+                                    *failure.lock().unwrap() =
+                                        Some(Self::failure(500, "internal error", path_ref));
+                                    return Err(json!({"status":"completion_reply"}));
+                                }
+                                _ => {
+                                    *failure.lock().unwrap() =
+                                        Some(Self::failure(401, "user not found", path_ref));
+                                    return Err(json!({"status":"completion_reply"}));
+                                }
+                            }
                         }
-                        _ => {
-                            *failure.lock().unwrap() =
-                                Some(Self::failure(401, "user not found", path_ref));
-                            return Err(json!({"status":"completion_reply"}));
-                        }
-                    },
-                };
-                let tokens = match self
-                    .mfa_tokens(
-                        &user,
-                        pending_ref,
-                        path_ref,
-                        Some(family),
-                        None,
-                        risk_ref.clone(),
-                        dpop_jkt_ref.clone(),
-                        setjoin_authz::device::DeviceRequest {
-                            headers: headers_ref,
-                            method: method_ref,
-                            uri: uri_ref,
-                            body: raw_ref,
-                        },
-                        ip_ref,
-                        agent_ref,
-                        ca_enabled,
-                        dt_enabled,
-                    )
-                    .await
-                {
-                    Ok(t) => t,
-                    Err(r) => {
-                        *failure.lock().unwrap() = Some(r);
-                        return Err(json!({"status":"completion_reply"}));
-                    }
-                };
-                let anchor = totp::MfaAnchor {
-                    refresh: tokens.refresh.clone(),
-                    lifetime: self.config.refresh_seconds,
-                };
-                *output.lock().unwrap() = Some((user, tokens));
-                Ok(anchor)
-            },
-            |result| {
-                let minted = result["status"] == "minted";
-                let prepared = if minted {
-                    prepared.lock().unwrap().clone()
-                } else {
-                    None
-                };
-                let ip = &ip;
-                let agent = &agent;
-                async move {
-                    if let Some((user, tokens)) = prepared {
-                        user.record(
-                            &self.auth_db,
-                            &tokens.access,
-                            &tokens.jti,
-                            self.config.access_seconds,
-                            ip,
-                            agent,
-                            &tokens.factors,
+                    };
+                    let tokens = match boxed(|| {
+                        self.mfa_tokens(
+                            &user,
+                            pending_ref,
+                            path_ref,
+                            Some(family),
+                            None,
+                            risk_ref.clone(),
+                            dpop_jkt_ref.clone(),
+                            setjoin_authz::device::DeviceRequest {
+                                headers: headers_ref,
+                                method: method_ref,
+                                uri: uri_ref,
+                                body: raw_ref,
+                            },
+                            ip_ref,
+                            agent_ref,
+                            ca_enabled,
+                            dt_enabled,
                         )
-                        .await;
+                    })
+                    .await
+                    {
+                        Ok(t) => t,
+                        Err(r) => {
+                            *failure.lock().unwrap() = Some(r);
+                            return Err(json!({"status":"completion_reply"}));
+                        }
+                    };
+                    let anchor = totp::MfaAnchor {
+                        refresh: tokens.refresh.clone(),
+                        lifetime: self.config.refresh_seconds,
+                    };
+                    *output.lock().unwrap() = Some((user, tokens));
+                    Ok(anchor)
+                },
+                |result| {
+                    let minted = result["status"] == "minted";
+                    let prepared = if minted {
+                        prepared.lock().unwrap().clone()
+                    } else {
+                        None
+                    };
+                    let ip = &ip;
+                    let agent = &agent;
+                    async move {
+                        if let Some((user, tokens)) = prepared {
+                            user.record(
+                                &self.auth_db,
+                                &tokens.access,
+                                &tokens.jti,
+                                self.config.access_seconds,
+                                ip,
+                                agent,
+                                &tokens.factors,
+                            )
+                            .await;
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        })
         .await;
         match result {
             setjoin_pg::CommandOutcome::Committed(v) => match v["status"].as_str() {
@@ -1345,9 +1353,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self
-            .backup_verify_admitted(req, ca_enabled, dt_enabled)
-            .await;
+        let reply = boxed(|| self.backup_verify_admitted(req, ca_enabled, dt_enabled)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn backup_verify_admitted(
@@ -1421,26 +1427,28 @@ impl AuthServer {
             _ => return Self::failure(500, "verification failed", &path),
         }
         let uri = parts.uri.path_and_query().map_or("/", |p| p.as_str());
-        self.mfa_finish(
-            pending,
-            path,
-            ip,
-            agent,
-            secure,
-            None,
-            (401, "user not found"),
-            dpop_jkt,
-            setjoin_authz::device::DeviceRequest {
-                headers: &parts.headers,
-                method: parts.method.as_str(),
-                uri,
-                body: &raw,
-            },
-            risk,
-            ca_enabled,
-            dt_enabled,
-            true,
-        )
+        boxed(|| {
+            self.mfa_finish(
+                pending,
+                path,
+                ip,
+                agent,
+                secure,
+                None,
+                (401, "user not found"),
+                dpop_jkt,
+                setjoin_authz::device::DeviceRequest {
+                    headers: &parts.headers,
+                    method: parts.method.as_str(),
+                    uri,
+                    body: &raw,
+                },
+                risk,
+                ca_enabled,
+                dt_enabled,
+                true,
+            )
+        })
         .await
     }
     #[allow(clippy::too_many_arguments)]
@@ -1465,12 +1473,13 @@ impl AuthServer {
             Err(_) => return Self::failure(500, "internal error", &path),
             _ => return Self::failure(missing.0, missing.1, &path),
         };
-        let tokens = match self
-            .mfa_tokens(
+        let tokens = match boxed(|| {
+            self.mfa_tokens(
                 &user, &pending, &path, None, factors, risk, dpop_jkt, device, &ip, &agent,
                 ca_enabled, dt_enabled,
             )
-            .await
+        })
+        .await
         {
             Ok(t) => t,
             Err(r) => return r,

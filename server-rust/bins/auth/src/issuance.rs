@@ -654,7 +654,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.webpush_admitted(req, &raw).await;
+        let reply = boxed(|| self.webpush_admitted(req, &raw)).await;
         self.threat_tail(admitted, reply).await
     }
 
