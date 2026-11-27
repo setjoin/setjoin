@@ -49,22 +49,22 @@ Engines: polardb = PolarDB for PostgreSQL · opengauss = openGauss · gaussdb = 
 
 Counting unit: the function NAME. Live universe extracted from `mailserver/sql/reducers/*.sql`:
 
-- Reducer files: 798 · declarations: 1182 · unique names: 1179
+- Reducer files: 811 · declarations: 1215 · unique names: 1212
 - Represented in `compatibility_matrix.csv`: 106 names (106 rows) — representation is not attestation
 - Names with any evidence-bearing cell (attested anywhere): 0
-- Canonical complement (no CSV row): 1073 → `unattested_functions.csv`
+- Canonical complement (no CSV row): 1106 → `unattested_functions.csv`
 
-Per-engine attestation against the full 1179-name universe (a name is attested-for-engine iff its cell is non-`untested`):
+Per-engine attestation against the full 1212-name universe (a name is attested-for-engine iff its cell is non-`untested`):
 
 | Engine | Attested | Not attested |
 |---|---|---|
-| polardb | 0 | 1179 |
-| opengauss | 0 | 1179 |
-| gaussdb | 0 | 1179 |
-| kingbase | 0 | 1179 |
-| dameng | 0 | 1179 |
-| oceanbase_pg | 0 | 1179 |
-| oceanbase_oracle | 0 | 1179 |
+| polardb | 0 | 1212 |
+| opengauss | 0 | 1212 |
+| gaussdb | 0 | 1212 |
+| kingbase | 0 | 1212 |
+| dameng | 0 | 1212 |
+| oceanbase_pg | 0 | 1212 |
+| oceanbase_oracle | 0 | 1212 |
 
 `uses_digest` is SOURCE-DERIVED USAGE — a non-comment `digest(` call exists in the defining file (73 files / 142 call sites repo-wide). It is never a parity attestation; pgcrypto parity is attested (or not) per engine via `pgcrypto_digest_parity` above. Covered rows with `uses_digest`: 17 of 106.
 
@@ -114,7 +114,7 @@ The reducers below are the certification critical path for the primary combinati
 | bulk | 1 |
 | ca | 25 |
 | caldav | 1 |
-| calendar | 16 |
+| calendar | 15 |
 | chat | 67 |
 | check | 2 |
 | cjk | 1 |
@@ -162,7 +162,7 @@ The reducers below are the certification critical path for the primary combinati
 | offline | 16 |
 | policy | 1 |
 | provision | 1 |
-| prune | 8 |
+| prune | 7 |
 | purge | 2 |
 | push | 1 |
 | quarantine | 1 |
@@ -178,7 +178,7 @@ The reducers below are the certification critical path for the primary combinati
 | revoke | 1 |
 | rule | 4 |
 | rules | 1 |
-| rust | 169 |
+| rust | 203 |
 | saved | 3 |
 | scheduled | 13 |
 | scim | 5 |
@@ -190,6 +190,7 @@ The reducers below are the certification critical path for the primary combinati
 | sharing | 3 |
 | smime | 3 |
 | smtp | 2 |
+| system | 1 |
 | task | 10 |
 | tasks | 2 |
 | transition | 2 |
@@ -198,7 +199,7 @@ The reducers below are the certification critical path for the primary combinati
 | utils | 2 |
 | vip | 2 |
 | webhook | 10 |
-| Total | 1073 across 99 families |
+| Total | 1106 across 100 families |
 
 <!-- END GENERATED -->
 

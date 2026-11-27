@@ -293,31 +293,44 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+            let worker_exec = worker.as_ref().unwrap_or(&exec);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(worker_exec))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(500, "database error", &c, &id);
+            };
             let actor = auth.context();
             let required = gate(what);
-            let authority = match setjoin_conditional_access::authority(&exec, actor).await {
-                Ok(authority) if authority.allows_any(required) => authority,
-                _ => {
-                    let _ = setjoin_conditional_access::console_denied(
-                        &exec,
-                        actor,
-                        &segment_path(r.uri().path()),
-                        &required.join("|"),
-                        operation,
-                    )
-                    .await;
-                    return bare(403, "Forbidden", &c, &id);
-                }
+            let admin_opt = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
             };
-            if authority.refused_for_scope(required) {
+            let Some(admin_principal) = admin_opt.filter(|a| a.allows_any(required)) else {
+                let _ = setjoin_conditional_access::console_denied(
+                    &factory,
+                    &user_principal,
+                    &segment_path(r.uri().path()),
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
+            let domain_scope = admin_principal.enforced_domain_scope().unwrap_or(0);
+            if admin_principal.refused_for_scope(required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
                     required.join("|"),
-                    authority.domain_scope()
+                    domain_scope
                 );
                 let _ = setjoin_conditional_access::console_denied(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user_principal,
                     &segment_path(r.uri().path()),
                     &detail,
                     operation,
@@ -325,6 +338,17 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                 .await;
                 return bare(403, "Forbidden", &c, &id);
             }
+            let Ok(admin) = admin_principal.require_any_permission(required) else {
+                let _ = setjoin_conditional_access::console_denied(
+                    &factory,
+                    &user_principal,
+                    &segment_path(r.uri().path()),
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
             let head = r.method() == Method::HEAD;
             let reply = |body: String, status: u16| {
                 // net/http buffers 2 KiB of a handler's output; a larger single write
@@ -352,17 +376,16 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                 failed(db::project_rejection(e))
             };
             let path = r.uri().path().to_owned();
-            let ip = c.identity.client_ip.to_string();
             let user = actor.user_id();
             // Go's `strconv.ParseInt(r.PathValue("id"), 10, 64)`.
             let policy_id = || segment(&path, 5).parse::<i64>().ok();
             match what {
                 Action::More(more) => {
-                    let worker = worker.as_ref().unwrap_or(&exec);
                     let x = crate::conditional_access_more::Ctx {
                         exec: &exec,
-                        worker,
-                        actor,
+                        worker: worker_exec,
+                        factory: &factory,
+                        admin: &admin,
                         c: &c,
                         id: &id,
                         operation,
@@ -374,7 +397,7 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                 }
                 Action::PolicyList => {
                     let include = query(r.uri(), "include_deleted").as_deref() == Some("1");
-                    match db::list(&exec, actor, include).await {
+                    match db::list(&factory, &admin, include).await {
                         Ok(body) => reply(body, 200),
                         Err(_) => bare(500, "database error", &c, &id),
                     }
@@ -433,8 +456,8 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                         body.scope_type.as_str()
                     };
                     match db::gate(
-                        &exec,
-                        actor,
+                        &factory,
+                        &admin,
                         target,
                         None,
                         Some((scope_type, body.scope_target.as_str())),
@@ -456,7 +479,7 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                     }
                     // Owner decision 2026-11-06: a domain-limited admin's policy cannot take
                     // effect before an org-wide policy.
-                    match db::priority_allowed(&exec, actor, body.priority, None).await {
+                    match db::priority_allowed(&factory, &admin, body.priority, None).await {
                         Ok(true) => {}
                         Ok(false) => {
                             return bare(
@@ -468,7 +491,7 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                         }
                         Err(_) => return bare(500, "database error", &c, &id),
                     }
-                    match db::save(&exec, actor, &ip, target, &request, operation).await {
+                    match db::save(&factory, &admin, &ip, target, &request, operation).await {
                         CommandOutcome::Committed(out) => {
                             reply(out, if update { 200 } else { 201 })
                         }
@@ -482,15 +505,15 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                     let Some(target) = policy_id() else {
                         return bare(400, "invalid policy ID", &c, &id);
                     };
-                    match db::gate(&exec, actor, Some(target), None, None, false).await {
+                    match db::gate(&factory, &admin, Some(target), None, None, false).await {
                         Ok(db::Gate::Allowed) => {}
                         Ok(_) => return failed(db::not_found()),
                         Err(_) => return bare(500, "database error", &c, &id),
                     }
                     let outcome = if what == Action::PolicyDelete {
-                        db::soft_delete(&exec, actor, target, operation).await
+                        db::soft_delete(&factory, &admin, target, operation).await
                     } else {
-                        db::restore(&exec, actor, target, operation).await
+                        db::restore(&factory, &admin, target, operation).await
                     };
                     match outcome {
                         CommandOutcome::Committed(()) => no_content(),
@@ -509,12 +532,12 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                     if body.audit_id == 0 {
                         return bare(400, "audit_id is required", &c, &id);
                     }
-                    match db::gate(&exec, actor, None, Some(body.audit_id), None, false).await {
+                    match db::gate(&factory, &admin, None, Some(body.audit_id), None, false).await {
                         Ok(db::Gate::Allowed) => {}
                         Ok(_) => return failed(db::not_found()),
                         Err(_) => return bare(500, "database error", &c, &id),
                     }
-                    match db::priority_allowed(&exec, actor, None, Some(body.audit_id)).await {
+                    match db::priority_allowed(&factory, &admin, None, Some(body.audit_id)).await {
                         Ok(true) => {}
                         Ok(false) => {
                             return bare(
@@ -526,7 +549,7 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                         }
                         Err(_) => return bare(500, "database error", &c, &id),
                     }
-                    match db::restore_from_audit(&exec, actor, body.audit_id, operation).await {
+                    match db::restore_from_audit(&factory, &admin, body.audit_id, operation).await {
                         CommandOutcome::Committed(new) => reply(
                             setjoin_conditional_access::done(format!("{{\"id\":{new}}}")),
                             200,
@@ -546,13 +569,13 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                         return bare(400, "at least one policy ID required", &c, &id);
                     }
                     for policy in &ids.0 {
-                        match db::gate(&exec, actor, Some(*policy), None, None, false).await {
+                        match db::gate(&factory, &admin, Some(*policy), None, None, false).await {
                             Ok(db::Gate::Allowed) => {}
                             Ok(_) => return failed(db::not_found()),
                             Err(_) => return bare(500, "database error", &c, &id),
                         }
                     }
-                    match db::reorder(&exec, actor, &ip, &ids.0, operation).await {
+                    match db::reorder(&factory, &admin, &ip, &ids.0, operation).await {
                         CommandOutcome::Committed(()) => no_content(),
                         CommandOutcome::RolledBack(e) => refused(&e),
                         CommandOutcome::Unknown { operation } => {
@@ -569,13 +592,13 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                     else {
                         return bare(400, "invalid JSON", &c, &id);
                     };
-                    match db::gate(&exec, actor, Some(target), None, None, false).await {
+                    match db::gate(&factory, &admin, Some(target), None, None, false).await {
                         Ok(db::Gate::Allowed) => {}
                         Ok(_) => return failed(db::not_found()),
                         Err(_) => return bare(500, "database error", &c, &id),
                     }
                     // Step 1: the 7d impact summary, read before any decision.
-                    let summary = match db::impact(&exec, actor, target, None).await {
+                    let summary = match db::impact(&factory, &admin, target, None).await {
                         Ok(text) => text,
                         Err(e) => return failed(db::project(&e)),
                     };
@@ -585,12 +608,13 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                     if !body.confirm {
                         // Preview only: a read, never a mutation.
                         if would_block > 0 {
-                            let list = match db::impact(&exec, actor, target, Some("blocked_users"))
-                                .await
-                            {
-                                Ok(text) => text,
-                                Err(e) => return failed(db::project(&e)),
-                            };
+                            let list =
+                                match db::impact(&factory, &admin, target, Some("blocked_users"))
+                                    .await
+                                {
+                                    Ok(text) => text,
+                                    Err(e) => return failed(db::project(&e)),
+                                };
                             let Some(mut preview) = db::parse_list(&list) else {
                                 return bare(500, "impact read failed", &c, &id);
                             };
@@ -603,7 +627,7 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                         }
                         return reply(db::Preview::zeroed(window).render(), 200);
                     }
-                    match db::promote(&exec, actor, target, operation).await {
+                    match db::promote(&factory, &admin, target, operation).await {
                         CommandOutcome::Committed(out) => reply(out, 200),
                         CommandOutcome::RolledBack(e) => refused(&e),
                         CommandOutcome::Unknown { operation } => {

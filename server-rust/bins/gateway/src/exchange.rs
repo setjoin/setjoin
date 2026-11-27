@@ -3,6 +3,7 @@ use crate::{Body, BoxFuture, Intercept, RequestContext};
 #[path = "exchange_input.rs"]
 mod input;
 use hyper::{Method, Request, Response};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
 use setjoin_authz::token::KeySource;
 use setjoin_pg::ScopedExecutor;
 use setjoin_pg::{CommandOutcome, Rejection};
@@ -155,10 +156,19 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return crate::mailboxes::bare(503, "service unavailable", &c, "");
+            };
             let Some(operation) = crate::jmap::random() else {
                 return crate::mailboxes::bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return crate::mailboxes::bare(500, "database error", &c, &id);
+            };
             let what = action(r.method(), r.uri().path()).expect("matched route");
             let permission = if what == Action::Publish {
                 "exchange.assessment.publish"
@@ -178,14 +188,22 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
             } else {
                 "exchange.assessment.read"
             };
-            let Some(authority) = setjoin_mailboxes::authority(&exec, auth.context())
-                .await
-                .ok()
-                .filter(|authority| authority.allows_any(&[permission]))
-            else {
+            let admin_and_proof = if auth.context().signed_admin() {
+                factory
+                    .mint_admin_from_authorized(&auth, &client_ip)
+                    .await
+                    .ok()
+                    .and_then(|admin| {
+                        let proof = admin.require_permission(permission).ok()?;
+                        Some((admin, proof))
+                    })
+            } else {
+                None
+            };
+            let Some((admin, proof)) = admin_and_proof else {
                 let _ = setjoin_mailboxes::console_denied(
-                    &exec,
-                    auth.context(),
+                    &factory,
+                    &user,
                     r.uri()
                         .path()
                         .strip_prefix("/api")
@@ -196,20 +214,17 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                 .await;
                 return crate::mailboxes::bare(403, "Forbidden", &c, &id);
             };
+            let scope = admin.enforced_domain_scope().unwrap_or(0);
             if !matches!(
                 what,
                 Action::Registry | Action::Projects | Action::Runs | Action::Audit
-            ) && setjoin_mailboxes::exchange::reason_required(&exec).await
+            ) && setjoin_mailboxes::exchange::reason_required(&factory).await
                 && r.headers()
                     .get("x-audit-reason")
                     .is_none_or(|v| v.as_bytes().is_empty())
             {
                 setjoin_mailboxes::exchange::missing_reason(
-                    &exec,
-                    auth.context(),
-                    &c.identity.client_ip.to_string(),
-                    permission,
-                    operation,
+                    &factory, &user, &client_ip, permission, operation,
                 )
                 .await;
                 return crate::mailboxes::bare(400, "reason_required", &c, &id);
@@ -233,13 +248,13 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                 if !fresh_aal2(&auth) {
                     return problem(403, "fresh AAL2 authority is required");
                 }
-                return publish(r, auth.context(), &worker, &artifacts, operation, &c, &id).await;
+                return publish(r, &factory, &proof, &artifacts, operation, &c, &id).await;
             }
             if what == Action::Bundle {
                 if !fresh_aal2(&auth) {
                     return problem(403, "fresh AAL2 authority is required");
                 }
-                return bundle(r, auth.context(), &worker, &artifacts, operation, &c, &id).await;
+                return bundle(r, &factory, &proof, &artifacts, operation, &c, &id).await;
             }
             if matches!(
                 what,
@@ -364,8 +379,8 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                 let digest = format!("{:x}", Sha256::digest(fields.canonical().as_bytes()));
                 let outcome = if what == Action::CreateProject {
                     setjoin_mailboxes::exchange::create_project(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &proof,
                         key,
                         &digest,
                         fields.int("domainId"),
@@ -376,8 +391,8 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                     .await
                 } else if what == Action::CreateRun {
                     setjoin_mailboxes::exchange::create_run(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &proof,
                         &setjoin_mailboxes::exchange::CreateRun {
                             project,
                             key,
@@ -394,8 +409,8 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                     .await
                 } else if what == Action::Transition {
                     setjoin_mailboxes::exchange::transition(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &proof,
                         run,
                         fields.int("expectedGeneration"),
                         fields.text("state"),
@@ -405,8 +420,8 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                     .await
                 } else if what == Action::Attestation {
                     setjoin_mailboxes::exchange::attest(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &proof,
                         run,
                         fields.text("kind"),
                         fields.text("subjectDigest"),
@@ -416,8 +431,8 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                     .await
                 } else if what == Action::Decision {
                     setjoin_mailboxes::exchange::decide(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &proof,
                         &setjoin_mailboxes::exchange::Decision {
                             run,
                             generation: fields.int("expectedGeneration"),
@@ -432,8 +447,8 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                     .await
                 } else if what == Action::Resolve {
                     setjoin_mailboxes::exchange::resolve(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &proof,
                         run,
                         fields.int("expectedGeneration"),
                         operation,
@@ -441,8 +456,8 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                     .await
                 } else {
                     setjoin_mailboxes::exchange::request_deletion(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &proof,
                         &setjoin_mailboxes::exchange::Deletion {
                             project,
                             scope: fields.text("scope"),
@@ -484,7 +499,7 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                     else {
                         return problem(400, "invalid run id");
                     };
-                    setjoin_mailboxes::exchange::audit(&worker, run, authority.domain_scope()).await
+                    setjoin_mailboxes::exchange::audit(&factory, &proof, run, scope).await
                 }
                 Action::CreateProject
                 | Action::CreateRun
@@ -493,9 +508,9 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                 | Action::Decision
                 | Action::Resolve
                 | Action::Delete => unreachable!(),
-                Action::Registry => setjoin_mailboxes::exchange::registry(&worker).await,
+                Action::Registry => setjoin_mailboxes::exchange::registry(&factory, &proof).await,
                 Action::Projects => {
-                    setjoin_mailboxes::exchange::projects(&worker, authority.domain_scope()).await
+                    setjoin_mailboxes::exchange::projects(&factory, &proof, scope).await
                 }
                 Action::Runs => {
                     let Ok(project) = crate::mailboxes::segment(r.uri().path(), 5).parse::<i64>()
@@ -512,8 +527,7 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                             &id,
                         );
                     };
-                    setjoin_mailboxes::exchange::runs(&worker, project, authority.domain_scope())
-                        .await
+                    setjoin_mailboxes::exchange::runs(&factory, &proof, project, scope).await
                 }
             };
             match result {
@@ -680,8 +694,8 @@ impl Default for Artifacts {
 #[allow(clippy::too_many_arguments)]
 async fn bundle(
     mut r: Request<Body>,
-    actor: &setjoin_authz::AuthContext,
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     artifacts: &Artifacts,
     operation: [u8; 16],
     c: &RequestContext,
@@ -732,14 +746,10 @@ async fn bundle(
     if declared.len() != 64 || !declared.bytes().all(|b| b.is_ascii_hexdigit()) {
         return problem(400, "X-Content-SHA256 is required");
     }
-    let Some(ctx) = db::upload_context(worker, actor.user_id(), run)
-        .await
-        .ok()
-        .flatten()
-    else {
+    let Some(ctx) = db::upload_context(factory, proof, run).await.ok().flatten() else {
         return problem(404, "assessment run not found");
     };
-    match db::bundle_replay(worker, run, &declared, ctx.generation).await {
+    match db::bundle_replay(factory, proof, run, &declared, ctx.generation).await {
         Ok(Some(raw)) => return json_reply(&raw, false, c, id.into()),
         Ok(None) => {}
         Err(_) => return problem(500, "database error"),
@@ -815,7 +825,7 @@ async fn bundle(
         sealed: &sealed,
         retention: ctx.retention.as_deref(),
     };
-    match db::commit_bundle(worker, actor, &commit, operation).await {
+    match db::commit_bundle(factory, proof, &commit, operation).await {
         CommandOutcome::Committed(raw) => {
             let mut response = json_reply(&raw, false, c, id.into());
             *response.status_mut() = hyper::StatusCode::CREATED;
@@ -870,8 +880,8 @@ pub fn signer_from_env(
 #[allow(clippy::too_many_arguments)]
 async fn publish(
     mut r: Request<Body>,
-    actor: &setjoin_authz::AuthContext,
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     artifacts: &Artifacts,
     operation: [u8; 16],
     c: &RequestContext,
@@ -910,14 +920,14 @@ async fn publish(
     ) else {
         return problem(503, "signed publication storage is unavailable");
     };
-    let Some(ctx) = db::publication_context(worker, actor.user_id(), run)
+    let Some(ctx) = db::publication_context(factory, proof, run)
         .await
         .ok()
         .flatten()
     else {
         return problem(404, "assessment run not found");
     };
-    match db::publication_replay(worker, run, digest).await {
+    match db::publication_replay(factory, proof, run, digest).await {
         Ok(Some(raw)) => return json_reply(&raw, false, c, id.into()),
         Ok(None) => {}
         Err(_) => return problem(500, "database error"),
@@ -988,7 +998,7 @@ async fn publish(
         sealed: &sealed,
         retention: None,
     };
-    match db::publish(worker, actor, &commit, digest, &receipt, operation).await {
+    match db::publish(factory, proof, &commit, digest, &receipt, operation).await {
         CommandOutcome::Committed(raw) => {
             let mut response = json_reply(&raw, false, c, id.into());
             *response.status_mut() = hyper::StatusCode::CREATED;

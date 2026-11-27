@@ -454,15 +454,15 @@ async fn load_draft(
     email_id: i64,
 ) -> Result<Option<DraftRow>, String> {
     let mailbox_id = auth.mailbox().get();
-    let rows = worker
-        .read_scoped(
-            auth,
-            "SELECT COALESCE(from_addr, ''), COALESCE(raw_ref, ''), received_at, COALESCE(has_attachments, FALSE) \
-             FROM messages WHERE id = $1 AND mailbox_id = $2",
-            &[(&email_id, Type::INT8), (&mailbox_id, Type::INT8)],
-        )
-        .await
-        .map_err(|e| e.message)?;
+    let rows = crate::policy_composition::worker_mailbox_read(
+        worker,
+        auth,
+        "SELECT COALESCE(from_addr, ''), COALESCE(raw_ref, ''), received_at, COALESCE(has_attachments, FALSE) \
+         FROM messages WHERE id = $1 AND mailbox_id = $2",
+        &[(&email_id, Type::INT8), (&mailbox_id, Type::INT8)],
+    )
+    .await
+    .map_err(|e| e.message)?;
     Ok(rows.first().map(|r| DraftRow {
         from_addr: r.get(0),
         raw_ref: r.get(1),
@@ -481,26 +481,26 @@ async fn load_attachment_parts(
     let mailbox_id = auth.mailbox().get();
     // Join through messages with mailbox_id = $3 so attachment metadata stays
     // scoped to the authorized mailbox.
-    let rows = worker
-        .read_scoped(
-            auth,
-            "SELECT ma.blob_sha256, \
-                    COALESCE(ma.filename, 'attachment'), \
-                    COALESCE(ma.content_type, 'application/octet-stream'), \
-                    COALESCE(ma.disposition, 'attachment'), \
-                    COALESCE(ma.content_id, '') \
-             FROM message_attachments ma \
-             JOIN messages m ON m.id = ma.message_id AND m.received_at = ma.received_at \
-             WHERE ma.message_id = $1 AND ma.received_at = $2 AND m.mailbox_id = $3 \
-             ORDER BY ma.id",
-            &[
-                (&email_id, Type::INT8),
-                (&received_at, Type::TIMESTAMPTZ),
-                (&mailbox_id, Type::INT8),
-            ],
-        )
-        .await
-        .map_err(|e| e.message)?;
+    let rows = crate::policy_composition::worker_mailbox_read(
+        worker,
+        auth,
+        "SELECT ma.blob_sha256, \
+                COALESCE(ma.filename, 'attachment'), \
+                COALESCE(ma.content_type, 'application/octet-stream'), \
+                COALESCE(ma.disposition, 'attachment'), \
+                COALESCE(ma.content_id, '') \
+         FROM message_attachments ma \
+         JOIN messages m ON m.id = ma.message_id AND m.received_at = ma.received_at \
+         WHERE ma.message_id = $1 AND ma.received_at = $2 AND m.mailbox_id = $3 \
+         ORDER BY ma.id",
+        &[
+            (&email_id, Type::INT8),
+            (&received_at, Type::TIMESTAMPTZ),
+            (&mailbox_id, Type::INT8),
+        ],
+    )
+    .await
+    .map_err(|e| e.message)?;
     if rows.is_empty() {
         return Ok(Vec::new());
     }
@@ -525,20 +525,20 @@ async fn load_sign_candidates(
     auth: &MailboxAuthContext,
 ) -> Result<Vec<SignCandidate>, String> {
     let actor_user_id = auth.actor().get();
-    let rows = worker
-        .read_scoped(
-            auth,
-            "SELECT cert_pem, \
-                    pgp_sym_decrypt(private_key_enc::bytea, current_setting('app.encryption_key')), \
-                    is_default \
-             FROM user_smime_certs \
-             WHERE user_id = $1 AND private_key_enc IS NOT NULL \
-               AND (expires_at IS NULL OR expires_at > now()) \
-             ORDER BY is_default DESC, created_at DESC",
-            &[(&actor_user_id, Type::INT8)],
-        )
-        .await
-        .map_err(|e| e.message)?;
+    let rows = crate::policy_composition::worker_mailbox_read(
+        worker,
+        auth,
+        "SELECT cert_pem, \
+                pgp_sym_decrypt(private_key_enc::bytea, current_setting('app.encryption_key')), \
+                is_default \
+         FROM user_smime_certs \
+         WHERE user_id = $1 AND private_key_enc IS NOT NULL \
+           AND (expires_at IS NULL OR expires_at > now()) \
+         ORDER BY is_default DESC, created_at DESC",
+        &[(&actor_user_id, Type::INT8)],
+    )
+    .await
+    .map_err(|e| e.message)?;
     Ok(rows
         .into_iter()
         .map(|r| SignCandidate {
@@ -572,17 +572,17 @@ async fn canon_recipient_email(
     if c.is_empty() {
         return c;
     }
-    let rows = worker
-        .read_scoped(
-            auth,
-            "SELECT a2.email \
-             FROM aliases a1 \
-             JOIN aliases a2 ON a2.mailbox_id = a1.mailbox_id AND a2.is_primary = TRUE \
-             WHERE a1.email = $1 \
-             LIMIT 1",
-            &[(&c, Type::TEXT)],
-        )
-        .await;
+    let rows = crate::policy_composition::worker_mailbox_read(
+        worker,
+        auth,
+        "SELECT a2.email \
+         FROM aliases a1 \
+         JOIN aliases a2 ON a2.mailbox_id = a1.mailbox_id AND a2.is_primary = TRUE \
+         WHERE a1.email = $1 \
+         LIMIT 1",
+        &[(&c, Type::TEXT)],
+    )
+    .await;
     if let Ok(rows) = rows {
         if let Some(row) = rows.first() {
             let primary: String = row.get(0);
@@ -600,14 +600,14 @@ async fn is_cert_revoked(
     auth: &MailboxAuthContext,
     fingerprint: &str,
 ) -> bool {
-    let rows = worker
-        .read_scoped(
-            auth,
-            "SELECT EXISTS(SELECT 1 FROM smime_revocation_blocklist WHERE fingerprint = $1) \
-                 OR EXISTS(SELECT 1 FROM smime_cert_revocations WHERE fingerprint = $1)",
-            &[(&fingerprint, Type::TEXT)],
-        )
-        .await;
+    let rows = crate::policy_composition::worker_mailbox_read(
+        worker,
+        auth,
+        "SELECT EXISTS(SELECT 1 FROM smime_revocation_blocklist WHERE fingerprint = $1) \
+             OR EXISTS(SELECT 1 FROM smime_cert_revocations WHERE fingerprint = $1)",
+        &[(&fingerprint, Type::TEXT)],
+    )
+    .await;
     match rows {
         Ok(r) => r.first().is_some_and(|row| row.get::<_, bool>(0)),
         // Fail-closed if revocation check errors.
@@ -632,36 +632,40 @@ async fn resolve_encrypt_cert(
 
     let mut pems: Vec<String> = Vec::new();
     // 1. Internal org directory certs (`user_smime_certs`).
-    if let Ok(rows) = worker
-        .read_scoped(
-            auth,
-            "SELECT sc.cert_pem \
-             FROM user_smime_certs sc \
-             JOIN users u ON u.id = sc.user_id \
-             WHERE lower(u.email) = $1 \
-             ORDER BY sc.is_default DESC, sc.created_at DESC",
-            &[(&email, Type::TEXT)],
-        )
-        .await
+    if let Ok(rows) = crate::policy_composition::worker_mailbox_read(
+        worker,
+        auth,
+        "SELECT sc.cert_pem \
+         FROM user_smime_certs sc \
+         JOIN users u ON u.id = sc.user_id \
+         WHERE lower(u.email) = $1 \
+         ORDER BY sc.is_default DESC, sc.created_at DESC",
+        &[(&email, Type::TEXT)],
+    )
+    .await
     {
         for r in rows {
-            pems.push(r.get(0));
+            if let Ok(pem) = r.try_get::<_, String>(0) {
+                pems.push(pem);
+            }
         }
     }
     // 2. Actor's harvested/uploaded `recipient_smime_certs`.
-    if let Ok(rows) = worker
-        .read_scoped(
-            auth,
-            "SELECT cert_pem \
-             FROM recipient_smime_certs \
-             WHERE owner_user_id = $1 AND email = $2 \
-             ORDER BY last_seen DESC",
-            &[(&actor_user_id, Type::INT8), (&email, Type::TEXT)],
-        )
-        .await
+    if let Ok(rows) = crate::policy_composition::worker_mailbox_read(
+        worker,
+        auth,
+        "SELECT cert_pem \
+         FROM recipient_smime_certs \
+         WHERE owner_user_id = $1 AND email = $2 \
+         ORDER BY last_seen DESC",
+        &[(&actor_user_id, Type::INT8), (&email, Type::TEXT)],
+    )
+    .await
     {
         for r in rows {
-            pems.push(r.get(0));
+            if let Ok(pem) = r.try_get::<_, String>(0) {
+                pems.push(pem);
+            }
         }
     }
 
@@ -715,20 +719,20 @@ async fn load_sender_info(
     email_id: i64,
 ) -> Result<Option<SenderInfo>, String> {
     let mailbox_id = auth.mailbox().get();
-    let rows = worker
-        .read_scoped(
-            auth,
-            "SELECT COALESCE(m.from_addr, ''), mb.domain_id, \
-                    COALESCE(m.to_addrs, '[]'::jsonb)::text, \
-                    COALESCE(m.cc_addrs, '[]'::jsonb)::text, \
-                    COALESCE(m.bcc_addrs, '[]'::jsonb)::text \
-             FROM messages m \
-             JOIN mailboxes mb ON mb.id = m.mailbox_id \
-             WHERE m.id = $1 AND m.mailbox_id = $2",
-            &[(&email_id, Type::INT8), (&mailbox_id, Type::INT8)],
-        )
-        .await
-        .map_err(|e| e.message)?;
+    let rows = crate::policy_composition::worker_mailbox_read(
+        worker,
+        auth,
+        "SELECT COALESCE(m.from_addr, ''), mb.domain_id, \
+                COALESCE(m.to_addrs, '[]'::jsonb)::text, \
+                COALESCE(m.cc_addrs, '[]'::jsonb)::text, \
+                COALESCE(m.bcc_addrs, '[]'::jsonb)::text \
+         FROM messages m \
+         JOIN mailboxes mb ON mb.id = m.mailbox_id \
+         WHERE m.id = $1 AND m.mailbox_id = $2",
+        &[(&email_id, Type::INT8), (&mailbox_id, Type::INT8)],
+    )
+    .await
+    .map_err(|e| e.message)?;
     let Some(row) = rows.first() else {
         return Ok(None);
     };
@@ -753,29 +757,31 @@ async fn load_domain_journal_cert(
     auth: &MailboxAuthContext,
     domain_id: i64,
 ) -> Result<Option<X509>, &'static str> {
-    let req_rows = worker
-        .read_scoped(
-            auth,
-            "SELECT journaling_required_for_domain($1)",
-            &[(&domain_id, Type::INT8)],
-        )
-        .await
-        .map_err(|_| smime::REASON_ENCRYPT_NO_JOURNAL_CERT)?;
-    let required = req_rows.first().is_some_and(|r| r.get::<_, bool>(0));
+    let req_rows = crate::policy_composition::worker_mailbox_read(
+        worker,
+        auth,
+        "SELECT journaling_required_for_domain($1)",
+        &[(&domain_id, Type::INT8)],
+    )
+    .await
+    .map_err(|_| smime::REASON_ENCRYPT_NO_JOURNAL_CERT)?;
+    let required = req_rows
+        .first()
+        .is_some_and(|r| r.try_get::<_, bool>(0).unwrap_or(false));
     if !required {
         return Ok(None);
     }
-    let cert_rows = worker
-        .read_scoped(
-            auth,
-            "SELECT COALESCE(journal_cert_pem_for_domain($1), '')",
-            &[(&domain_id, Type::INT8)],
-        )
-        .await
-        .map_err(|_| smime::REASON_ENCRYPT_NO_JOURNAL_CERT)?;
+    let cert_rows = crate::policy_composition::worker_mailbox_read(
+        worker,
+        auth,
+        "SELECT COALESCE(journal_cert_pem_for_domain($1), '')",
+        &[(&domain_id, Type::INT8)],
+    )
+    .await
+    .map_err(|_| smime::REASON_ENCRYPT_NO_JOURNAL_CERT)?;
     let pem: String = cert_rows
         .first()
-        .map(|r| r.get::<_, String>(0))
+        .and_then(|r| r.try_get::<_, String>(0).ok())
         .unwrap_or_default();
     if pem.is_empty() {
         return Err(smime::REASON_ENCRYPT_NO_JOURNAL_CERT);

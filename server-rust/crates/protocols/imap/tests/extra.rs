@@ -265,3 +265,124 @@ async fn disconnect_during_idle_frees_the_connection_slot() {
     cleanup(&owner).await;
     outcome.expect("IDLE slot test");
 }
+
+/// Wave 1.8c (#546c, V287 `FORCE RLS` on `tags`): IMAP `LIST`, `STATUS`, and `SELECT`
+/// must expose and select a tag belonging to a secondary owned mailbox under `setjoin_app`,
+/// and rebind the session's `MailboxPrincipal` to that secondary mailbox for subsequent reads.
+#[tokio::test]
+async fn list_and_select_secondary_owned_mailbox_under_force_rls() {
+    let Some((db, owner)) = fixture("imap-secondary-mailbox-rls").await else {
+        return;
+    };
+    // Seed a secondary personal mailbox owned by the primary test user (`alice@imap1.test`)
+    // plus an exposed tag (`SecondaryBox`) on that secondary mailbox.
+    let row = owner
+        .query_one(
+            "SELECT u.id, u.domain_id FROM users u WHERE u.email = 'alice@imap1.test' LIMIT 1",
+            &[],
+        )
+        .await
+        .unwrap();
+    let uid: i64 = row.get(0);
+    let dom: i64 = row.get(1);
+    let sec_mb: i64 = owner
+        .query_one(
+            "INSERT INTO mailboxes (user_id, domain_id, email, display_name, type, is_primary) \
+             VALUES ($1, $2, 'alice-secondary@imap1.test', 'Alice Secondary', 'personal', FALSE) \
+             RETURNING id",
+            &[&uid, &dom],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    owner
+        .execute(
+            "INSERT INTO tags (mailbox_id, name, tag_type, sort_order, imap_expose) \
+             VALUES ($1, 'SecondaryBox', 'user', -100, TRUE)",
+            &[&sec_mb],
+        )
+        .await
+        .unwrap();
+
+    let running = start(server(&db, "plain")).await;
+    let addr = running.addr;
+    let client = tokio::spawn(async move {
+        let mut socket = TcpStream::connect(addr).await.unwrap();
+        say(&mut socket, "", "* ").await;
+        let login = say(&mut socket, LOGIN, "l1 ").await;
+        assert!(login.contains("l1 OK"), "login failed: {login}");
+
+        let list = say(&mut socket, "a2 LIST \"\" \"*\"\r\n", "a2 ").await;
+        assert!(
+            list.contains("SecondaryBox"),
+            "LIST must include exposed tag on secondary owned mailbox under V287 FORCE RLS: {list}"
+        );
+
+        let status = say(
+            &mut socket,
+            "a3 STATUS SecondaryBox (MESSAGES UNSEEN)\r\n",
+            "a3 ",
+        )
+        .await;
+        assert!(
+            status.contains("a3 OK"),
+            "STATUS on secondary owned mailbox failed: {status}"
+        );
+
+        // APPEND to the secondary owned mailbox BEFORE SELECT resolves via UserPrincipal
+        // and mints a destination MailboxPrincipal for the secondary mailbox.
+        let literal = "From: alice@imap1.test\r\nSubject: Secondary\r\n\r\nhello secondary\r\n";
+        let cont = say(
+            &mut socket,
+            &format!("a3b APPEND SecondaryBox {{{}}}\r\n", literal.len()),
+            "+ ",
+        )
+        .await;
+        assert!(
+            cont.contains("+ Ready"),
+            "APPEND continuation failed: {cont}"
+        );
+        let appended = say(&mut socket, &format!("{literal}\r\n"), "a3b ").await;
+        assert!(
+            appended.contains("a3b OK [APPENDUID"),
+            "APPEND to secondary owned mailbox before SELECT failed: {appended}"
+        );
+
+        let select = say(&mut socket, "a4 SELECT SecondaryBox\r\n", "a4 ").await;
+        assert!(
+            select.contains("a4 OK"),
+            "SELECT on secondary owned mailbox failed: {select}"
+        );
+
+        // Subsequent mailbox-scoped command (SEARCH ALL) runs under the rebound
+        // secondary MailboxPrincipal without RLS failure and sees the appended message.
+        let search = say(&mut socket, "a5 SEARCH ALL\r\n", "a5 ").await;
+        assert!(
+            search.contains("a5 OK")
+                && (search.contains("* ESEARCH (TAG \"a5\") ALL 1")
+                    || search.contains("* SEARCH 1")),
+            "SEARCH after SELECT on secondary owned mailbox failed: {search}"
+        );
+
+        let _ = say(&mut socket, "a6 LOGOUT\r\n", "a6 ").await;
+    });
+    let outcome = client.await;
+    running.finish().await;
+    let _ = owner
+        .execute(
+            "DELETE FROM mailbox_lifecycle WHERE mailbox_id = $1",
+            &[&sec_mb],
+        )
+        .await;
+    let _ = owner
+        .execute("DELETE FROM message_tags WHERE mailbox_id = $1", &[&sec_mb])
+        .await;
+    let _ = owner
+        .execute("DELETE FROM messages WHERE mailbox_id = $1", &[&sec_mb])
+        .await;
+    let _ = owner
+        .execute("DELETE FROM mailboxes WHERE id = $1", &[&sec_mb])
+        .await;
+    cleanup(&owner).await;
+    outcome.expect("secondary owned mailbox IMAP test");
+}

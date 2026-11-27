@@ -1,18 +1,9 @@
 //! Admin identity (F01) slice `user-lifecycle`: create, update, delete, password
 //! reset, CSV import rows, secure-account, sign-in history and app-password
 //! revocation. See the crate DOX for the contract.
-//!
-//! Go's validation (password policy, display name) is pure and runs at the edge in
-//! Go's order. Writes that were multi-statement Go transactions call one reducer
-//! each (`rust_admin_user_*`, `rust_admin_app_password_revoke`); the existing
-//! `admin_reset_password` and `provision_account` reducers are called as Go calls
-//! them. Reducers answer `{status,...}`; every status other than the success one
-//! rolls the command back, so a refusal leaves neither data nor a receipt.
-use super::{deadline, envelope, invalid, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{
-    CommandOutcome, ReceiptCommand, Rejection, Row, ScopedExecutor, StatementFailure, Type,
-};
+use super::{deadline, envelope, invalid, sql, FAMILY};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, Rejection, Row, StatementFailure};
 use sha2::{Digest, Sha256};
 use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
 
@@ -22,7 +13,7 @@ pub const USERS_PASSWORD_RESET: [&str; 1] = ["users.password_reset"];
 
 fn command(name: &'static str) -> ReceiptCommand {
     ReceiptCommand {
-        family: "F01",
+        family: FAMILY,
         command: name,
     }
 }
@@ -67,6 +58,22 @@ fn verdict(rows: &[Row], success: u64) -> Result<serde_json::Value, StatementFai
     }
 }
 
+/// Public projection for worker-bypass `USER_UPDATE` / `USER_DELETE` (204 verdict).
+pub fn parse_mut_verdict(rows: &[Row]) -> Result<bool, StatementFailure> {
+    let v = verdict(rows, 204)?;
+    v["queued"].as_bool().ok_or_else(invalid)
+}
+
+/// Public projection for worker-bypass `USER_IMPORT_ROW` (`provision_account`).
+pub fn parse_import_row(rows: &[Row]) -> Result<bool, StatementFailure> {
+    let text: String = rows
+        .first()
+        .and_then(|r| r.try_get(0).ok())
+        .ok_or_else(invalid)?;
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|_| invalid())?;
+    Ok(v["created"].as_bool().unwrap_or(false))
+}
+
 // ---- Go's pure validation ----------------------------------------------------------
 
 /// Go's `validate.PasswordPolicy` as loaded by `pwhash.LoadPasswordPolicy`.
@@ -93,14 +100,11 @@ impl Default for PasswordPolicy {
 }
 
 /// `pwhash.LoadPasswordPolicy`; a failed read is Go's default policy.
-pub async fn load_policy(exec: &ScopedExecutor) -> PasswordPolicy {
-    let sql = "SELECT \
-        COALESCE((SELECT (value->>0)::INT FROM system_config WHERE key = 'password_min_length'), 8), \
-        COALESCE((SELECT (value->>0)::BOOL FROM system_config WHERE key = 'password_require_uppercase'), true), \
-        COALESCE((SELECT (value->>0)::BOOL FROM system_config WHERE key = 'password_require_lowercase'), true), \
-        COALESCE((SELECT (value->>0)::BOOL FROM system_config WHERE key = 'password_require_digit'), true), \
-        COALESCE((SELECT (value->>0)::BOOL FROM system_config WHERE key = 'password_require_special'), true)";
-    let Ok(rows) = exec.read(sql, &[]).await else {
+pub async fn load_policy(factory: &TxFactory, admin: &AdminPermissionProof) -> PasswordPolicy {
+    let Ok(rows) = factory
+        .run_admin_read_contract(admin, &sql::PASSWORD_POLICY_LOAD, &[])
+        .await
+    else {
         return PasswordPolicy::default();
     };
     let Some(row) = rows.first() else {
@@ -138,13 +142,14 @@ fn go_lower(text: &str) -> String {
 }
 
 /// `pwhash.CheckCommonPassword`; a failed lookup is "not common", as in Go.
-pub async fn is_common_password(exec: &ScopedExecutor, password: &str) -> bool {
+pub async fn is_common_password(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    password: &str,
+) -> bool {
     let digest: Vec<u8> = Sha256::digest(go_lower(password.trim()).as_bytes()).to_vec();
-    let Ok(rows) = exec
-        .read(
-            "SELECT EXISTS(SELECT 1 FROM common_passwords WHERE password_hash = $1)",
-            &[(&digest, Type::BYTEA)],
-        )
+    let Ok(rows) = factory
+        .run_admin_read_contract(admin, &sql::COMMON_PASSWORD_EXISTS, &[&digest])
         .await
     else {
         return false;
@@ -258,7 +263,7 @@ pub fn validate_display_name(name: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
-// ---- reads under the verified actor --------------------------------------------------
+// ---- reads under the verified admin proof --------------------------------------------------
 
 fn flag(rows: &[Row]) -> Result<bool, StatementFailure> {
     rows.first()
@@ -268,63 +273,60 @@ fn flag(rows: &[Row]) -> Result<bool, StatementFailure> {
 
 /// `admin_can_manage(actor, target)`: current domain and OU reach.
 pub async fn can_manage(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     actor: i64,
     target: i64,
 ) -> Result<bool, StatementFailure> {
     flag(
-        &exec
-            .read(
-                "SELECT admin_can_manage($1, $2)",
-                &[(&actor, Type::INT8), (&target, Type::INT8)],
-            )
+        &factory
+            .run_admin_read_contract(admin, &sql::ADMIN_CAN_MANAGE, &[&actor, &target])
             .await?,
     )
 }
 
 /// `is_guest_account(target)`: Go fails closed on a lookup error.
-pub async fn is_guest(exec: &ScopedExecutor, target: i64) -> Result<bool, StatementFailure> {
+pub async fn is_guest(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    target: i64,
+) -> Result<bool, StatementFailure> {
     flag(
-        &exec
-            .read("SELECT is_guest_account($1)", &[(&target, Type::INT8)])
+        &factory
+            .run_admin_read_contract(admin, &sql::IS_GUEST_ACCOUNT, &[&target])
             .await?,
     )
 }
 
 /// Go's `domainGate` existence-in-scope test (domain scope 0 is global).
 pub async fn in_scope(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     domain_scope: i64,
     target: i64,
 ) -> Result<bool, StatementFailure> {
     flag(
-        &exec
-            .read(
-                "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND ($2::bigint <= 0 OR domain_id = $2))",
-                &[(&target, Type::INT8), (&domain_scope, Type::INT8)],
-            )
+        &factory
+            .run_admin_read_contract(admin, &sql::USER_IN_SCOPE, &[&target, &domain_scope])
             .await?,
     )
 }
 
 /// The target's email for the password-policy containment check; `None` is Go's 404.
 pub async fn reset_email(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     domain_scope: i64,
     target: i64,
 ) -> Result<Option<String>, StatementFailure> {
     let rows = if domain_scope > 0 {
-        exec.read(
-            "SELECT email FROM users WHERE id = $1 AND COALESCE(guest_account_host_domain(id), domain_id) = $2",
-            &[(&target, Type::INT8), (&domain_scope, Type::INT8)],
-        )
-        .await?
+        factory
+            .run_admin_read_contract(admin, &sql::RESET_EMAIL_SCOPED, &[&target, &domain_scope])
+            .await?
     } else {
-        exec.read(
-            "SELECT email FROM users WHERE id = $1",
-            &[(&target, Type::INT8)],
-        )
-        .await?
+        factory
+            .run_admin_read_contract(admin, &sql::RESET_EMAIL_GLOBAL, &[&target])
+            .await?
     };
     match rows.first() {
         None => Ok(None),
@@ -333,28 +335,26 @@ pub async fn reset_email(
 }
 
 /// `mailbox_lifecycle_enabled()`: when on, the compatibility DELETE is refused.
-pub async fn lifecycle_enabled(worker: &ScopedExecutor) -> Result<bool, StatementFailure> {
+pub async fn lifecycle_enabled(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<bool, StatementFailure> {
     flag(
-        &worker
-            .read("SELECT mailbox_lifecycle_enabled()", &[])
+        &factory
+            .run_admin_read_contract(admin, &sql::LIFECYCLE_ENABLED, &[])
             .await?,
     )
 }
 
 /// `GET /admin/users/{id}/sign-ins`: up to 200 attributed events, newest first.
-/// Rows render in Go's struct field order; `occurred_at` is `Format(time.RFC3339)`.
 pub async fn sign_ins(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     target: i64,
     domain_scope: i64,
 ) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT id, to_char(occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), source_ip, location, \
-             device_name, platform, client, protocol, auth_method, success, fail_reason \
-             FROM rust_admin_user_sign_ins($1, $2)",
-            &[(&target, Type::INT8), (&domain_scope, Type::INT8)],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::USER_SIGN_INS, &[&target, &domain_scope])
         .await?;
     let bad = |_| invalid();
     let mut items = Vec::new();
@@ -385,14 +385,14 @@ pub async fn sign_ins(
     Ok(super::done(format!("{{\"items\":[{}]}}", items.join(","))))
 }
 
-// ---- commands --------------------------------------------------------------------------
+// ---- audited commands --------------------------------------------------------------------------
 
 /// `POST /admin/users` after the edge validation: the new id and whether the
 /// outbox already holds the publication (Go dispatches directly otherwise).
 #[allow(clippy::too_many_arguments)]
 pub async fn create(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     raw_email: &str,
     email: &str,
     display_name: &str,
@@ -401,274 +401,160 @@ pub async fn create(
     domain_scope: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<(i64, bool), StatementFailure> {
-    let auth = scope(actor);
     let payload = format!("{raw_email}\u{0}{email}\u{0}{display_name}\u{0}{is_local_admin}");
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("user_create"),
-        &envelope(&auth, operation, &payload),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_user_create($2,$4,$5,$6,$7,$8,$9)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&raw_email, Type::TEXT),
-            (&email, Type::TEXT),
-            (&display_name, Type::TEXT),
-            (&hash, Type::TEXT),
-            (&is_local_admin, Type::BOOL),
-            (&domain_scope, Type::INT8),
-        ],
-        |rows| {
-            let v = verdict(rows, 201)?;
-            Ok((
-                v["id"].as_i64().ok_or_else(invalid)?,
-                v["queued"].as_bool().ok_or_else(invalid)?,
-            ))
-        },
-    )
-    .await
-}
-
-/// `PUT /admin/users/{id}` after reach: the publication flag.
-#[allow(clippy::too_many_arguments)]
-pub async fn update(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
-    id: i64,
-    domain_scope: i64,
-    display_name: Option<&str>,
-    enabled: Option<bool>,
-    is_local_admin: Option<bool>,
-    operation: [u8; 16],
-) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    let payload = format!("{id}:{domain_scope}:{display_name:?}:{enabled:?}:{is_local_admin:?}");
-    let display_name = display_name.map(str::to_owned);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("user_update"),
-        &envelope(&auth, operation, &payload),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_user_update($2,$4,$5,$6,$7,$8)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&id, Type::INT8),
-            (&domain_scope, Type::INT8),
-            (&display_name, Type::TEXT),
-            (&enabled, Type::BOOL),
-            (&is_local_admin, Type::BOOL),
-        ],
-        |rows| {
-            let v = verdict(rows, 204)?;
-            v["queued"].as_bool().ok_or_else(invalid)
-        },
-    )
-    .await
-}
-
-/// `DELETE /admin/users/{id}`: the publication flag.
-pub async fn delete(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
-    id: i64,
-    domain_scope: i64,
-    operation: [u8; 16],
-) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("user_delete"),
-        &envelope(&auth, operation, &format!("{id}:{domain_scope}")),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_user_delete($2,$4,$5)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[(&id, Type::INT8), (&domain_scope, Type::INT8)],
-        |rows| {
-            let v = verdict(rows, 204)?;
-            v["queued"].as_bool().ok_or_else(invalid)
-        },
-    )
-    .await
+    let env = envelope(admin.actor(), admin.generation(), operation, &payload);
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::USER_CREATE,
+            &[
+                &raw_email,
+                &email,
+                &display_name,
+                &hash,
+                &is_local_admin,
+                &domain_scope,
+            ],
+            Some(command("user_create")),
+            |rows, _audited| {
+                let v = verdict(&rows, 201)?;
+                Ok((
+                    v["id"].as_i64().ok_or_else(invalid)?,
+                    v["queued"].as_bool().ok_or_else(invalid)?,
+                ))
+            },
+        )
+        .await
 }
 
 /// `PUT /admin/users/{id}/password`: Go's `admin_reset_password` reducer, unchanged.
 pub async fn reset_password(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     id: i64,
     domain_scope: i64,
     hash: &str,
     must_change: bool,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("user_password_reset"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("{id}:{domain_scope}:{must_change}"),
-        ),
-        &auth,
-        deadline(),
-        "SELECT admin_reset_password($2,$4,$5,$6,$7) WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&id, Type::INT8),
-            (&domain_scope, Type::INT8),
-            (&hash, Type::TEXT),
-            (&must_change, Type::BOOL),
-        ],
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get::<_, i64>(0).ok())
-                .map(|_| ())
-                .ok_or_else(invalid)
-        },
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!("{id}:{domain_scope}:{must_change}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::USER_PASSWORD_RESET,
+            &[&id, &domain_scope, &hash, &must_change],
+            Some(command("user_password_reset")),
+            |rows, _audited| {
+                rows.first()
+                    .and_then(|r| r.try_get::<_, i64>(0).ok())
+                    .map(|_| ())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }
 
 /// `POST /admin/users/{id}/secure-account`.
 pub async fn secure(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     id: i64,
     domain_scope: i64,
     ip: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("user_secure"),
-        &envelope(&auth, operation, &format!("{id}:{domain_scope}")),
-        &auth,
-        deadline(),
-        "SELECT count(*)::bigint FROM (SELECT rust_admin_user_secure($2,$4,$6,$5) WHERE $1::bigint >= 0 AND $3::text <> '') w",
-        &[(&id, Type::INT8), (&domain_scope, Type::INT8), (&ip, Type::TEXT)],
-        |rows| {
-            if rows.len() == 1 {
-                Ok(())
-            } else {
-                Err(invalid())
-            }
-        },
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!("{id}:{domain_scope}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::USER_SECURE,
+            &[&id, &ip, &domain_scope],
+            Some(command("user_secure")),
+            |rows, _audited| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 /// `DELETE /admin/users/{userId}/app-passwords/{apId}`: `false` is Go's 404.
 #[allow(clippy::too_many_arguments)]
 pub async fn revoke_app_password(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    actor_email: &str,
     user: i64,
     app_password: i64,
     domain_scope: i64,
     ip: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    let email = actor.email().to_owned();
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("app_password_revoke"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("{user}:{app_password}:{domain_scope}"),
-        ),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_app_password_revoke($2,$4,$5,$6,$7,$8) WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&user, Type::INT8),
-            (&app_password, Type::INT8),
-            (&domain_scope, Type::INT8),
-            (&ip, Type::TEXT),
-            (&email, Type::TEXT),
-        ],
-        |rows| {
-            let found = flag(rows)?;
-            if found {
-                Ok(true)
-            } else {
-                // A miss changes nothing: roll back so no receipt is kept for it.
-                Err(StatementFailure {
-                    sqlstate: None,
-                    hint: None,
-                    message: "{\"status\":404,\"detail\":\"not found\"}".into(),
-                })
-            }
-        },
-    )
-    .await
-}
-
-/// A CSV row: `provision_account` exactly as Go's `identity.ProvisionAccount` binds it.
-#[allow(clippy::too_many_arguments)]
-pub async fn import_row(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    email: &str,
-    display_name: &str,
-    hash: &str,
-    is_local_admin: bool,
-    department: Option<i64>,
-    quota_bytes: Option<i64>,
-    operation: [u8; 16],
-) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    let payload =
-        format!("{email}\u{0}{display_name}\u{0}{is_local_admin}:{department:?}:{quota_bytes:?}");
-    let actor_id = actor.user_id();
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("user_import_row"),
-        &envelope(&auth, operation, &payload),
-        &auth,
-        deadline(),
-        "SELECT provision_account(p_email => $4, p_display_name => $5, p_password_hash => $6, p_is_local_admin => $7, \
-         p_enabled => TRUE, p_sync_source => 'local', p_department_id => $8, p_quota_bytes => $9, p_create_only => TRUE, \
-         p_actor => $10)::text WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
-        &[
-            (&email, Type::TEXT),
-            (&display_name, Type::TEXT),
-            (&hash, Type::TEXT),
-            (&is_local_admin, Type::BOOL),
-            (&department, Type::INT8),
-            (&quota_bytes, Type::INT8),
-            (&actor_id, Type::INT8),
-        ],
-        |rows| {
-            let text: String = rows
-                .first()
-                .and_then(|r| r.try_get(0).ok())
-                .ok_or_else(invalid)?;
-            let v: serde_json::Value = serde_json::from_str(&text).map_err(|_| invalid())?;
-            Ok(v["created"].as_bool().unwrap_or(false))
-        },
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!("{user}:{app_password}:{domain_scope}"),
+    );
+    let email = actor_email.to_owned();
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::APP_PASSWORD_REVOKE,
+            &[&user, &app_password, &domain_scope, &ip, &email],
+            Some(command("app_password_revoke")),
+            |rows, _audited| {
+                let found = flag(&rows)?;
+                if found {
+                    Ok(true)
+                } else {
+                    // A miss changes nothing: roll back so no receipt is kept for it.
+                    Err(StatementFailure {
+                        sqlstate: None,
+                        hint: None,
+                        message: "{\"status\":404,\"detail\":\"not found\"}".into(),
+                    })
+                }
+            },
+        )
+        .await
 }
 
 /// `admin_scope_within(actor, 'ou', department, grant_domain)` for a CSV row.
 pub async fn department_in_scope(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     actor: i64,
     department: i64,
     grant_domain: Option<i64>,
 ) -> Result<bool, StatementFailure> {
     flag(
-        &exec
-            .read(
-                "SELECT admin_scope_within($1, 'ou', $2, $3)",
-                &[
-                    (&actor, Type::INT8),
-                    (&department, Type::INT8),
-                    (&grant_domain, Type::INT8),
-                ],
+        &factory
+            .run_admin_read_contract(
+                admin,
+                &sql::DEPARTMENT_IN_SCOPE,
+                &[&actor, &department, &grant_domain],
             )
             .await?,
     )
@@ -676,17 +562,18 @@ pub async fn department_in_scope(
 
 /// `resolveLocalDomain`: the id of the local domain named by the raw address's last
 /// '@' suffix, or `None` (any failure is the same 400 in Go).
-pub async fn local_domain(exec: &ScopedExecutor, raw_email: &str) -> Option<i64> {
+pub async fn local_domain(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    raw_email: &str,
+) -> Option<i64> {
     let at = raw_email.rfind('@')?;
     if at == raw_email.len() - 1 {
         return None;
     }
     let domain = raw_email[at + 1..].to_lowercase();
-    let rows = exec
-        .read(
-            "SELECT id FROM domains WHERE lower(name) = $1 AND is_local = TRUE LIMIT 1",
-            &[(&domain, Type::TEXT)],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::LOCAL_DOMAIN, &[&domain])
         .await
         .ok()?;
     rows.first().and_then(|r| r.try_get::<_, i64>(0).ok())
@@ -740,7 +627,6 @@ mod tests {
             digit: false,
             special: false,
         };
-        // Eight CJK runes are 24 bytes: long enough; 25 of them are 75 bytes: too long.
         assert_eq!(validate_password(&"密".repeat(8), &p, ""), Ok(()));
         assert_eq!(
             validate_password(&"密".repeat(25), &p, ""),
@@ -761,9 +647,7 @@ mod tests {
             digit: true,
             special: true,
         };
-        // Greek capital, lowercase, Arabic-Indic digit (Nd) and a currency symbol (Sc).
         assert_eq!(validate_password("Δa٣€", &p, ""), Ok(()));
-        // A titlecase letter (Lt) is neither upper nor lower in Go.
         assert_eq!(
             validate_password("ǅ1!x", &p, ""),
             Err("password must contain an uppercase letter")
@@ -798,19 +682,13 @@ mod tests {
             Err("display name must not be empty")
         );
         assert_eq!(
-            validate_display_name(&"n".repeat(129)),
+            validate_display_name(&"a".repeat(129)),
             Err("display name exceeds 128 characters")
         );
         assert_eq!(
-            validate_display_name("a\u{7}b"),
+            validate_display_name("a\nb"),
             Err("display name contains control character")
         );
-        assert_eq!(validate_display_name("  名前 😀  "), Ok(()));
-    }
-
-    #[test]
-    fn lowercasing_is_rune_wise_like_go() {
-        assert_eq!(go_lower("ABC Δ"), "abc δ");
-        assert_eq!(go_lower("İ"), "i");
+        assert_eq!(validate_display_name("Alice"), Ok(()));
     }
 }

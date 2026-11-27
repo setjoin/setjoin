@@ -6,9 +6,74 @@ use crate::mail_security_input as input;
 use crate::mailboxes::{bare, unknown_outcome};
 use crate::{Body, RequestContext};
 use hyper::{Request, Response};
-use setjoin_authz::AuthContext;
-use setjoin_mail_security::dlp as db;
-use setjoin_pg::{CommandOutcome, ScopedExecutor};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_mail_security::{dlp as db, sql as mailsec_sql};
+use setjoin_pg::{CommandOutcome, Rejection, ScopedExecutor, StatementFailure};
+
+async fn worker_antiphish_put(
+    worker: &ScopedExecutor,
+    _admin: &AdminPermissionProof,
+    keys: &[String],
+    values: &[String],
+    operation: [u8; 16],
+) -> CommandOutcome<(), StatementFailure> {
+    let op = setjoin_contracts::ids::OperationId(operation);
+    let Some(pool) = worker.try_worker_pool() else {
+        return CommandOutcome::RolledBack(Rejection::Unavailable);
+    };
+    let mut tx = match pool.begin_read_write().await {
+        Ok(tx) => tx,
+        Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
+    };
+    let body: Result<(), StatementFailure> = async {
+        let rows = tx
+            .query_contract(&mailsec_sql::ANTIPHISH_PUT, &[&keys, &values])
+            .await?;
+        let unexpected = || StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "unexpected antiphish upsert count".into(),
+        };
+        let count: i32 = rows
+            .first()
+            .and_then(|r| r.try_get(0).ok())
+            .ok_or_else(unexpected)?;
+        if count != 6 {
+            return Err(unexpected());
+        }
+        tx.record_receipt(
+            op,
+            setjoin_pg::ReceiptCommand {
+                family: setjoin_mail_security::FAMILY,
+                command: "antiphish.put",
+            },
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
+    match body {
+        Ok(()) => match tx.commit().await {
+            Ok(()) => CommandOutcome::Committed(()),
+            Err(e) => {
+                if let Some(code) = e.sqlstate.as_deref() {
+                    if setjoin_pg::commit_failure_observation(Some(code))
+                        == setjoin_contracts::command::CommitObservation::RolledBack
+                    {
+                        return CommandOutcome::RolledBack(Rejection::CommitRefused(
+                            code.to_owned(),
+                        ));
+                    }
+                }
+                CommandOutcome::Unknown { operation: op }
+            }
+        },
+        Err(f) => {
+            let _ = tx.rollback().await;
+            CommandOutcome::RolledBack(Rejection::Statement(f))
+        }
+    }
+}
 
 /// Go's `time.Time.Format(time.RFC3339)` in the process's local zone.
 fn local_rfc3339(epoch: i64) -> String {
@@ -27,10 +92,12 @@ pub(crate) async fn handle(
     c: &RequestContext,
     id: &str,
     operation: [u8; 16],
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    admin: &AdminPermissionProof,
     worker: &ScopedExecutor,
-    domain_scope: i64,
 ) -> Response<Body> {
+    let domain_scope = admin.enforced_domain_scope().unwrap_or(0);
     let head = r.method() == hyper::Method::HEAD;
     let reply = |body: String, status: u16| {
         let chunked = body.len() > 2048 && !head;
@@ -52,7 +119,7 @@ pub(crate) async fn handle(
         response
     };
     match what {
-        Action::DlpGet => match db::patterns_get(worker, domain_scope).await {
+        Action::DlpGet => match db::patterns_get(factory, admin).await {
             Ok(body) => reply(body, 200),
             Err(_) => bare(500, "failed to load patterns", c, id),
         },
@@ -83,7 +150,7 @@ pub(crate) async fn handle(
                     enabled: p.enabled,
                 })
                 .collect();
-            match db::patterns_put(worker, actor, &patterns, operation).await {
+            match db::patterns_put(factory, user, &patterns, operation).await {
                 Ok(()) => empty(200),
                 Err(db::ReplaceError::Clear) => bare(500, "failed to clear patterns", c, id),
                 Err(db::ReplaceError::Save) => bare(500, "failed to save patterns", c, id),
@@ -92,7 +159,7 @@ pub(crate) async fn handle(
                 }
             }
         }
-        Action::AntiPhishGet => match db::antiphish_get(worker).await {
+        Action::AntiPhishGet => match db::antiphish_get(factory, admin).await {
             Ok(body) => reply(body, 200),
             Err(_) => bare(500, "database error", c, id),
         },
@@ -108,7 +175,8 @@ pub(crate) async fn handle(
                 domains: body.domains,
                 users: body.users,
             };
-            match db::antiphish_put(worker, actor, &body, operation).await {
+            let (keys, values) = db::antiphish_put_args(&body);
+            match worker_antiphish_put(worker, admin, &keys, &values, operation).await {
                 CommandOutcome::Committed(()) => empty(204),
                 CommandOutcome::RolledBack(_) => bare(500, "database error", c, id),
                 CommandOutcome::Unknown { operation } => unknown_outcome(operation, c, id),
@@ -142,11 +210,13 @@ pub(crate) async fn handle(
                     ));
                 }
             }
-            let rows = match db::audit_list(worker, since.as_deref(), &get("url_hash"), limit).await
-            {
-                Ok(rows) => rows,
-                Err(_) => return bare(500, "database error", c, id),
-            };
+            let rows =
+                match db::audit_list(factory, admin, since.as_deref(), &get("url_hash"), limit)
+                    .await
+                {
+                    Ok(rows) => rows,
+                    Err(_) => return bare(500, "database error", c, id),
+                };
             let s = setjoin_mail_security::s;
             let items = rows
                 .iter()

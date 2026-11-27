@@ -511,7 +511,7 @@ mod tests {
             "invalid character '\"' after object key:value pair"
         );
         assert_eq!(err("[1 2]"), "invalid character '2' after array element");
-        assert_eq!(err("{\"a\":01}").is_empty(), false);
+        assert!(!err("{\"a\":01}").is_empty());
         assert_eq!(err("-x"), "invalid character 'x' in numeric literal");
         assert_eq!(
             err("1.x"),

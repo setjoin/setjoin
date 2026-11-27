@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 pub struct PlatformWebhooksRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
     pub codec: SecretCodec,
@@ -135,6 +136,7 @@ impl<K: KeySource + 'static> Intercept for PlatformWebhooksRoute<K> {
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        let worker = self.worker.clone();
         let codec = self.codec.clone();
         Box::pin(async move {
             let what = action(r.method(), r.uri().path()).expect("matched route");
@@ -148,34 +150,62 @@ impl<K: KeySource + 'static> Intercept for PlatformWebhooksRoute<K> {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+            let worker_exec = worker.as_ref().unwrap_or(&exec);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(worker_exec))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(500, "database error", &c, &id);
+            };
             let actor = auth.context();
             let go_path = segment_path(r.uri().path());
             let required = gate(what);
-            let authority = match setjoin_platform::authority(&exec, actor).await {
-                Ok(authority) if authority.allows_any(required) => authority,
-                _ => {
-                    let _ = setjoin_platform::console_denied(
-                        &exec,
-                        actor,
-                        &go_path,
-                        &required.join("|"),
-                        operation,
-                    )
-                    .await;
-                    return bare(403, "Forbidden", &c, &id);
-                }
+            let admin_opt = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
             };
-            if authority.refused_for_scope(required) {
+            let Some(admin_principal) = admin_opt.filter(|a| a.allows_any(required)) else {
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
+            if admin_principal.refused_for_scope(required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
                     required.join("|"),
-                    authority.domain_scope()
+                    admin_principal.enforced_domain_scope().unwrap_or(0)
                 );
-                let _ =
-                    setjoin_platform::console_denied(&exec, actor, &go_path, &detail, operation)
-                        .await;
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &detail,
+                    operation,
+                )
+                .await;
                 return bare(403, "Forbidden", &c, &id);
             }
+            let Ok(admin) = admin_principal.require_any_permission(required) else {
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
             let head = r.method() == Method::HEAD;
             let reply = |body: String, status: u16| {
                 let chunked = body.len() > 2048 && !head;
@@ -199,11 +229,11 @@ impl<K: KeySource + 'static> Intercept for PlatformWebhooksRoute<K> {
             };
             match what {
                 Action::Events => reply(db::event_catalog(), 200),
-                Action::List => match db::list(&exec).await {
+                Action::List => match db::list(&factory, &admin).await {
                     Ok(body) => reply(body, 200),
                     Err(_) => bare(500, "database error", &c, &id),
                 },
-                Action::Deliveries => match db::deliveries(&exec, target()).await {
+                Action::Deliveries => match db::deliveries(&factory, &admin, target()).await {
                     Ok(body) => reply(body, 200),
                     Err(_) => bare(500, "query failed", &c, &id),
                 },
@@ -224,8 +254,9 @@ impl<K: KeySource + 'static> Intercept for PlatformWebhooksRoute<K> {
                         return bare(400, detail, &c, &id);
                     }
                     match db::create(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user_principal,
+                        &admin,
                         &codec,
                         &body.url,
                         &body.event_types,
@@ -240,23 +271,34 @@ impl<K: KeySource + 'static> Intercept for PlatformWebhooksRoute<K> {
                         Outcome::Unknown(operation) => unknown_outcome(operation, &c, &id),
                     }
                 }
-                Action::Delete => match db::delete(&exec, actor, target(), operation).await {
-                    CommandOutcome::Committed(true) => {
-                        let mut response = reply(String::new(), 204);
-                        response.headers_mut().remove("content-type");
-                        response
-                    }
-                    CommandOutcome::Committed(false) => bare(404, "not found", &c, &id),
-                    CommandOutcome::RolledBack(_) => bare(500, "database error", &c, &id),
-                    CommandOutcome::Unknown { operation } => unknown_outcome(operation, &c, &id),
-                },
-                Action::Rotate => {
-                    match db::rotate(&exec, actor, &codec, target(), operation).await {
-                        Outcome::Done(text) => reply(text, 200),
-                        Outcome::Failed(failure) => failed(failure),
-                        Outcome::Unknown(operation) => unknown_outcome(operation, &c, &id),
+                Action::Delete => {
+                    match db::delete(&factory, &user_principal, &admin, target(), operation).await {
+                        CommandOutcome::Committed(true) => {
+                            let mut response = reply(String::new(), 204);
+                            response.headers_mut().remove("content-type");
+                            response
+                        }
+                        CommandOutcome::Committed(false) => bare(404, "not found", &c, &id),
+                        CommandOutcome::RolledBack(_) => bare(500, "database error", &c, &id),
+                        CommandOutcome::Unknown { operation } => {
+                            unknown_outcome(operation, &c, &id)
+                        }
                     }
                 }
+                Action::Rotate => match db::rotate(
+                    &factory,
+                    &user_principal,
+                    &admin,
+                    &codec,
+                    target(),
+                    operation,
+                )
+                .await
+                {
+                    Outcome::Done(text) => reply(text, 200),
+                    Outcome::Failed(failure) => failed(failure),
+                    Outcome::Unknown(operation) => unknown_outcome(operation, &c, &id),
+                },
             }
         })
     }

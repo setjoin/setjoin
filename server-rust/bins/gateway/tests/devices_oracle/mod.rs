@@ -213,6 +213,7 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
             .with_audit_keys("22".repeat(32), String::new());
         let adapter = Probe {
             inner: DevicesRoute {
+                worker: exec.clone(),
                 exec,
                 keys: Arc::new(common::recovery_keys()),
                 issuer: "mailserver".into(),

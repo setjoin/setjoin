@@ -7,9 +7,9 @@ use crate::mail_security_input as input;
 use crate::mailboxes::{bare, unknown_outcome};
 use crate::{Body, RequestContext};
 use hyper::{Request, Response};
-use setjoin_authz::AuthContext;
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
 use setjoin_mail_security::tls as db;
-use setjoin_pg::{CommandOutcome, ScopedExecutor};
+use setjoin_pg::CommandOutcome;
 
 /// Go's default `tls.autocert_cache_dir`.
 pub const DEFAULT_CACHE_DIR: &str = "/var/cache/mailserver/autocert";
@@ -86,8 +86,9 @@ pub(crate) async fn handle(
     c: &RequestContext,
     id: &str,
     operation: [u8; 16],
-    actor: &AuthContext,
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    admin: &AdminPermissionProof,
     import_dir: Option<&str>,
 ) -> Response<Body> {
     let head = r.method() == hyper::Method::HEAD;
@@ -115,7 +116,7 @@ pub(crate) async fn handle(
     let ip = c.identity.client_ip.to_string();
     match what {
         Action::TlsStatus => {
-            let status = db::status_input(worker).await;
+            let status = db::status_input(factory, admin).await;
             let mut cert = None;
             if status.enabled && !status.cache_dir.is_empty() && !status.domains.is_empty() {
                 let path = db::cert_cache_path(&status.cache_dir, &status.domains[0]);
@@ -129,7 +130,7 @@ pub(crate) async fn handle(
             }
             reply(db::status_body(&status, cert.as_ref()), 200)
         }
-        Action::TlsConfigGet => match db::config_get(worker).await {
+        Action::TlsConfigGet => match db::config_get(factory, admin).await {
             Ok(body) => reply(body, 200),
             Err(_) => bare(500, "database error", c, id),
         },
@@ -142,7 +143,7 @@ pub(crate) async fn handle(
                 serde_json::Value::Object(map) => map,
                 _ => return bare(400, "invalid JSON", c, id),
             };
-            match db::config_set(worker, actor, &ip, &values, operation).await {
+            match db::config_set(factory, admin, user, &ip, &values, operation).await {
                 Ok(()) => no_content(),
                 Err(db::SetError::Outcome(CommandOutcome::Unknown { operation })) => {
                     unknown_outcome(operation, c, id)
@@ -186,13 +187,13 @@ pub(crate) async fn handle(
             );
             // Go logs a failed audit write and still answers 200.
             if let CommandOutcome::Unknown { operation } =
-                db::import_audit(worker, actor, &ip, &cert_text, &key_text, operation).await
+                db::import_audit(factory, user, &ip, &cert_text, &key_text, operation).await
             {
                 return unknown_outcome(operation, c, id);
             }
             reply(db::import_body(&cert_text, &key_text), 200)
         }
-        Action::PolicyGet => reply(db::policy_get(worker).await, 200),
+        Action::PolicyGet => reply(db::policy_get(factory, admin).await, 200),
         Action::PolicyPut => {
             let Ok(body) = input::one_capped::<input::TlsPolicy>(&mut r, 1 << 20).await else {
                 return bare(400, "invalid JSON", c, id);
@@ -204,7 +205,7 @@ pub(crate) async fn handle(
                 body.enforce.unwrap_or_default(),
                 body.skip.unwrap_or_default(),
             );
-            match db::policy_put(worker, actor, &enforce, &skip, &body.mode, operation).await {
+            match db::policy_put(factory, user, &enforce, &skip, &body.mode, operation).await {
                 CommandOutcome::Committed(()) => no_content(),
                 CommandOutcome::RolledBack(_) => bare(500, "database error", c, id),
                 CommandOutcome::Unknown { operation } => unknown_outcome(operation, c, id),

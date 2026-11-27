@@ -5,10 +5,10 @@
 //! semantics and the registry digest) is ported here; mutation authority stays in the V183
 //! reducers `feature_toggle_set`, `feature_toggle_delete_unknown` and
 //! `feature_toggle_registry_mode_set`, each one receipted statement.
-use super::{command, deadline, done, envelope, invalid, s, scope};
+use super::{command, deadline, done, envelope, invalid, s, sql};
 use crate::registry_data::DEFINITIONS;
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 use sha2::{Digest as _, Sha256};
 use std::collections::BTreeMap;
 
@@ -185,17 +185,12 @@ struct Row {
 /// `GET /admin/features`. `Err(None)` is the missing registry-state row (Go's internal
 /// problem); `Err(Some(_))` a failed query.
 pub async fn list(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     overrides: &Overrides,
 ) -> Result<String, Option<StatementFailure>> {
-    let rows = exec
-        .read(
-            "SELECT ft.key, ft.enabled, coalesce(ft.description,''), \
-             feature_registry_classify(ft.key), s.mode \
-             FROM feature_toggle_registry_state s LEFT JOIN feature_toggles ft ON true \
-             WHERE s.singleton ORDER BY ft.key",
-            &[],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::FEATURES_LIST, &[])
         .await
         .map_err(Some)?;
     let mut by_key: BTreeMap<String, Row> = BTreeMap::new();
@@ -274,9 +269,6 @@ fn render_row(row: &Row, mode: &str, enforce: bool, overrides: &Overrides) -> St
     )
 }
 
-/// Reducer statement shape: the verified-actor guard first, as every Platform command.
-const GUARD: &str = "WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''";
-
 fn one_jsonb(rows: &[setjoin_pg::Row]) -> Result<String, StatementFailure> {
     rows.first()
         .and_then(|r| r.try_get::<_, String>(0).ok())
@@ -285,91 +277,97 @@ fn one_jsonb(rows: &[setjoin_pg::Row]) -> Result<String, StatementFailure> {
 }
 
 /// `PUT /admin/features/{key}`: `feature_toggle_set`.
+#[allow(clippy::too_many_arguments)]
 pub async fn set(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    admin: &AdminPermissionProof,
     key: &str,
     enabled: bool,
     ip: &str,
     reason: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("feature_toggle_set"),
-        &envelope(&auth, operation, &format!("{key}:{enabled}:{reason}")),
-        &auth,
-        deadline(),
-        &format!(
-            "SELECT public.feature_toggle_set($4::text, $5::bool, $2::bigint, $6::text::inet, $7::text)::text {GUARD}"
-        ),
-        &[
-            (&key, Type::TEXT),
-            (&enabled, Type::BOOL),
-            (&ip, Type::TEXT),
-            (&reason, Type::TEXT),
-        ],
-        |rows| one_jsonb(rows).map(|_| ()),
-    )
-    .await
+    let actor_id = admin.actor().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{key}:{enabled}:{reason}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::FEATURE_TOGGLE_SET,
+            &[&key, &enabled, &actor_id, &ip, &reason],
+            Some(command("feature_toggle_set")),
+            |rows| one_jsonb(&rows).map(|_| ()),
+        )
+        .await
 }
 
 /// `DELETE /admin/features/{key}`: `feature_toggle_delete_unknown`.
 pub async fn delete_unknown(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    admin: &AdminPermissionProof,
     key: &str,
     ip: &str,
     reason: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("feature_toggle_delete_unknown"),
-        &envelope(&auth, operation, &format!("{key}:{reason}")),
-        &auth,
-        deadline(),
-        &format!(
-            "SELECT public.feature_toggle_delete_unknown($4::text, $2::bigint, $5::text::inet, $6::text)::text {GUARD}"
-        ),
-        &[(&key, Type::TEXT), (&ip, Type::TEXT), (&reason, Type::TEXT)],
-        |rows| one_jsonb(rows).map(|_| ()),
-    )
-    .await
+    let actor_id = admin.actor().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{key}:{reason}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::FEATURE_TOGGLE_DELETE_UNKNOWN,
+            &[&key, &actor_id, &ip, &reason],
+            Some(command("feature_toggle_delete_unknown")),
+            |rows| one_jsonb(&rows).map(|_| ()),
+        )
+        .await
 }
 
 /// `PUT /admin/features/registry-mode`: `feature_toggle_registry_mode_set` with the
 /// compiled digest. The committed result is the reducer's jsonb text.
 pub async fn set_registry_mode(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    admin: &AdminPermissionProof,
     mode: &str,
     ip: &str,
     reason: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = scope(actor);
+    let actor_id = admin.actor().get();
     let digest = registry_digest();
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("feature_toggle_registry_mode_set"),
-        &envelope(&auth, operation, &format!("{mode}:{digest}:{reason}")),
-        &auth,
-        deadline(),
-        &format!(
-            "SELECT public.feature_toggle_registry_mode_set($4::text, $5::text, $2::bigint, $6::text::inet, $7::text)::text {GUARD}"
-        ),
-        &[
-            (&mode, Type::TEXT),
-            (&digest, Type::TEXT),
-            (&ip, Type::TEXT),
-            (&reason, Type::TEXT),
-        ],
-        one_jsonb,
-    )
-    .await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{mode}:{digest}:{reason}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::FEATURE_TOGGLE_REGISTRY_MODE_SET,
+            &[&mode, &digest, &actor_id, &ip, &reason],
+            Some(command("feature_toggle_registry_mode_set")),
+            |rows| one_jsonb(&rows),
+        )
+        .await
 }
 
 /// Go's `featureToggleRow`-independent mapping of a reducer refusal: the HINT's `type`

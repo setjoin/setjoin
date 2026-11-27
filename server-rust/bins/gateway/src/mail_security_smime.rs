@@ -6,9 +6,9 @@ use crate::mail_security::Action;
 use crate::mailboxes::{bare, unknown_outcome};
 use crate::{Body, RequestContext};
 use hyper::{Method, Request, Response};
-use setjoin_authz::AuthContext;
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
 use setjoin_mail_security::smime as db;
-use setjoin_pg::{CommandOutcome, ScopedExecutor};
+use setjoin_pg::CommandOutcome;
 
 /// Routes of this slice; the shared `action()` table consults this first.
 pub(crate) fn action(method: &Method, path: &str) -> Option<Action> {
@@ -106,9 +106,9 @@ pub(crate) async fn handle(
     c: &RequestContext,
     id: &str,
     operation: [u8; 16],
-    actor: &AuthContext,
-    worker: &ScopedExecutor,
-    domain_scope: i64,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    admin: Option<&AdminPermissionProof>,
 ) -> Response<Body> {
     let head = r.method() == Method::HEAD;
     let reply = |body: String| {
@@ -124,13 +124,24 @@ pub(crate) async fn handle(
     };
     match what {
         Action::CertStatus => reply(db::cert_status_body(
-            r.extensions().get::<setjoin_tls::PeerCertificate>().map(|leaf| leaf.0.as_ref()),
+            r.extensions()
+                .get::<setjoin_tls::PeerCertificate>()
+                .map(|leaf| leaf.0.as_ref()),
         )),
-        Action::SmimeList => match db::list(worker, domain_scope).await {
-            Ok(body) => reply(body),
-            Err(_) => bare(500, "database error", c, id),
-        },
+        Action::SmimeList => {
+            let Some(admin) = admin else {
+                return bare(403, "Forbidden", c, id);
+            };
+            match db::list(factory, admin).await {
+                Ok(body) => reply(body),
+                Err(_) => bare(500, "database error", c, id),
+            }
+        }
         Action::SmimeImport => {
+            let Some(admin) = admin else {
+                return bare(403, "Forbidden", c, id);
+            };
+            let domain_scope = admin.enforced_domain_scope().unwrap_or(0);
             let Ok(form) = parse_form(&mut r).await else {
                 return bare(400, "failed to parse form", c, id);
             };
@@ -155,18 +166,22 @@ pub(crate) async fn handle(
                     return bare(400, "not a valid PEM certificate", c, id)
                 }
             };
-            match db::import(worker, actor, &label, &certs, domain_scope, operation).await {
+            match db::import(factory, user, &label, &certs, domain_scope, operation).await {
                 CommandOutcome::Committed(_) => reply(db::import_body(&certs[0].fingerprint)),
                 CommandOutcome::RolledBack(_) => bare(500, "failed to store trust anchor", c, id),
                 CommandOutcome::Unknown { operation } => unknown_outcome(operation, c, id),
             }
         }
         Action::SmimeDelete => {
+            let Some(admin) = admin else {
+                return bare(403, "Forbidden", c, id);
+            };
+            let domain_scope = admin.enforced_domain_scope().unwrap_or(0);
             let segment = crate::mail_security::segment(r.uri().path(), 5);
             let Some(target) = segment.parse::<i64>().ok() else {
                 return bare(400, "invalid id", c, id);
             };
-            match db::delete(worker, actor, target, domain_scope, operation).await {
+            match db::delete(factory, user, target, domain_scope, operation).await {
                 CommandOutcome::Committed(true) => reply(db::ok_body()),
                 CommandOutcome::Committed(false) => bare(404, "trust anchor not found", c, id),
                 CommandOutcome::RolledBack(_) => bare(500, "database error", c, id),

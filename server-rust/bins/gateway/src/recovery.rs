@@ -32,7 +32,9 @@ pub struct RecoveryCommands<K: KeySource> {
 pub struct RecoveryRoute<K: KeySource + 'static>(pub Arc<RecoveryCommands<K>>);
 
 impl<K: KeySource + 'static> Intercept for RecoveryRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, req: &Request<Body>) -> bool {
         (matches!(*req.method(), Method::GET | Method::HEAD)
             && req.uri().path() == "/api/recovery/incidents")
@@ -165,11 +167,35 @@ impl<K: KeySource> RecoveryCommands<K> {
         Ok((req, authorized))
     }
 
+    pub(crate) async fn worker_read_contract(
+        &self,
+        contract: &'static setjoin_pg::SqlContract,
+        values: &[&(dyn setjoin_pg::ToSql + Sync)],
+    ) -> Result<Vec<setjoin_pg::Row>, setjoin_pg::StatementFailure> {
+        let wp =
+            self.worker_exec
+                .try_worker_pool()
+                .ok_or_else(|| setjoin_pg::StatementFailure {
+                    hint: None,
+                    sqlstate: None,
+                    message: "worker pool unavailable".into(),
+                })?;
+        let mut tx = wp.begin_repeatable_read_only().await?;
+        let rows = tx.query_contract(contract, values).await;
+        let _ = tx.rollback().await;
+        rows
+    }
+
+    pub(crate) fn tx_factory(&self) -> Option<setjoin_authz::principals::TxFactory> {
+        crate::policy_composition::tx_factory_from_executors(&self.exec, Some(&self.worker_exec))
+    }
+
     async fn try_commit(
         &self,
         req: &mut Request<Body>,
         ctx: &RequestContext,
-        actor: &setjoin_authz::AuthContext,
+        factory: &setjoin_authz::principals::TxFactory,
+        user: &setjoin_authz::principals::UserPrincipal,
     ) -> Response<Body> {
         use tokio::io::AsyncWriteExt;
         let Some(store) = self.store.as_ref() else {
@@ -218,8 +244,14 @@ impl<K: KeySource> RecoveryCommands<K> {
         if item.is_empty() || item.len() > 256 || item.contains(['/', '\0', '\r', '\n']) {
             return failed();
         }
-        let Ok(Some(meta)) =
-            setjoin_blobs::item_for_commit(&self.worker_exec, actor, &session, &item).await
+        let uid = user.user().get();
+        let Ok(Some(meta)) = self
+            .worker_read_contract(
+                &setjoin_blobs::sql::ITEM_FOR_COMMIT,
+                &[&session, &uid, &item],
+            )
+            .await
+            .map(|rows| setjoin_blobs::decode_item_for_commit(&rows))
         else {
             return failed();
         };
@@ -227,8 +259,10 @@ impl<K: KeySource> RecoveryCommands<K> {
             let value = serde_json::json!({"itemId":item,"status":"verified","objectRef":meta.object_ref,"replayed":true});
             return crate::jmap::reply::response(go_json(&value), ctx.identity.proto, request_id);
         }
-        let Ok(chunks) =
-            setjoin_blobs::item_chunks(&self.worker_exec, actor, &session, &item).await
+        let Ok(chunks) = self
+            .worker_read_contract(&setjoin_blobs::sql::ITEM_CHUNKS, &[&session, &uid, &item])
+            .await
+            .map(|rows| setjoin_blobs::decode_item_chunks(&rows))
         else {
             return failed();
         };
@@ -280,15 +314,8 @@ impl<K: KeySource> RecoveryCommands<K> {
         {
             return failed();
         }
-        match setjoin_blobs::verify_item(
-            &self.worker_exec,
-            actor,
-            &session,
-            &item,
-            &meta.digest,
-            operation,
-        )
-        .await
+        match setjoin_blobs::verify_item(factory, user, &session, &item, &meta.digest, operation)
+            .await
         {
             setjoin_pg::CommandOutcome::Committed(raw) => {
                 for chunk in chunks {
@@ -344,7 +371,8 @@ impl<K: KeySource> RecoveryCommands<K> {
         &self,
         req: &mut Request<Body>,
         ctx: &RequestContext,
-        actor: &setjoin_authz::AuthContext,
+        factory: &setjoin_authz::principals::TxFactory,
+        user: &setjoin_authz::principals::UserPrincipal,
     ) -> Response<Body> {
         let Some(store) = self.store.as_ref() else {
             let id = crate::jmap::reply::request_id(
@@ -417,15 +445,24 @@ impl<K: KeySource> RecoveryCommands<K> {
             return failed();
         }
         let digest = format!("{:x}", Sha256::digest(&bytes));
-        let Ok(Some(upload)) =
-            setjoin_blobs::upload_item(&self.worker_exec, actor, &session, &item).await
+        let uid = user.user().get();
+        let Ok(Some(upload)) = self
+            .worker_read_contract(&setjoin_blobs::sql::UPLOAD_ITEM, &[&session, &uid, &item])
+            .await
+            .map(|rows| setjoin_blobs::decode_upload_item(&rows))
         else {
             return failed();
         };
         if range.total != upload.size || !upload.available {
             return failed();
         }
-        match setjoin_blobs::chunk_at(&self.worker_exec, actor, &session, &item, range.start).await
+        match self
+            .worker_read_contract(
+                &setjoin_blobs::sql::CHUNK_AT,
+                &[&session, &uid, &item, &range.start],
+            )
+            .await
+            .map(|rows| setjoin_blobs::decode_existing_chunk(&rows))
         {
             Ok(Some(existing)) => {
                 return if existing.size as usize == bytes.len() && existing.digest == digest {
@@ -462,14 +499,18 @@ impl<K: KeySource> RecoveryCommands<K> {
             digest: &digest,
             key: &key,
         };
-        match setjoin_blobs::record_chunk(&self.worker_exec, actor, record, operation).await {
+        match setjoin_blobs::record_chunk(factory, user, record, operation).await {
             setjoin_pg::CommandOutcome::Committed(_) => empty_204(ctx, request_id),
             setjoin_pg::CommandOutcome::RolledBack(rejection) => {
                 // Go keeps the content-addressed object if any raced row exists;
                 // failed probes also retain it. Delete only a proven orphan.
                 if matches!(
-                    setjoin_blobs::chunk_at(&self.worker_exec, actor, &session, &item, range.start)
-                        .await,
+                    self.worker_read_contract(
+                        &setjoin_blobs::sql::CHUNK_AT,
+                        &[&session, &uid, &item, &range.start],
+                    )
+                    .await
+                    .map(|rows| setjoin_blobs::decode_existing_chunk(&rows)),
                     Ok(None)
                 ) {
                     let _ = store.remove(&key).await;
@@ -515,12 +556,33 @@ impl<K: KeySource> RecoveryCommands<K> {
             Ok(ok) => ok,
             Err(response) => return response,
         };
-        let identity = authorized.context();
+        let Some(factory) = self.tx_factory() else {
+            let id = crate::jmap::reply::request_id(
+                req.headers().get("x-request-id"),
+                crate::jmap::random().unwrap_or([0; 16]),
+            );
+            return problem(503, "service unavailable", ctx.identity.proto, id);
+        };
+        let Ok(user) = factory
+            .mint_user_from_authorized(&authorized, &ctx.identity.client_ip.to_string())
+            .await
+        else {
+            let id = crate::jmap::reply::request_id(
+                req.headers().get("x-request-id"),
+                crate::jmap::random().unwrap_or([0; 16]),
+            );
+            return problem(
+                500,
+                "recovery control operation failed",
+                ctx.identity.proto,
+                id,
+            );
+        };
         if req.method() == Method::POST && commit_target(req.uri().path()).is_some() {
-            return self.try_commit(&mut req, ctx, identity).await;
+            return self.try_commit(&mut req, ctx, &factory, &user).await;
         }
         if req.method() == Method::PUT {
-            return self.try_chunk(&mut req, ctx, identity).await;
+            return self.try_chunk(&mut req, ctx, &factory, &user).await;
         }
         if req.method() == Method::POST {
             if self.store.is_none() {
@@ -602,14 +664,8 @@ impl<K: KeySource> RecoveryCommands<K> {
                     request_id,
                 );
             };
-            return match setjoin_blobs::fork_consent(
-                &self.worker_exec,
-                identity,
-                &artifact,
-                &device,
-                operation,
-            )
-            .await
+            return match setjoin_blobs::fork_consent(&factory, &user, &artifact, &device, operation)
+                .await
             {
                 setjoin_pg::CommandOutcome::Committed(json) => {
                     crate::jmap::reply::response(json, ctx.identity.proto, request_id)
@@ -676,8 +732,7 @@ impl<K: KeySource> RecoveryCommands<K> {
                     request_id,
                 );
             };
-            let result =
-                setjoin_blobs::abort_upload(&self.worker_exec, identity, &session, operation).await;
+            let result = setjoin_blobs::abort_upload(&factory, &user, &session, operation).await;
             return match result {
                 setjoin_pg::CommandOutcome::Committed(keys) => {
                     for key in keys {
@@ -723,7 +778,7 @@ impl<K: KeySource> RecoveryCommands<K> {
             req.headers().get("x-request-id"),
             crate::jmap::random().unwrap_or([0; 16]),
         );
-        match setjoin_blobs::user_incidents(&self.worker_exec, identity).await {
+        match setjoin_blobs::user_incidents(&factory, &user).await {
             Ok(json) => crate::jmap::reply::response(json, ctx.identity.proto, request_id),
             Err(err) => rejection_response(
                 &setjoin_pg::Rejection::Statement(err),

@@ -149,7 +149,11 @@ mod tests {
             }
         );
 
-        for args in [r#"{"accountId":"12"}"#, r#"{"accountId":"12","ids":[]}"#, r#"{"accountId":"12","ids":null}"#] {
+        for args in [
+            r#"{"accountId":"12"}"#,
+            r#"{"accountId":"12","ids":[]}"#,
+            r#"{"accountId":"12","ids":null}"#,
+        ] {
             let r = classify_call(args, "c1").unwrap();
             assert_eq!(
                 r.args,

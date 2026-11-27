@@ -2,10 +2,10 @@
 //! receipted reducer calls behind the source lifecycle, job cancel and conflict
 //! decision routes. Every statement takes the actor from the verified context (`$2`),
 //! never from the request, and runs on the worker credential as Go's `workerPool` does.
-use super::{deadline, envelope, invalid, scope};
+use super::{deadline, envelope, invalid, sql, FAMILY};
 use serde_json::value::RawValue;
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ReceiptCommand, ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, StatementFailure};
 use std::collections::BTreeMap;
 
 /// Go's `identityBodyMaxBytes`.
@@ -129,50 +129,50 @@ pub fn valid_reason(reason: &str) -> bool {
 }
 
 /// Go's `RequireReason(identity.write)`: whether `identity` is a reason-required area.
-pub async fn reason_required(exec: &ScopedExecutor) -> bool {
-    exec.read(
-        "SELECT 'identity'=ANY(reason_required_areas) FROM audit_policy WHERE id=1",
-        &[],
-    )
-    .await
-    .ok()
-    .and_then(|r| r.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
-    .unwrap_or(false)
+pub async fn reason_required(factory: &TxFactory, admin: &AdminPermissionProof) -> bool {
+    let area = "identity";
+    factory
+        .run_admin_read_contract(admin, &sql::REASON_REQUIRED_AREA, &[&area])
+        .await
+        .ok()
+        .and_then(|r| r.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
+        .unwrap_or(false)
 }
 
 /// The durable `sensitive_action.reason_missing` row Go writes before its 400.
 pub async fn missing_reason(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     ip: &str,
     operation: [u8; 16],
 ) {
-    let auth = scope(actor);
-    let _ = setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F01",
-            command: "reason_missing",
-        },
-        &envelope(&auth, operation, ip),
-        &auth,
-        deadline(),
-        "SELECT count(*)::bigint FROM (SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,NULLIF($4::text,'')::inet,'identity.write','core') \
-         WHERE $1::bigint >= 0 AND $3::text <> '') w",
-        &[(&ip, Type::TEXT)],
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get::<_, i64>(0).ok())
-                .map(|_| ())
-                .ok_or_else(invalid)
-        },
-    )
-    .await;
+    let actor = user.user().get();
+    let perm = "identity.write";
+    let env = envelope(user.user(), user.generation(), operation, ip);
+    let _ = factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MISSING_REASON_AUDIT,
+            &[&actor, &ip, &perm],
+            Some(ReceiptCommand {
+                family: FAMILY,
+                command: "reason_missing",
+            }),
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get::<_, i64>(0).ok())
+                    .map(|_| ())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await;
 }
 
 pub(crate) fn command(name: &'static str) -> ReceiptCommand {
     ReceiptCommand {
-        family: "F01",
+        family: FAMILY,
         command: name,
     }
 }
@@ -187,8 +187,9 @@ fn body_of(rows: &[setjoin_pg::Row], index: usize) -> Result<Option<String>, Sta
 /// `POST .../sources/{sourceKey}/{pause,resume,retire,activate}`: Go's one reducer call.
 #[allow(clippy::too_many_arguments)]
 pub async fn lifecycle(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     key: &str,
     action: &str,
     expected: i64,
@@ -196,24 +197,24 @@ pub async fn lifecycle(
     reason: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<Option<String>, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("identity_source_lifecycle"),
-        &envelope(&auth, operation, &format!("{key}:{action}:{expected}:{idempotency}:{reason}")),
-        &auth,
-        deadline(),
-        "SELECT identity_source_lifecycle($2,$4,$5,$6,$7::text::uuid,$8)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&key, Type::TEXT),
-            (&action, Type::TEXT),
-            (&expected, Type::INT8),
-            (&idempotency, Type::TEXT),
-            (&reason, Type::TEXT),
-        ],
-        |rows| body_of(rows, 0),
-    )
-    .await
+    let actor = user.user().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{key}:{action}:{expected}:{idempotency}:{reason}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::IDV2_SOURCE_LIFECYCLE,
+            &[&actor, &key, &action, &expected, &idempotency, &reason],
+            Some(command("identity_source_lifecycle")),
+            |rows| body_of(&rows, 0),
+        )
+        .await
 }
 
 /// What one atomic permission-check-then-mutate statement decided.
@@ -222,7 +223,8 @@ pub struct Verdict {
     pub body: Option<String>,
 }
 
-pub(crate) fn verdict(rows: &[setjoin_pg::Row]) -> Result<Verdict, StatementFailure> {
+/// Decode a `(status, body)` row from `job_cancel`, `conflict_decide`, or a transition op.
+pub fn parse_verdict(rows: &[setjoin_pg::Row]) -> Result<Verdict, StatementFailure> {
     let row = rows.first().ok_or_else(invalid)?;
     let status: i32 = row.try_get(0).map_err(|_| invalid())?;
     Ok(Verdict {
@@ -231,31 +233,29 @@ pub(crate) fn verdict(rows: &[setjoin_pg::Row]) -> Result<Verdict, StatementFail
     })
 }
 
-/// `POST .../jobs/{id}/cancel`: Go reads the job to re-check the kind's permission, then
-/// cancels; here both run in one statement so the owner check and the mutation share a
-/// snapshot. `held` lists the job kinds the caller's live global permissions allow.
+/// `POST .../jobs/{id}/cancel`.
 pub async fn job_cancel(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     job: &str,
     held: &[String],
     operation: [u8; 16],
 ) -> CommandOutcome<Verdict, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("identity_job_cancel"),
-        &envelope(&auth, operation, job),
-        &auth,
-        deadline(),
-        "SELECT q.s, CASE WHEN q.s = 202 THEN identity_job_cancel($2,$4::text::uuid)::text END \
-         FROM (SELECT CASE WHEN j.r IS NULL THEN 404 WHEN NOT (j.r->>'kind' = ANY($5::text[])) THEN 403 ELSE 202 END AS s \
-               FROM (SELECT identity_job_read($2,$4::text::uuid) AS r) j \
-               WHERE $1::bigint >= 0 AND $3::text <> '') q",
-        &[(&job, Type::TEXT), (&held, Type::TEXT_ARRAY)],
-        verdict,
-    )
-    .await
+    let actor = user.user().get();
+    let held_vec = held.to_vec();
+    let env = envelope(user.user(), user.generation(), operation, job);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::IDV2_JOB_CANCEL,
+            &[&actor, &job, &held_vec],
+            Some(command("identity_job_cancel")),
+            |rows| parse_verdict(&rows),
+        )
+        .await
 }
 
 /// The refusal a conflict decision statement can answer without running the reducer.
@@ -268,47 +268,6 @@ pub struct DecideInput<'a> {
     pub idempotency: &'a str,
     /// `""` when the caller passes `requireUnscopedIdentityAdmin`, else Go's 403 detail.
     pub unscoped_refusal: &'a str,
-}
-
-/// `POST .../conflicts/{id}/decision`: Go's candidate lookup, scope check and
-/// `identity_match_decide` as one statement (status 404/403 before the reducer, 200 after).
-pub async fn conflict_decide(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
-    input: &DecideInput<'_>,
-    operation: [u8; 16],
-) -> CommandOutcome<Verdict, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("identity_match_decide"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("{}:{}:{}:{:?}:{}", input.conflict, input.generation, input.decision, input.person, input.idempotency),
-        ),
-        &auth,
-        deadline(),
-        "SELECT q.s, CASE WHEN q.s = 200 THEN identity_match_decide($2,$4::text::uuid,$5,$6,$7,$8,$9::text::uuid)::text \
-                          WHEN q.s = 403 THEN $10::text END \
-         FROM (SELECT CASE WHEN c.id IS NULL THEN 404 \
-                           WHEN c.candidate_user_id IS NULL AND $10::text <> '' THEN 403 \
-                           WHEN c.candidate_user_id IS NOT NULL AND NOT identity_admin_scope_allows($2,c.candidate_user_id,'identity.write') THEN 404 \
-                           ELSE 200 END AS s \
-               FROM (SELECT 1) one LEFT JOIN identity_match_candidates c ON c.id = $4::text::uuid \
-               WHERE $1::bigint >= 0 AND $3::text <> '') q",
-        &[
-            (&input.conflict, Type::TEXT),
-            (&input.generation, Type::INT8),
-            (&input.decision, Type::TEXT),
-            (&input.person, Type::INT8),
-            (&input.reason, Type::TEXT),
-            (&input.idempotency, Type::TEXT),
-            (&input.unscoped_refusal, Type::TEXT),
-        ],
-        verdict,
-    )
-    .await
 }
 
 /// One `groupMapping` after Go's decode.
@@ -431,38 +390,16 @@ pub struct MappingVerdict {
     pub detail: String,
 }
 
-/// `PUT /admin/identity/group-mappings/{type}/{id}` on the request pool, as Go's `h.pool`.
-pub async fn group_mappings_put(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    provider_type: &str,
-    provider_id: &str,
-    mappings: &str,
-    permissions: &[String],
-    operation: [u8; 16],
-) -> CommandOutcome<MappingVerdict, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("identity_group_mappings_put"),
-        &envelope(&auth, operation, &format!("{provider_type}:{provider_id}:{mappings}")),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_group_mappings_put($2,$4,$5,$6,$7::text[])::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&provider_type, Type::TEXT),
-            (&provider_id, Type::TEXT),
-            (&mappings, Type::TEXT),
-            (&permissions, Type::TEXT_ARRAY),
-        ],
-        |rows| {
-            let text: String = rows.first().ok_or_else(invalid)?.try_get(0).map_err(|_| invalid())?;
-            let v: serde_json::Value = serde_json::from_str(&text).map_err(|_| invalid())?;
-            Ok(MappingVerdict {
-                status: v["status"].as_u64().ok_or_else(invalid)? as u16,
-                detail: v["detail"].as_str().unwrap_or_default().to_owned(),
-            })
-        },
-    )
-    .await
+/// Decode the reducer verdict returned by `sql::IDV2_GROUP_MAPPINGS_PUT`.
+pub fn parse_mapping_verdict(rows: &[setjoin_pg::Row]) -> Result<MappingVerdict, StatementFailure> {
+    let text: String = rows
+        .first()
+        .ok_or_else(invalid)?
+        .try_get(0)
+        .map_err(|_| invalid())?;
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|_| invalid())?;
+    Ok(MappingVerdict {
+        status: v["status"].as_u64().ok_or_else(invalid)? as u16,
+        detail: v["detail"].as_str().unwrap_or_default().to_owned(),
+    })
 }

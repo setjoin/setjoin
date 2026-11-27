@@ -1,37 +1,15 @@
 //! CA-2 device lockdown console (Go's `admin.DeviceLockdownHandler` over
 //! `shared/device`): the org-wide approval queue, a per-user device list and the
-//! lifecycle transitions. Reads run on the request pool with no actor GUC, as Go's
-//! do (`devices` admits every SELECT to admins); the transition is the existing
-//! `device_enroll_transition` reducer (state, `device_enroll_events` row, core
-//! audit row and, on revoke, the `ca_notify_policy_change` notify) in one
-//! receipted command, so the authz device gates (#405) read the same rows.
-//!
-//! Owner-approved security fix 2026-11-05 (#435): frozen Go ignored the grant's domain
-//! scope on this console. The queue, the per-user list and the transition now confine a
-//! domain-scoped admin to devices of users inside its reach (`admin_can_reach_perm`: the
-//! domain comes from the stored owner of the device row, permission-aware, OU and
-//! scope-set narrowing included; an organization-wide grant reaches everyone). The
-//! transition repeats the reach in the mutating statement (R3); a foreign device answers
-//! exactly like a missing one.
-use super::{command, deadline, done, envelope, invalid, nano, opt, s, scope, StatementFailure};
-use setjoin_authz::AuthContext;
+//! lifecycle transitions.
+use super::{command, deadline, done, envelope, invalid, opt, s, sql, StatementFailure};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
 use setjoin_contracts::mutants;
-use setjoin_pg::{CommandOutcome, Param, Rejection, ScopedExecutor, Type};
-
-/// The reach predicate over a device owner column: the caller's grants carrying
-/// `permission` must reach that user (`admin_can_reach_perm`). The restored-bug mutant
-/// (`lockdown-foreign-target`, test builds only) drops it as frozen Go did.
-fn reach(owner: &str, actor: &str, permission: &str) -> String {
-    if mutants::on("lockdown-foreign-target") {
-        return "true".into();
-    }
-    format!("admin_can_reach_perm({actor}, {owner}, ARRAY['{permission}'])")
-}
+use setjoin_pg::{CommandOutcome, Rejection};
 
 /// `GET /admin/devices/queue`: Go's `ListApprovalQueue`.
 pub async fn queue(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     state: &str,
     query: &str,
     limit: i64,
@@ -39,31 +17,15 @@ pub async fn queue(
     let state = if state.is_empty() { "enrolled" } else { state };
     let limit = if limit <= 0 { 100 } else { limit.min(500) };
     let like = format!("%{query}%");
-    let sql = format!(
-        "SELECT d.id, d.user_id, COALESCE(u.email,''), COALESCE(u.display_name,''), \
-         COALESCE(d.device_name,''), COALESCE(d.platform,''), d.enroll_state, \
-         d.enrolled_by, eb.email, d.approved_by, ab.email, {}, \
-         {}, {}, {} \
-         FROM devices d JOIN users u ON u.id = d.user_id \
-         LEFT JOIN users eb ON eb.id = d.enrolled_by LEFT JOIN users ab ON ab.id = d.approved_by \
-         WHERE d.enroll_state = $1::text AND ($2::text = '%%' OR u.email ILIKE $2::text OR u.display_name ILIKE $2::text) \
-         AND ({}) \
-         ORDER BY (SELECT MIN(created_at) FROM device_enroll_events e WHERE e.device_id = d.id AND e.to_state = d.enroll_state) DESC NULLS LAST, d.id DESC \
-         LIMIT $3::bigint",
-        nano("d.approved_at"),
-        nano("(SELECT MAX(created_at) FROM device_enroll_events e WHERE e.device_id = d.id)"),
-        nano("(SELECT MIN(created_at) FROM device_enroll_events e WHERE e.device_id = d.id AND e.to_state = d.enroll_state)"),
-        nano("d.revoked_at"),
-        reach("d.user_id", "$4::bigint", "mam.read"),
-    );
-    let user = actor.user_id();
-    let params: [Param<'_>; 4] = [
-        (&state, Type::TEXT),
-        (&like, Type::TEXT),
-        (&limit, Type::INT8),
-        (&user, Type::INT8),
-    ];
-    let rows = exec.read(&sql, &params).await?;
+    let user = proof.actor().get();
+    let contract = if mutants::on("lockdown-foreign-target") {
+        &sql::LOCKDOWN_QUEUE_MUTANT
+    } else {
+        &sql::LOCKDOWN_QUEUE
+    };
+    let rows = factory
+        .run_admin_read_contract(proof, contract, &[&state, &like, &limit, &user])
+        .await?;
     let mut items = Vec::new();
     for row in &rows {
         let n = |i: usize| -> Result<Option<i64>, StatementFailure> {
@@ -111,19 +73,18 @@ pub async fn queue(
 
 /// `GET /admin/devices?user_id=`: Go's `ListDevicesForUser`.
 pub async fn devices_of(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     user: i64,
 ) -> Result<String, StatementFailure> {
-    let sql = format!(
-        "SELECT id, user_id, COALESCE(device_name,''), COALESCE(platform,''), enroll_state, {} \
-         FROM devices WHERE user_id = $1 AND ({}) ORDER BY id",
-        nano("revoked_at"),
-        reach("user_id", "$2::bigint", "mam.read")
-    );
-    let actor = actor.user_id();
-    let rows = exec
-        .read(&sql, &[(&user, Type::INT8), (&actor, Type::INT8)])
+    let actor = proof.actor().get();
+    let contract = if mutants::on("lockdown-foreign-target") {
+        &sql::LOCKDOWN_DEVICES_OF_MUTANT
+    } else {
+        &sql::LOCKDOWN_DEVICES_OF
+    };
+    let rows = factory
+        .run_admin_read_contract(proof, contract, &[&user, &actor])
         .await?;
     let mut items = Vec::new();
     for row in &rows {
@@ -166,38 +127,40 @@ pub fn transition_refusal(error: &Rejection<StatementFailure>) -> (u16, String) 
 
 /// `POST /admin/devices/{id}/{action}` with `to` one of enrolled|approved|revoked.
 pub async fn transition(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     device: i64,
     to: &str,
     reason: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    let sql = format!(
-        "SELECT rust_device_enroll_transition($2::bigint, $4::bigint, $5::text, $6::text, {})::text \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
-        reach("(SELECT d.user_id FROM devices d WHERE d.id = $4::bigint)", "$2::bigint", "mam.write")
+    let actor = user.user().get();
+    let contract = if mutants::on("lockdown-foreign-target") {
+        &sql::LOCKDOWN_TRANSITION_MUTANT
+    } else {
+        &sql::LOCKDOWN_TRANSITION
+    };
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{device}\n{to}\n{reason}"),
     );
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("device_enroll_transition"),
-        &envelope(&auth, operation, &format!("{device}\n{to}\n{reason}")),
-        &auth,
-        deadline(),
-        &sql,
-        &[
-            (&device, Type::INT8),
-            (&to, Type::TEXT),
-            (&reason, Type::TEXT),
-        ],
-        |rows| {
-            if rows.len() == 1 {
-                Ok(())
-            } else {
-                Err(invalid())
-            }
-        },
-    )
-    .await
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            contract,
+            &[&actor, &device, &to, &reason],
+            Some(command("device_enroll_transition")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }

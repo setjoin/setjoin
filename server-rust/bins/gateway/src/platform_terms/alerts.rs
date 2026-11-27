@@ -49,11 +49,11 @@ async fn check_name(r: &mut Request<Body>) -> Result<String, ()> {
 
 pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Response<Body> {
     match what {
-        Action::AlertList => match alerts::list(e.exec).await {
+        Action::AlertList => match alerts::list(e.factory, e.admin).await {
             Ok(body) => e.reply(body, 200),
             Err(_) => e.bare(500, "database error"),
         },
-        Action::AlertConfigGet => match alerts::config(e.exec).await {
+        Action::AlertConfigGet => match alerts::config(e.factory, e.admin).await {
             Ok(body) => e.reply(body, 200),
             Err(_) => e.bare(500, "database error"),
         },
@@ -65,9 +65,9 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
                 return e.bare(400, "checkName required");
             }
             let outcome = if what == Action::AlertAck {
-                alerts::acknowledge(e.exec, e.actor, &name, e.operation).await
+                alerts::acknowledge(e.factory, e.user, e.admin, &name, e.operation).await
             } else {
-                alerts::unsuppress(e.exec, e.actor, &name, e.operation).await
+                alerts::unsuppress(e.factory, e.user, e.admin, &name, e.operation).await
             };
             match outcome {
                 CommandOutcome::Committed(()) => e.no_content(),
@@ -93,7 +93,7 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
                     &format!("config key not writable via alerts API: {key}"),
                 );
             }
-            match alerts::set_config(e.exec, e.actor, &map, e.operation).await {
+            match alerts::set_config(e.factory, e.user, e.admin, &map, e.operation).await {
                 CommandOutcome::Committed(()) => e.no_content(),
                 CommandOutcome::RolledBack(_) => e.bare(500, "database error"),
                 CommandOutcome::Unknown { operation } => e.unknown(operation),

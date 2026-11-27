@@ -1,6 +1,6 @@
 //! Password proof is the identity source here; request uid/mailbox fields are ignored.
 use serde_json::{json, Value};
-use setjoin_pg::{ScopedExecutor, StatementFailure, Type};
+use setjoin_pg::{AuthDb, StatementFailure, Type};
 use sha2::{Digest, Sha256};
 
 /// Sealed proof of the exact enabled local credential version that was verified.
@@ -23,13 +23,16 @@ impl PasswordProof {
 }
 
 const DUMMY_BCRYPT: &str = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
-const DUMMY_SM3: &str = "$sm3$100000$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const DUMMY_SM3: &str =
+    "$sm3$100000$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 /// The fixed hash an unknown email is verified against: the same algorithm and cost
 /// the profile writes (PBKDF2-SM3 100k for smx/hybrid, bcrypt 10 otherwise), so
 /// timing reveals no account under any profile.
 pub fn dummy_hash(profile: setjoin_config_secret::CryptoProfile) -> &'static str {
     use setjoin_config_secret::CryptoProfile::{Hybrid, Smx};
-    if matches!(profile, Smx | Hybrid) && !setjoin_contracts::mutants::on("login-dummy-always-bcrypt") {
+    if matches!(profile, Smx | Hybrid)
+        && !setjoin_contracts::mutants::on("login-dummy-always-bcrypt")
+    {
         DUMMY_SM3
     } else {
         DUMMY_BCRYPT
@@ -48,12 +51,14 @@ async fn verify_dummy(password: &str, profile: setjoin_config_secret::CryptoProf
 }
 
 pub async fn verify(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     email: &str,
     password: &str,
     profile: setjoin_config_secret::CryptoProfile,
 ) -> Result<Option<PasswordProof>, StatementFailure> {
-    let rows=exec.read("SELECT id,email,password_hash,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=users.id AND (ara.expires_at IS NULL OR ara.expires_at>now())), COALESCE(totp_enabled,false),COALESCE(push_mfa_enabled,false),COALESCE(must_change_password,false) FROM users WHERE lower(email)=lower($1) AND enabled=true",&[(&email,Type::TEXT)]).await?;
+    let rows = exec
+        .read_contract(&crate::sql::LOGIN_L56, &[(&email, Type::TEXT)])
+        .await?;
     let Some(r) = rows.first() else {
         verify_dummy(password, profile).await;
         return Ok(None);
@@ -89,35 +94,70 @@ pub async fn verify(
         force_change: r.try_get(6).map_err(invalid_proof)?,
     }))
 }
-pub async fn mfa_status(exec:&ScopedExecutor,p:&PasswordProof)->Result<String,StatementFailure>{
-    Ok(mfa_policy(exec,p).await?["status"].as_str().ok_or_else(invalid)?.into())
+pub async fn mfa_status(exec: &AuthDb, p: &PasswordProof) -> Result<String, StatementFailure> {
+    Ok(mfa_policy(exec, p).await?["status"]
+        .as_str()
+        .ok_or_else(invalid)?
+        .into())
 }
-pub async fn mfa_policy(exec:&ScopedExecutor,p:&PasswordProof)->Result<Value,StatementFailure>{
-    let rows=exec.read("SELECT mfa_status($1)::text",&[(&p.user,Type::INT8)]).await?;
-    let raw:String=rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(invalid)?;
-    let v:Value=serde_json::from_str(&raw).map_err(|_|invalid())?;
-    if v.get("message").is_some_and(|v|!v.is_null()&&!v.is_string()){return Err(invalid())}
-    match v["status"].as_str(){Some("exempt"|"enrolled"|"enrollment_required"|"optional")=>Ok(v),_=>Err(invalid())}
-}
-impl PasswordProof {
-    pub fn credential_fence(&self)->String{
-        use base64::Engine;
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(self.hash.as_bytes()))
+pub async fn mfa_policy(exec: &AuthDb, p: &PasswordProof) -> Result<Value, StatementFailure> {
+    let rows = exec
+        .read_contract(&crate::sql::LOGIN_L96, &[(&p.user, Type::INT8)])
+        .await?;
+    let raw: String = rows
+        .first()
+        .and_then(|r| r.try_get::<_, String>(0).ok())
+        .ok_or_else(invalid)?;
+    let v: Value = serde_json::from_str(&raw).map_err(|_| invalid())?;
+    if v.get("message")
+        .is_some_and(|v| !v.is_null() && !v.is_string())
+    {
+        return Err(invalid());
+    }
+    match v["status"].as_str() {
+        Some("exempt" | "enrolled" | "enrollment_required" | "optional") => Ok(v),
+        _ => Err(invalid()),
     }
 }
-pub async fn bootstrap_mfa_grant(exec:&ScopedExecutor,p:&PasswordProof,token:&str,jti:&str)->setjoin_pg::CommandOutcome<bool,StatementFailure>{
-    let exec=exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"mfa-bootstrap-grant"});
-    let hash=format!("{:x}",Sha256::digest(token.as_bytes()));
-    exec.run_user_command(setjoin_contracts::ids::ActorId::new(p.user).expect("password proof"),setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),
-        "SELECT rust_identity_mfa_bootstrap_grant($1,$2,$3,$4)",
-        &[(&p.user,Type::INT8),(&p.hash,Type::TEXT),(&hash,Type::TEXT),(&jti,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get::<_,bool>(0).ok()).ok_or_else(invalid)).await
+impl PasswordProof {
+    pub fn credential_fence(&self) -> String {
+        use base64::Engine;
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(Sha256::digest(self.hash.as_bytes()))
+    }
 }
-pub async fn guest_scope(
-    exec: &ScopedExecutor,
+pub async fn bootstrap_mfa_grant(
+    exec: &AuthDb,
     p: &PasswordProof,
-) -> Result<bool, StatementFailure> {
+    token: &str,
+    jti: &str,
+) -> setjoin_pg::CommandOutcome<bool, StatementFailure> {
+    let exec = exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand {
+        family: "F21",
+        command: "mfa-bootstrap-grant",
+    });
+    let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
+    exec.run_user_command_contract(
+        setjoin_contracts::ids::ActorId::new(p.user).expect("password proof"),
+        setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),
+        &crate::sql::LOGIN_L112,
+        &[
+            (&p.user, Type::INT8),
+            (&p.hash, Type::TEXT),
+            (&hash, Type::TEXT),
+            (&jti, Type::TEXT),
+        ],
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get::<_, bool>(0).ok())
+                .ok_or_else(invalid)
+        },
+    )
+    .await
+}
+pub async fn guest_scope(exec: &AuthDb, p: &PasswordProof) -> Result<bool, StatementFailure> {
     let rows = exec
-        .read("SELECT is_guest_account($1)", &[(&p.user, Type::INT8)])
+        .read_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&p.user, Type::INT8)])
         .await?;
     rows.first()
         .and_then(|r| r.try_get::<_, bool>(0).ok())
@@ -128,15 +168,9 @@ pub enum AdmissionFailure {
     Transition(StatementFailure),
     AccountType(StatementFailure),
 }
-pub async fn admission(
-    exec: &ScopedExecutor,
-    p: &PasswordProof,
-) -> Result<(bool, bool), AdmissionFailure> {
+pub async fn admission(exec: &AuthDb, p: &PasswordProof) -> Result<(bool, bool), AdmissionFailure> {
     let rows = exec
-        .read(
-            "SELECT identity_transition_admission_allowed($1)",
-            &[(&p.user, Type::INT8)],
-        )
+        .read_contract(&crate::sql::LOGIN_L137, &[(&p.user, Type::INT8)])
         .await
         .map_err(AdmissionFailure::Transition)?;
     let allowed = rows
@@ -155,20 +189,22 @@ pub async fn admission(
     ))
 }
 pub async fn domain_scope(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     p: &PasswordProof,
 ) -> Result<Option<i64>, StatementFailure> {
     if !p.admin {
         return Ok(None);
     }
-    let rows=exec.read("SELECT MIN(COALESCE(ra.domain_override,rg.domain_scope)) FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=$1 AND COALESCE(ra.domain_override,rg.domain_scope) IS NOT NULL AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND admin_assignment_active(ra.eligible,ra.activated_until)",&[(&p.user,Type::INT8)]).await?;
+    let rows = exec
+        .read_contract(&crate::sql::LOGIN_L164, &[(&p.user, Type::INT8)])
+        .await?;
     rows.first()
         .ok_or_else(invalid)?
         .try_get::<_, Option<i64>>(0)
         .map_err(|_| invalid())
 }
 pub async fn mint(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     p: &PasswordProof,
     refresh: &str,
     expiry: i64,
@@ -180,10 +216,10 @@ pub async fn mint(
             .expect("server family UUID")
             .as_bytes(),
     );
-    exec.run_user_command(
+    exec.run_user_command_contract(
         setjoin_contracts::ids::ActorId::new(p.user).expect("proven user"),
         operation,
-        "SELECT rust_identity_login_mint($1,$2,$3,$4,$5::text::uuid)",
+        &crate::sql::LOGIN_L186,
         &[
             (&p.user, Type::INT8),
             (&p.hash, Type::TEXT),
@@ -202,7 +238,7 @@ pub async fn mint(
 /// Current-authority lookup after a lost autocommit result. Callers must
 /// re-prove the credential; the family UUID is only a correlation id.
 pub async fn lookup_mint(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     p: &PasswordProof,
     family: &str,
 ) -> Result<bool, StatementFailure> {
@@ -211,10 +247,23 @@ pub async fn lookup_mint(
             .map_err(|_| invalid())?
             .as_bytes(),
     );
-    let result=exec.run_user_command(setjoin_contracts::ids::ActorId::new(p.user).map_err(|_|invalid())?,operation,
-        "SELECT EXISTS(SELECT 1 FROM oauth_tokens o JOIN users u ON u.id=o.user_id WHERE o.user_id=$1 AND o.family_id=$2::text::uuid AND u.enabled AND u.password_hash=$3 AND o.revoked_at IS NULL AND o.expires_at>now())",
-        &[(&p.user,Type::INT8),(&family,Type::TEXT),(&p.hash,Type::TEXT)],
-        |rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await;
+    let result = exec
+        .run_user_command_contract(
+            setjoin_contracts::ids::ActorId::new(p.user).map_err(|_| invalid())?,
+            operation,
+            &crate::sql::LOGIN_L215,
+            &[
+                (&p.user, Type::INT8),
+                (&family, Type::TEXT),
+                (&p.hash, Type::TEXT),
+            ],
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await;
     match result {
         setjoin_pg::CommandOutcome::Committed(v) => Ok(v),
         _ => Err(invalid()),
@@ -223,7 +272,7 @@ pub async fn lookup_mint(
 /// Go's independent best-effort tail writes stay independent. A failure must
 /// neither undo a committed refresh family nor falsely claim a log was written.
 pub async fn record_success(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     p: &PasswordProof,
     access: &str,
     jti: &str,
@@ -231,22 +280,40 @@ pub async fn record_success(
     ip: &str,
     agent: &str,
 ) {
-    let _=exec.protocol_statement("INSERT INTO auth_event_log(user_id,event,provider,email,ip_address) VALUES($1,'login','jwt',NULLIF($2,''),NULLIF($3,'')::inet)",&[(&p.user,Type::INT8),(&p.email,Type::TEXT),(&ip,Type::TEXT)]).await;
     let _ = exec
-        .read(
-            "SELECT rust_identity_signin_record($1,true,$2)",
+        .protocol_statement_contract(
+            &crate::sql::LOGIN_L234,
+            &[
+                (&p.user, Type::INT8),
+                (&p.email, Type::TEXT),
+                (&ip, Type::TEXT),
+            ],
+        )
+        .await;
+    let _ = exec
+        .read_contract(
+            &crate::sql::LOGIN_L237,
             &[(&Some(p.user), Type::INT8), (&ip, Type::TEXT)],
         )
         .await;
     let hash = Sha256::digest(access.as_bytes()).to_vec();
-    let _=exec.protocol_statement("INSERT INTO sessions(id,user_id,token_hash,expires_at,ip,user_agent,auth_method) VALUES($1,$2,$3,now()+make_interval(secs=>$4),NULLIF($5,'')::inet,$6,'password') ON CONFLICT(id) DO NOTHING",&[(&jti,Type::TEXT),(&p.user,Type::INT8),(&hash,Type::BYTEA),(&expiry,Type::INT8),(&ip,Type::TEXT),(&agent,Type::TEXT)]).await;
-}
-pub async fn record_failure(exec: &ScopedExecutor, email: &str, ip: &str) {
-    let rows = exec
-        .read(
-            "SELECT id FROM users WHERE lower(email)=lower($1) AND enabled=true",
-            &[(&email, Type::TEXT)],
+    let _ = exec
+        .protocol_statement_contract(
+            &crate::sql::LOGIN_L242,
+            &[
+                (&jti, Type::TEXT),
+                (&p.user, Type::INT8),
+                (&hash, Type::BYTEA),
+                (&expiry, Type::INT8),
+                (&ip, Type::TEXT),
+                (&agent, Type::TEXT),
+            ],
         )
+        .await;
+}
+pub async fn record_failure(exec: &AuthDb, email: &str, ip: &str) {
+    let rows = exec
+        .read_contract(&crate::sql::LOGIN_L247, &[(&email, Type::TEXT)])
         .await;
     let user: Option<i64> = rows.ok().and_then(|rows| rows.first()?.try_get(0).ok());
     // verifyPassword logs no user id, even for a known user's wrong password.
@@ -255,26 +322,33 @@ pub async fn record_failure(exec: &ScopedExecutor, email: &str, ip: &str) {
     } else {
         None
     };
-    let _=exec.protocol_statement("INSERT INTO auth_event_log(user_id,event,provider,email,ip_address,details) VALUES(NULL,'login_failed','bcrypt',NULLIF($1,''),NULLIF($2,'')::inet,$3::text::jsonb)",&[(&email,Type::TEXT),(&ip,Type::TEXT),(&details,Type::TEXT)]).await;
     let _ = exec
-        .read(
-            "SELECT rust_identity_signin_record($1,false,$2)",
+        .protocol_statement_contract(
+            &crate::sql::LOGIN_L258,
+            &[
+                (&email, Type::TEXT),
+                (&ip, Type::TEXT),
+                (&details, Type::TEXT),
+            ],
+        )
+        .await;
+    let _ = exec
+        .read_contract(
+            &crate::sql::LOGIN_L261,
             &[(&user, Type::INT8), (&ip, Type::TEXT)],
         )
         .await;
 }
 /// Default-OFF feature controls; a failed lookup stays unresolved.
-pub async fn enabled(exec: &ScopedExecutor, key: &str) -> Result<bool, StatementFailure> {
+pub async fn enabled(exec: &AuthDb, key: &str) -> Result<bool, StatementFailure> {
     let rows = exec
-        .read(
-            "SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key=$1),false)",
-            &[(&key, Type::TEXT)],
-        )
+        .read_contract(&crate::sql::LOGIN_L270, &[(&key, Type::TEXT)])
         .await?;
     rows.first()
         .and_then(|r| r.try_get::<_, bool>(0).ok())
         .ok_or_else(invalid)
 }
+#[allow(clippy::too_many_arguments)]
 pub fn claims(
     p: &PasswordProof,
     typ: &str,
@@ -323,7 +397,12 @@ pub fn random_jti() -> Result<String, String> {
 /// #454: a feature-flag or risk query error (also with the flag off), an invalid actor and
 /// an unreadable or unparsable stored value fail closed (no panicking decode); only a missing
 /// row or level none/empty is "no risk claim". `user_risk.score` is smallint, read as int4.
-pub async fn risk(exec: &ScopedExecutor, p: &PasswordProof) -> Result<Option<Value>, StatementFailure> {
+pub async fn risk(exec: &AuthDb, p: &PasswordProof) -> Result<Option<Value>, StatementFailure> {
+    risk_for_user(exec, p.user).await
+}
+
+/// Read-only risk lookup for a verified user id (shared with #454 fail-closed tests).
+pub async fn risk_for_user(exec: &AuthDb, user: i64) -> Result<Option<Value>, StatementFailure> {
     let bad = || StatementFailure {
         sqlstate: None,
         hint: None,
@@ -332,13 +411,9 @@ pub async fn risk(exec: &ScopedExecutor, p: &PasswordProof) -> Result<Option<Val
     if !enabled(exec, "feature.user_risk").await? {
         return Ok(None);
     }
-    let actor = setjoin_contracts::ids::ActorId::new(p.user).map_err(|_| bad())?;
+    let actor = setjoin_contracts::ids::ActorId::new(user).map_err(|_| bad())?;
     let rows = exec
-        .read_user_scoped(
-            actor,
-            "SELECT score::int4,level,signals::text FROM user_risk WHERE user_id=$1",
-            &[(&p.user, Type::INT8)],
-        )
+        .read_user_scoped_contract(actor, &crate::sql::LOGIN_L344, &[(&user, Type::INT8)])
         .await?;
     let Some(r) = rows.first() else {
         return Ok(None);
@@ -353,26 +428,4 @@ pub async fn risk(exec: &ScopedExecutor, p: &PasswordProof) -> Result<Option<Val
     Ok(Some(
         json!({"user_score":score,"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
     ))
-}
-
-#[cfg(test)]
-mod fail_closed_454 {
-    //! #454: a failed feature-flag or risk read is an error, never "no risk claim".
-    #[test]
-    fn password_login_risk_lookup_error_is_an_error() {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        rt.block_on(async {
-            let exec = setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1).unwrap();
-            let proof = super::PasswordProof {
-                user: 7,
-                email: String::new(),
-                hash: String::new(),
-                admin: false,
-                totp: false,
-                push: false,
-                force_change: false,
-            };
-            assert!(super::risk(&exec, &proof).await.is_err());
-        });
-    }
 }

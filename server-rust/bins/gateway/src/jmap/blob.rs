@@ -107,22 +107,19 @@ pub async fn response_call(
 ) -> (&'static str, String) {
     let a = match &request.args {
         Ok(a) => a,
-        Err(()) => {
-            return (
-                "error",
-                reply::jmap_error_json("invalidArguments", 400, ""),
-            )
-        }
+        Err(()) => return ("error", reply::jmap_error_json("invalidArguments", 400, "")),
     };
     let empty = a.ids.is_empty() || (request.method != "Blob/lookup" && a.ids.len() > 256);
     let found = if empty {
         Default::default()
     } else {
-        match setjoin_jmap::blob::owned(exec, auth, &a.ids).await {
-            Ok(found) => found,
-            Err(_) => {
-                return ("error", reply::jmap_error_json("serverFail", 500, ""))
-            }
+        let user = auth.actor().get();
+        let ids = a.ids.clone();
+        match super::worker_read_contract(exec, &setjoin_jmap::sql::BLOB_OWNED, &[&ids, &user])
+            .await
+        {
+            Ok(rows) => setjoin_jmap::blob::decode_owned(&rows),
+            Err(_) => return ("error", reply::jmap_error_json("serverFail", 500, "")),
         }
     };
     let raw = match request.method {

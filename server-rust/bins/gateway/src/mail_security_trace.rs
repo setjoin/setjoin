@@ -7,10 +7,10 @@ use crate::mail_security::{segment, Action};
 use crate::mailboxes::bare;
 use crate::{Body, RequestContext};
 use hyper::{Request, Response};
-use setjoin_authz::AuthContext;
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_authz::Authorized;
 use setjoin_mail_security::received::{self, Identity};
 use setjoin_mail_security::trace as db;
-use setjoin_pg::ScopedExecutor;
 
 /// Go's `http://127.0.0.1/jmap/download` (main.go builds both user trace handlers with it).
 pub const DEFAULT_JMAP_BASE: &str = "http://127.0.0.1/jmap/download";
@@ -130,8 +130,10 @@ pub(crate) async fn handle(
     r: Request<Body>,
     c: &RequestContext,
     id: &str,
-    actor: &AuthContext,
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    auth: &Authorized,
+    client_ip: &str,
+    admin: Option<&AdminPermissionProof>,
     config: &TraceConfig,
 ) -> Response<Body> {
     let head = r.method() == hyper::Method::HEAD;
@@ -153,19 +155,25 @@ pub(crate) async fn handle(
     let path = r.uri().path().to_owned();
     match what {
         Action::TraceList => {
+            let Some(admin) = admin else {
+                return bare(403, "Forbidden", c, id);
+            };
             let Some(f) = filters(&r) else {
                 return db_error();
             };
             let get = |name: &str| query(r.uri(), name).unwrap_or_default();
             let (limit, offset) = db::page(&get("limit"), &get("offset"));
-            match db::admin_list(worker, &f, limit, offset).await {
+            match db::admin_list(factory, admin, &f, limit, offset).await {
                 Ok(body) => reply(body, 200),
                 Err(_) => db_error(),
             }
         }
         Action::TraceExport => {
+            let Some(admin) = admin else {
+                return bare(403, "Forbidden", c, id);
+            };
             let result = match filters(&r) {
-                Some(f) => db::admin_export(worker, &f).await,
+                Some(f) => db::admin_export(factory, admin, &f).await,
                 None => Ok(db::export_empty()),
             };
             match result {
@@ -188,12 +196,15 @@ pub(crate) async fn handle(
             }
         }
         Action::TraceTimeline => {
+            let Some(admin) = admin else {
+                return bare(403, "Forbidden", c, id);
+            };
             let raw = crate::inventory::unescape(path.split('/').nth(4).unwrap_or(""));
             if std::str::from_utf8(&raw).is_err() {
                 return db_error();
             }
             let message_id = segment(&path, 4);
-            match db::timeline(worker, &message_id).await {
+            match db::timeline(factory, admin, &message_id).await {
                 Ok(body) => reply(body, 200),
                 Err(_) => db_error(),
             }
@@ -205,13 +216,25 @@ pub(crate) async fn handle(
             let Ok(email_id) = segment(&path, 3).parse::<i64>() else {
                 return bare(400, "invalid email ID", c, id);
             };
-            let om = match db::owned(worker, email_id, actor.user_id()).await {
+            let Ok(mb) = factory
+                .mint_primary_mailbox_from_authorized(auth, client_ip)
+                .await
+            else {
+                return db_error();
+            };
+            let Ok(cap) = mb.require_read() else {
+                return bare(403, "Forbidden", c, id);
+            };
+            let om = match db::owned(factory, &cap, email_id).await {
                 Ok(Some(om)) => om,
                 Ok(None) => return bare(404, "email not found", c, id),
                 Err(_) => return db_error(),
             };
-            if db::is_sent(worker, &om).await {
-                return reply(db::outbound(worker, &om, &config.jmap_base).await, 200);
+            if db::is_sent(factory, &cap, &om).await {
+                return reply(
+                    db::outbound(factory, &cap, &om, &config.jmap_base).await,
+                    200,
+                );
             }
             let url = db::download_url(&config.jmap_base, &om);
             match fetch_header_bytes(config, &r, &url).await {

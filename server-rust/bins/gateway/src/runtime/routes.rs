@@ -20,8 +20,8 @@ pub struct RouteDeps {
     pub chain: Option<Arc<setjoin_authz::auth_chain::Chain>>,
     pub threat: Option<Arc<setjoin_threat::Gate>>,
     pub lifecycle: Option<Arc<crate::guest_worker::GuestLifecycle>>,
-    pub ldap: Option<Arc<setjoin_directory_sync::ldap::runtime::LdapRuntime>>,
-    pub ad: Option<Arc<setjoin_directory_sync::ad::AdRuntime>>,
+    pub ldap: Option<Arc<crate::directory_sync_workers::LdapRuntime>>,
+    pub ad: Option<Arc<crate::directory_sync_workers::AdRuntime>>,
     pub subscription_sync: Option<Arc<crate::subscription_sync::SubscriptionSync>>,
     pub migration_runner: Option<crate::migration::Runner>,
     pub webhook: Option<crate::webhook::Dispatcher>,
@@ -212,7 +212,6 @@ async fn build_with_keys<K: KeySource + 'static>(
         issuer.clone(),
         denylist.clone(),
     )?;
-    let office = crate::f15::F15Config::from_env(exec.clone(), keys.clone(), issuer.clone())?;
     let compliance_worker_dsn = env("DB_WORKER_DSN").unwrap_or_else(|| dsn.clone());
     let worm = crate::compliance::WormConfig::from_settings(settings);
     let compliance = crate::compliance::ComplianceRoute {
@@ -233,6 +232,13 @@ async fn build_with_keys<K: KeySource + 'static>(
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
+    let surface_worker = compliance.worker.clone();
+    let office = crate::f15::F15Config::from_env(
+        exec.clone(),
+        compliance.worker.clone(),
+        keys.clone(),
+        issuer.clone(),
+    )?;
     let (attachment_secret, attachment_previous_secret) = crate::f16::attachment_secrets_from_env();
     let runtime =
         crate::runtime_access::RuntimeAccess::new(exec.clone(), keys.clone(), issuer.clone())
@@ -434,7 +440,9 @@ async fn build_with_keys<K: KeySource + 'static>(
     };
     // Go snapshots feature.caldav while mounting the listener. The process-local
     // timezone cache stays active in both processes until Go is deleted.
-    let caldav = if setjoin_calendar::caldav_enabled(&exec)
+    let cal_tx = crate::policy_composition::tx_factory_from_executors(&exec, None)
+        .ok_or_else(|| "CalDAV boot TxFactory unavailable".to_owned())?;
+    let caldav = if setjoin_calendar::caldav_enabled(&cal_tx)
         .await
         .map_err(|_| "CalDAV boot feature unavailable".to_owned())?
     {
@@ -451,7 +459,7 @@ async fn build_with_keys<K: KeySource + 'static>(
         None
     };
     // Like Go, snapshot the bridge registration flag at process startup.
-    let carddav = if setjoin_calendar::flag(&exec, "feature.carddav", true)
+    let carddav = if setjoin_calendar::flag(&cal_tx, "feature.carddav", true)
         .await
         .map_err(|_| "CardDAV boot feature unavailable".to_owned())?
     {
@@ -469,26 +477,31 @@ async fn build_with_keys<K: KeySource + 'static>(
     };
     let admin_identity = crate::admin_identity::AdminIdentityRoute {
         exec: exec.clone(),
+        worker: Some(compliance.worker.clone()),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
     let admin_access_reviews = crate::admin_access_reviews::AdminAccessReviewsRoute {
         exec: exec.clone(),
+        worker: Some(compliance.worker.clone()),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
     let admin_scope_sets = crate::admin_scope_sets::AdminScopeSetsRoute {
         exec: exec.clone(),
+        worker: Some(compliance.worker.clone()),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
     let admin_org_policies = crate::admin_org_policies::AdminOrgPoliciesRoute {
         exec: exec.clone(),
+        worker: Some(compliance.worker.clone()),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
     let admin_sod = crate::admin_sod::AdminSodRoute {
         exec: exec.clone(),
+        worker: Some(compliance.worker.clone()),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
@@ -498,6 +511,7 @@ async fn build_with_keys<K: KeySource + 'static>(
         .map(|dispatcher| crate::health_alerts::HealthAlerts::new(dispatcher).observer());
     let mut platform =
         crate::platform::PlatformRoute::new(exec.clone(), keys.clone(), issuer.clone())
+            .with_worker(compliance.worker.clone())
             .with_configuration(configuration.clone())
             .with_overrides(setjoin_platform::features::Overrides::from_env(&|name| {
                 std::env::var(name).ok()
@@ -527,7 +541,8 @@ async fn build_with_keys<K: KeySource + 'static>(
         exec.clone(),
         keys.clone(),
         issuer.clone(),
-    );
+    )
+    .with_worker(compliance.worker.clone());
     let platform_updates = if let Some(hub) = listen_hub.clone() {
         platform_updates
             .with_recovery_hub(
@@ -571,6 +586,7 @@ async fn build_with_keys<K: KeySource + 'static>(
     };
     let platform_webhooks = crate::platform_webhooks::PlatformWebhooksRoute {
         exec: exec.clone(),
+        worker: Some(compliance.worker.clone()),
         keys: keys.clone(),
         issuer: issuer.clone(),
         codec: super::workers::webhook_codec(),
@@ -708,6 +724,7 @@ async fn build_with_keys<K: KeySource + 'static>(
     };
     let migration = crate::migration::MigrationRoute {
         exec: exec.clone(),
+        worker: compliance.worker.clone(),
         keys: keys.clone(),
         issuer: issuer.clone(),
         encryption_key: env("DB_ENCRYPTION_KEY").unwrap_or_default(),
@@ -716,6 +733,7 @@ async fn build_with_keys<K: KeySource + 'static>(
     };
     let devices = crate::devices::DevicesRoute {
         exec: exec.clone(),
+        worker: compliance.worker.clone(),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
@@ -742,6 +760,14 @@ async fn build_with_keys<K: KeySource + 'static>(
     };
     let dirsync = crate::directory_sync::DirectorySyncRoute {
         exec: exec.clone(),
+        worker: Some(
+            ScopedExecutor::from_dsn(&env("DB_WORKER_DSN").unwrap_or_else(|| dsn.clone()), pool)
+                .map_err(|e| format!("DB_WORKER_DSN: {}", e.0))?
+                .with_audit_keys(
+                    env("DB_ENCRYPTION_KEY").unwrap_or_default(),
+                    env("AUDIT_HMAC_KEY").unwrap_or_default(),
+                ),
+        ),
         keys: keys.clone(),
         issuer: issuer.clone(),
         ldap,
@@ -941,6 +967,7 @@ async fn build_with_keys<K: KeySource + 'static>(
             discovery: None,
             fallback: Some(Arc::new(catchall.clone())),
             exec: assist_exec.clone(),
+            worker: Some(surface_worker),
             keys: assist_keys.clone(),
             issuer: assist_issuer.clone(),
             health: Arc::new({

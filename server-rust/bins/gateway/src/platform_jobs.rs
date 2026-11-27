@@ -135,36 +135,61 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(500, "database error", &c, &id);
+            };
             let actor = auth.context();
             let go_path = segment_path(r.uri().path());
             let required = gate(what);
-            let authority = match setjoin_platform::authority(&exec, actor).await {
-                Ok(authority) if authority.allows_any(required) => authority,
-                _ => {
-                    let _ = setjoin_platform::console_denied(
-                        &exec,
-                        actor,
-                        &go_path,
-                        &required.join("|"),
-                        operation,
-                    )
-                    .await;
-                    return bare(403, "Forbidden", &c, &id);
-                }
+            let admin_opt = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
             };
-            if authority.refused_for_scope(required) {
+            let Some(admin_principal) = admin_opt.filter(|a| a.allows_any(required)) else {
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
+            if admin_principal.refused_for_scope(required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
                     required.join("|"),
-                    authority.domain_scope()
+                    admin_principal.enforced_domain_scope().unwrap_or(0)
                 );
-                let _ =
-                    setjoin_platform::console_denied(&exec, actor, &go_path, &detail, operation)
-                        .await;
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &detail,
+                    operation,
+                )
+                .await;
                 return bare(403, "Forbidden", &c, &id);
             }
-            // #539 (owner-approved security fix 2026-11-05): server-wide storage scans,
-            // reconciliation and migration need an organization-wide system.config grant.
+            let Ok(admin) = admin_principal.require_any_permission(required) else {
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
             let server_wide = match what {
                 Action::DrScanStart => Some("scan"),
                 Action::DrReconcile => Some("reconcile"),
@@ -172,8 +197,6 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                 Action::MigrateCancel => Some("cancel"),
                 _ => None,
             };
-            // #542 (review of #537): the storage read routes keep Go's Mail-console gate but
-            // also need an organization-wide grant: they expose server-wide status and history.
             let server_read = match what {
                 Action::StorageStatus => Some("status"),
                 Action::DrScanList => Some("scan-list"),
@@ -185,18 +208,22 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
             if server_wide.is_some() || server_read.is_some() {
                 let allowed = match (server_wide, server_read) {
                     (Some(route), _) => {
-                        setjoin_platform::storage_org_wide(&exec, actor, route).await
+                        setjoin_platform::storage_org_wide(&factory, &admin, route).await
                     }
                     (_, Some(route)) => {
-                        setjoin_platform::storage_read_org_wide(&exec, actor, route).await
+                        setjoin_platform::storage_read_org_wide(&factory, &admin, route).await
                     }
-                    _ => unreachable!(),
+                    _ => Ok(false),
                 };
                 if !matches!(allowed, Ok(true)) {
                     let detail =
                         format!("{} (organization-wide grant required)", required.join("|"));
                     let _ = setjoin_platform::console_denied(
-                        &exec, actor, &go_path, &detail, operation,
+                        &factory,
+                        &user_principal,
+                        &go_path,
+                        &detail,
+                        operation,
                     )
                     .await;
                     return bare(403, "Forbidden", &c, &id);
@@ -216,7 +243,6 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                 response
             };
             let path = r.uri().path().to_owned();
-            // Go's `WriteProblem`: instance is the stripped path, language from the request.
             let problem = |status: u16, detail: &str| {
                 crate::mailboxes::render(
                     crate::problem::Problem::new(status, detail).instance(&go_path),
@@ -226,7 +252,6 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                 )
             };
             let db_error = || problem(500, "database error");
-            // `strconv.ParseInt(r.PathValue("id"), 10, 64)`.
             let target = || segment(&path, 5).parse::<i64>().ok();
             match what {
                 Action::MigrateCancel => {
@@ -236,7 +261,7 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                     let Some(storage) = storage else {
                         return db_error();
                     };
-                    match storage.cancel_migration(&exec, migration).await {
+                    match storage.cancel_migration(&factory, &admin, migration).await {
                         Ok(body) => reply(body, 200),
                         Err(crate::platform_storage::Failure::Problem(status, detail)) => {
                             problem(status, &detail)
@@ -265,7 +290,7 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                         }
                     };
                     match storage
-                        .start_migration(&exec, actor, operation, requested)
+                        .start_migration(&factory, &user_principal, &admin, operation, requested)
                         .await
                     {
                         Ok(body) => reply(body, 202),
@@ -281,7 +306,10 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                     let Some(storage) = storage else {
                         return db_error();
                     };
-                    match storage.start_scan(&exec, actor, operation).await {
+                    match storage
+                        .start_scan(&factory, &user_principal, &admin, operation)
+                        .await
+                    {
                         Ok(body) => reply(body, 202),
                         Err(crate::platform_storage::Failure::Problem(status, detail)) => {
                             problem(status, &detail)
@@ -298,7 +326,10 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                     let Some(storage) = storage else {
                         return db_error();
                     };
-                    match storage.reconcile(&exec, actor, scan, operation).await {
+                    match storage
+                        .reconcile(&factory, &user_principal, &admin, scan, operation)
+                        .await
+                    {
                         Ok(body) => reply(body, 200),
                         Err(crate::platform_storage::Failure::Problem(409, detail)) => {
                             crate::mailboxes::render(
@@ -333,9 +364,8 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                         return problem(400, "unknown queue");
                     }
                     let result = if what == Action::JobSummary {
-                        jobs_db::summary(&worker, &queue).await
+                        jobs_db::summary(&factory, &admin, &queue).await
                     } else {
-                        // Go's `ParseLimitOffset(r, 50, 200)`.
                         let mut limit = atoi(&query(r.uri(), "limit").unwrap_or_default());
                         if !(1..=200).contains(&limit) {
                             limit = 50;
@@ -343,7 +373,15 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                         let offset =
                             atoi(&query(r.uri(), "offset").unwrap_or_default()).clamp(0, 1_000_000);
                         let status = query(r.uri(), "status").unwrap_or_default();
-                        jobs_db::list(&worker, &queue, &status, limit as i32, offset as i32).await
+                        jobs_db::list(
+                            &factory,
+                            &admin,
+                            &queue,
+                            &status,
+                            limit as i32,
+                            offset as i32,
+                        )
+                        .await
                     };
                     match result {
                         Ok(body) => reply(body, 200),
@@ -354,7 +392,9 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                     let Some(job) = target() else {
                         return problem(400, "invalid job id");
                     };
-                    match jobs_db::retry_journal(&worker, actor, job, operation).await {
+                    match jobs_db::retry_journal(&factory, &user_principal, &admin, job, operation)
+                        .await
+                    {
                         CommandOutcome::Committed(true) => no_content(reply(String::new(), 204)),
                         CommandOutcome::Committed(false) => {
                             problem(404, "row not found or not dead-lettered")
@@ -369,11 +409,8 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                     let Some(job) = target() else {
                         return problem(400, "invalid job id");
                     };
-                    match jobs_db::bulk_detail(&exec, job).await {
-                        Some(row) => {
-                            // Written verbatim: no encoder newline, no HTML escaping.
-                            reply(row, 200)
-                        }
+                    match jobs_db::bulk_detail(&factory, &admin, job).await {
+                        Some(row) => reply(row, 200),
                         None => problem(404, "job not found"),
                     }
                 }
@@ -381,8 +418,7 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                     let Some(job) = target() else {
                         return problem(400, "invalid job id");
                     };
-                    let ip = c.identity.client_ip.to_string();
-                    match jobs_db::bulk_retry(&exec, actor, job, &ip, operation).await {
+                    match jobs_db::bulk_retry(&factory, &admin, job, &ip, operation).await {
                         CommandOutcome::Committed(true) => no_content(reply(String::new(), 204)),
                         CommandOutcome::Committed(false) | CommandOutcome::RolledBack(_) => {
                             problem(409, "job not found or not in error state")
@@ -392,7 +428,7 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                         }
                     }
                 }
-                Action::DrScanList => match storage_db::dr_scan_list(&exec).await {
+                Action::DrScanList => match storage_db::dr_scan_list(&factory, &admin).await {
                     Ok(body) => reply(body, 200),
                     Err(_) => db_error(),
                 },
@@ -400,13 +436,13 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                     let Some(scan) = target() else {
                         return problem(400, "invalid scan id");
                     };
-                    match storage_db::dr_scan_get(&exec, scan).await {
+                    match storage_db::dr_scan_get(&factory, &admin, scan).await {
                         Ok(Some(body)) => reply(body, 200),
                         Ok(None) => problem(404, "scan not found"),
                         Err(_) => db_error(),
                     }
                 }
-                Action::MigrateList => match storage_db::migrate_list(&exec).await {
+                Action::MigrateList => match storage_db::migrate_list(&factory, &admin).await {
                     Ok(body) => reply(body, 200),
                     Err(_) => problem(500, "query failed"),
                 },
@@ -414,7 +450,7 @@ impl<K: KeySource + 'static> Intercept for PlatformJobsRoute<K> {
                     let Some(migration) = target() else {
                         return problem(400, "invalid migration id");
                     };
-                    match storage_db::migrate_status(&exec, migration).await {
+                    match storage_db::migrate_status(&factory, &admin, migration).await {
                         Some(body) => reply(body, 200),
                         None => problem(404, "migration not found"),
                     }

@@ -98,46 +98,83 @@ fn token_chars(t: &str) -> bool {
 /// `/jmap`). Beyond Go, conservatively: `uid` > 0, `iat` present (the
 /// revocation watermark compares it), no guest `acct`, no impersonation
 /// `act`, and every claim Go decodes has the JSON type Go expects.
-pub async fn verify(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource)->Option<Session>{verify_scope(token,issuer,now_unix,keys,false).await}
+pub async fn verify(
+    token: &str,
+    issuer: &str,
+    now_unix: f64,
+    keys: &impl KeySource,
+) -> Option<Session> {
+    verify_scope(token, issuer, now_unix, keys, false).await
+}
 
 /// Go's `pathWithinScope` (chain.go:453-456) over the `r.URL.Path` the handler sees
 /// (see [`crate::go_url::mailserver_handler_path`]): a token with a non-empty `scp`
 /// is accepted only when that path is `/<scp>` or under `/<scp>/`. Bytes, as Go compares.
-pub(crate) fn path_within_scope(path:&[u8],scope:&str)->bool{
-    path.strip_prefix(b"/").and_then(|p|p.strip_prefix(scope.as_bytes())).is_some_and(|rest|rest.is_empty()||rest.starts_with(b"/"))
+pub(crate) fn path_within_scope(path: &[u8], scope: &str) -> bool {
+    path.strip_prefix(b"/")
+        .and_then(|p| p.strip_prefix(scope.as_bytes()))
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(b"/"))
 }
 /// Scope containment (chain.go:434): empty scope, the Drive adapters' drive
 /// surface, or a handler path the scope names. `None` path = no request path known
 /// (or Go would not reach a handler), so a scoped token is not admitted.
-fn scope_admits(scope:&str,drive:bool,path:Option<&[u8]>)->bool{
-    scope.is_empty()||(drive&&scope=="drive")||path.is_some_and(|p|path_within_scope(p,scope))
+fn scope_admits(scope: &str, drive: bool, path: Option<&[u8]>) -> bool {
+    scope.is_empty()
+        || (drive && scope == "drive")
+        || path.is_some_and(|p| path_within_scope(p, scope))
 }
 /// Drive adapters only: the ordinary guard still refuses every scoped mirror.
-pub async fn verify_drive(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource)->Option<Session>{verify_scope(token,issuer,now_unix,keys,true).await}
+pub async fn verify_drive(
+    token: &str,
+    issuer: &str,
+    now_unix: f64,
+    keys: &impl KeySource,
+) -> Option<Session> {
+    verify_scope(token, issuer, now_unix, keys, true).await
+}
 
 /// [`verify`]/[`verify_drive`] with the refusal class kept (#354); one signature
 /// check. A token Go's registered-claim boundary rejects is `InvalidToken`; a
 /// token Go accepts but Rust does not serve is named by the first rule it trips.
 #[cfg(test)]
-pub(crate) async fn verify_detailed(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource,drive:bool,path:Option<&[u8]>)
-    ->Result<Session,crate::Refusal>{
-    let claims=decoded_claims(token,keys).await.ok_or(crate::Refusal::InvalidToken)?;
-    session_detailed(&claims,issuer,now_unix,drive,path)
+pub(crate) async fn verify_detailed(
+    token: &str,
+    issuer: &str,
+    now_unix: f64,
+    keys: &impl KeySource,
+    drive: bool,
+    path: Option<&[u8]>,
+) -> Result<Session, crate::Refusal> {
+    let claims = decoded_claims(token, keys)
+        .await
+        .ok_or(crate::Refusal::InvalidToken)?;
+    session_detailed(&claims, issuer, now_unix, drive, path)
 }
 
 /// Signature-checked claims with `exp`/`nbf`/`iat` decoded exactly as Go's
 /// `jwt.NumericDate` decodes them ([`crate::numeric_date`]); `None` = Go rejects.
-pub(crate) async fn decoded_claims(token:&str,keys:&impl KeySource)->Option<Map<String,Value>>{
-    let mut claims=signed_claims(token,keys).await?;
-    crate::numeric_date::normalize_token_claims(token,&mut claims)?;
+pub(crate) async fn decoded_claims(
+    token: &str,
+    keys: &impl KeySource,
+) -> Option<Map<String, Value>> {
+    let mut claims = signed_claims(token, keys).await?;
+    crate::numeric_date::normalize_token_claims(token, &mut claims)?;
     Some(claims)
 }
 
 /// Go's claim acceptance (chain.go jwt_bearer + pathWithinScope): shape, registered
 /// claims, `typ` access and scope containment. Accepted tokens may still be unserved.
-pub(crate) fn go_accepts(claims:&Map<String,Value>,issuer:&str,now_unix:f64,drive:bool,path:Option<&[u8]>)->bool{
-    claims_shape_ok(claims).is_some() && crate::legacy_jwt::registered(claims,issuer,AUDIENCE,now_unix)
-        && str_claim(claims,"typ")=="access" && scope_admits(str_claim(claims,"scp"),drive,path)
+pub(crate) fn go_accepts(
+    claims: &Map<String, Value>,
+    issuer: &str,
+    now_unix: f64,
+    drive: bool,
+    path: Option<&[u8]>,
+) -> bool {
+    claims_shape_ok(claims).is_some()
+        && crate::legacy_jwt::registered(claims, issuer, AUDIENCE, now_unix)
+        && str_claim(claims, "typ") == "access"
+        && scope_admits(str_claim(claims, "scp"), drive, path)
 }
 
 /// Validate optional `act` impersonation claim: absent/null is `Ok(None)`, a
@@ -153,25 +190,54 @@ pub(crate) fn actor_id_from(claims: &Map<String, Value>) -> Result<Option<i64>, 
 }
 
 /// The refusal class `admit` reports for [`decoded_claims`] (Go rule order).
-pub(crate) fn session_detailed(claims:&Map<String,Value>,issuer:&str,now_unix:f64,drive:bool,path:Option<&[u8]>)
-    ->Result<Session,crate::Refusal>{
+pub(crate) fn session_detailed(
+    claims: &Map<String, Value>,
+    issuer: &str,
+    now_unix: f64,
+    drive: bool,
+    path: Option<&[u8]>,
+) -> Result<Session, crate::Refusal> {
     use crate::Refusal;
-    if let Some(session)=session_from(claims,issuer,now_unix,drive,path){return Ok(session);}
-    if !go_accepts(claims,issuer,now_unix,drive,path) || actor_id_from(claims).is_err() {
+    if let Some(session) = session_from(claims, issuer, now_unix, drive, path) {
+        return Ok(session);
+    }
+    if !go_accepts(claims, issuer, now_unix, drive, path) || actor_id_from(claims).is_err() {
         return Err(Refusal::InvalidToken);
     }
-    if claims.get("iat").is_none_or(Value::is_null) {return Err(Refusal::MissingIssuedAt);}
-    if claims.get("uid").and_then(Value::as_i64).is_none_or(|u|u<=0) {return Err(Refusal::UnservedSubject);}
-    if str_claim(claims,"acct")=="guest" {return Err(Refusal::Guest);}
+    if claims.get("iat").is_none_or(Value::is_null) {
+        return Err(Refusal::MissingIssuedAt);
+    }
+    if claims
+        .get("uid")
+        .and_then(Value::as_i64)
+        .is_none_or(|u| u <= 0)
+    {
+        return Err(Refusal::UnservedSubject);
+    }
+    if str_claim(claims, "acct") == "guest" {
+        return Err(Refusal::Guest);
+    }
     Err(Refusal::InvalidToken)
 }
-async fn verify_scope(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource,drive:bool)->Option<Session>{
+async fn verify_scope(
+    token: &str,
+    issuer: &str,
+    now_unix: f64,
+    keys: &impl KeySource,
+    drive: bool,
+) -> Option<Session> {
     let claims = decoded_claims(token, keys).await?;
     session_from(&claims, issuer, now_unix, drive, None)
 }
 
 /// The claim rules of [`verify`] over already signature-checked claims.
-fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive: bool, path: Option<&[u8]>) -> Option<Session> {
+fn session_from(
+    claims: &Map<String, Value>,
+    issuer: &str,
+    now_unix: f64,
+    drive: bool,
+    path: Option<&[u8]>,
+) -> Option<Session> {
     claims_shape_ok(claims)?;
 
     if claims.get("iss")?.as_str()? != issuer || issuer.is_empty() {
@@ -196,8 +262,8 @@ fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive:
     if claims.get("typ")?.as_str()? != "access" {
         return None;
     }
-    let scope=str_claim(claims,"scp");
-    if !scope_admits(scope, drive, path) || str_claim(claims,"acct")=="guest" {
+    let scope = str_claim(claims, "scp");
+    if !scope_admits(scope, drive, path) || str_claim(claims, "acct") == "guest" {
         return None;
     }
     let actor_id = actor_id_from(claims).ok()?;
@@ -365,22 +431,82 @@ pub(crate) fn claims_shape_ok(claims: &Map<String, Value>) -> Option<()> {
         }
     }
     for (name, fields) in [
-        ("device", &[("id",Kind::Str),("platform",Kind::Str),("trust_tier",Kind::Str),("compliance_status",Kind::Str),("wipe_requested",Kind::Bool)][..]),
-        ("mam", &[("policy_version",Kind::Int),("copy_paste",Kind::Str),("screen_capture",Kind::Str),("encryption",Kind::Str),("watermark",Kind::Bool),("notification_profile",Kind::Str),("max_offline_days",Kind::Int)][..]),
-        ("risk", &[("user_score",Kind::Int),("level",Kind::Str),("requires_mfa",Kind::Bool),("signals",Kind::StrList)][..]),
-        ("cnf", &[("jkt",Kind::Str),("x5t#s256",Kind::Str)][..]),
-        ("identity_fence", &[("source_id",Kind::Int),("source_generation",Kind::Int),("link_id",Kind::Int),("link_generation",Kind::Int)][..]),
-        ("attachment", &[("sha256",Kind::Str),("account_id",Kind::Int),("mailbox_id",Kind::Int),("device_id",Kind::Int),("device_fingerprint",Kind::Str),("policy_generation",Kind::Str),("origin_jti",Kind::Str),("origin_iat",Kind::Int)][..]),
+        (
+            "device",
+            &[
+                ("id", Kind::Str),
+                ("platform", Kind::Str),
+                ("trust_tier", Kind::Str),
+                ("compliance_status", Kind::Str),
+                ("wipe_requested", Kind::Bool),
+            ][..],
+        ),
+        (
+            "mam",
+            &[
+                ("policy_version", Kind::Int),
+                ("copy_paste", Kind::Str),
+                ("screen_capture", Kind::Str),
+                ("encryption", Kind::Str),
+                ("watermark", Kind::Bool),
+                ("notification_profile", Kind::Str),
+                ("max_offline_days", Kind::Int),
+            ][..],
+        ),
+        (
+            "risk",
+            &[
+                ("user_score", Kind::Int),
+                ("level", Kind::Str),
+                ("requires_mfa", Kind::Bool),
+                ("signals", Kind::StrList),
+            ][..],
+        ),
+        ("cnf", &[("jkt", Kind::Str), ("x5t#s256", Kind::Str)][..]),
+        (
+            "identity_fence",
+            &[
+                ("source_id", Kind::Int),
+                ("source_generation", Kind::Int),
+                ("link_id", Kind::Int),
+                ("link_generation", Kind::Int),
+            ][..],
+        ),
+        (
+            "attachment",
+            &[
+                ("sha256", Kind::Str),
+                ("account_id", Kind::Int),
+                ("mailbox_id", Kind::Int),
+                ("device_id", Kind::Int),
+                ("device_fingerprint", Kind::Str),
+                ("policy_generation", Kind::Str),
+                ("origin_jti", Kind::Str),
+                ("origin_iat", Kind::Int),
+            ][..],
+        ),
     ] {
-        if let Some(object)=claims.get(name).and_then(Value::as_object) {
-            for (key,value) in object {
-                if let Some((known,kind))=fields.iter().find(|(n,_)|*n==key.to_ascii_lowercase()) {
-                    if key!=known && !(name=="cnf" && key=="x5t#S256") {return None;}
-                    let valid=value.is_null()||match kind {
-                        Kind::Str=>value.is_string(),Kind::Bool=>value.is_boolean(),Kind::Int=>value.is_i64(),
-                        Kind::StrList=>value.as_array().is_some_and(|a|a.iter().all(Value::is_string)),_=>false,
-                    };
-                    if !valid{return None;}
+        if let Some(object) = claims.get(name).and_then(Value::as_object) {
+            for (key, value) in object {
+                if let Some((known, kind)) =
+                    fields.iter().find(|(n, _)| *n == key.to_ascii_lowercase())
+                {
+                    if key != known && !(name == "cnf" && key == "x5t#S256") {
+                        return None;
+                    }
+                    let valid = value.is_null()
+                        || match kind {
+                            Kind::Str => value.is_string(),
+                            Kind::Bool => value.is_boolean(),
+                            Kind::Int => value.is_i64(),
+                            Kind::StrList => value
+                                .as_array()
+                                .is_some_and(|a| a.iter().all(Value::is_string)),
+                            _ => false,
+                        };
+                    if !valid {
+                        return None;
+                    }
                 }
             }
         }
@@ -468,7 +594,9 @@ pub(crate) fn attachment(
 }
 
 impl<K: KeySource> KeySource for std::sync::Arc<K> {
-    fn legacy_keys(&self)->Option<&crate::legacy_jwt::LegacyKeys>{self.as_ref().legacy_keys()}
+    fn legacy_keys(&self) -> Option<&crate::legacy_jwt::LegacyKeys> {
+        self.as_ref().legacy_keys()
+    }
 
     async fn key(&self, kid: &str) -> Option<VerifyingKey> {
         self.as_ref().key(kid).await
@@ -787,10 +915,15 @@ pub(crate) mod tests {
 /// Authserver's first-party signature/registered-claim boundary. This does not
 /// impose the gateway's mailbox, guest, scope or access-type admission rules.
 /// Callers must still apply the exact endpoint's access/revocation/DPoP guard.
-pub async fn validate_first_party(token:&str,issuer:&str,now:f64,keys:&impl KeySource)->Option<Map<String,Value>>{
-    let claims=decoded_claims(token,keys).await?;
+pub async fn validate_first_party(
+    token: &str,
+    issuer: &str,
+    now: f64,
+    keys: &impl KeySource,
+) -> Option<Map<String, Value>> {
+    let claims = decoded_claims(token, keys).await?;
     claims_shape_ok(&claims)?;
-    crate::legacy_jwt::registered(&claims,issuer,AUDIENCE,now).then_some(claims)
+    crate::legacy_jwt::registered(&claims, issuer, AUDIENCE, now).then_some(claims)
 }
 
 /// Authserver PresentedAccessToken: first Bearer header, then first valid named
@@ -818,12 +951,23 @@ pub fn presented(headers: &hyper::HeaderMap) -> Option<String> {
 pub(crate) fn presented_cookie(headers: &hyper::HeaderMap) -> Option<String> {
     fn trim(mut b: &[u8]) -> &[u8] {
         let space = |c: &u8| matches!(c, b' ' | b'\t' | b'\r' | b'\n');
-        while b.first().is_some_and(space) { b = &b[1..]; }
-        while b.last().is_some_and(space) { b = &b[..b.len() - 1]; }
+        while b.first().is_some_and(space) {
+            b = &b[1..];
+        }
+        while b.last().is_some_and(space) {
+            b = &b[..b.len() - 1];
+        }
         b
     }
-    let lines: Vec<&[u8]> = headers.get_all("cookie").iter().map(|v| v.as_bytes()).collect();
-    let slots: usize = lines.iter().map(|l| l.iter().filter(|b| **b == b';').count() + 1).sum();
+    let lines: Vec<&[u8]> = headers
+        .get_all("cookie")
+        .iter()
+        .map(|v| v.as_bytes())
+        .collect();
+    let slots: usize = lines
+        .iter()
+        .map(|l| l.iter().filter(|b| **b == b';').count() + 1)
+        .sum();
     if slots > 3000 {
         return None;
     }
@@ -893,13 +1037,25 @@ mod verify_detailed_tests {
     }
 
     /// `path` is the raw request path; Go's handler path is derived from it as `admit` does.
-    async fn detailed_at(claims: Value, header: Value, drive: bool, path: &str) -> Result<(), Refusal> {
+    async fn detailed_at(
+        claims: Value,
+        header: Value,
+        drive: bool,
+        path: &str,
+    ) -> Result<(), Refusal> {
         let path = crate::go_url::mailserver_handler_path("GET", path);
         let key = signing_key(1);
         let token = sign(&key, &header, &claims);
-        verify_detailed(&token, "mailserver", NOW, &OneKey("k1", public_key(&key)), drive, path.as_deref())
-            .await
-            .map(|_| ())
+        verify_detailed(
+            &token,
+            "mailserver",
+            NOW,
+            &OneKey("k1", public_key(&key)),
+            drive,
+            path.as_deref(),
+        )
+        .await
+        .map(|_| ())
     }
 
     #[tokio::test]
@@ -922,23 +1078,125 @@ mod verify_detailed_tests {
         #[allow(clippy::type_complexity)]
         let cases: Vec<(&str, Value, Value, bool, Result<(), Refusal>)> = vec![
             ("valid", claims(), es256(), false, Ok(())),
-            ("act positive", with("act", json!(3)), es256(), false, Ok(())),
-            ("act zero", with("act", json!(0)), es256(), false, Err(Refusal::InvalidToken)),
-            ("act negative", with("act", json!(-1)), es256(), false, Err(Refusal::InvalidToken)),
-            ("act without iat", act_without_iat, es256(), false, Err(Refusal::MissingIssuedAt)),
-            ("no iat", without("iat"), es256(), false, Err(Refusal::MissingIssuedAt)),
-            ("acct guest", with("acct", json!("guest")), es256(), false, Err(Refusal::Guest)),
-            ("acct guest without iat", guest_without_iat, es256(), false, Err(Refusal::MissingIssuedAt)),
-            ("acct guest with uid 0", guest_uid_zero, es256(), false, Err(Refusal::UnservedSubject)),
-            ("uid 0", with("uid", json!(0)), es256(), false, Err(Refusal::UnservedSubject)),
-            ("uid absent", without("uid"), es256(), false, Err(Refusal::UnservedSubject)),
-            ("refresh typ", with("typ", json!("refresh")), es256(), false, Err(Refusal::InvalidToken)),
-            ("mfa_pending typ", with("typ", json!("mfa_pending")), es256(), false, Err(Refusal::InvalidToken)),
-            ("drive scope off a drive path", with("scp", json!("drive")), es256(), false, Err(Refusal::InvalidToken)),
-            ("drive scope on a drive path", with("scp", json!("drive")), es256(), true, Ok(())),
-            ("expired", with("exp", json!(1_800_000_000)), es256(), false, Err(Refusal::InvalidToken)),
-            ("wrong audience", with("aud", json!("other")), es256(), false, Err(Refusal::InvalidToken)),
-            ("unknown kid", claims(), json!({"alg": "ES256", "kid": "k2"}), false, Err(Refusal::InvalidToken)),
+            (
+                "act positive",
+                with("act", json!(3)),
+                es256(),
+                false,
+                Ok(()),
+            ),
+            (
+                "act zero",
+                with("act", json!(0)),
+                es256(),
+                false,
+                Err(Refusal::InvalidToken),
+            ),
+            (
+                "act negative",
+                with("act", json!(-1)),
+                es256(),
+                false,
+                Err(Refusal::InvalidToken),
+            ),
+            (
+                "act without iat",
+                act_without_iat,
+                es256(),
+                false,
+                Err(Refusal::MissingIssuedAt),
+            ),
+            (
+                "no iat",
+                without("iat"),
+                es256(),
+                false,
+                Err(Refusal::MissingIssuedAt),
+            ),
+            (
+                "acct guest",
+                with("acct", json!("guest")),
+                es256(),
+                false,
+                Err(Refusal::Guest),
+            ),
+            (
+                "acct guest without iat",
+                guest_without_iat,
+                es256(),
+                false,
+                Err(Refusal::MissingIssuedAt),
+            ),
+            (
+                "acct guest with uid 0",
+                guest_uid_zero,
+                es256(),
+                false,
+                Err(Refusal::UnservedSubject),
+            ),
+            (
+                "uid 0",
+                with("uid", json!(0)),
+                es256(),
+                false,
+                Err(Refusal::UnservedSubject),
+            ),
+            (
+                "uid absent",
+                without("uid"),
+                es256(),
+                false,
+                Err(Refusal::UnservedSubject),
+            ),
+            (
+                "refresh typ",
+                with("typ", json!("refresh")),
+                es256(),
+                false,
+                Err(Refusal::InvalidToken),
+            ),
+            (
+                "mfa_pending typ",
+                with("typ", json!("mfa_pending")),
+                es256(),
+                false,
+                Err(Refusal::InvalidToken),
+            ),
+            (
+                "drive scope off a drive path",
+                with("scp", json!("drive")),
+                es256(),
+                false,
+                Err(Refusal::InvalidToken),
+            ),
+            (
+                "drive scope on a drive path",
+                with("scp", json!("drive")),
+                es256(),
+                true,
+                Ok(()),
+            ),
+            (
+                "expired",
+                with("exp", json!(1_800_000_000)),
+                es256(),
+                false,
+                Err(Refusal::InvalidToken),
+            ),
+            (
+                "wrong audience",
+                with("aud", json!("other")),
+                es256(),
+                false,
+                Err(Refusal::InvalidToken),
+            ),
+            (
+                "unknown kid",
+                claims(),
+                json!({"alg": "ES256", "kid": "k2"}),
+                false,
+                Err(Refusal::InvalidToken),
+            ),
         ];
         for (name, claims, header, drive, expected) in cases {
             assert_eq!(detailed(claims, header, drive).await, expected, "{name}");
@@ -980,11 +1238,22 @@ mod verify_detailed_tests {
             ("openapi.full.yaml", "/api/openapi.full.yaml", false),
         ];
         for &(scp, path, ok) in cases {
-            let want = if ok { Ok(()) } else { Err(Refusal::InvalidToken) };
-            assert_eq!(detailed_at(scoped(scp), es256(), false, path).await, want, "{scp} {path}");
+            let want = if ok {
+                Ok(())
+            } else {
+                Err(Refusal::InvalidToken)
+            };
+            assert_eq!(
+                detailed_at(scoped(scp), es256(), false, path).await,
+                want,
+                "{scp} {path}"
+            );
         }
         // The unscoped token never depends on the path.
-        assert_eq!(detailed_at(claims(), es256(), false, "/anything").await, Ok(()));
+        assert_eq!(
+            detailed_at(claims(), es256(), false, "/anything").await,
+            Ok(())
+        );
     }
 
     #[test]
@@ -998,7 +1267,10 @@ mod verify_detailed_tests {
         assert_eq!(get("access_token=abc"), Some("abc".to_owned()));
         assert_eq!(get("a=1; access_token=abc"), Some("abc".to_owned()));
         assert_eq!(get("access_token =abc"), Some("abc".to_owned()));
-        assert_eq!(get("access_token2=x; access_token=abc"), Some("abc".to_owned()));
+        assert_eq!(
+            get("access_token2=x; access_token=abc"),
+            Some("abc".to_owned())
+        );
         // The value is not trimmed after `=` (only the whole pair is).
         assert_eq!(get("access_token= abc"), Some(" abc".to_owned()));
         assert_eq!(get("access_token=abc  "), Some("abc".to_owned()));
@@ -1006,12 +1278,21 @@ mod verify_detailed_tests {
         assert_eq!(get("access_token; access_token=abc"), None);
         assert_eq!(get("access_token=; access_token=abc"), None);
         // Invalid pairs are skipped; quotes are stripped once.
-        assert_eq!(get("access_token=a\\b; access_token=abc"), Some("abc".to_owned()));
+        assert_eq!(
+            get("access_token=a\\b; access_token=abc"),
+            Some("abc".to_owned())
+        );
         assert_eq!(get("access_token=\"abc\""), Some("abc".to_owned()));
-        assert_eq!(get("access_token=\"a\"b\"; access_token=abc"), Some("abc".to_owned()));
+        assert_eq!(
+            get("access_token=\"a\"b\"; access_token=abc"),
+            Some("abc".to_owned())
+        );
         // A non-ASCII byte in another cookie does not hide this one.
         let mut h = hyper::HeaderMap::new();
-        h.insert("cookie", hyper::header::HeaderValue::from_bytes(b"x=\xff; access_token=abc").unwrap());
+        h.insert(
+            "cookie",
+            hyper::header::HeaderValue::from_bytes(b"x=\xff; access_token=abc").unwrap(),
+        );
         assert_eq!(presented_cookie(&h), Some("abc".to_owned()));
         // Over 3000 slots, Go returns no cookies.
         let many = format!("{}access_token=abc", "a=1; ".repeat(3000));
@@ -1026,10 +1307,19 @@ mod verify_detailed_tests {
         assert_eq!(ok(with("iat", json!(1_799_999_000.5))).await, Ok(()));
         assert_eq!(ok(with("nbf", json!(1_799_999_999.9))).await, Ok(()));
         // 1_800_000_000.9 floors to 1_800_000_000 == now: expired (no leeway).
-        assert_eq!(ok(with("exp", json!(1_800_000_000.9))).await, Err(Refusal::InvalidToken));
+        assert_eq!(
+            ok(with("exp", json!(1_800_000_000.9))).await,
+            Err(Refusal::InvalidToken)
+        );
         // A future nbf is refused, fractional or not.
-        assert_eq!(ok(with("nbf", json!(1_800_000_001.5))).await, Err(Refusal::InvalidToken));
-        assert_eq!(ok(with("nbf", json!(1_800_000_001))).await, Err(Refusal::InvalidToken));
+        assert_eq!(
+            ok(with("nbf", json!(1_800_000_001.5))).await,
+            Err(Refusal::InvalidToken)
+        );
+        assert_eq!(
+            ok(with("nbf", json!(1_800_000_001))).await,
+            Err(Refusal::InvalidToken)
+        );
         // jwt/v5 decodes a NumericDate through json.Number: a JSON string holding a
         // valid JSON number is accepted (decode.go:957-961); any other string is not.
         assert_eq!(ok(with("exp", json!("1800000900"))).await, Ok(()));
@@ -1038,12 +1328,26 @@ mod verify_detailed_tests {
         assert_eq!(ok(with("nbf", json!("1.7e9"))).await, Ok(()));
         // encoding/json folds key case: an `EXP` alias of the same date is admitted like Go.
         assert_eq!(ok(with("EXP", json!(1_800_000_900))).await, Ok(()));
-        for bad in [json!("abc"), json!(""), json!(" 1800000900"), json!("+1800000900"), json!("01800000900"), json!(true)] {
-            assert_eq!(ok(with("exp", bad.clone())).await, Err(Refusal::InvalidToken), "exp {bad}");
+        for bad in [
+            json!("abc"),
+            json!(""),
+            json!(" 1800000900"),
+            json!("+1800000900"),
+            json!("01800000900"),
+            json!(true),
+        ] {
+            assert_eq!(
+                ok(with("exp", bad.clone())).await,
+                Err(Refusal::InvalidToken),
+                "exp {bad}"
+            );
         }
         // Go on amd64: exp 9.2233720368547e18 wraps the internal seconds and is expired;
         // nbf 1e19 converts to i64::MIN and is in the past (crate::numeric_date).
-        assert_eq!(ok(with("exp", json!(9.2233720368547e18))).await, Err(Refusal::InvalidToken));
+        assert_eq!(
+            ok(with("exp", json!(9.2233720368547e18))).await,
+            Err(Refusal::InvalidToken)
+        );
         assert_eq!(ok(with("exp", json!(9.21e18))).await, Ok(()));
         assert_eq!(ok(with("nbf", json!(1e19))).await, Ok(()));
     }

@@ -1,9 +1,9 @@
 //! F06 Mail security HTTP adapter. The nine-slice map and each slice's contract live in the
 //! `setjoin-mail-security` DOX. Admin routes are gated like Go's `requireMailPerm`,
-//! `requireMailExport` and `requireSecurityWrite` from the live governed grants: a refusal
-//! writes Go's durable `console.denied` audit row and answers the bare 403. A failed
-//! authority read or a missing token forwards the untouched request to Go, as every family
-//! adapter does, so Go keeps answering 401 and any state it alone can judge.
+//! `requireMailExport` and `requireSecurityWrite` from the live governed grants via
+//! `AdminPrincipal` / `AdminPermissionProof`: a refusal writes Go's durable `console.denied`
+//! audit row and answers the bare 403. A failed admission forwards the untouched request to
+//! Go, as every family adapter does, so Go keeps answering 401 and any state it alone can judge.
 use crate::admin_identity_input::{atoi, query};
 use crate::mailboxes::{bare, unknown_outcome};
 use crate::{Body, BoxFuture, Intercept, RequestContext};
@@ -12,7 +12,8 @@ use setjoin_authz::token::KeySource;
 use setjoin_mail_security::dmarc as dmarc_db;
 use setjoin_mail_security::quarantine as quarantine_db;
 use setjoin_mail_security::queue as queue_db;
-use setjoin_pg::{CommandOutcome, ScopedExecutor};
+use setjoin_mail_security::sql as mailsec_sql;
+use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure};
 use std::sync::Arc;
 
 pub struct MailSecurityRoute<K: KeySource + 'static> {
@@ -358,6 +359,82 @@ fn parse_id(text: &str) -> Option<i64> {
     text.parse::<i64>().ok()
 }
 
+/// Execute an RBAC-proved cross-tenant `SqlScope::WorkerBypass` boolean reducer
+/// on `WorkerPool` (`BYPASSRLS`) with a durable `rust_operation_receipts` row,
+/// for FORCE-RLS admin mutations whose frozen-Go parity contract emits no
+/// `admin_audit_log` row.
+pub(crate) async fn worker_bool_command(
+    worker: &ScopedExecutor,
+    contract: &'static setjoin_pg::SqlContract,
+    args: &[i64],
+    cmd: &'static str,
+    operation: [u8; 16],
+) -> CommandOutcome<bool, StatementFailure> {
+    let op = setjoin_contracts::ids::OperationId(operation);
+    let Some(pool) = worker.try_worker_pool() else {
+        return CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
+    };
+    let mut tx = match pool.begin_read_write().await {
+        Ok(tx) => tx,
+        Err(e) => return CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e)),
+    };
+    let op_hex = setjoin_pg::operation_hex(op);
+    let body: Result<bool, StatementFailure> = async {
+        let rows = match args {
+            [a] => tx.query_contract(contract, &[a]).await?,
+            [a, b] => tx.query_contract(contract, &[a, b]).await?,
+            _ => {
+                return Err(StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "unexpected worker_bool_command arity".into(),
+                });
+            }
+        };
+        let ok: bool = rows
+            .first()
+            .and_then(|r| r.try_get(0).ok())
+            .ok_or_else(|| StatementFailure {
+                sqlstate: None,
+                hint: None,
+                message: "invalid mail security result".into(),
+            })?;
+        tx.execute(
+            "INSERT INTO public.rust_operation_receipts(operation_id, family, command) \
+             VALUES ($1::text::uuid, $2, $3)",
+            &[
+                (&op_hex, setjoin_pg::Type::TEXT),
+                (&setjoin_mail_security::FAMILY, setjoin_pg::Type::TEXT),
+                (&cmd, setjoin_pg::Type::TEXT),
+            ],
+        )
+        .await?;
+        Ok(ok)
+    }
+    .await;
+    match body {
+        Ok(ok) => match tx.commit().await {
+            Ok(()) => CommandOutcome::Committed(ok),
+            Err(e) => {
+                if let Some(code) = e.sqlstate.as_deref() {
+                    if setjoin_pg::commit_failure_observation(Some(code))
+                        == setjoin_contracts::command::CommitObservation::RolledBack
+                    {
+                        return CommandOutcome::RolledBack(setjoin_pg::Rejection::CommitRefused(
+                            code.to_owned(),
+                        ));
+                    }
+                }
+                CommandOutcome::Unknown { operation: op }
+            }
+        },
+        Err(e) => {
+            let _ = tx.rollback().await;
+            CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e))
+        }
+    }
+}
+
 impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
     fn requires_session(&self, _req: &Request<Body>) -> bool {
         true
@@ -390,21 +467,33 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return bare(503, "service unavailable", &c, "");
+            };
             let Some(operation) = crate::jmap::random() else {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
-            let actor = auth.context();
-            let mut domain_scope = 0;
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return bare(500, "database error", &c, &id);
+            };
+            let mut admin_proof = None;
             if let Some(required) = gate(what) {
-                let Some(authority) = setjoin_mail_security::authority(&exec, actor)
-                    .await
-                    .ok()
-                    .filter(|authority| authority.allows_any(required))
-                else {
+                let admin_opt = if auth.context().signed_admin() {
+                    factory
+                        .mint_admin_from_authorized(&auth, &client_ip)
+                        .await
+                        .ok()
+                } else {
+                    None
+                };
+                let Some(admin) = admin_opt.filter(|admin| admin.allows_any(required)) else {
                     let _ = setjoin_mail_security::console_denied(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user,
                         &segment_path(r.uri().path()),
                         &required.join("|"),
                         operation,
@@ -412,16 +501,16 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                     .await;
                     return bare(403, "Forbidden", &c, &id);
                 };
-                domain_scope = authority.domain_scope();
-                if authority.refused_for_scope(required) {
+                let domain_scope = admin.enforced_domain_scope().unwrap_or(0);
+                if admin.refused_for_scope(required) {
                     let detail = format!(
                         "{} (domain-scoped principal; org-wide-only surface, domain={})",
                         required.join("|"),
-                        authority.domain_scope()
+                        domain_scope
                     );
                     let _ = setjoin_mail_security::console_denied(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user,
                         &segment_path(r.uri().path()),
                         &detail,
                         operation,
@@ -429,7 +518,18 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                     .await;
                     return bare(403, "Forbidden", &c, &id);
                 }
-                domain_scope = authority.domain_scope();
+                let Ok(proof) = admin.require_any_permission(required) else {
+                    let _ = setjoin_mail_security::console_denied(
+                        &factory,
+                        &user,
+                        &segment_path(r.uri().path()),
+                        &required.join("|"),
+                        operation,
+                    )
+                    .await;
+                    return bare(403, "Forbidden", &c, &id);
+                };
+                admin_proof = Some(proof);
             }
             if what.is_smime() {
                 return crate::mail_security_smime::handle(
@@ -438,53 +538,74 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                     &c,
                     &id,
                     operation,
-                    actor,
-                    &worker,
-                    domain_scope,
+                    &factory,
+                    &user,
+                    admin_proof.as_ref(),
                 )
                 .await;
             }
             if what.is_dlp() {
+                let Some(admin) = admin_proof.as_ref() else {
+                    return bare(403, "Forbidden", &c, &id);
+                };
                 return crate::mail_security_dlp::handle(
-                    what,
-                    r,
-                    &c,
-                    &id,
-                    operation,
-                    actor,
-                    &worker,
-                    domain_scope,
+                    what, r, &c, &id, operation, &factory, &user, admin, &worker,
                 )
                 .await;
             }
             if what.is_trace() {
                 return crate::mail_security_trace::handle(
-                    what, r, &c, &id, actor, &worker, &trace,
+                    what,
+                    r,
+                    &c,
+                    &id,
+                    &factory,
+                    &auth,
+                    &client_ip,
+                    admin_proof.as_ref(),
+                    &trace,
                 )
                 .await;
             }
             if what.is_tls() {
+                let Some(admin) = admin_proof.as_ref() else {
+                    return bare(403, "Forbidden", &c, &id);
+                };
                 return crate::mail_security_tls::handle(
                     what,
                     r,
                     &c,
                     &id,
                     operation,
-                    actor,
-                    &worker,
+                    &factory,
+                    &user,
+                    admin,
                     import_dir.as_deref(),
                 )
                 .await;
             }
             if what.is_threat() {
+                let Some(admin) = admin_proof.as_ref() else {
+                    return bare(403, "Forbidden", &c, &id);
+                };
                 return crate::mail_security_threat::handle(
-                    what, r, &c, &id, operation, actor, &exec, &worker,
+                    what, r, &c, &id, operation, &factory, admin, &worker,
                 )
                 .await;
             }
             if what.is_spam() {
                 return crate::mail_security_spam::handle(
-                    what, r, &c, &id, operation, actor, &worker,
+                    what,
+                    r,
+                    &c,
+                    &id,
+                    operation,
+                    &factory,
+                    &auth,
+                    &client_ip,
+                    &user,
+                    admin_proof.as_ref(),
+                    &worker,
                 )
                 .await;
             }
@@ -503,7 +624,6 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                 }
                 response
             };
-            let user = actor.user_id();
             let path = r.uri().path().to_owned();
             // Go's `WriteProblem`: instance is the stripped path, language from the request.
             let problem = |status: u16, detail: &str| {
@@ -515,11 +635,19 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                 )
             };
             match what {
-                Action::QueueSummary => match queue_db::summary(&worker).await {
-                    Ok(body) => reply(body, 200),
-                    Err(_) => problem(500, "database error"),
-                },
+                Action::QueueSummary => {
+                    let Some(admin) = admin_proof.as_ref() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
+                    match queue_db::summary(&factory, admin).await {
+                        Ok(body) => reply(body, 200),
+                        Err(_) => problem(500, "database error"),
+                    }
+                }
                 Action::QueueList => {
+                    let Some(admin) = admin_proof.as_ref() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
                     let mut limit = atoi(&query(r.uri(), "limit").unwrap_or_default());
                     if !(1..=200).contains(&limit) {
                         limit = 50;
@@ -527,17 +655,25 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                     let offset =
                         atoi(&query(r.uri(), "offset").unwrap_or_default()).clamp(0, 1_000_000);
                     let status = query(r.uri(), "status").unwrap_or_default();
-                    match queue_db::list(&worker, &status, limit, offset).await {
+                    match queue_db::list(&factory, admin, &status, limit, offset).await {
                         Ok(body) => reply(body, 200),
                         Err(_) => problem(500, "database error"),
                     }
                 }
                 Action::QueueRetry | Action::QueueBounce => {
+                    let Some(_admin) = admin_proof.as_ref() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
                     let bounce = what == Action::QueueBounce;
                     let Some(target) = parse_id(&segment(&path, 4)) else {
                         return problem(400, "invalid queue id");
                     };
-                    match queue_db::resolve(&worker, actor, target, bounce, operation).await {
+                    let (cmd, contract) = if bounce {
+                        ("queue.bounce", &mailsec_sql::QUEUE_BOUNCE)
+                    } else {
+                        ("queue.retry", &mailsec_sql::QUEUE_RETRY)
+                    };
+                    match worker_bool_command(&worker, contract, &[target], cmd, operation).await {
                         CommandOutcome::Committed(true) => {
                             let mut response = crate::jmap::reply::response(
                                 String::new(),
@@ -568,20 +704,38 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                     if !(1..=50).contains(&limit) {
                         limit = 50;
                     }
-                    match quarantine_db::user_list(&worker, user, limit, offset).await {
+                    let Ok(mb) = factory
+                        .mint_primary_mailbox_from_authorized(&auth, &client_ip)
+                        .await
+                    else {
+                        return bare(500, "database error", &c, &id);
+                    };
+                    let Ok(cap) = mb.require_read() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
+                    match quarantine_db::user_list(&factory, &cap, limit, offset).await {
                         Ok(body) => reply(body, 200),
                         Err(_) => bare(500, "database error", &c, &id),
                     }
                 }
                 Action::QuarantineUserCount => {
-                    reply(quarantine_db::user_count(&exec, user).await, 200)
+                    reply(quarantine_db::user_count(&factory, &user).await, 200)
                 }
                 Action::QuarantineUserRelease | Action::QuarantineUserReject => {
                     let reject = what == Action::QuarantineUserReject;
                     let Some(target) = parse_id(&segment(&path, 3)) else {
                         return bare(400, "invalid id", &c, &id);
                     };
-                    match quarantine_db::resolve(&worker, actor, target, false, reject, operation)
+                    let Ok(mb) = factory
+                        .mint_primary_mailbox_from_authorized(&auth, &client_ip)
+                        .await
+                    else {
+                        return bare(500, "database error", &c, &id);
+                    };
+                    let Ok(cap) = mb.require_mutate() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
+                    match quarantine_db::user_resolve(&factory, &cap, target, reject, operation)
                         .await
                     {
                         CommandOutcome::Committed(true) => reply(
@@ -609,6 +763,9 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                     }
                 }
                 Action::QuarantineAdminList => {
+                    let Some(admin) = admin_proof.as_ref() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
                     let status = query(r.uri(), "status").unwrap_or_default();
                     let q = query(r.uri(), "q").unwrap_or_default();
                     let mut limit = atoi(&query(r.uri(), "limit").unwrap_or_default());
@@ -617,7 +774,7 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                     }
                     let offset =
                         atoi(&query(r.uri(), "offset").unwrap_or_default()).clamp(0, 1_000_000);
-                    match quarantine_db::admin_list(&worker, actor, &status, &q, limit, offset)
+                    match quarantine_db::admin_list(&factory, admin, &status, &q, limit, offset)
                         .await
                     {
                         Ok(body) => reply(body, 200),
@@ -625,25 +782,45 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                     }
                 }
                 Action::QuarantineAdminStats => {
-                    reply(quarantine_db::admin_stats(&worker, actor).await, 200)
+                    let Some(admin) = admin_proof.as_ref() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
+                    reply(quarantine_db::admin_stats(&factory, admin).await, 200)
                 }
                 Action::QuarantineAdminPreview => {
+                    let Some(admin) = admin_proof.as_ref() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
                     let Some(target) = parse_id(&segment(&path, 4)) else {
                         return bare(400, "invalid id", &c, &id);
                     };
-                    match quarantine_db::admin_preview(&worker, actor, target).await {
+                    match quarantine_db::admin_preview(&factory, admin, target).await {
                         Ok(Some(body)) => reply(body, 200),
                         Ok(None) => bare(404, "not found", &c, &id),
                         Err(_) => bare(500, "database error", &c, &id),
                     }
                 }
                 Action::QuarantineAdminRelease | Action::QuarantineAdminReject => {
+                    let Some(admin) = admin_proof.as_ref() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
                     let reject = what == Action::QuarantineAdminReject;
                     let Some(target) = parse_id(&segment(&path, 4)) else {
                         return bare(400, "invalid id", &c, &id);
                     };
-                    match quarantine_db::resolve(&worker, actor, target, true, reject, operation)
-                        .await
+                    let (cmd, contract) = if reject {
+                        ("quarantine.reject", &mailsec_sql::QUARANTINE_ADMIN_REJECT)
+                    } else {
+                        ("quarantine.release", &mailsec_sql::QUARANTINE_ADMIN_RELEASE)
+                    };
+                    match worker_bool_command(
+                        &worker,
+                        contract,
+                        &[admin.actor().get(), target],
+                        cmd,
+                        operation,
+                    )
+                    .await
                     {
                         CommandOutcome::Committed(true) => reply(
                             quarantine_db::status_body(if reject {
@@ -662,25 +839,42 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                         }
                     }
                 }
-                Action::DmarcLive => reply(dmarc_db::live(&worker, domain_scope).await, 200),
+                Action::DmarcLive => {
+                    let Some(admin) = admin_proof.as_ref() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
+                    reply(dmarc_db::live(&factory, admin).await, 200)
+                }
                 Action::DmarcFailures => {
+                    let Some(admin) = admin_proof.as_ref() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
                     let mut limit = atoi(&query(r.uri(), "limit").unwrap_or_default());
                     if !(1..=200).contains(&limit) {
                         limit = 100;
                     }
-                    match dmarc_db::failures(&worker, domain_scope, limit).await {
+                    match dmarc_db::failures(&factory, admin, limit).await {
                         Ok(body) => reply(body, 200),
                         Err(_) => bare(500, "database error", &c, &id),
                     }
                 }
-                Action::DmarcTrend => match dmarc_db::trend(&worker, domain_scope).await {
-                    Ok(body) => reply(body, 200),
-                    Err(_) => bare(500, "database error", &c, &id),
-                },
+                Action::DmarcTrend => {
+                    let Some(admin) = admin_proof.as_ref() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
+                    match dmarc_db::trend(&factory, admin).await {
+                        Ok(body) => reply(body, 200),
+                        Err(_) => bare(500, "database error", &c, &id),
+                    }
+                }
                 Action::AuthLog => {
+                    let Some(admin) = admin_proof.as_ref() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
                     let get = |name: &str| query(r.uri(), name).unwrap_or_default();
                     match dmarc_db::auth_log(
-                        &exec,
+                        &factory,
+                        admin,
                         &get("provider"),
                         &get("event"),
                         &get("since"),

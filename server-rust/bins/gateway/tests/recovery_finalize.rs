@@ -59,8 +59,26 @@ async fn run_case(case: &str, mutant: bool) -> Result<(), BoxError> {
  let expected_hash=hash.clone();let reads=Arc::new(Mutex::new(Vec::<Value>::new()));let reads_capture=reads.clone();
  let endpoint=common::fake_upstream(move|r|{let hash=expected_hash.clone();let reads=reads_capture.clone();async move{if r.uri().query()==Some("location="){Response::new(common::full("<LocationConstraint>us-east-1</LocationConstraint>"))}else if r.uri().path()==format!("/mailblobs/{hash}"){if r.method()==hyper::Method::GET{reads.lock().unwrap().push(json!({"key":"<raw-hash>","length":RAW.len()}));}Response::builder().header("content-type","message/rfc822").header("content-length",RAW.len()).header("etag","\"raw-etag\"").header("last-modified","Sat, 31 Oct 2026 00:00:00 GMT").body(common::full(if r.method()==hyper::Method::HEAD{""}else{RAW})).unwrap()}else{Response::new(common::full(""))}}}).await;
  let oracle=common::go_oracle::start_with_clamd(&db,endpoint,Some(clamd_address)).await?;let recording=oracle.is_some();
- let worker_dsn=if matches!(case,"no-audit"|"no-notify"|"double-bump"){let (dsn,schema)=mutant_worker(&owner,&db.dsn,case).await?;mutant_schema=Some(schema);dsn}else{db.dsn.clone()};
- let commands=Arc::new(RecoveryCommands{exec:ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),4).map_err(|e|e.0)?,worker_exec:ScopedExecutor::from_dsn(&worker_dsn,4).map_err(|e|e.0)?,keys:common::recovery_keys(),issuer:"mailserver".into(),denylist:None,control_plane_ready:true,store:Some(Arc::new(setjoin_gateway::recovery_worker::S3Store::new(&format!("http://{endpoint}"),"mailblobs","test-access","test-secret")?))});
+ let (exec_dsn, worker_dsn) = if matches!(case, "no-audit" | "no-notify" | "double-bump") {
+     let (dsn, schema) = mutant_worker(&owner, &db.dsn, case).await?;
+     let app_base = db.app.as_deref().unwrap_or(&db.dsn);
+     let app_dsn = if app_base.starts_with("postgres://") || app_base.starts_with("postgresql://") {
+         format!(
+             "{app_base}{}options=-csearch_path%3D{schema}%2Cpublic",
+             if app_base.contains('?') { '&' } else { '?' }
+         )
+     } else {
+         format!("{app_base} options='-csearch_path={schema},public'")
+     };
+     mutant_schema = Some(schema);
+     (app_dsn, dsn)
+ } else {
+     (
+         db.app.as_deref().unwrap_or(&db.dsn).to_owned(),
+         db.dsn.clone(),
+     )
+ };
+ let commands=Arc::new(RecoveryCommands{exec:ScopedExecutor::from_dsn(&exec_dsn,4).map_err(|e|e.0)?,worker_exec:ScopedExecutor::from_dsn(&worker_dsn,4).map_err(|e|e.0)?,keys:common::recovery_keys(),issuer:"mailserver".into(),denylist:None,control_plane_ready:true,store:Some(Arc::new(setjoin_gateway::recovery_worker::S3Store::new(&format!("http://{endpoint}"),"mailblobs","test-access","test-secret")?))});
  let route=FinalizeRoute(commands,Some(Arc::new(ClamAV::new(clamd_address.to_string()))));
  let mut inv:Value=serde_json::from_str(include_str!("../route-inventory.json"))?;let r=inv["routes"].as_array_mut().unwrap().iter_mut().find(|r|r["path"]=="/recovery/uploads/{sessionId}/finalize").unwrap();r["state"]=json!("ON");r["upstream"]=json!("local-rust");
  let gateway=Gateway::new(Config{upstream:oracle.as_ref().map(|o|format!("http://{}",o.address).parse()).transpose()?,trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,edge_limit:None},if recording{RouteTable::proxy_all()}else if mutant{RouteTable::proxy_all().with(ChangedStatus(route))}else{RouteTable::proxy_all().with(route)})?.with_inventory(&inv.to_string())?;

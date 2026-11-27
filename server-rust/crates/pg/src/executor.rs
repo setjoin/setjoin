@@ -56,6 +56,10 @@ impl ProvenStatement {
         self.params.push((Box::new(value), typ));
         self
     }
+    pub(crate) fn bind_boxed(mut self, value: Box<dyn ToSql + Sync + Send>, typ: Type) -> Self {
+        self.params.push((value, typ));
+        self
+    }
 }
 
 // Named infrastructure allowlist shared with `workers.rs`.
@@ -281,6 +285,7 @@ pub struct ScopedExecutor {
     timeouts: Timeouts,
     audit_keys: Option<Arc<AuditKeys>>,
     user_receipt: Option<crate::ReceiptCommand>,
+    effect_sem: Arc<Semaphore>,
 }
 
 impl ScopedExecutor {
@@ -295,6 +300,7 @@ impl ScopedExecutor {
             timeouts: Timeouts::resolved(),
             audit_keys: None,
             user_receipt: None,
+            effect_sem: Arc::new(Semaphore::new(crate::DEFAULT_EFFECT_CONCURRENCY)),
         }
     }
 
@@ -323,6 +329,7 @@ impl ScopedExecutor {
             timeouts,
             audit_keys: None,
             user_receipt: None,
+            effect_sem: Arc::new(Semaphore::new(crate::DEFAULT_EFFECT_CONCURRENCY)),
         })
     }
 
@@ -346,6 +353,32 @@ impl ScopedExecutor {
             audit_hmac: audit_hmac_key,
         }));
         self
+    }
+
+    /// Derive a capability-gated [`crate::AppPool`] sharing this executor's
+    /// underlying [`SetjoinPool`] and deployment audit keys (zero extra connections).
+    pub fn try_app_pool(&self) -> Option<crate::AppPool> {
+        match &self.pool {
+            PoolBackend::Fast(pool) => Some(crate::AppPool::from_parts(
+                pool.clone(),
+                self.audit_keys.clone(),
+                self.effect_sem.clone(),
+            )),
+            PoolBackend::Legacy { .. } => None,
+        }
+    }
+
+    /// Derive a cross-tenant [`crate::WorkerPool`] sharing this executor's
+    /// underlying [`SetjoinPool`] and deployment audit keys (composition-root only).
+    #[cfg(feature = "worker-pool")]
+    pub fn try_worker_pool(&self) -> Option<crate::WorkerPool> {
+        match &self.pool {
+            PoolBackend::Fast(pool) => Some(crate::WorkerPool::from_parts(
+                pool.clone(),
+                self.audit_keys.clone(),
+            )),
+            PoolBackend::Legacy { .. } => None,
+        }
     }
 
     fn transaction_auth(&self, auth: &MailboxAuthContext) -> MailboxAuthContext {
@@ -404,6 +437,142 @@ impl ScopedExecutor {
         Err(StatementFailure::refused("pool unavailable"))
     }
 
+    /// Run one read-only `SELECT` inside an explicit `BEGIN READ ONLY`
+    /// transaction (no tenant GUC) on this pool's credential, for pre-auth
+    /// credential proofs (`SqlScope::AuthPreScope`) and worker read contracts.
+    pub(crate) async fn read_tx_read_only(
+        &self,
+        sql: &str,
+        params: &[Param<'_>],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        admit_select(sql).map_err(StatementFailure::refused)?;
+        let encoded = pre_encode_params(params)?;
+        let deadline = Instant::now() + self.timeouts.statement * 2;
+        for attempt in 0..2 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(StatementFailure::refused("read timed out"));
+            }
+            let object = ReadLease(Some(
+                self.pool
+                    .get()
+                    .await
+                    .map_err(|_| StatementFailure::refused("pool unavailable"))?,
+            ));
+            let begin = build_begin_sql(
+                "BEGIN READ ONLY",
+                self.timeouts.statement,
+                PlanCacheHint::Auto,
+            );
+            let typed: Vec<Param<'_>> = encoded.iter().map(PreEncodedParam::as_param).collect();
+            let client = object.client();
+            let work = tokio::time::timeout(remaining, async {
+                tokio::join!(
+                    biased;
+                    client.batch_execute(&begin),
+                    client.query_typed(sql, &typed),
+                    client.batch_execute("COMMIT"),
+                )
+            })
+            .await;
+            let Ok((begin_res, query_res, commit_res)) = work else {
+                return Err(StatementFailure::refused("read timed out"));
+            };
+            if let Err(e) = begin_res {
+                if attempt == 0 && e.as_db_error().is_none() {
+                    drop(object);
+                    continue;
+                }
+                return Err(StatementFailure::from_db(&e));
+            }
+            let rows = match query_res {
+                Ok(rows) => rows,
+                Err(e) => return Err(StatementFailure::from_db(&e)),
+            };
+            match commit_res {
+                Ok(()) => {
+                    if !object.is_closed() {
+                        object.keep();
+                    }
+                    return Ok(rows);
+                }
+                Err(e) => return Err(StatementFailure::from_db(&e)),
+            }
+        }
+        Err(StatementFailure::refused("pool unavailable"))
+    }
+
+    /// Run one read-only `SELECT` inside `BEGIN READ ONLY` (no tenant GUC)
+    /// with Go-compatible deferred row-iteration semantics (`Rows.Next` without
+    /// `Rows.Err`).
+    pub(crate) async fn read_tx_read_only_iterated(
+        &self,
+        sql: &str,
+        params: &[Param<'_>],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        admit_select(sql).map_err(StatementFailure::refused)?;
+        let deadline = Instant::now() + self.timeouts.statement * 2;
+        for attempt in 0..2 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(StatementFailure::refused("read timed out"));
+            }
+            let object = ReadLease(Some(
+                self.pool
+                    .get()
+                    .await
+                    .map_err(|_| StatementFailure::refused("pool unavailable"))?,
+            ));
+            let begin = build_begin_sql(
+                "BEGIN READ ONLY",
+                self.timeouts.statement,
+                PlanCacheHint::Auto,
+            );
+            let mut rows = Vec::new();
+            let mut described = false;
+            let client = object.client();
+            let step = tokio::time::timeout(remaining, async {
+                client.batch_execute(&begin).await?;
+                let stream = client
+                    .query_typed_raw(sql, params.iter().map(|(v, t)| (*v, t.clone())))
+                    .await?;
+                described = true;
+                futures_util::pin_mut!(stream);
+                while let Some(row) = stream.try_next().await? {
+                    rows.push(row);
+                }
+                client.batch_execute("COMMIT").await?;
+                Ok::<_, tokio_postgres::Error>(())
+            })
+            .await;
+            match step {
+                Ok(Ok(())) => {
+                    if !object.is_closed() {
+                        object.keep();
+                    }
+                    return Ok(rows);
+                }
+                Ok(Err(error)) => {
+                    if attempt == 0 && !described && error.as_db_error().is_none() {
+                        drop(object);
+                        continue;
+                    }
+                    if described {
+                        return Ok(rows);
+                    }
+                    return Err(StatementFailure::from_db(&error));
+                }
+                Err(_) => {
+                    if described {
+                        return Ok(rows);
+                    }
+                    return Err(StatementFailure::refused("read timed out"));
+                }
+            }
+        }
+        Err(StatementFailure::refused("pool unavailable"))
+    }
+
     /// Authentication-time best-effort CAS, mirroring pwhash.CheckPassword.
     pub async fn upgrade_legacy_protocol_password(
         &self,
@@ -412,35 +581,26 @@ impl ScopedExecutor {
         old: &str,
         new: &str,
     ) -> Result<(), StatementFailure> {
-        use tokio_postgres::types::Type;
-        let object = self
-            .pool
-            .get()
+        use setjoin_contracts::ids::ActorId;
+        let actor = ActorId::new(user).map_err(|_| StatementFailure::refused("invalid user id"))?;
+        match self
+            .run_user_command(
+                actor,
+                next_internal_op_id(user),
+                "UPDATE users SET password_hash=$4 WHERE id=$1 AND email=$2 AND password_hash=$3",
+                &[
+                    (&user, Type::INT8),
+                    (&email, Type::TEXT),
+                    (&old, Type::TEXT),
+                    (&new, Type::TEXT),
+                ],
+                |_| Ok(()),
+            )
             .await
-            .map_err(|_| StatementFailure::refused("pool unavailable"))?;
-        let object = ReadLease(Some(object));
-        let params: Vec<Param<'_>> = vec![
-            (&user, Type::INT8),
-            (&email, Type::TEXT),
-            (&old, Type::TEXT),
-            (&new, Type::TEXT),
-        ];
-        let query = object.client().query_typed(
-            "UPDATE users SET password_hash=$4 WHERE id=$1 AND email=$2 AND password_hash=$3",
-            &params,
-        );
-        match tokio::time::timeout(self.timeouts.statement, query).await {
-            Ok(Ok(_)) => {
-                object.keep();
-                Ok(())
-            }
-            Ok(Err(error)) => {
-                if error.as_db_error().is_some() && !object.is_closed() {
-                    object.keep();
-                }
-                Err(StatementFailure::from_db(&error))
-            }
-            Err(_) => Err(StatementFailure::refused("credential upgrade timed out")),
+        {
+            CommandOutcome::Committed(()) => Ok(()),
+            CommandOutcome::RolledBack(Rejection::Statement(e)) => Err(e),
+            _ => Err(StatementFailure::refused("credential upgrade failed")),
         }
     }
 
@@ -509,19 +669,53 @@ impl ScopedExecutor {
         user: i64,
         token_hash: &str,
     ) -> Result<(), StatementFailure> {
-        self.protocol_write(
-            "UPDATE app_passwords SET last_used_at = now() \
-             WHERE user_id = $1 AND token_hash = $2 AND revoked_at IS NULL",
-            &[(&user, Type::INT8), (&token_hash, Type::TEXT)],
-        )
-        .await?;
-        self.protocol_write(
-            "UPDATE users SET last_login_at = now() WHERE id = $1",
-            &[(&user, Type::INT8)],
-        )
-        .await
+        use setjoin_contracts::ids::ActorId;
+        let actor = ActorId::new(user).map_err(|_| StatementFailure::refused("invalid user id"))?;
+        let op1 = next_internal_op_id(user);
+        match self
+            .run_user_command(
+                actor,
+                op1,
+                "UPDATE app_passwords SET last_used_at = now() \
+                 WHERE user_id = $1 AND token_hash = $2 AND revoked_at IS NULL",
+                &[(&user, Type::INT8), (&token_hash, Type::TEXT)],
+                |_| Ok(()),
+            )
+            .await
+        {
+            CommandOutcome::Committed(()) => {}
+            CommandOutcome::RolledBack(Rejection::Statement(e)) => return Err(e),
+            _ => return Err(StatementFailure::refused("touch app password failed")),
+        }
+        let op2 = next_internal_op_id(user);
+        match self
+            .run_user_command(
+                actor,
+                op2,
+                "UPDATE users SET last_login_at = now() WHERE id = $1",
+                &[(&user, Type::INT8)],
+                |_| Ok(()),
+            )
+            .await
+        {
+            CommandOutcome::Committed(()) => Ok(()),
+            CommandOutcome::RolledBack(Rejection::Statement(e)) => Err(e),
+            _ => Err(StatementFailure::refused("touch user login failed")),
+        }
     }
+}
 
+fn next_internal_op_id(user: i64) -> setjoin_contracts::ids::OperationId {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(1);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let mut b = [0u8; 16];
+    b[..8].copy_from_slice(&user.to_be_bytes());
+    b[8..].copy_from_slice(&seq.to_be_bytes());
+    setjoin_contracts::ids::OperationId(b)
+}
+
+impl ScopedExecutor {
     /// One autocommit statement of the IMAP mailbox-management commands.
     pub async fn protocol_statement(
         &self,
@@ -747,6 +941,80 @@ impl ScopedExecutor {
                     return Ok(rows);
                 }
                 Err(e) => return Err(StatementFailure::from_db(&e)),
+            }
+        }
+        Err(StatementFailure::refused("pool unavailable"))
+    }
+
+    /// A mailbox-less, verified actor's read-only user-domain query with
+    /// Go-compatible deferred row-iteration semantics (`Rows.Next` without `Rows.Err`).
+    pub async fn read_user_scoped_iterated(
+        &self,
+        actor: setjoin_contracts::ids::ActorId,
+        sql: &str,
+        params: &[Param<'_>],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        admit_select(sql).map_err(StatementFailure::refused)?;
+        let deadline = Instant::now() + self.timeouts.statement * 2;
+        for attempt in 0..2 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(StatementFailure::refused("read timed out"));
+            }
+            let object = ReadLease(Some(
+                self.pool
+                    .get()
+                    .await
+                    .map_err(|_| StatementFailure::refused("pool unavailable"))?,
+            ));
+            let begin = build_begin_sql(
+                "BEGIN READ ONLY",
+                self.timeouts.statement,
+                PlanCacheHint::Auto,
+            );
+            let actor_str = actor.decimal();
+            let scope_params: [Param<'_>; 1] = [(&actor_str, Type::TEXT)];
+            let mut rows = Vec::new();
+            let mut described = false;
+            let client = object.client();
+            let step = tokio::time::timeout(remaining, async {
+                client.batch_execute(&begin).await?;
+                client.query_typed(USER_SCOPE, &scope_params).await?;
+                let stream = client
+                    .query_typed_raw(sql, params.iter().map(|(v, t)| (*v, t.clone())))
+                    .await?;
+                described = true;
+                futures_util::pin_mut!(stream);
+                while let Some(row) = stream.try_next().await? {
+                    rows.push(row);
+                }
+                client.batch_execute("COMMIT").await?;
+                Ok::<_, tokio_postgres::Error>(())
+            })
+            .await;
+            match step {
+                Ok(Ok(())) => {
+                    if !object.is_closed() {
+                        object.keep();
+                    }
+                    return Ok(rows);
+                }
+                Ok(Err(error)) => {
+                    if attempt == 0 && !described && error.as_db_error().is_none() {
+                        drop(object);
+                        continue;
+                    }
+                    if described {
+                        return Ok(rows);
+                    }
+                    return Err(StatementFailure::from_db(&error));
+                }
+                Err(_) => {
+                    if described {
+                        return Ok(rows);
+                    }
+                    return Err(StatementFailure::refused("read timed out"));
+                }
             }
         }
         Err(StatementFailure::refused("pool unavailable"))

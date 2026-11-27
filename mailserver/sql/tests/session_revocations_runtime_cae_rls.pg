@@ -1,7 +1,7 @@
 -- session_revocations_runtime_cae_rls.pg
 -- pgTAP: V035 session_revocations + session_activity + session_control column + toggles.
 BEGIN;
-SELECT plan(10);
+SELECT plan(12);
 
 -- Tables exist with the expected columns.
 SELECT has_table('public', 'session_revocations', 'session_revocations table exists');
@@ -45,14 +45,27 @@ SELECT is(
   (SELECT relforcerowsecurity FROM pg_class WHERE relname = 'session_activity'),
   TRUE, 'session_activity RLS forced');
 
--- Fix 2: session_revocations_admin_read SELECT policy must exist so SessionEnforcementLog
--- returns rows via the main pool (setjoin_app, NOBYPASSRLS) in the default deploy.
+-- V289 (Wave 1.8e): legacy open TO PUBLIC policies are removed; setjoin_app has
+-- strictly user-scoped SELECT + INSERT policies on session_revocations.
+SELECT ok(
+  NOT EXISTS(SELECT 1 FROM pg_policies
+               WHERE tablename='session_revocations'
+                 AND policyname IN ('session_revocations_admin_read', 'session_revocations_app_insert')),
+  'V289: legacy open session_revocations_admin_read and session_revocations_app_insert are dropped');
 SELECT ok(
   EXISTS(SELECT 1 FROM pg_policies
            WHERE tablename='session_revocations'
-             AND policyname='session_revocations_admin_read'
-             AND cmd='SELECT'),
-  'session_revocations_admin_read SELECT policy exists');
+             AND policyname='session_revocations_self'
+             AND cmd='SELECT'
+             AND roles = ARRAY['setjoin_app'::name]),
+  'V289: session_revocations_self strictly scopes SELECT to setjoin_app');
+SELECT ok(
+  EXISTS(SELECT 1 FROM pg_policies
+           WHERE tablename='session_revocations'
+             AND policyname='session_revocations_app_self_insert'
+             AND cmd='INSERT'
+             AND roles = ARRAY['setjoin_app'::name]),
+  'V289: session_revocations_app_self_insert strictly scopes INSERT to setjoin_app');
 
 SELECT finish();
 ROLLBACK;

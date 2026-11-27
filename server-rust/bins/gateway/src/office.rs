@@ -41,9 +41,12 @@ impl Intercept for OfficeRoute {
         let proof = self.proof.clone();
         Box::pin(async move {
             let request_id = request_id(&r);
-            let flags=exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.drive'),false) AND coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.office_editing'),false)",&[]).await;
-            match flags {
-                Ok(rows) if rows.first().is_some_and(|r| r.get::<_, bool>(0)) => {}
+            let Some(factory) = crate::policy_composition::tx_factory_from_executors(&exec, None)
+            else {
+                return problem(503, "service unavailable", &c, request_id.clone());
+            };
+            match setjoin_office::wopi_enabled(&factory).await {
+                Ok(true) => {}
                 _ => return problem(404, "not found", &c, request_id.clone()),
             }
             // Go's PathValue decodes one segment, never a path separator.
@@ -59,7 +62,7 @@ impl Intercept for OfficeRoute {
             if token.is_empty() || token.len() > 4096 {
                 return problem(404, "file not found", &c, request_id.clone());
             }
-            let p = match setjoin_office::projection(&exec, id, &token).await {
+            let p = match setjoin_office::projection(&factory, id, &token).await {
                 Ok(p) => p,
                 Err(e) => {
                     return reducer_problem(&e, r.uri().path(), false, &c, request_id.clone())
@@ -81,7 +84,7 @@ impl Intercept for OfficeRoute {
             }
             if r.method() == Method::POST && contents {
                 let token = token.to_owned();
-                return put_file(r, c, exec, p, token, store).await;
+                return put_file(r, c, factory, p, token, store).await;
             }
             if r.method() == Method::POST && !contents {
                 let value = header(&r, "x-wopi-lock");
@@ -93,53 +96,66 @@ impl Intercept for OfficeRoute {
                 let Some(id) = crate::jmap::random() else {
                     return problem(500, "request failed", &c, request_id.clone());
                 };
-                let response =
-                    match setjoin_office::lock(&exec, &p, &token, &operation, value, old, id).await
-                    {
-                        setjoin_pg::CommandOutcome::Committed(out) => {
-                            let mut reply = crate::jmap::reply::response(
-                                String::new(),
-                                c.identity.proto,
-                                request_id.clone(),
-                            );
-                            reply.headers_mut().remove("content-type");
-                            if out["conflict"] == true {
-                                *reply.status_mut() = hyper::StatusCode::CONFLICT;
-                                reply.headers_mut().insert(
-                                    "x-wopi-lock",
-                                    out["currentLock"].as_str().unwrap_or("").parse().unwrap(),
-                                );
-                                reply.headers_mut().insert(
-                                    "x-wopi-lockfailurereason",
-                                    "The file is locked by another editor session"
-                                        .parse()
-                                        .unwrap(),
-                                );
+                let Some(actor_id) = p.actor_user_id() else {
+                    return problem(500, "request failed", &c, request_id.clone());
+                };
+                let user = match factory
+                    .mint_capability_user(actor_id, "", &c.identity.client_ip.to_string())
+                    .await
+                {
+                    Ok(u) => u,
+                    Err(_) => return problem(500, "request failed", &c, request_id.clone()),
+                };
+                let response = match setjoin_office::lock(
+                    &factory, &user, &p, &token, &operation, value, old, id,
+                )
+                .await
+                {
+                    setjoin_pg::CommandOutcome::Committed(out) => {
+                        let mut reply = crate::jmap::reply::response(
+                            String::new(),
+                            c.identity.proto,
+                            request_id.clone(),
+                        );
+                        reply.headers_mut().remove("content-type");
+                        if out["conflict"] == true {
+                            *reply.status_mut() = hyper::StatusCode::CONFLICT;
+                            if let Ok(lock) = hyper::header::HeaderValue::from_str(
+                                out["currentLock"].as_str().unwrap_or(""),
+                            ) {
+                                reply.headers_mut().insert("x-wopi-lock", lock);
                             }
-                            reply
-                        }
-                        setjoin_pg::CommandOutcome::RolledBack(reason) => {
-                            let e = match reason {
-                                setjoin_pg::Rejection::Body(e)
-                                | setjoin_pg::Rejection::Statement(e) => e,
-                                _ => setjoin_pg::StatementFailure {
-                                    sqlstate: None,
-                                    hint: None,
-                                    message: "Office command failed".into(),
-                                },
-                            };
-                            reducer_problem(&e, r.uri().path(), false, &c, request_id.clone())
-                        }
-                        setjoin_pg::CommandOutcome::Unknown { operation } => {
-                            let mut reply =
-                                problem(503, "commit outcome unknown", &c, request_id.clone());
                             reply.headers_mut().insert(
-                                "x-operation-id",
-                                crate::jmap::reply::hex(&operation.0).parse().unwrap(),
+                                "x-wopi-lockfailurereason",
+                                "The file is locked by another editor session"
+                                    .parse()
+                                    .unwrap(),
                             );
-                            reply
                         }
-                    };
+                        reply
+                    }
+                    setjoin_pg::CommandOutcome::RolledBack(reason) => {
+                        let e = match reason {
+                            setjoin_pg::Rejection::Body(e)
+                            | setjoin_pg::Rejection::Statement(e) => e,
+                            _ => setjoin_pg::StatementFailure {
+                                sqlstate: None,
+                                hint: None,
+                                message: "Office command failed".into(),
+                            },
+                        };
+                        reducer_problem(&e, r.uri().path(), false, &c, request_id.clone())
+                    }
+                    setjoin_pg::CommandOutcome::Unknown { operation } => {
+                        let mut reply =
+                            problem(503, "commit outcome unknown", &c, request_id.clone());
+                        reply.headers_mut().insert(
+                            "x-operation-id",
+                            crate::jmap::reply::hex(&operation.0).parse().unwrap(),
+                        );
+                        reply
+                    }
+                };
                 return response;
             }
             if contents {
@@ -439,7 +455,7 @@ pub(crate) fn command_result<T>(
 async fn put_file(
     mut r: Request<Body>,
     c: RequestContext,
-    exec: ScopedExecutor,
+    factory: setjoin_authz::principals::TxFactory,
     p: setjoin_office::Launch,
     token: String,
     store: Option<std::sync::Arc<crate::recovery_worker::S3Store>>,
@@ -450,7 +466,7 @@ async fn put_file(
     if p["canWrite"] != true {
         return problem(403, "file is read-only", &c, request_id.clone());
     }
-    match setjoin_office::callback_allowed(&exec, &p, &token).await {
+    match setjoin_office::callback_allowed(&factory, &p, &token).await {
         Ok(true) => {}
         Ok(false) => {
             return problem(
@@ -462,6 +478,16 @@ async fn put_file(
         }
         Err(e) => return reducer_problem(&e, &path, false, &c, request_id.clone()),
     }
+    let Some(actor_id) = p.actor_user_id() else {
+        return problem(500, "Office save staging failed", &c, request_id.clone());
+    };
+    let user = match factory
+        .mint_capability_user(actor_id, "", &c.identity.client_ip.to_string())
+        .await
+    {
+        Ok(u) => u,
+        Err(_) => return problem(500, "Office save staging failed", &c, request_id.clone()),
+    };
     let Some(store) = store else {
         return problem(500, "Office save staging failed", &c, request_id.clone());
     };
@@ -492,7 +518,9 @@ async fn put_file(
             if buffer.len() == 4 << 20 {
                 whole.update(&buffer);
                 total += buffer.len() as i64;
-                match stage_chunk(&exec, &p, &store, &buffer, &path, &c, &request_id).await {
+                match stage_chunk(&factory, &user, &p, &store, &buffer, &path, &c, &request_id)
+                    .await
+                {
                     Ok(sha) => manifest.push(serde_json::json!({"sha256":sha,"size":buffer.len()})),
                     Err(reply) => return reply,
                 }
@@ -503,7 +531,7 @@ async fn put_file(
     if !buffer.is_empty() {
         whole.update(&buffer);
         total += buffer.len() as i64;
-        match stage_chunk(&exec, &p, &store, &buffer, &path, &c, &request_id).await {
+        match stage_chunk(&factory, &user, &p, &store, &buffer, &path, &c, &request_id).await {
             Ok(sha) => manifest.push(serde_json::json!({"sha256":sha,"size":buffer.len()})),
             Err(reply) => return reply,
         }
@@ -529,7 +557,8 @@ async fn put_file(
         return problem(500, "Office save result invalid", &c, request_id.clone());
     };
     let result = setjoin_office::save(
-        &exec,
+        &factory,
+        &user,
         &p,
         setjoin_office::Save {
             token: &token,
@@ -559,8 +588,10 @@ async fn put_file(
         Err(reply) => reply,
     }
 }
+#[allow(clippy::too_many_arguments)]
 async fn stage_chunk(
-    exec: &ScopedExecutor,
+    factory: &setjoin_authz::principals::TxFactory,
+    user: &setjoin_authz::principals::UserPrincipal,
     p: &setjoin_office::Launch,
     store: &std::sync::Arc<crate::recovery_worker::S3Store>,
     bytes: &[u8],
@@ -593,7 +624,8 @@ async fn stage_chunk(
     let from = key.clone();
     let target = store.clone();
     let outcome = setjoin_office::commit_chunk(
-        exec,
+        factory,
+        user,
         p,
         &sha,
         bytes.len() as i32,
@@ -617,6 +649,7 @@ async fn stage_chunk(
 
 pub struct OfficeAdminRoute<K: setjoin_authz::token::KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: ScopedExecutor,
     pub keys: std::sync::Arc<K>,
     pub issuer: String,
     pub provider_client: Option<reqwest::Client>,
@@ -649,6 +682,7 @@ impl<K: setjoin_authz::token::KeySource + 'static> Intercept for OfficeAdminRout
     }
     fn handle(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let exec = self.exec.clone();
+        let worker = self.worker.clone();
         let keys = self.keys.clone();
         let issuer = self.issuer.clone();
         let provider_client = self.provider_client.clone();
@@ -661,18 +695,33 @@ impl<K: setjoin_authz::token::KeySource + 'static> Intercept for OfficeAdminRout
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let actor = auth.context();
-            let user = actor.user_id();
-            let perm = if matches!(*r.method(), Method::GET | Method::HEAD) {
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return problem(503, "service unavailable", &c, request_id.clone());
+            };
+            let client_ip = c.identity.client_ip.to_string();
+            let is_read = matches!(*r.method(), Method::GET | Method::HEAD);
+            let perm = if is_read {
                 "office.view|office.manage"
             } else {
                 "office.manage"
             };
-            let permission = if actor.signed_admin() {
-                exec.read("SELECT drive_has_admin_perm($1,'office.manage') OR ($2 AND drive_has_admin_perm($1,'office.view'))",&[(&user,setjoin_pg::Type::INT8),(&(perm.contains('|')),setjoin_pg::Type::BOOL)]).await.is_ok_and(|rows|rows.first().is_some_and(|row|row.get(0)))
+            let required: &[&str] = if is_read {
+                &["office.manage", "office.view"]
             } else {
-                false
+                &["office.manage"]
             };
-            if !permission {
+            let proof = if actor.signed_admin() {
+                factory
+                    .mint_admin_from_authorized(&auth, &client_ip)
+                    .await
+                    .ok()
+                    .and_then(|admin| admin.require_any_permission(required).ok())
+            } else {
+                None
+            };
+            let Some(proof) = proof else {
                 let path = r
                     .uri()
                     .path()
@@ -682,34 +731,29 @@ impl<K: setjoin_authz::token::KeySource + 'static> Intercept for OfficeAdminRout
                 let before =
                     serde_json::json!({"actor":email,"target":path,"missingPermission":perm})
                         .to_string();
-                if let Some(operation) = crate::jmap::random() {
-                    let _ = setjoin_office::console_denied(&exec, actor, &before, path, operation)
-                        .await;
+                if let (Ok(user), Some(operation)) = (
+                    factory.mint_user_from_authorized(&auth, &client_ip).await,
+                    crate::jmap::random(),
+                ) {
+                    let _ =
+                        setjoin_office::console_denied(&factory, &user, &before, path, operation)
+                            .await;
                 }
                 return problem(403, "Forbidden", &c, request_id.clone());
-            }
+            };
 
-            if !matches!(*r.method(), Method::GET | Method::HEAD)
-                && header(&r, "x-audit-reason").is_empty()
-            {
-                let required = exec
-                    .read(
-                        "SELECT 'office'=ANY(reason_required_areas) FROM audit_policy WHERE id=1",
-                        &[],
-                    )
+            if !is_read && header(&r, "x-audit-reason").is_empty() {
+                let required = setjoin_office::reason_required(&factory, &proof)
                     .await
-                    .ok()
-                    .and_then(|rows| rows.first().map(|r| r.get::<_, bool>(0)))
                     .unwrap_or(false);
                 if required {
-                    if let Some(operation) = crate::jmap::random() {
-                        let _ = setjoin_office::reason_missing(
-                            &exec,
-                            actor,
-                            &c.identity.client_ip.to_string(),
-                            operation,
-                        )
-                        .await;
+                    if let (Ok(user), Some(operation)) = (
+                        factory.mint_user_from_authorized(&auth, &client_ip).await,
+                        crate::jmap::random(),
+                    ) {
+                        let _ =
+                            setjoin_office::reason_missing(&factory, &user, &client_ip, operation)
+                                .await;
                     }
                     return problem(400, "reason_required", &c, request_id.clone());
                 }
@@ -720,8 +764,8 @@ impl<K: setjoin_authz::token::KeySource + 'static> Intercept for OfficeAdminRout
                     return problem(500, "request failed", &c, request_id.clone());
                 };
                 let out = setjoin_office::remove(
-                    &exec,
-                    actor,
+                    &factory,
+                    &proof,
                     &provider,
                     header(&r, "x-audit-reason"),
                     operation,
@@ -772,13 +816,14 @@ impl<K: setjoin_authz::token::KeySource + 'static> Intercept for OfficeAdminRout
                     .get("expectedgeneration")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0);
-                let target =
-                    match setjoin_office::qualification_target(&exec, actor, &provider, generation)
-                        .await
-                    {
-                        Ok(t) => t,
-                        Err(e) => return reducer_problem(&e, &path, true, &c, request_id.clone()),
-                    };
+                let target = match setjoin_office::qualification_target(
+                    &factory, &proof, &provider, generation,
+                )
+                .await
+                {
+                    Ok(t) => t,
+                    Err(e) => return reducer_problem(&e, &path, true, &c, request_id.clone()),
+                };
                 if target["providerId"].as_str().is_none_or(|v| v.is_empty())
                     || target["generation"].as_i64().unwrap_or(0) <= 0
                     || target["configSha256"].as_str().unwrap_or("").len() != 64
@@ -820,8 +865,8 @@ impl<K: setjoin_authz::token::KeySource + 'static> Intercept for OfficeAdminRout
                     return problem(500, "request failed", &c, request_id.clone());
                 };
                 let out = setjoin_office::qualify(
-                    &exec,
-                    actor,
+                    &factory,
+                    &proof,
                     setjoin_office::Qualification {
                         provider: target["providerId"].as_str().unwrap(),
                         generation: target["generation"].as_i64().unwrap(),
@@ -884,8 +929,8 @@ impl<K: setjoin_authz::token::KeySource + 'static> Intercept for OfficeAdminRout
                     return problem(500, "request failed", &c, request_id.clone());
                 };
                 let out = setjoin_office::activate(
-                    &exec,
-                    actor,
+                    &factory,
+                    &proof,
                     &provider,
                     generation,
                     &qualification,
@@ -932,8 +977,8 @@ impl<K: setjoin_authz::token::KeySource + 'static> Intercept for OfficeAdminRout
                 };
                 let config = serde_json::to_string(config).unwrap();
                 let out = setjoin_office::configure(
-                    &exec,
-                    actor,
+                    &factory,
+                    &proof,
                     setjoin_office::Configure {
                         provider: &provider,
                         generation: body
@@ -961,18 +1006,8 @@ impl<K: setjoin_authz::token::KeySource + 'static> Intercept for OfficeAdminRout
                     Err(reply) => reply,
                 };
             }
-            let raw = exec
-                .read(
-                    "SELECT office_admin_list($1)::text",
-                    &[(&user, setjoin_pg::Type::INT8)],
-                )
-                .await;
-            match raw {
-                Ok(rows) => crate::jmap::reply::response(
-                    rows[0].get(0),
-                    c.identity.proto,
-                    request_id.clone(),
-                ),
+            match setjoin_office::admin_list(&factory, &proof).await {
+                Ok(raw) => crate::jmap::reply::response(raw, c.identity.proto, request_id.clone()),
                 Err(e) => reducer_problem(&e, r.uri().path(), true, &c, request_id.clone()),
             }
         })

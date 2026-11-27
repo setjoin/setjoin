@@ -16,6 +16,7 @@ setjoin-authz = { path = "../../authz" }
 setjoin-contracts = { path = "../../contracts" }
 setjoin-db = { path = "../../db" }
 setjoin-pg = { path = "../../pg" }
+setjoin-sql-catalog = { path = "../../sql-catalog" }
 
 # Test-only: the conformance harness (DB gate, fixtures) and a runtime.
 [dev-dependencies]

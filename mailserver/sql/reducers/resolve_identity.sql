@@ -65,7 +65,21 @@ CREATE OR REPLACE FUNCTION resolve_identity(
   user_id          BIGINT,
   primary_mailbox  BIGINT,
   domain_id        BIGINT
-) AS $$
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    IF NULLIF(current_setting('app.current_user_id', true), '') IS NULL
+       AND NULLIF(current_setting('app.current_mailbox_id', true), '') IS NULL THEN
+      RETURN;
+    END IF;
+  END IF;
+
+  RETURN QUERY
   SELECT
     u.id,
     (SELECT mb.id FROM mailboxes mb
@@ -88,7 +102,10 @@ CREATE OR REPLACE FUNCTION resolve_identity(
     AND NOT identity_address_quarantined(lower(p_address))
   ORDER BY u.id
   LIMIT 1;
-$$ LANGUAGE sql STABLE;
+END;
+$$;
+
+SELECT apply_worker_ownership('public.resolve_identity(text)'::regprocedure);
 
 COMMENT ON FUNCTION resolve_identity(TEXT) IS
   'Address-aware identity seam (ADR-004 §3): resolve a person by ANY of their '

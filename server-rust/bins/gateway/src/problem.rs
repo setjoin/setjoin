@@ -267,12 +267,18 @@ pub fn middleware(status: u16, title: &str, detail: &str) -> String {
 
 /// `shared/middleware.denyJSONRemediation` is a sorted map, and always carries
 /// remediation (including the empty string). It is distinct from Problem.
-pub fn runtime_block(detail:&str,remediation:&str,terms_id:i64)->String{
-    let mut body=format!("{{\"detail\":{},\"remediation\":{}",go_string(detail),go_string(remediation));
-    if terms_id!=0{body+=&format!(",\"remediation_tou_id\":{terms_id}");}
-    body+",\"status\":403,\"title\":\"access_blocked\",\"type\":\"about:blank\"}\n"
+pub fn runtime_block(detail: &str, remediation: &str, terms_id: i64) -> String {
+    let mut body = format!(
+        "{{\"detail\":{},\"remediation\":{}",
+        go_string(detail),
+        go_string(remediation)
+    );
+    if terms_id != 0 {
+        body += &format!(",\"remediation_tou_id\":{terms_id}");
+    }
+    body + ",\"status\":403,\"title\":\"access_blocked\",\"type\":\"about:blank\"}\n"
 }
 
-pub fn runtime_binding()->String{
+pub fn runtime_binding() -> String {
     format!("{{\"code\":\"dpop_admission\",\"detail\":{},\"status\":401,\"title\":\"token_binding_failed\",\"type\":\"about:blank\"}}\n",go_string("Token binding verification failed."))
 }

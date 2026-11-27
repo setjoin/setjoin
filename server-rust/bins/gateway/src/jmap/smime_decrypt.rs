@@ -2,9 +2,10 @@
 //!
 //! Settled controls enforced here:
 //! 1. Charge the `120/min` per-user reader budget BEFORE any key or S3 object work.
-//! 2. Load decryption keys via `worker.read_scoped` (`AUDIT_SCOPE` `app.encryption_key`)
-//!    filtered explicitly by `user_id = $actor` (delegate mailbox access never
-//!    confers the owner's private keys).
+//! 2. Load decryption keys via `policy_composition::worker_mailbox_read`
+//!    (`WorkerPool` with `app.encryption_key`) filtered explicitly by
+//!    `user_id = $actor` (delegate mailbox access never confers the owner's
+//!    private keys).
 //! 3. Unwrap DER / MIME CMS via OpenSSL (`setjoin_smtp::smime`) collapsing
 //!    matched-key unwrap/body/recipient errors into `wrong_key`.
 //! 4. Gate plaintext release on a successful `email_decrypt_read` audit write
@@ -47,22 +48,22 @@ async fn load_decrypt_keys(
     auth: &MailboxAuthContext,
 ) -> Result<Vec<DecryptKey>, ()> {
     let actor_user_id = auth.actor().get();
-    let rows = worker
-        .read_scoped(
-            auth,
-            "SELECT cert_pem, \
-                    pgp_sym_decrypt(private_key_enc::bytea, current_setting('app.encryption_key')) \
-             FROM user_smime_certs \
-             WHERE user_id = $1 AND private_key_enc IS NOT NULL \
-             ORDER BY is_default DESC, created_at DESC",
-            &[(&actor_user_id, Type::INT8)],
-        )
-        .await
-        .map_err(|_| ())?;
+    let rows = crate::policy_composition::worker_mailbox_read(
+        worker,
+        auth,
+        "SELECT cert_pem, \
+                pgp_sym_decrypt(private_key_enc::bytea, current_setting('app.encryption_key')) \
+         FROM user_smime_certs \
+         WHERE user_id = $1 AND private_key_enc IS NOT NULL \
+         ORDER BY is_default DESC, created_at DESC",
+        &[(&actor_user_id, Type::INT8)],
+    )
+    .await
+    .map_err(|_| ())?;
     let mut keys = Vec::new();
     for r in rows {
-        let cert_pem: String = r.get(0);
-        let key_pem: String = r.get(1);
+        let cert_pem: String = r.try_get(0).map_err(|_| ())?;
+        let key_pem: String = r.try_get(1).map_err(|_| ())?;
         if let Some(dk) = parse_decrypt_candidate(&cert_pem, &key_pem) {
             keys.push(dk);
         }
@@ -82,28 +83,48 @@ pub fn inject_cleartext(email: &mut BTreeMap<String, Value>, plaintext: &[u8]) {
 
 async fn record_decrypt_audit(
     exec: &ScopedExecutor,
-    mailbox_id: i64,
-    actor_user_id: i64,
+    auth: &MailboxAuthContext,
     message_id: i64,
 ) -> Result<(), ()> {
-    exec.protocol_statement(
-        "INSERT INTO mailbox_audit_log (mailbox_id, actor_user_id, action, message_id) \
-         VALUES ($1, $2, 'email_decrypt_read', $3)",
-        &[
-            (&mailbox_id, Type::INT8),
-            (&actor_user_id, Type::INT8),
-            (&message_id, Type::INT8),
-        ],
-    )
-    .await
-    .map_err(|_| ())
+    let op = super::random().ok_or(())?;
+    let mailbox_id = auth.mailbox().get();
+    let actor_user_id = auth.actor().get();
+    let env = setjoin_contracts::command::CommandEnvelope {
+        operation: setjoin_contracts::ids::OperationId(op),
+        authority: auth.authority(),
+        binding: setjoin_db::lifecycle::accepted_contract(),
+        payload_digest: setjoin_contracts::ids::Digest([0u8; 32]),
+        command: (),
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let app_pool = exec.try_app_pool().ok_or(())?;
+    let principal =
+        setjoin_pg::mint::mailbox(auth.actor(), auth.mailbox(), auth.authority().generation);
+    match app_pool
+        .run_mailbox_write(&env, &principal, deadline, async |tx| {
+            tx.execute(
+                "INSERT INTO mailbox_audit_log (mailbox_id, actor_user_id, action, message_id) \
+                 VALUES ($1, $2, 'email_decrypt_read', $3)",
+                &[
+                    (&mailbox_id, Type::INT8),
+                    (&actor_user_id, Type::INT8),
+                    (&message_id, Type::INT8),
+                ],
+            )
+            .await
+            .map(|_| ())
+        })
+        .await
+    {
+        setjoin_pg::CommandOutcome::Committed(()) => Ok(()),
+        _ => Err(()),
+    }
 }
 
 async fn decrypt_one_email(
     exec: &ScopedExecutor,
     store: Option<&S3Store>,
-    mailbox_id: i64,
-    actor_user_id: i64,
+    auth: &MailboxAuthContext,
     email: &mut BTreeMap<String, Value>,
     keys: Arc<Vec<DecryptKey>>,
 ) -> &'static str {
@@ -139,10 +160,7 @@ async fn decrypt_one_email(
     };
 
     // Gate plaintext release on a successful audit row write.
-    if record_decrypt_audit(exec, mailbox_id, actor_user_id, msg_id)
-        .await
-        .is_err()
-    {
+    if record_decrypt_audit(exec, auth, msg_id).await.is_err() {
         return smime::DECRYPT_STATE_ERROR;
     }
 
@@ -180,7 +198,6 @@ pub async fn decrypt_email_result(
     }
 
     let actor_user_id = auth.actor().get();
-    let mailbox_id = auth.mailbox().get();
     let mut cached_keys: Option<Result<Arc<Vec<DecryptKey>>, ()>> = None;
     let mut out_list = Vec::with_capacity(list_vals.len());
 
@@ -216,7 +233,7 @@ pub async fn decrypt_email_result(
         let state = match keys {
             Err(()) => smime::DECRYPT_STATE_ERROR,
             Ok(k) if k.is_empty() => smime::DECRYPT_STATE_NO_KEY,
-            Ok(k) => decrypt_one_email(exec, store, mailbox_id, actor_user_id, &mut obj, k).await,
+            Ok(k) => decrypt_one_email(exec, store, auth, &mut obj, k).await,
         };
         obj.insert("decryptState".into(), Value::String(state.into()));
         out_list.push(Value::Object(obj.into_iter().collect()));

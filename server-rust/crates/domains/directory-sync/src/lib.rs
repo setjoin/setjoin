@@ -1,25 +1,28 @@
-//! Directory sync (F02): AD administration reads and writes.
+//! Directory sync (F02): AD/LDAP administration reads and writes + SCIM 2.0 protocol helpers.
 //!
-//! Foundation dependencies only. The actor and mailbox come from the sealed
-//! auth context; request ids name targets but never grant authority. Permissions
-//! and domain scope are resolved live, as Go's auth chain does for admin tokens.
+//! Foundation dependencies only (`authz`, `contracts`, `config-secret`, `db`, `pg`, `sql-catalog`).
+//! Authority comes from sealed principals (`UserPrincipal`, `AdminPermissionProof`) minted by
+//! `TxFactory`; request ids name targets but never grant authority.
 #![forbid(unsafe_code)]
 pub mod ad;
-pub mod catalog;
 pub mod ldap;
 pub mod observers;
 pub mod scim;
+pub mod sql;
+
+pub use sql::SQL_CONTRACTS;
+
 use serde_json::{json, Map, Value};
-use setjoin_authz::AuthContext;
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
 use setjoin_contracts::{
+    authority::{AuthorityKey, ResourceScope},
     command::CommandEnvelope,
-    ids::{Digest, OperationId},
+    ids::{ActorId, Digest, Generation, OperationId},
 };
-use setjoin_pg::{
-    CommandOutcome, MailboxAuthContext, Param, ReceiptCommand, ScopedExecutor, StatementFailure,
-    Type,
-};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, StatementFailure};
 use sha2::{Digest as _, Sha256};
+
+pub const FAMILY: &str = "F02";
 
 /// Go's `admin.ConsoleScopes[ConsoleAuth]`, in registration order.
 pub const AUTH_CONSOLE: [&str; 4] = [
@@ -30,16 +33,6 @@ pub const AUTH_CONSOLE: [&str; 4] = [
 ];
 pub const IDENTITY_WRITE: [&str; 1] = ["identity.write"];
 
-const CONFLICTS: &str = include_str!("conflicts.sql");
-const RESOLVE_ONE: &str = include_str!("resolve_one.sql");
-const RESOLVE_ALL: &str = include_str!("resolve_all.sql");
-const FIELD_DELETE: &str = include_str!("field_policy_delete.sql");
-const FIELD_UPSERT: &str = include_str!("field_policy_upsert.sql");
-const TIMESTAMP: &str = "to_char(l.sync_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS') || CASE WHEN date_part('microseconds', l.sync_at AT TIME ZONE 'UTC')::bigint % 1000000 = 0 THEN '' ELSE regexp_replace(to_char(l.sync_at AT TIME ZONE 'UTC','.US'),'0+$','') END || 'Z'";
-
-pub fn scope(actor: &AuthContext) -> MailboxAuthContext {
-    actor.database_scope()
-}
 pub(crate) fn invalid() -> StatementFailure {
     StatementFailure {
         sqlstate: None,
@@ -48,95 +41,75 @@ pub(crate) fn invalid() -> StatementFailure {
     }
 }
 
-/// Live request-time projection of governed grants for a verified admin.
-/// Non-admin tokens keep their signed claims, as Go's resolver skips them.
-pub struct Authority {
-    permissions: Vec<String>,
-    domain_scope: i64,
-}
-impl Authority {
-    pub fn allows_any(&self, wanted: &[&str]) -> bool {
-        wanted
-            .iter()
-            .any(|w| self.permissions.iter().any(|p| p == w))
-    }
-    /// 0 is global, as Go's `DomainScopeFromContext`.
-    pub fn domain_scope(&self) -> i64 {
-        self.domain_scope
-    }
-}
-pub async fn authority(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-) -> Result<Authority, StatementFailure> {
-    if !actor.signed_admin() {
-        return Ok(Authority {
-            permissions: actor.signed_permissions().to_vec(),
-            domain_scope: actor.signed_domain_scope().unwrap_or(0),
-        });
-    }
-    let user = actor.user_id();
-    let rows = exec
-        .read(
-            "SELECT COALESCE((SELECT array_agg(DISTINCT p) FROM public.admin_role_assignments ra \
-             JOIN public.admin_role_groups rg ON rg.id=ra.role_group_id CROSS JOIN LATERAL unnest(rg.permissions) p \
-             WHERE ra.user_id=$1 AND (ra.expires_at IS NULL OR ra.expires_at>now()) \
-             AND public.admin_assignment_active(ra.eligible,ra.activated_until)),'{}'::text[]), \
-             (SELECT MIN(COALESCE(ra.domain_override,rg.domain_scope)) FROM public.admin_role_assignments ra \
-             JOIN public.admin_role_groups rg ON rg.id=ra.role_group_id \
-             WHERE ra.user_id=$1 AND (ra.expires_at IS NULL OR ra.expires_at>now()) \
-             AND public.admin_assignment_active(ra.eligible,ra.activated_until))",
-            &[(&user, Type::INT8)],
-        )
-        .await?;
-    let row = rows.first().ok_or_else(invalid)?;
-    Ok(Authority {
-        permissions: row.get(0),
-        domain_scope: row.get::<_, Option<i64>>(1).unwrap_or(0),
-    })
-}
-
-/// Go writes the same durable console-denial audit row, best effort.
-pub async fn console_denied(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    path: &str,
-    permission: &str,
-    operation: [u8; 16],
-) -> CommandOutcome<(), StatementFailure> {
-    let before =
-        json!({"actor":actor.email(),"target":path,"missingPermission":permission}).to_string();
-    let auth = scope(actor);
-    let envelope = CommandEnvelope {
-        operation: OperationId(operation),
-        authority: auth.authority(),
-        binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(Sha256::digest(before.as_bytes()).into()),
-        command: (),
-    };
-    setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F02",
-            command: "console.denied",
-        },
-        &envelope,
-        &auth,
-        deadline(),
-        "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-        &[(&before, Type::TEXT), (&path, Type::TEXT)],
-        |rows| if rows.len() == 1 { Ok(()) } else { Err(invalid()) },
-    )
-    .await
-}
 pub(crate) fn deadline() -> std::time::Instant {
     std::time::Instant::now() + std::time::Duration::from_secs(30)
 }
 
+pub(crate) fn envelope(
+    actor: ActorId,
+    generation: Generation,
+    operation: [u8; 16],
+    payload: &str,
+) -> CommandEnvelope<()> {
+    CommandEnvelope {
+        operation: OperationId(operation),
+        authority: AuthorityKey {
+            actor,
+            scope: ResourceScope::User(actor),
+            generation,
+        },
+        binding: setjoin_db::lifecycle::accepted_contract(),
+        payload_digest: Digest(Sha256::digest(payload.as_bytes()).into()),
+        command: (),
+    }
+}
+
+pub(crate) fn command(name: &'static str) -> ReceiptCommand {
+    ReceiptCommand {
+        family: FAMILY,
+        command: name,
+    }
+}
+
+/// Go writes the same durable console-denial audit row, best effort.
+pub async fn console_denied(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    path: &str,
+    permission: &str,
+    operation: [u8; 16],
+) -> CommandOutcome<(), StatementFailure> {
+    let before = json!({
+        "actor": user.audit_meta().email,
+        "target": path,
+        "missingPermission": permission
+    })
+    .to_string();
+    let env = envelope(user.user(), user.generation(), operation, &before);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::CONSOLE_DENIED,
+            &[&before, &path],
+            Some(command("console.denied")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
+}
+
 /// encoding/json output: HTML escapes applied, RawMessage fields compacted.
 pub fn go_json(value: &Value) -> String {
-    go_escape(&serde_json::to_string(value).expect("JSON value")) + "\n"
+    go_escape(&serde_json::to_string(value).unwrap_or_else(|_| "null".into())) + "\n"
 }
+
 pub fn go_escape(text: &str) -> String {
     text.replace('&', "\\u0026")
         .replace('<', "\\u003c")
@@ -144,6 +117,7 @@ pub fn go_escape(text: &str) -> String {
         .replace('\u{2028}', "\\u2028")
         .replace('\u{2029}', "\\u2029")
 }
+
 fn compact(text: &str) -> String {
     let (mut out, mut quoted, mut escaped) = (String::with_capacity(text.len()), false, false);
     for ch in text.chars() {
@@ -173,17 +147,18 @@ fn config_text(key: &str, value: &str, encrypted: bool) -> String {
     }
     match serde_json::from_str::<Value>(value) {
         Ok(Value::String(text)) => text,
-        // json.Unmarshal of null into a string succeeds and leaves it empty.
         Ok(Value::Null) => String::new(),
         _ => value.into(),
     }
 }
+
 /// Which directory's configuration or ledger a read serves.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Source {
     Ad,
     Ldap,
 }
+
 impl Source {
     fn name(self) -> &'static str {
         match self {
@@ -193,16 +168,23 @@ impl Source {
     }
 }
 
-pub async fn config(exec: &ScopedExecutor, source: Source) -> Result<String, StatementFailure> {
-    // Go's AD read also lists the `enable_*_reset` toggles; LDAP reads its prefix only.
-    let sql = match source {
-        Source::Ad => "SELECT key, value::text, encrypted FROM system_config WHERE key LIKE 'ad_sync_%' OR key LIKE 'enable_%_reset'",
-        Source::Ldap => "SELECT key, value::text, encrypted FROM system_config WHERE key LIKE 'ldap_sync_%'",
+pub async fn config(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    source: Source,
+) -> Result<String, StatementFailure> {
+    let contract = match source {
+        Source::Ad => &sql::CONFIG_AD,
+        Source::Ldap => &sql::CONFIG_LDAP,
     };
-    let rows = exec.read(sql, &[]).await?;
+    let rows = factory
+        .run_admin_read_contract(admin, contract, &[])
+        .await?;
     let mut out = Map::new();
     for row in rows {
-        let (key, value, encrypted): (String, String, bool) = (row.get(0), row.get(1), row.get(2));
+        let key: String = row.try_get(0).map_err(|_| invalid())?;
+        let value: String = row.try_get(1).map_err(|_| invalid())?;
+        let encrypted: bool = row.try_get(2).map_err(|_| invalid())?;
         let text = config_text(&key, &value, encrypted);
         out.insert(key, Value::String(text));
     }
@@ -210,7 +192,8 @@ pub async fn config(exec: &ScopedExecutor, source: Source) -> Result<String, Sta
 }
 
 pub async fn sync_log(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     source: Source,
     domain_scope: i64,
     limit: i64,
@@ -218,31 +201,30 @@ pub async fn sync_log(
     if domain_scope != 0 {
         return Ok("[]\n".into());
     }
-    let sql = format!(
-        "SELECT l.source, l.users_checked, l.users_created, l.users_updated, l.users_disabled, \
-         l.fields_skipped, CASE WHEN l.error IS NULL THEN 0 ELSE 1 END, COALESCE(l.duration_ms, 0), \
-         {TIMESTAMP}, COALESCE(l.details, '{{}}'::jsonb)::text \
-         FROM identity_sync_log l WHERE l.source = $1 ORDER BY l.sync_at DESC LIMIT $2"
-    );
     let source = source.name();
-    let rows = exec
-        .read(&sql, &[(&source, Type::TEXT), (&limit, Type::INT8)])
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::SYNC_LOG, &[&source, &limit])
         .await?;
     let mut out = Vec::new();
     for row in rows {
-        let int = |i| row.get::<_, i32>(i);
-        let details: String = row.get(9);
+        let int = |i: usize| row.try_get::<_, i32>(i).map_err(|_| invalid());
+        let details: String = row.try_get(9).map_err(|_| invalid())?;
         let mut item = Map::new();
-        item.insert("source".into(), json!(row.get::<_, String>(0)));
-        item.insert("checked".into(), json!(int(1)));
-        item.insert("created".into(), json!(int(2)));
-        item.insert("updated".into(), json!(int(3)));
-        item.insert("disabled".into(), json!(int(4)));
-        item.insert("skipped".into(), json!(int(5)));
-        item.insert("errors".into(), json!(int(6)));
-        item.insert("durationSeconds".into(), json!(int(7) / 1000));
-        item.insert("syncedAt".into(), json!(row.get::<_, String>(8)));
-        // Placeholder keeps Go's sorted key position; swapped for raw text below.
+        item.insert(
+            "source".into(),
+            json!(row.try_get::<_, String>(0).map_err(|_| invalid())?),
+        );
+        item.insert("checked".into(), json!(int(1)?));
+        item.insert("created".into(), json!(int(2)?));
+        item.insert("updated".into(), json!(int(3)?));
+        item.insert("disabled".into(), json!(int(4)?));
+        item.insert("skipped".into(), json!(int(5)?));
+        item.insert("errors".into(), json!(int(6)?));
+        item.insert("durationSeconds".into(), json!(int(7)? / 1000));
+        item.insert(
+            "syncedAt".into(),
+            json!(row.try_get::<_, String>(8).map_err(|_| invalid())?),
+        );
         item.insert("details".into(), json!("\u{0}details"));
         let text = serde_json::to_string(&Value::Object(item)).map_err(|_| invalid())?;
         out.push(text.replace("\"\\u0000details\"", &compact(&details)));
@@ -250,33 +232,33 @@ pub async fn sync_log(
     Ok(go_escape(&format!("[{}]", out.join(","))) + "\n")
 }
 
-/// Test-only (feature `oracle-mutants`, mutant `dirsync-conflicts-unscoped`): frozen Go's
-/// unfiltered conflict statements.
-fn mutated(sql: &str) -> String {
-    if setjoin_contracts::mutants::on("dirsync-conflicts-unscoped") {
-        sql.replace("admin_org_wide_grant(", "true OR admin_org_wide_grant(")
-    } else {
-        sql.to_owned()
-    }
+/// Test-only (feature `oracle-mutants`, mutant `dirsync-conflicts-unscoped`).
+fn conflicts_unscoped() -> bool {
+    setjoin_contracts::mutants::on("dirsync-conflicts-unscoped")
 }
 
-/// Owner-approved security fix 2026-11-05 (#510): only the conflicts of users the caller reaches
-/// through a grant that carries an Auth-console permission (or everyone under an org-wide grant);
-/// the list, resolve-one and resolve-all statements share the permission-aware reach.
+/// Owner-approved security fix 2026-11-05 (#510): only the conflicts of users the caller reaches.
 pub async fn conflicts(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
 ) -> Result<String, StatementFailure> {
-    let admin = actor.user_id();
-    let rows = exec.read(&mutated(CONFLICTS), &[(&admin, Type::INT8)]).await?;
-    let items: Vec<Value> = rows
-        .iter()
-        .map(|row| {
-            json!({"id":row.get::<_,i64>(0),"userId":row.get::<_,i64>(1),"email":row.get::<_,String>(2),
-            "field":row.get::<_,String>(3),"localValue":row.get::<_,String>(4),
-            "remoteValue":row.get::<_,String>(5),"detectedAt":row.get::<_,String>(6)})
-        })
-        .collect();
+    let actor_id = admin.actor().get();
+    let unscoped = conflicts_unscoped();
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::CONFLICTS_LIST, &[&actor_id, &unscoped])
+        .await?;
+    let mut items = Vec::with_capacity(rows.len());
+    for row in &rows {
+        items.push(json!({
+            "id": row.try_get::<_, i64>(0).map_err(|_| invalid())?,
+            "userId": row.try_get::<_, i64>(1).map_err(|_| invalid())?,
+            "email": row.try_get::<_, String>(2).map_err(|_| invalid())?,
+            "field": row.try_get::<_, String>(3).map_err(|_| invalid())?,
+            "localValue": row.try_get::<_, String>(4).map_err(|_| invalid())?,
+            "remoteValue": row.try_get::<_, String>(5).map_err(|_| invalid())?,
+            "detectedAt": row.try_get::<_, String>(6).map_err(|_| invalid())?,
+        }));
+    }
     Ok(go_json(&Value::Array(items)))
 }
 
@@ -288,19 +270,6 @@ pub fn resolution(wire: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn envelope(
-    auth: &MailboxAuthContext,
-    operation: [u8; 16],
-    payload: &str,
-) -> CommandEnvelope<()> {
-    CommandEnvelope {
-        operation: OperationId(operation),
-        authority: auth.authority(),
-        binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(Sha256::digest(payload.as_bytes()).into()),
-        command: (),
-    }
-}
 fn count(rows: &[setjoin_pg::Row]) -> Result<i64, StatementFailure> {
     rows.first()
         .and_then(|r| r.try_get(0).ok())
@@ -309,225 +278,215 @@ fn count(rows: &[setjoin_pg::Row]) -> Result<i64, StatementFailure> {
 
 /// Go's one UPDATE; the number of rows decides 204 or 404 at the edge.
 pub async fn resolve_conflict(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    admin: &AdminPermissionProof,
     id: i64,
     resolution: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F02",
-            command: "ad_conflict_resolve",
-        },
-        &envelope(
-            &auth,
-            operation,
-            &format!("{id}:{resolution}"),
-        ),
-        &auth,
-        deadline(),
-        &mutated(RESOLVE_ONE),
-        &[(&id, Type::INT8), (&resolution, Type::TEXT)],
-        count,
-    )
-    .await
+    let actor_id = admin.actor().get();
+    let unscoped = conflicts_unscoped();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{id}:{resolution}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::CONFLICT_RESOLVE_ONE,
+            &[&actor_id, &id, &resolution, &unscoped],
+            Some(command("ad_conflict_resolve")),
+            |rows| count(&rows),
+        )
+        .await
 }
+
 pub async fn resolve_all(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    admin: &AdminPermissionProof,
     resolution: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F02",
-            command: "ad_conflict_resolve_all",
-        },
-        &envelope(
-            &auth,
-            operation,
-            &format!("all:{resolution}"),
-        ),
-        &auth,
-        deadline(),
-        &mutated(RESOLVE_ALL),
-        &[(&resolution, Type::TEXT)],
-        count,
-    )
-    .await
+    let actor_id = admin.actor().get();
+    let unscoped = conflicts_unscoped();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("all:{resolution}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::CONFLICT_RESOLVE_ALL,
+            &[&actor_id, &resolution, &unscoped],
+            Some(command("ad_conflict_resolve_all")),
+            |rows| count(&rows),
+        )
+        .await
 }
 
-/// Owner-approved security fix 2026-11-05 (#376): the read repeats the actor's reach of the
-/// target user inside the statement (frozen Go answered any Auth-console caller, so a
-/// domain-scoped admin could read a foreign user's field policies).
+/// Owner-approved security fix 2026-11-05 (#376).
 pub async fn field_policy(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     user: i64,
 ) -> Result<String, StatementFailure> {
-    let admin = actor.user_id();
-    // #529: reach through a grant that carries one of the route's permissions only.
-    let sql = if setjoin_contracts::mutants::on("fieldpolicy-get-foreign") {
-        "SELECT field, policy FROM field_policy WHERE user_id = $1 AND $2::bigint > 0"
+    let actor_id = admin.actor().get();
+    let contract = if setjoin_contracts::mutants::on("fieldpolicy-get-foreign") {
+        &sql::FIELD_POLICY_GET_FOREIGN
     } else if setjoin_contracts::mutants::on("fieldpolicy-any-grant") {
-        "SELECT field, policy FROM field_policy WHERE user_id = $1 AND public.admin_can_reach($2, $1)"
+        &sql::FIELD_POLICY_GET_ANY_GRANT
     } else {
-        "SELECT field, policy FROM field_policy WHERE user_id = $1 AND public.admin_can_reach_perm($2, $1, '{users.read,identity.write,access.policy_read,access.policy_write}'::text[])"
+        &sql::FIELD_POLICY_GET_PERM
     };
-    let rows = exec
-        .read(sql, &[(&user, Type::INT8), (&admin, Type::INT8)])
+    let rows = factory
+        .run_admin_read_contract(admin, contract, &[&user, &actor_id])
         .await?;
     let mut out = Map::new();
     for row in rows {
-        out.insert(row.get::<_, String>(0), Value::String(row.get(1)));
+        let field: String = row.try_get(0).map_err(|_| invalid())?;
+        let policy: String = row.try_get(1).map_err(|_| invalid())?;
+        out.insert(field, Value::String(policy));
     }
     Ok(go_json(&Value::Object(out)))
 }
 
-/// Go's pre-check `admin_can_reach(actor, target)`; the write repeats it in
-/// the same statement so a revoked grant cannot slip between check and write.
+/// Go's pre-check `admin_can_reach(actor, target)`.
 pub async fn reach(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     target: i64,
 ) -> Result<bool, StatementFailure> {
-    let user = actor.user_id();
-    let rows = exec
-        .read(
-            "SELECT public.admin_can_reach($1,$2)",
-            &[(&user, Type::INT8), (&target, Type::INT8)],
-        )
+    let actor_id = admin.actor().get();
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::ADMIN_CAN_REACH, &[&actor_id, &target])
         .await?;
     rows.first()
         .and_then(|r| r.try_get(0).ok())
         .ok_or_else(invalid)
 }
-/// `reach` through the route's own permission (#529): the Auth-console read list for the
-/// field-policy GET, `identity.write` for the PUT. Frozen Go accepted any grant.
+
+/// `reach` through the route's own permission (#529).
 pub async fn reach_perm(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     target: i64,
     perms: &[&str],
 ) -> Result<bool, StatementFailure> {
     if setjoin_contracts::mutants::on("fieldpolicy-any-grant") {
-        return reach(exec, actor, target).await;
+        return reach(factory, admin, target).await;
     }
-    let user = actor.user_id();
+    let actor_id = admin.actor().get();
     let perms: Vec<String> = perms.iter().map(|p| (*p).to_owned()).collect();
-    let rows = exec
-        .read(
-            "SELECT public.admin_can_reach_perm($1,$2,$3::text[])",
-            &[(&user, Type::INT8), (&target, Type::INT8), (&perms, Type::TEXT_ARRAY)],
+    let rows = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::ADMIN_CAN_REACH_PERM,
+            &[&actor_id, &target, &perms],
         )
         .await?;
     rows.first()
         .and_then(|r| r.try_get(0).ok())
         .ok_or_else(invalid)
 }
-/// The field-policy write statement; the restored-bug mutant `fieldpolicy-any-grant` swaps the
-/// permission-aware reach back to Go's any-grant `admin_can_reach`.
-fn write_sql(managed: bool) -> &'static str {
-    let sql = if managed { FIELD_DELETE } else { FIELD_UPSERT };
-    if setjoin_contracts::mutants::on("fieldpolicy-any-grant") {
-        return Box::leak(
-            sql.replace(
-                "public.admin_can_reach_perm($2, $4, '{identity.write}'::text[])",
-                "public.admin_can_reach($2, $4)",
-            )
-            .into_boxed_str(),
-        );
-    }
-    sql
-}
+
 pub async fn set_field_policy(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    user: i64,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    admin: &AdminPermissionProof,
+    target: i64,
     field: &str,
     policy: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    let auth = scope(actor);
+    let actor_id = admin.actor().get();
     let managed = policy == "ad_managed";
-    let clear: [Param<'_>; 2] = [(&user, Type::INT8), (&field, Type::TEXT)];
-    let set: [Param<'_>; 3] = [
-        (&user, Type::INT8),
-        (&field, Type::TEXT),
-        (&policy, Type::TEXT),
-    ];
-    let params: &[Param<'_>] = if managed { &clear } else { &set };
-    setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F02",
-            command: if managed {
-                "ad_field_policy_clear"
-            } else {
-                "ad_field_policy_set"
-            },
-        },
-        &envelope(&auth, operation, &format!("{user}:{field}:{policy}")),
-        &auth,
-        deadline(),
-        write_sql(managed),
-        params,
-        count,
-    )
-    .await
+    let any_grant = setjoin_contracts::mutants::on("fieldpolicy-any-grant");
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{target}:{field}:{policy}"),
+    );
+    if managed {
+        factory
+            .run_user_write_contract_pipelined(
+                user,
+                &env,
+                deadline(),
+                &sql::FIELD_POLICY_DELETE,
+                &[&actor_id, &target, &field, &any_grant],
+                Some(command("ad_field_policy_clear")),
+                |rows| count(&rows),
+            )
+            .await
+    } else {
+        factory
+            .run_user_write_contract_pipelined(
+                user,
+                &env,
+                deadline(),
+                &sql::FIELD_POLICY_UPSERT,
+                &[&actor_id, &target, &field, &policy, &any_grant],
+                Some(command("ad_field_policy_set")),
+                |rows| count(&rows),
+            )
+            .await
+    }
 }
 
 /// `Some(None)` is an existing user with no principal; `None` is no user.
 pub async fn principal_current(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     user: i64,
 ) -> Result<Option<Option<String>>, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT krb5_principal FROM users WHERE id = $1",
-            &[(&user, Type::INT8)],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::PRINCIPAL_CURRENT, &[&user])
         .await?;
-    Ok(rows.first().map(|r| r.get(0)))
+    rows.first()
+        .map(|r| r.try_get::<_, Option<String>>(0).map_err(|_| invalid()))
+        .transpose()
 }
-/// Go's reducer call, unchanged: the user-row lock, live reach+permission
-/// recheck, compare-and-swap, audit and notify commit in its transaction.
+
+/// Go's `ad_principal_set` reducer via `AdminWriteTx` (`ReducerWritesCoreAudit`).
 pub async fn set_principal(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     target: i64,
     new_principal: &str,
     old_principal: Option<&str>,
     ip: Option<&str>,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F02",
-            command: "ad_principal_set",
-        },
-        &envelope(&auth, operation, &format!("{target}:{new_principal}")),
-        &auth,
-        deadline(),
-        "SELECT ad_principal_set($2,$4,$5,$6,$7::text::inet) WHERE $1::bigint>=0 AND $3::text<>''",
-        &[
-            (&target, Type::INT8),
-            (&new_principal, Type::TEXT),
-            (&old_principal, Type::TEXT),
-            (&ip, Type::TEXT),
-        ],
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get(0).ok())
-                .ok_or_else(invalid)
-        },
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!("{target}:{new_principal}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::PRINCIPAL_SET,
+            &[&target, &new_principal, &old_principal, &ip],
+            Some(command("ad_principal_set")),
+            |rows, _audited| {
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }

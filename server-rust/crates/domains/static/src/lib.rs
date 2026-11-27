@@ -11,8 +11,8 @@ pub mod downloads;
 pub mod health;
 pub mod metrics;
 pub mod openapi;
-pub mod wellknown;
-
-pub mod website;
-
+pub mod sql;
 pub mod telemetry;
+pub mod website;
+pub mod wellknown;
+pub use sql::SQL_CONTRACTS;

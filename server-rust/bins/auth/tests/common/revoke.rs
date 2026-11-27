@@ -135,7 +135,9 @@ pub async fn function(
         .await?
         .try_get(0)?;
     if !direct {
-        return Err(format!("cannot restore setjoin_app EXECUTE grant exactly on {signature}").into());
+        return Err(
+            format!("cannot restore setjoin_app EXECUTE grant exactly on {signature}").into(),
+        );
     }
     apply_fault(
         owner_dsn,

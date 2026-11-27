@@ -1,6 +1,6 @@
 //! Static typed SQL contract catalog for `setjoin-user-settings` (F19).
 use setjoin_sql_catalog::{
-    pg_go_utc_time, pg_rfc3339, ColumnSpec, RlsCheck, SqlContract, SqlScope, Type,
+    pg_go_utc_time, pg_rfc3339, ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type,
 };
 
 macro_rules! rfc3339_fmt {
@@ -12,12 +12,12 @@ macro_rules! rfc3339_fmt {
 pub const PROFILE_UPDATE: SqlContract = SqlContract {
     id: "user_settings.profile_update",
     domain: "user-settings",
-    sql: "WITH written AS (UPDATE users SET display_name = $4::text, updated_at = now() WHERE id = $2::bigint AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) \
-          SELECT count(*)::bigint FROM written",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
+    sql: "SELECT rust_user_profile_update($1::bigint, $2::text)",
+    params: &[Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const QUOTA_GET: SqlContract = SqlContract {
@@ -32,6 +32,7 @@ pub const QUOTA_GET: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const IMAP_GET: SqlContract = SqlContract {
@@ -49,23 +50,22 @@ pub const IMAP_GET: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const IMAP_PUT: SqlContract = SqlContract {
     id: "user_settings.imap_put",
     domain: "user-settings",
     sql: "INSERT INTO user_imap_settings (user_id, expose_all, show_subscribed_only, exposed_tag_ids, folder_separator) \
-          SELECT $2::bigint, $4::boolean, $5::boolean, $6::bigint[], $7::text WHERE $1::bigint >= 0 AND $3::text <> '' \
+          VALUES ($1::bigint, $2::boolean, $3::boolean, $4::bigint[], $5::text) \
           ON CONFLICT (user_id) DO UPDATE SET \
-            expose_all = COALESCE($4::boolean, user_imap_settings.expose_all), \
-            show_subscribed_only = COALESCE($5::boolean, user_imap_settings.show_subscribed_only), \
-            exposed_tag_ids = CASE WHEN $6::BIGINT[] IS NOT NULL THEN $6::bigint[] ELSE user_imap_settings.exposed_tag_ids END, \
-            folder_separator = COALESCE($7::text, user_imap_settings.folder_separator) \
+            expose_all = COALESCE($2::boolean, user_imap_settings.expose_all), \
+            show_subscribed_only = COALESCE($3::boolean, user_imap_settings.show_subscribed_only), \
+            exposed_tag_ids = CASE WHEN $4::BIGINT[] IS NOT NULL THEN $4::bigint[] ELSE user_imap_settings.exposed_tag_ids END, \
+            folder_separator = COALESCE($5::text, user_imap_settings.folder_separator) \
           RETURNING 1",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::BOOL,
         Type::BOOL,
         Type::INT8_ARRAY,
@@ -74,6 +74,7 @@ pub const IMAP_PUT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT4)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VIEW_PREFS_GET: SqlContract = SqlContract {
@@ -84,39 +85,40 @@ pub const VIEW_PREFS_GET: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VIEW_PREFS_PUT: SqlContract = SqlContract {
     id: "user_settings.view_prefs_put",
     domain: "user-settings",
-    sql: "WITH written AS (UPDATE users SET view_prefs = $4::text::jsonb WHERE id = $2::bigint AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) \
-          SELECT count(*)::bigint FROM written",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
+    sql: "SELECT rust_user_view_prefs_set($1::bigint, $2::text)",
+    params: &[Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const UNDO_DELAY_PUT: SqlContract = SqlContract {
     id: "user_settings.undo_delay_put",
     domain: "user-settings",
-    sql: "SELECT rust_settings_undo_delay_put($2, $4) WHERE $1::bigint >= 0 AND $3::text <> ''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::INT8],
+    sql: "SELECT rust_settings_undo_delay_put($1, $2)",
+    params: &[Type::INT8, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const NEWSLETTER_PUT: SqlContract = SqlContract {
     id: "user_settings.newsletter_put",
     domain: "user-settings",
-    sql: "WITH written AS (UPDATE users SET view_prefs = COALESCE(view_prefs, '{}'::jsonb) || $4::text::jsonb \
-          WHERE id = $2::bigint AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) \
-          SELECT count(*)::bigint FROM written",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
+    sql: "SELECT rust_user_view_prefs_merge($1::bigint, $2::text)",
+    params: &[Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SIGNATURE_LIST: SqlContract = SqlContract {
@@ -142,6 +144,7 @@ pub const SIGNATURE_LIST: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SIGNATURE_OTHERS: SqlContract = SqlContract {
@@ -152,16 +155,15 @@ pub const SIGNATURE_OTHERS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SIGNATURE_PUT: SqlContract = SqlContract {
     id: "user_settings.signature_put",
     domain: "user-settings",
-    sql: "SELECT rust_settings_signature_put($2, $4, $5, $6, $7, $8) WHERE $1::bigint >= 0 AND $3::text <> ''",
+    sql: "SELECT rust_settings_signature_put($1, $2, $3, $4, $5, $6)",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::TEXT,
         Type::TEXT,
         Type::TEXT,
@@ -171,18 +173,20 @@ pub const SIGNATURE_PUT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SIGNATURE_DELETE: SqlContract = SqlContract {
     id: "user_settings.signature_delete",
     domain: "user-settings",
     sql:
-        "WITH gone AS (DELETE FROM user_signatures WHERE id = $4::bigint AND user_id = $2::bigint \
-          AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM gone",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::INT8],
+        "WITH gone AS (DELETE FROM user_signatures WHERE id = $2::bigint AND user_id = $1::bigint \
+          RETURNING 1) SELECT count(*)::bigint FROM gone",
+    params: &[Type::INT8, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const NOTIFICATION_GET: SqlContract = SqlContract {
@@ -209,6 +213,7 @@ pub const NOTIFICATION_GET: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const NOTIFICATION_PUT: SqlContract = SqlContract {
@@ -218,22 +223,19 @@ pub const NOTIFICATION_PUT: SqlContract = SqlContract {
             (user_id, device_fingerprint, push_enabled, push_sound, stop_push_when_desktop_online, \
              dnd_start, dnd_end, dnd_days, mail_notifications, calendar_reminders, task_reminders, \
              read_receipt_policy, chat_notifications, updated_at) \
-          SELECT $2::bigint, $4::text::uuid, $5::boolean, $6::text, $7::boolean, $8::text::time, $9::text::time, \
-                 $10::bigint::smallint, $11::text, $12::boolean, $13::boolean, \
-                 COALESCE(NULLIF($14::text, ''), 'ask'), COALESCE(NULLIF($15::text, ''), 'all'), now() \
-          WHERE $1::bigint >= 0 AND $3::text <> '' \
+          VALUES ($1::bigint, $2::text::uuid, $3::boolean, $4::text, $5::boolean, $6::text::time, $7::text::time, \
+                 $8::bigint::smallint, $9::text, $10::boolean, $11::boolean, \
+                 COALESCE(NULLIF($12::text, ''), 'ask'), COALESCE(NULLIF($13::text, ''), 'all'), now()) \
           ON CONFLICT (user_id, device_fingerprint) DO UPDATE SET \
-             push_enabled = $5::boolean, push_sound = $6::text, stop_push_when_desktop_online = $7::boolean, \
-             dnd_start = $8::text::time, dnd_end = $9::text::time, dnd_days = $10::bigint::smallint, \
-             mail_notifications = $11::text, calendar_reminders = $12::boolean, task_reminders = $13::boolean, \
-             read_receipt_policy = COALESCE(NULLIF($14::text, ''), user_notification_prefs.read_receipt_policy), \
-             chat_notifications = COALESCE(NULLIF($15::text, ''), user_notification_prefs.chat_notifications), \
+             push_enabled = $3::boolean, push_sound = $4::text, stop_push_when_desktop_online = $5::boolean, \
+             dnd_start = $6::text::time, dnd_end = $7::text::time, dnd_days = $8::bigint::smallint, \
+             mail_notifications = $9::text, calendar_reminders = $10::boolean, task_reminders = $11::boolean, \
+             read_receipt_policy = COALESCE(NULLIF($12::text, ''), user_notification_prefs.read_receipt_policy), \
+             chat_notifications = COALESCE(NULLIF($13::text, ''), user_notification_prefs.chat_notifications), \
              updated_at = now() \
           RETURNING 1",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::TEXT,
         Type::BOOL,
         Type::TEXT,
@@ -250,6 +252,7 @@ pub const NOTIFICATION_PUT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT4)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VIP_GET: SqlContract = SqlContract {
@@ -260,16 +263,18 @@ pub const VIP_GET: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VIP_PUT: SqlContract = SqlContract {
     id: "user_settings.vip_put",
     domain: "user-settings",
-    sql: "SELECT rust_vip_sender_set($2::bigint, $4::text, $5::boolean)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT, Type::BOOL],
+    sql: "SELECT rust_vip_sender_set($1::bigint, $2::text, $3::boolean)::text",
+    params: &[Type::INT8, Type::TEXT, Type::BOOL],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const PRIMARY_MAILBOX: SqlContract = SqlContract {
@@ -278,8 +283,9 @@ pub const PRIMARY_MAILBOX: SqlContract = SqlContract {
     sql: "SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
     params: &[Type::INT8],
     columns: &[ColumnSpec::named("id", Type::INT8)],
-    scope: SqlScope::AuthPreScope,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VACATION_GET: SqlContract = SqlContract {
@@ -287,7 +293,7 @@ pub const VACATION_GET: SqlContract = SqlContract {
     domain: "user-settings",
     sql: "SELECT enabled, subject, body_text, body_html, body_external, body_external_html, \
           to_char(start_date, 'YYYY-MM-DD'), to_char(end_date, 'YYYY-MM-DD'), external_audience \
-          FROM get_vacation((SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1))",
+          FROM get_vacation($1)",
     params: &[Type::INT8],
     columns: &[
         ColumnSpec::named("enabled", Type::BOOL),
@@ -300,20 +306,18 @@ pub const VACATION_GET: SqlContract = SqlContract {
         ColumnSpec::unnamed(Type::TEXT),
         ColumnSpec::named("external_audience", Type::TEXT),
     ],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VACATION_PUT: SqlContract = SqlContract {
     id: "user_settings.vacation_put",
     domain: "user-settings",
-    sql: "SELECT set_vacation((SELECT id FROM mailboxes WHERE user_id = $2::bigint AND is_primary = TRUE LIMIT 1), \
-          $4::boolean, $5::text, $6::text, $7::text, $8::text, $9::text, $10::text::date, $11::text::date, $12::text)::text \
-          WHERE $1::bigint >= 0 AND $3::text <> ''",
+    sql: "SELECT set_vacation($1::bigint, \
+          $2::boolean, $3::text, $4::text, $5::text, $6::text, $7::text, $8::text::date, $9::text::date, $10::text)::text",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::BOOL,
         Type::TEXT,
         Type::TEXT,
@@ -325,8 +329,9 @@ pub const VACATION_PUT: SqlContract = SqlContract {
         Type::TEXT,
     ],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DELEGATION_GET: SqlContract = SqlContract {
@@ -345,24 +350,18 @@ pub const DELEGATION_GET: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DELEGATION_PUT: SqlContract = SqlContract {
     id: "user_settings.delegation_put",
     domain: "user-settings",
-    sql: "SELECT set_approval_delegation($2::bigint, $4::bigint, $5::text::timestamptz, $6::text::timestamptz)::text \
-          WHERE $1::bigint >= 0 AND $3::text <> ''",
-    params: &[
-        Type::INT8,
-        Type::INT8,
-        Type::TEXT,
-        Type::INT8,
-        Type::TEXT,
-        Type::TEXT,
-    ],
+    sql: "SELECT set_approval_delegation($1::bigint, $2::bigint, $3::text::timestamptz, $4::text::timestamptz)::text",
+    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SESSIONS_LIST: SqlContract = SqlContract {
@@ -395,6 +394,7 @@ pub const SESSIONS_LIST: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DEVICES_LIST: SqlContract = SqlContract {
@@ -420,6 +420,7 @@ pub const DEVICES_LIST: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const LOGIN_HISTORY: SqlContract = SqlContract {
@@ -452,6 +453,7 @@ pub const LOGIN_HISTORY: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const LOGIN_HISTORY_SUMMARY: SqlContract = SqlContract {
@@ -471,6 +473,7 @@ pub const LOGIN_HISTORY_SUMMARY: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SECURITY_SCORE_TOTP: SqlContract = SqlContract {
@@ -481,6 +484,7 @@ pub const SECURITY_SCORE_TOTP: SqlContract = SqlContract {
     columns: &[ColumnSpec::named("totp_enabled", Type::BOOL)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SECURITY_SCORE_BACKUP_CODES: SqlContract = SqlContract {
@@ -491,6 +495,7 @@ pub const SECURITY_SCORE_BACKUP_CODES: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT4)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SECURITY_SCORE_FAILED_LOGINS: SqlContract = SqlContract {
@@ -501,6 +506,7 @@ pub const SECURITY_SCORE_FAILED_LOGINS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SECURITY_SCORE_DEVICE_COUNT: SqlContract = SqlContract {
@@ -511,36 +517,40 @@ pub const SECURITY_SCORE_DEVICE_COUNT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SESSION_REVOKE_ONE: SqlContract = SqlContract {
     id: "user_settings.session_revoke_one",
     domain: "user-settings",
-    sql: "SELECT rust_session_revoke_one($2, $4) WHERE $1::bigint >= 0 AND $3::text <> ''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
+    sql: "SELECT rust_session_revoke_one($1, $2)",
+    params: &[Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SESSIONS_REVOKE_ALL: SqlContract = SqlContract {
     id: "user_settings.sessions_revoke_all",
     domain: "user-settings",
-    sql: "SELECT rust_sessions_revoke_all($2) WHERE $1::bigint >= 0 AND $3::text <> ''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT],
+    sql: "SELECT rust_sessions_revoke_all($1)",
+    params: &[Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SECURE_ACCOUNT_SELF: SqlContract = SqlContract {
     id: "user_settings.secure_account_self",
     domain: "user-settings",
-    sql: "SELECT rust_secure_account_self($2, $4)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
+    sql: "SELECT rust_secure_account_self($1, $2)::text",
+    params: &[Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SYNC_TOGGLES: SqlContract = SqlContract {
@@ -560,6 +570,7 @@ pub const SYNC_TOGGLES: SqlContract = SqlContract {
     ],
     scope: SqlScope::AuthPreScope,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SYNC_DEVICE: SqlContract = SqlContract {
@@ -569,9 +580,8 @@ pub const SYNC_DEVICE: SqlContract = SqlContract {
     params: &[Type::INT8, Type::BYTEA],
     columns: &[ColumnSpec::named("id", Type::INT8)],
     scope: SqlScope::UserScoped,
-    // `user_devices` carries permissive `user_devices_admin_read (true)` SELECT RLS;
-    // tenant isolation is enforced via R1 `WHERE user_id = $1`.
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SYNC_CAPABILITIES: SqlContract = SqlContract {
@@ -580,20 +590,18 @@ pub const SYNC_CAPABILITIES: SqlContract = SqlContract {
     sql: "SELECT effective_capabilities($1, $2)::text",
     params: &[Type::INT8, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SYNC_PUT: SqlContract = SqlContract {
     id: "user_settings.sync_put",
     domain: "user-settings",
-    sql: "SELECT rust_offline_device_set_preferences((SELECT id FROM mailboxes WHERE user_id = $2::bigint AND is_primary = TRUE LIMIT 1), \
-          $4::bigint, $5::boolean, $6::int, $7::boolean, $8::text, $9::text)::text \
-          WHERE $1::bigint >= 0 AND $3::text <> ''",
+    sql: "SELECT rust_offline_device_set_preferences($1::bigint, \
+          $2::bigint, $3::boolean, $4::int, $5::boolean, $6::text, $7::text)::text",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::INT8,
         Type::BOOL,
         Type::INT4,
@@ -602,8 +610,9 @@ pub const SYNC_PUT: SqlContract = SqlContract {
         Type::TEXT,
     ],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SQL_CONTRACTS: &[SqlContract] = &[

@@ -1,5 +1,7 @@
 //! Static typed SQL contract catalog for `setjoin-rules` (F09).
-use setjoin_sql_catalog::{pg_rfc3339, ColumnSpec, RlsCheck, SqlContract, SqlScope, Type};
+use setjoin_sql_catalog::{
+    pg_rfc3339, ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type,
+};
 
 macro_rules! rule_columns {
     () => {
@@ -58,6 +60,17 @@ const TEMPLATE_DETAIL_COLUMNS: &[ColumnSpec] = &[
     ColumnSpec::named("enabled", Type::BOOL),
 ];
 
+pub const LOCK_MAILBOX: SqlContract = SqlContract {
+    id: "rules.lock_mailbox",
+    domain: "rules",
+    sql: "SELECT id FROM public.mailboxes WHERE id=$1 FOR UPDATE",
+    params: &[Type::INT8],
+    columns: &[ColumnSpec::named("id", Type::INT8)],
+    scope: SqlScope::MailboxReadWrite,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
+};
+
 pub const PERSONAL_LIST: SqlContract = SqlContract {
     id: "rules.personal_list",
     domain: "rules",
@@ -70,6 +83,7 @@ pub const PERSONAL_LIST: SqlContract = SqlContract {
     columns: RULE_ROW_COLUMNS,
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const PERSONAL_COUNT: SqlContract = SqlContract {
@@ -80,16 +94,15 @@ pub const PERSONAL_COUNT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const PERSONAL_CREATE: SqlContract = SqlContract {
     id: "rules.personal_create",
     domain: "rules",
-    sql: "INSERT INTO rules(mailbox_id,name,enabled,priority,run_on,is_transport_rule,conditions,actions,stop_processing) SELECT $1,$4,$5,$6::bigint::int,$7,FALSE,$8::text::jsonb,$9::text::jsonb,$10 WHERE $2::bigint>0 AND $3::text<>'' RETURNING id::text",
+    sql: "INSERT INTO rules(mailbox_id,name,enabled,priority,run_on,is_transport_rule,conditions,actions,stop_processing) VALUES($1,$2,$3,$4::bigint::int,$5,FALSE,$6::text::jsonb,$7::text::jsonb,$8) RETURNING id::text",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::TEXT,
         Type::BOOL,
         Type::INT8,
@@ -101,16 +114,15 @@ pub const PERSONAL_CREATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const PERSONAL_UPDATE: SqlContract = SqlContract {
     id: "rules.personal_update",
     domain: "rules",
-    sql: "WITH changed AS(UPDATE rules SET name=COALESCE(NULLIF($5,''),name),enabled=$6,priority=$7::bigint::int,run_on=$8,conditions=COALESCE($9::text::jsonb,conditions),actions=COALESCE($10::text::jsonb,actions),stop_processing=$11,updated_at=now() WHERE id=$4 AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2) AND is_transport_rule=FALSE AND $1::bigint>=0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",
+    sql: "WITH changed AS(UPDATE rules SET name=COALESCE(NULLIF($3,''),name),enabled=$4,priority=$5::bigint::int,run_on=$6,conditions=COALESCE($7::text::jsonb,conditions),actions=COALESCE($8::text::jsonb,actions),stop_processing=$9,updated_at=now() WHERE id=$1 AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2) AND is_transport_rule=FALSE RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::INT8,
         Type::TEXT,
         Type::BOOL,
@@ -123,16 +135,18 @@ pub const PERSONAL_UPDATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const PERSONAL_DELETE: SqlContract = SqlContract {
     id: "rules.personal_delete",
     domain: "rules",
-    sql: "WITH changed AS(DELETE FROM rules WHERE id=$4 AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2) AND is_transport_rule=FALSE AND $1::bigint>=0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::INT8],
+    sql: "WITH changed AS(DELETE FROM rules WHERE id=$1 AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2) AND is_transport_rule=FALSE RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",
+    params: &[Type::INT8, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ACTIVE_SWEEPS: SqlContract = SqlContract {
@@ -143,16 +157,18 @@ pub const ACTIVE_SWEEPS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const APPLY_RETROACTIVE: SqlContract = SqlContract {
     id: "rules.apply_retroactive",
     domain: "rules",
-    sql: "SELECT rules_apply_retroactive($1,$4,$5)::text WHERE $2::bigint>0 AND $3::text<>''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::INT8, Type::TEXT],
+    sql: "SELECT rules_apply_retroactive($1,$2,$3)::text",
+    params: &[Type::INT8, Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const APPLY_STATUS: SqlContract = SqlContract {
@@ -167,6 +183,7 @@ pub const APPLY_STATUS: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ADMIN_LIST_BY_MAILBOX: SqlContract = SqlContract {
@@ -181,6 +198,7 @@ pub const ADMIN_LIST_BY_MAILBOX: SqlContract = SqlContract {
     columns: RULE_ROW_COLUMNS,
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ADMIN_LIST_ALL: SqlContract = SqlContract {
@@ -195,6 +213,7 @@ pub const ADMIN_LIST_ALL: SqlContract = SqlContract {
     columns: RULE_ROW_COLUMNS,
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ADMIN_GET: SqlContract = SqlContract {
@@ -205,6 +224,7 @@ pub const ADMIN_GET: SqlContract = SqlContract {
     columns: RULE_ROW_COLUMNS,
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const MAILBOX_EXISTS: SqlContract = SqlContract {
@@ -215,16 +235,15 @@ pub const MAILBOX_EXISTS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::BOOL)],
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ADMIN_CREATE: SqlContract = SqlContract {
     id: "rules.admin_create",
     domain: "rules",
-    sql: "SELECT rule_config_create($2,$4,$5,$6,$7::bigint::int,$8,$9,$10::text::jsonb,$11::text::jsonb,$12)::text WHERE $1::bigint>=0 AND $3::text<>''",
+    sql: "SELECT rule_config_create($1,$2,$3,$4,$5::bigint::int,$6,$7,$8::text::jsonb,$9::text::jsonb,$10)::text",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::INT8,
         Type::TEXT,
         Type::BOOL,
@@ -238,16 +257,15 @@ pub const ADMIN_CREATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::ReducerWritesCoreAudit,
 };
 
 pub const ADMIN_UPDATE: SqlContract = SqlContract {
     id: "rules.admin_update",
     domain: "rules",
-    sql: "SELECT rule_config_update($2,$4,$5,$6,$7,$8::bigint::int,$9,$10,$11::text::jsonb,$12::text::jsonb,$13)::text WHERE $1::bigint>=0 AND $3::text<>''",
+    sql: "SELECT rule_config_update($1,$2,$3,$4,$5,$6::bigint::int,$7,$8,$9::text::jsonb,$10::text::jsonb,$11)::text",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::INT8,
         Type::INT8,
         Type::TEXT,
@@ -262,16 +280,18 @@ pub const ADMIN_UPDATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::ReducerWritesCoreAudit,
 };
 
 pub const ADMIN_DELETE: SqlContract = SqlContract {
     id: "rules.admin_delete",
     domain: "rules",
-    sql: "SELECT rule_config_delete($2,$4)::text WHERE $1::bigint>=0 AND $3::text<>''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::INT8],
+    sql: "SELECT rule_config_delete($1,$2)::text",
+    params: &[Type::INT8, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::ReducerWritesCoreAudit,
 };
 
 pub const ADMIN_TEST_LOOKUP: SqlContract = SqlContract {
@@ -286,6 +306,7 @@ pub const ADMIN_TEST_LOOKUP: SqlContract = SqlContract {
     ],
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const AUTHORITY_RESOLVE: SqlContract = SqlContract {
@@ -297,18 +318,20 @@ pub const AUTHORITY_RESOLVE: SqlContract = SqlContract {
         ColumnSpec::unnamed(Type::TEXT_ARRAY),
         ColumnSpec::unnamed(Type::INT8),
     ],
-    scope: SqlScope::AdminRead,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const AUTHORITY_DENIED_AUDIT: SqlContract = SqlContract {
     id: "rules.authority_denied_audit",
     domain: "rules",
-    sql: "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core')::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT, Type::TEXT],
+    sql: "SELECT audit_write(NULL,'console.denied','console',NULL,$1::text::jsonb,NULL,NULL,$2,'core')::text",
+    params: &[Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_LIST_ADMIN: SqlContract = SqlContract {
@@ -321,8 +344,9 @@ pub const TEMPLATE_LIST_ADMIN: SqlContract = SqlContract {
     ),
     params: &[],
     columns: TEMPLATE_ROW_COLUMNS,
-    scope: SqlScope::AdminRead,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_LIST_USER: SqlContract = SqlContract {
@@ -337,6 +361,7 @@ pub const TEMPLATE_LIST_USER: SqlContract = SqlContract {
     columns: TEMPLATE_ROW_COLUMNS,
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_GET: SqlContract = SqlContract {
@@ -349,8 +374,9 @@ pub const TEMPLATE_GET: SqlContract = SqlContract {
     ),
     params: &[Type::INT8],
     columns: TEMPLATE_DETAIL_COLUMNS,
-    scope: SqlScope::AdminRead,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_LOAD: SqlContract = SqlContract {
@@ -367,16 +393,31 @@ pub const TEMPLATE_LOAD: SqlContract = SqlContract {
     ],
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
+};
+
+pub const TEMPLATE_LOAD_USER: SqlContract = SqlContract {
+    id: "rules.template_load_user",
+    domain: "rules",
+    sql: "SELECT name,category,conditions::text,actions::text,parameters::text FROM rule_templates WHERE id=$1 AND enabled=TRUE",
+    params: &[Type::INT8],
+    columns: &[
+        ColumnSpec::named("name", Type::TEXT),
+        ColumnSpec::named("category", Type::TEXT),
+        ColumnSpec::unnamed(Type::TEXT),
+        ColumnSpec::unnamed(Type::TEXT),
+        ColumnSpec::unnamed(Type::TEXT),
+    ],
+    scope: SqlScope::UserScoped,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_CREATE: SqlContract = SqlContract {
     id: "rules.template_create",
     domain: "rules",
-    sql: "INSERT INTO rule_templates(name,description,category,conditions,actions,parameters,sort_order) SELECT $4,$5,$6,$7::text::jsonb,$8::text::jsonb,$9::text::jsonb,$10::bigint::int WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id::text",
+    sql: "INSERT INTO rule_templates(name,description,category,conditions,actions,parameters,sort_order) VALUES($1,$2,$3,$4::text::jsonb,$5::text::jsonb,$6::text::jsonb,$7::bigint::int) RETURNING id::text",
     params: &[
-        Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::TEXT,
         Type::TEXT,
         Type::TEXT,
@@ -386,18 +427,16 @@ pub const TEMPLATE_CREATE: SqlContract = SqlContract {
         Type::INT8,
     ],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_UPDATE: SqlContract = SqlContract {
     id: "rules.template_update",
     domain: "rules",
-    sql: "WITH changed AS(UPDATE rule_templates SET name=COALESCE(NULLIF($5,''),name),description=COALESCE($6,description),category=COALESCE(NULLIF($7,''),category),conditions=COALESCE($8::text::jsonb,conditions),actions=COALESCE($9::text::jsonb,actions),parameters=COALESCE($10::text::jsonb,parameters),enabled=COALESCE($11,enabled),sort_order=COALESCE($12::bigint::int,sort_order),updated_at=now() WHERE id=$4 AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",
+    sql: "WITH changed AS(UPDATE rule_templates SET name=COALESCE(NULLIF($2,''),name),description=COALESCE($3,description),category=COALESCE(NULLIF($4,''),category),conditions=COALESCE($5::text::jsonb,conditions),actions=COALESCE($6::text::jsonb,actions),parameters=COALESCE($7::text::jsonb,parameters),enabled=COALESCE($8,enabled),sort_order=COALESCE($9::bigint::int,sort_order),updated_at=now() WHERE id=$1 RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",
     params: &[
-        Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::INT8,
         Type::TEXT,
         Type::TEXT,
@@ -409,18 +448,20 @@ pub const TEMPLATE_UPDATE: SqlContract = SqlContract {
         Type::INT8,
     ],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_DELETE: SqlContract = SqlContract {
     id: "rules.template_delete",
     domain: "rules",
-    sql: "WITH changed AS(DELETE FROM rule_templates WHERE id=$4 AND NOT is_system AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::INT8],
+    sql: "WITH changed AS(DELETE FROM rule_templates WHERE id=$1 AND NOT is_system RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",
+    params: &[Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_VISIBILITY_LIST: SqlContract = SqlContract {
@@ -432,53 +473,51 @@ pub const TEMPLATE_VISIBILITY_LIST: SqlContract = SqlContract {
         ColumnSpec::named("user_id", Type::INT8),
         ColumnSpec::named("hidden", Type::BOOL),
     ],
-    scope: SqlScope::AdminRead,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_VISIBILITY_HIDE: SqlContract = SqlContract {
     id: "rules.template_visibility_hide",
     domain: "rules",
-    sql: "INSERT INTO rule_template_visibility(template_id,user_id,hidden) SELECT $4,$5,TRUE WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' ON CONFLICT(template_id,COALESCE(user_id,-1)) DO UPDATE SET hidden=TRUE RETURNING 'true'::text",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::INT8, Type::INT8],
+    sql: "INSERT INTO rule_template_visibility(template_id,user_id,hidden) VALUES($1,$2,TRUE) ON CONFLICT(template_id,COALESCE(user_id,-1)) DO UPDATE SET hidden=TRUE RETURNING 'true'::text",
+    params: &[Type::INT8, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_VISIBILITY_SHOW: SqlContract = SqlContract {
     id: "rules.template_visibility_show",
     domain: "rules",
-    sql: "WITH changed AS(DELETE FROM rule_template_visibility WHERE template_id=$4 AND user_id IS NOT DISTINCT FROM $5 AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING template_id) SELECT 'true'::text",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::INT8, Type::INT8],
+    sql: "WITH changed AS(DELETE FROM rule_template_visibility WHERE template_id=$1 AND user_id IS NOT DISTINCT FROM $2 RETURNING template_id) SELECT 'true'::text",
+    params: &[Type::INT8, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_INSTANTIATE: SqlContract = SqlContract {
     id: "rules.template_instantiate",
     domain: "rules",
-    sql: "SELECT rule_config_template_create($2,NULLIF($1,0),$4,$5::text::jsonb,$6::text::jsonb)::text WHERE $3::text<>''",
-    params: &[
-        Type::INT8,
-        Type::INT8,
-        Type::TEXT,
-        Type::TEXT,
-        Type::TEXT,
-        Type::TEXT,
-    ],
+    sql: "SELECT rule_config_template_create($1,NULLIF($2,0),$3,$4::text::jsonb,$5::text::jsonb)::text",
+    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::ReducerWritesCoreAudit,
 };
 
 // Note: `rule_templates` and `rule_template_visibility` are retired legacy-fixture-only
 // tables (`tests/conformance/rules/legacy-fixture.sql`), not present in the active schema.
-// Their static SQL constants remain in `templates.rs` (zero `format!` SQL) and are
+// Their static SQL constants remain in `sql.rs` (zero `format!` SQL) and are
 // excluded from active-schema `SQL_CONTRACTS`; `TEMPLATE_INSTANTIATE` calls the active
 // `rule_config_template_create` reducer and IS verified below.
 pub const SQL_CONTRACTS: &[SqlContract] = &[
+    LOCK_MAILBOX,
     PERSONAL_LIST,
     PERSONAL_COUNT,
     PERSONAL_CREATE,

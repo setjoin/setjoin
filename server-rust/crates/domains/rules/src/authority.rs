@@ -1,7 +1,11 @@
 //! Request-time governed grants; signed permission claims do not replace admin roles.
-use super::{invalid, write};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{ScopedExecutor, StatementFailure, Type};
+use super::{deadline, invalid, project_text0, user_envelope};
+use setjoin_authz::{
+    principals::{TxFactory, UserPrincipal},
+    AuthContext,
+};
+use setjoin_pg::{ReceiptCommand, StatementFailure};
+
 pub const MAIL_CONSOLE: [&str; 5] = [
     "domains.read",
     "queue.read",
@@ -10,17 +14,27 @@ pub const MAIL_CONSOLE: [&str; 5] = [
     "mail.security",
 ];
 pub const PIPELINE: [&str; 1] = ["mail.pipeline"];
+
 pub struct Authority {
     pub permissions: Vec<String>,
     pub domain: Option<i64>,
 }
+
 impl Authority {
     pub fn allows(&self, wanted: &[&str]) -> bool {
         wanted
             .iter()
             .any(|v| self.permissions.iter().any(|p| p == v))
     }
+
+    pub fn first_matching<'a>(&self, wanted: &[&'a str]) -> Option<&'a str> {
+        wanted
+            .iter()
+            .copied()
+            .find(|v| self.permissions.iter().any(|p| p == v))
+    }
 }
+
 /// Authority after a failed live lookup. Owner-approved security fix 2026-11-05
 /// (#484): frozen Go kept the verified JWT's signed grants here, so a request kept
 /// authority the lookup could not confirm. Now no grant survives.
@@ -36,8 +50,10 @@ pub fn lookup_failed(a: &AuthContext) -> Authority {
         domain: None,
     }
 }
+
 pub async fn resolve(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     a: &AuthContext,
 ) -> Result<Authority, StatementFailure> {
     if !a.signed_admin() {
@@ -46,9 +62,9 @@ pub async fn resolve(
             domain: a.signed_domain_scope(),
         });
     }
-    let user = a.user_id();
-    let rows = exec
-        .read(crate::sql::AUTHORITY_RESOLVE.sql, &[(&user, Type::INT8)])
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &crate::sql::AUTHORITY_RESOLVE, &[&uid])
         .await?;
     let r = rows.first().ok_or_else(invalid)?;
     Ok(Authority {
@@ -56,22 +72,30 @@ pub async fn resolve(
         domain: r.get(1),
     })
 }
+
 pub async fn denied(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+    email: &str,
     path: &str,
     detail: &str,
     op: [u8; 16],
 ) {
     let before =
-        serde_json::json!({"actor":a.email(),"target":path,"missingPermission":detail}).to_string();
-    let _ = write(
-        exec,
-        a,
-        op,
-        "console.denied",
-        crate::sql::AUTHORITY_DENIED_AUDIT.sql,
-        &[(&before, Type::TEXT), (&path, Type::TEXT)],
-    )
-    .await;
+        serde_json::json!({"actor":email,"target":path,"missingPermission":detail}).to_string();
+    let envelope = user_envelope(user, op, "console.denied", &format!("{before}:{path}"));
+    let _ = tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &envelope,
+            deadline(),
+            &crate::sql::AUTHORITY_DENIED_AUDIT,
+            &[&before, &path],
+            Some(ReceiptCommand {
+                family: "F09",
+                command: "console.denied",
+            }),
+            project_text0,
+        )
+        .await;
 }

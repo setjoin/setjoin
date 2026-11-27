@@ -3,9 +3,9 @@ use super::{book_props, reply, report, write, xml};
 use crate::{Body, RequestContext};
 use hyper::Response;
 use serde_json::Value;
-use setjoin_authz::AuthContext;
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
 use setjoin_calendar::carddav;
-use setjoin_pg::{CommandOutcome, ScopedExecutor};
+use setjoin_pg::CommandOutcome;
 fn string<'a>(v: &'a Value, name: &str) -> &'a str {
     v[name].as_str().unwrap_or("")
 }
@@ -72,25 +72,25 @@ fn render(v: &Value) -> String {
     body
 }
 async fn rows(
-    exec: &ScopedExecutor,
-    user: i64,
+    tx: &TxFactory,
+    user: &UserPrincipal,
     id: Option<i64>,
     text: &str,
     limit: Option<i64>,
 ) -> Vec<Value> {
-    carddav::gal_users(exec, user, id, text, limit)
+    carddav::gal_users(tx, user, id, text, limit)
         .await
         .unwrap_or_default()
         .iter()
         .filter_map(|raw| serde_json::from_str(raw).ok())
         .collect()
 }
-async fn record(exec: &ScopedExecutor, user: i64, rows: &[Value]) {
+async fn record(tx: &TxFactory, user: &UserPrincipal, rows: &[Value]) {
     let ids = rows
         .iter()
         .filter_map(|r| r["id"].as_i64())
         .collect::<Vec<_>>();
-    let _ = carddav::gal_record(exec, user, &ids).await;
+    let _ = carddav::gal_record(tx, user, &ids).await;
 }
 fn props(href: &str, req: Option<&[&str]>, row: &Value) -> xml::Element {
     xml::properties(href, req, |name| {
@@ -110,29 +110,29 @@ fn props(href: &str, req: Option<&[&str]>, row: &Value) -> xml::Element {
         }))
     })
 }
-async fn enabled(exec: &ScopedExecutor) -> bool {
-    setjoin_calendar::flag(exec, "feature.gal_carddav", false)
+async fn enabled(tx: &TxFactory) -> bool {
+    setjoin_calendar::flag(tx, "feature.gal_carddav", false)
         .await
         .unwrap_or(false)
 }
 pub(super) async fn get(
-    exec: &ScopedExecutor,
+    tx: &TxFactory,
+    user: &UserPrincipal,
     parts: &[String],
     c: &RequestContext,
-    user: i64,
     id: String,
 ) -> Response<Body> {
-    if !enabled(exec).await || parts.len() != 2 {
+    if !enabled(tx).await || parts.len() != 2 {
         return reply(404, String::new(), None, c.identity.proto, id);
     }
     let Some(member) = member(&parts[1]) else {
         return reply(404, String::new(), None, c.identity.proto, id);
     };
-    let rows = rows(exec, user, Some(member), "", None).await;
+    let rows = rows(tx, user, Some(member), "", None).await;
     let Some(row) = rows.first() else {
         return reply(404, String::new(), None, c.identity.proto, id);
     };
-    record(exec, user, &rows).await;
+    record(tx, user, &rows).await;
     let mut response = reply(
         200,
         render(row),
@@ -146,15 +146,15 @@ pub(super) async fn get(
     response
 }
 pub(super) async fn propfind(
-    exec: &ScopedExecutor,
+    tx: &TxFactory,
+    user: &UserPrincipal,
     parts: &[String],
     req: Option<&[&str]>,
     depth: bool,
     c: &RequestContext,
-    user: i64,
     id: String,
 ) -> Response<Body> {
-    if !enabled(exec).await {
+    if !enabled(tx).await {
         return reply(404, String::new(), None, c.identity.proto, id);
     }
     let mut responses = vec![];
@@ -166,8 +166,8 @@ pub(super) async fn propfind(
             "Company directory (read-only)",
         ));
         if depth {
-            let rows = rows(exec, user, None, "", None).await;
-            record(exec, user, &rows).await;
+            let rows = rows(tx, user, None, "", None).await;
+            record(tx, user, &rows).await;
             for row in rows {
                 responses.push(props(
                     &format!("/gal/u{}.vcf", row["id"].as_i64().unwrap_or(0)),
@@ -180,11 +180,11 @@ pub(super) async fn propfind(
         let Some(member) = member(&parts[1]) else {
             return reply(404, String::new(), None, c.identity.proto, id);
         };
-        let rows = rows(exec, user, Some(member), "", None).await;
+        let rows = rows(tx, user, Some(member), "", None).await;
         let Some(row) = rows.first() else {
             return reply(404, String::new(), None, c.identity.proto, id);
         };
-        record(exec, user, &rows).await;
+        record(tx, user, &rows).await;
         responses.push(props(&format!("/gal/{}", parts[1]), req, row));
     }
     reply(
@@ -199,14 +199,13 @@ pub(super) fn read_only(c: &RequestContext, id: String) -> Response<Body> {
     reply(403,format!("{}<D:error xmlns:D=\"DAV:\"><D:cannot-modify-protected-property/><D:responsedescription>The Global Address List is read-only; directory changes come from the admin console / AD sync.</D:responsedescription></D:error>",crate::caldav::xml::HEADER),Some("application/xml; charset=utf-8"),c.identity.proto,id)
 }
 pub(super) async fn report(
-    exec: &ScopedExecutor,
+    tx: &TxFactory,
+    user: &UserPrincipal,
     bytes: &[u8],
     c: &RequestContext,
-    actor: &AuthContext,
     id: String,
 ) -> Response<Body> {
-    let user = actor.user_id();
-    if !enabled(exec).await {
+    if !enabled(tx).await {
         return reply(404, String::new(), None, c.identity.proto, id);
     }
     let body = String::from_utf8_lossy(bytes);
@@ -252,7 +251,7 @@ pub(super) async fn report(
         let Some(operation) = crate::jmap::random() else {
             return reply(503, String::new(), None, c.identity.proto, id);
         };
-        let raw = match carddav::gal_sync(exec, actor, micros, count, operation).await {
+        let raw = match carddav::gal_sync(tx, user, micros, count, operation).await {
             CommandOutcome::Committed(raw) => raw,
             CommandOutcome::Unknown { operation } => return write::unknown(operation, c, id),
             CommandOutcome::RolledBack(_) => {
@@ -303,7 +302,7 @@ pub(super) async fn report(
             id,
         );
     }
-    if carddav::primary_mailbox(exec, user)
+    if carddav::primary_mailbox(tx, user)
         .await
         .ok()
         .flatten()
@@ -318,7 +317,7 @@ pub(super) async fn report(
             let value = href.text.trim_matches('/');
             let value = value.strip_prefix("gal/").unwrap_or(value);
             if let Some(id) = member(value) {
-                selected.extend(rows(exec, user, Some(id), "", None).await);
+                selected.extend(rows(tx, user, Some(id), "", None).await);
             }
         }
     } else {
@@ -335,9 +334,9 @@ pub(super) async fn report(
                     .find(|n| n.name == "text-match" && n.ns == xml::CARD)
             })
             .map_or("", |n| n.text.as_str());
-        selected = rows(exec, user, None, text, Some(1000)).await;
+        selected = rows(tx, user, None, text, Some(1000)).await;
     }
-    record(exec, user, &selected).await;
+    record(tx, user, &selected).await;
     let responses = selected
         .iter()
         .map(|row| {

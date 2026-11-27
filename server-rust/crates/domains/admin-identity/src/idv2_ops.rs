@@ -3,9 +3,10 @@
 //! writes live in `idv2_writes`. Wire shapes follow `encoding/json` (struct order or
 //! sorted maps, HTML-escaped by the caller).
 use super::idv2::Refusal;
-use super::{go_escape, nano, s};
+use super::{go_escape, s, sql};
 use serde_json::Value;
-use setjoin_pg::{ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::StatementFailure;
 
 fn failed(detail: &str) -> Refusal {
     Refusal {
@@ -137,15 +138,12 @@ fn render_mappings(list: &[Mapping]) -> String {
     format!("[{}]", items.join(","))
 }
 
-/// `GET /admin/identity/group-mappings` (request pool; Go ignores query errors).
-pub async fn group_mappings(exec: &ScopedExecutor) -> String {
+/// `GET /admin/identity/group-mappings` (Go ignores query errors).
+pub async fn group_mappings(factory: &TxFactory, admin: &AdminPermissionProof) -> String {
     let mut saml: std::collections::BTreeMap<String, String> = Default::default();
     let mut oidc: std::collections::BTreeMap<String, String> = Default::default();
-    if let Ok(rows) = exec
-        .read(
-            "SELECT idp_entity_id, COALESCE(group_mappings, '[]'::JSONB)::text FROM saml_sp_registrations WHERE enabled = TRUE",
-            &[],
-        )
+    if let Ok(rows) = factory
+        .run_admin_read_contract(admin, &sql::IDV2_GROUP_MAPPINGS_SAML, &[])
         .await
     {
         for row in rows {
@@ -154,11 +152,8 @@ pub async fn group_mappings(exec: &ScopedExecutor) -> String {
             }
         }
     }
-    if let Ok(rows) = exec
-        .read(
-            "SELECT key, value::text FROM system_config WHERE key LIKE 'oidc_provider_%_config'",
-            &[],
-        )
+    if let Ok(rows) = factory
+        .run_admin_read_contract(admin, &sql::IDV2_GROUP_MAPPINGS_OIDC, &[])
         .await
     {
         for row in rows {
@@ -202,48 +197,26 @@ fn inventory_failed() -> Refusal {
     failed("inventory unavailable")
 }
 
-/// `GET /admin/identity/inventory` on the worker pool; the body Go's `WriteJSON` sends.
-pub async fn inventory(worker: &ScopedExecutor) -> Result<String, Refusal> {
-    let people = worker
-        .read(
-            &format!(
-                "SELECT count(*)::bigint, count(*) FILTER (WHERE u.enabled)::bigint, \
-                 count(*) FILTER (WHERE NOT u.enabled)::bigint, \
-                 count(*) FILTER (WHERE g.user_id IS NOT NULL)::bigint, \
-                 count(*) FILTER (WHERE g.user_id IS NULL)::bigint, \
-                 count(*) FILTER (WHERE g.user_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.mailboxes mb WHERE mb.user_id = u.id AND mb.is_primary))::bigint, \
-                 count(*) FILTER (WHERE u.oidc_subject IS NOT NULL AND u.oidc_issuer IS NOT NULL)::bigint, \
-                 count(*) FILTER (WHERE (u.oidc_subject IS NULL) <> (u.oidc_issuer IS NULL))::bigint, \
-                 count(*) FILTER (WHERE u.saml_name_id IS NOT NULL AND u.saml_idp_entity_id IS NOT NULL)::bigint, \
-                 count(*) FILTER (WHERE (u.saml_name_id IS NULL) <> (u.saml_idp_entity_id IS NULL))::bigint, \
-                 {} \
-                 FROM public.users u LEFT JOIN public.guest_accounts g ON g.user_id = u.id",
-                nano("clock_timestamp()")
-            ),
-            &[],
-        )
+/// `GET /admin/identity/inventory` on the admin pool; the body Go's `WriteJSON` sends.
+pub async fn inventory(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, Refusal> {
+    let people = factory
+        .run_admin_read_contract(admin, &sql::IDV2_INVENTORY_PEOPLE, &[])
         .await
         .map_err(|_| inventory_failed())?;
     let people = people.first().ok_or_else(inventory_failed)?;
     let n =
         |row: &setjoin_pg::Row, i: usize| row.try_get::<_, i64>(i).map_err(|_| inventory_failed());
     let generated: String = people.try_get(10).map_err(|_| inventory_failed())?;
-    let mailboxes = worker
-        .read(
-            "SELECT count(*) FILTER (WHERE user_id IS NULL AND resource_type IS NULL)::bigint, \
-             count(*) FILTER (WHERE user_id IS NULL AND resource_type IS NOT NULL)::bigint FROM public.mailboxes",
-            &[],
-        )
+    let mailboxes = factory
+        .run_admin_read_contract(admin, &sql::IDV2_INVENTORY_MAILBOXES, &[])
         .await
         .map_err(|_| inventory_failed())?;
     let mailboxes = mailboxes.first().ok_or_else(inventory_failed)?;
-    let lifecycle = worker
-        .read(
-            "SELECT COALESCE(jsonb_object_agg(source, source_count), '{}'::jsonb)::text FROM (\
-             SELECT COALESCE(NULLIF(btrim(sync_source), ''), 'unknown') AS source, count(*)::bigint AS source_count \
-             FROM public.users GROUP BY 1) counts",
-            &[],
-        )
+    let lifecycle = factory
+        .run_admin_read_contract(admin, &sql::IDV2_INVENTORY_LIFECYCLE, &[])
         .await
         .map_err(|_| inventory_failed())?;
     let lifecycle: String = lifecycle
@@ -253,44 +226,19 @@ pub async fn inventory(worker: &ScopedExecutor) -> Result<String, Refusal> {
     let Ok(Value::Object(lifecycle)) = serde_json::from_str::<Value>(&lifecycle) else {
         return Err(inventory_failed());
     };
-    let legacy = worker
-        .read(
-            "SELECT (SELECT count(*)::bigint FROM public.identity_legacy_federation_pair_inventory), \
-             (SELECT count(*)::bigint FROM public.sso_distribution_group_legacy_inventory), \
-             (SELECT count(*)::bigint FROM public.sso_admin_role_legacy_inventory)",
-            &[],
-        )
+    let legacy = factory
+        .run_admin_read_contract(admin, &sql::IDV2_INVENTORY_LEGACY, &[])
         .await
         .map_err(|_| inventory_failed())?;
     let legacy = legacy.first().ok_or_else(inventory_failed)?;
     let sensitive: Vec<String> = SENSITIVE.iter().map(|p| (*p).to_owned()).collect();
-    let protected = worker
-        .read(
-            "SELECT * FROM (WITH break_glass AS (SELECT DISTINCT elem.raw_user_id::bigint AS user_id FROM public.system_config sc, \
-             LATERAL jsonb_array_elements_text(sc.value) AS elem(raw_user_id) WHERE sc.key = 'ca_break_glass_user_ids'), \
-             sensitive_holders AS (SELECT DISTINCT ara.user_id FROM public.admin_role_assignments ara \
-             JOIN public.admin_role_groups rg ON rg.id = ara.role_group_id WHERE rg.permissions && $1::text[] \
-             AND (ara.expires_at IS NULL OR ara.expires_at > now()) AND public.admin_assignment_active(ara.eligible, ara.activated_until)), \
-             protected AS (SELECT user_id FROM break_glass UNION SELECT user_id FROM sensitive_holders) \
-             SELECT (SELECT count(*)::bigint FROM protected), (SELECT count(*)::bigint FROM break_glass), \
-             (SELECT count(*)::bigint FROM sensitive_holders)) q",
-            &[(&sensitive, Type::TEXT_ARRAY)],
-        )
+    let protected = factory
+        .run_admin_read_contract(admin, &sql::IDV2_INVENTORY_PROTECTED, &[&sensitive])
         .await
         .map_err(|_| inventory_failed())?;
     let protected = protected.first().ok_or_else(inventory_failed)?;
-    let secrets = worker
-        .read(
-            "SELECT * FROM (WITH secret_rows AS (SELECT CASE WHEN key LIKE 'ad_sync_%' THEN 'ad' WHEN key LIKE 'ldap_sync_%' THEN 'ldap' END AS connector, \
-             CASE WHEN value IS NULL OR value = 'null'::jsonb OR value = '\"\"'::jsonb THEN 'unset' \
-             WHEN jsonb_typeof(value) = 'object' AND value->>'format' = 'setjoin-config-secret' AND value->>'version' = '1' AND value ? 'ciphertext' THEN 'encrypted' \
-             ELSE 'attention_required' END AS state FROM public.system_config \
-             WHERE right(key, 4) = '_enc' AND (key LIKE 'ad_sync_%' OR key LIKE 'ldap_sync_%')), \
-             connector_states AS (SELECT connector, CASE WHEN bool_or(state = 'attention_required') THEN 'attention_required' \
-             WHEN bool_or(state = 'encrypted') THEN 'encrypted' ELSE 'unset' END AS state FROM secret_rows GROUP BY connector) \
-             SELECT COALESCE(max(state) FILTER (WHERE connector = 'ad'), 'unset'), COALESCE(max(state) FILTER (WHERE connector = 'ldap'), 'unset') FROM connector_states) q",
-            &[],
-        )
+    let secrets = factory
+        .run_admin_read_contract(admin, &sql::IDV2_INVENTORY_SECRETS, &[])
         .await
         .map_err(|_| inventory_failed())?;
     let secrets = secrets.first().ok_or_else(inventory_failed)?;
@@ -351,9 +299,12 @@ pub async fn inventory(worker: &ScopedExecutor) -> Result<String, Refusal> {
 }
 
 /// `GET /admin/identity/v2/inventory/export`: the reducer's jsonb text.
-pub async fn inventory_export(worker: &ScopedExecutor) -> Result<String, Refusal> {
-    let rows = worker
-        .read("SELECT identity_inventory_export()::text", &[])
+pub async fn inventory_export(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, Refusal> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::IDV2_INVENTORY_EXPORT, &[])
         .await
         .map_err(|e| classify(&e).unwrap_or_else(|| failed("identity inventory export failed")))?;
     Ok(rows
@@ -363,12 +314,14 @@ pub async fn inventory_export(worker: &ScopedExecutor) -> Result<String, Refusal
 }
 
 /// `identity_job_read`: the jsonb text, empty when no row is visible to the actor.
-pub async fn job(worker: &ScopedExecutor, actor: i64, id: &str) -> Result<String, Refusal> {
-    let rows = worker
-        .read(
-            "SELECT identity_job_read($1,$2::text::uuid)::text",
-            &[(&actor, Type::INT8), (&id, Type::TEXT)],
-        )
+pub async fn job(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    actor: i64,
+    id: &str,
+) -> Result<String, Refusal> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::IDV2_JOB_READ, &[&actor, &id])
         .await
         .map_err(|_| failed("identity job read failed"))?;
     Ok(rows
@@ -379,21 +332,18 @@ pub async fn job(worker: &ScopedExecutor, actor: i64, id: &str) -> Result<String
 
 /// `identity_job_results` after the permission re-check.
 pub async fn job_results(
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     actor: i64,
     id: &str,
     after: i64,
     limit: i32,
 ) -> Result<String, Refusal> {
-    let rows = worker
-        .read(
-            "SELECT identity_job_results($1,$2::text::uuid,$3,$4)::text",
-            &[
-                (&actor, Type::INT8),
-                (&id, Type::TEXT),
-                (&after, Type::INT8),
-                (&limit, Type::INT4),
-            ],
+    let rows = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::IDV2_JOB_RESULTS,
+            &[&actor, &id, &after, &limit],
         )
         .await
         .map_err(|e| classify(&e).unwrap_or_else(|| failed("identity job results failed")))?;
@@ -521,16 +471,13 @@ pub struct SourceRow {
 
 /// `loadIdentitySource`; `None` is `pgx.ErrNoRows`.
 pub async fn load_source(
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     key: &str,
 ) -> Result<Option<SourceRow>, StatementFailure> {
-    let sql = format!(
-        "SELECT id,display_name,kind,state,generation,mapping_version,config_envelope,capabilities::text,{},{},last_error_code \
-         FROM identity_sources WHERE source_key=$1",
-        nano("last_success_at"),
-        nano("last_failure_at")
-    );
-    let rows = worker.read(&sql, &[(&key, Type::TEXT)]).await?;
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::IDV2_LOAD_SOURCE, &[&key])
+        .await?;
     let Some(r) = rows.first() else {
         return Ok(None);
     };

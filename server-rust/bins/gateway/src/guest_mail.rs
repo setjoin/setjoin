@@ -1,6 +1,5 @@
 //! Token-bearing guest delivery. Credentials live only in memory and MIME storage.
 use crate::recovery_worker::ObjectStore;
-use setjoin_authz::AuthContext;
 use setjoin_guests::Prepared;
 use setjoin_pg::ScopedExecutor;
 
@@ -16,9 +15,8 @@ pub fn credential() -> Option<(String, String)> {
     ))
 }
 pub async fn send(
-    exec: &ScopedExecutor,
+    worker: &ScopedExecutor,
     store: Option<&dyn ObjectStore>,
-    actor: &AuthContext,
     invite: &Prepared,
     token: &str,
 ) -> bool {
@@ -93,19 +91,47 @@ pub async fn send(
     let Some(operation) = crate::jmap::random() else {
         return false;
     };
-    matches!(
-        setjoin_guests::enqueue(
-            exec,
-            actor,
-            &message,
-            &invite.from,
-            &invite.email,
-            &key,
-            operation
+    let Some(pool) = worker.try_worker_pool() else {
+        return false;
+    };
+    let Ok(mut tx) = pool.begin_read_write().await else {
+        return false;
+    };
+    let op_hex = setjoin_pg::operation_hex(setjoin_contracts::ids::OperationId(operation));
+    let res: Result<(), setjoin_pg::StatementFailure> = async {
+        let rows = tx
+            .query_contract(
+                &setjoin_guests::sql::ENQUEUE_OUTBOUND,
+                &[&message, &invite.from, &invite.email, &key],
+            )
+            .await?;
+        if rows.len() != 1 {
+            return Err(setjoin_pg::StatementFailure {
+                sqlstate: None,
+                hint: None,
+                message: "enqueue returned unexpected rows".into(),
+            });
+        }
+        tx.execute(
+            "INSERT INTO public.rust_operation_receipts(operation_id, family, command) \
+             VALUES ($1::text::uuid, $2, $3)",
+            &[
+                (&op_hex, setjoin_pg::Type::TEXT),
+                (&"F11", setjoin_pg::Type::TEXT),
+                (&"guest_invite_enqueue", setjoin_pg::Type::TEXT),
+            ],
         )
-        .await,
-        setjoin_pg::CommandOutcome::Committed(())
-    )
+        .await?;
+        Ok(())
+    }
+    .await;
+    match res {
+        Ok(()) => tx.commit().await.is_ok(),
+        Err(_) => {
+            let _ = tx.rollback().await;
+            false
+        }
+    }
 }
 /// Frozen MinIO's `PutObject` retry (ten attempts, transient HTTP statuses
 /// only, jittered backoff). Shared by every system mail that stores a message

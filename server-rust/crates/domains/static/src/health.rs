@@ -8,7 +8,8 @@
 //! `system.health_alert` is raised in Rust. The SFU/egress/ASR probes run through an
 //! optional [`Probes`] runner; a deployment with those sidecars configured and no
 //! runner is left to fail closed (`Outcome::Defer` -> 503 in the gateway).
-use setjoin_pg::{rls_preflight::BootPosture, ScopedExecutor};
+use setjoin_authz::principals::TxFactory;
+use setjoin_pg::rls_preflight::BootPosture;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -109,7 +110,7 @@ impl HealthGate {
     }
 
     /// `PublicCheck`: the redacted verdict.
-    pub async fn public(&self, exec: &ScopedExecutor) -> Outcome {
+    pub async fn public(&self, factory: &TxFactory) -> Outcome {
         if self.probes_configured && self.probes.is_none() {
             return Outcome::Defer;
         }
@@ -130,7 +131,7 @@ impl HealthGate {
         let outcome = tokio::time::timeout(
             EVAL_TIMEOUT,
             evaluate(
-                exec,
+                factory,
                 self.alerts.as_ref(),
                 self.probes.as_ref(),
                 self.boot_posture.as_deref(),
@@ -155,16 +156,13 @@ fn fold_boot_posture(overall: &'static str, boot_posture: Option<&BootPosture>) 
 }
 
 async fn evaluate(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
     alerts: Option<&Alerts>,
     probes: Option<&Probes>,
     boot_posture: Option<&BootPosture>,
 ) -> Outcome {
-    let rows = exec
-        .read(
-            "SELECT DISTINCT ON (check_name) check_name, status FROM health_history ORDER BY check_name, checked_at DESC",
-            &[],
-        )
+    let rows = factory
+        .run_public_read_contract(&crate::sql::HEALTH_HISTORY, &[])
         .await;
     let Ok(rows) = rows else {
         return Outcome::Internal;
@@ -197,8 +195,11 @@ async fn evaluate(
 }
 
 /// `Ready`: the pool answers a ping.
-pub async fn ready(exec: &ScopedExecutor) -> bool {
-    exec.read("SELECT 1", &[]).await.is_ok()
+pub async fn ready(factory: &TxFactory) -> bool {
+    factory
+        .run_public_read_contract(&crate::sql::READY_PING, &[])
+        .await
+        .is_ok()
 }
 
 #[cfg(test)]

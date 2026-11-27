@@ -524,7 +524,11 @@ mod tests {
     #[test]
     fn reducer_error_tables_maintain_invariants() {
         let codes: BTreeSet<&str> = CODE_CLASS.iter().map(|(code, _)| *code).collect();
-        assert_eq!(CODE_CLASS.len(), codes.len(), "duplicate code in CODE_CLASS");
+        assert_eq!(
+            CODE_CLASS.len(),
+            codes.len(),
+            "duplicate code in CODE_CLASS"
+        );
         let fixed_codes: BTreeSet<&str> = FIXED.iter().map(|(code, _)| *code).collect();
         assert_eq!(FIXED.len(), fixed_codes.len(), "duplicate code in FIXED");
         for code in PASS_MESSAGE {

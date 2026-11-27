@@ -1,12 +1,14 @@
-//! Frozen-Go global audit console reads and policy changes.
-use super::{finish, invalid, quote};
-use setjoin_pg::{ScopedExecutor, StatementFailure};
-pub async fn policy(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT level,reason_required_areas FROM audit_policy WHERE id=1",
-            &[],
-        )
+//! Global audit console reads and policy changes via `TxFactory` (`AdminReadTx` / `AdminWriteTx`).
+use super::{command, deadline, envelope, finish, invalid, quote, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, StatementFailure};
+
+pub async fn policy(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::AUDIT_POLICY_GET, &[])
         .await?;
     let row = rows.first().ok_or_else(invalid)?;
     let level: String = row.try_get(0).map_err(|_| invalid())?;
@@ -14,54 +16,92 @@ pub async fn policy(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
     Ok(finish(format!(
         "{{\"level\":{},\"reasonRequiredAreas\":{}}}",
         quote(&level),
-        serde_json::to_string(&areas.unwrap_or_default()).expect("areas")
+        serde_json::to_string(&areas.unwrap_or_default()).unwrap_or_else(|_| "[]".into())
     )))
 }
-pub async fn reason_required(exec: &ScopedExecutor) -> bool {
-    exec.read(
-        "SELECT reason_required_areas FROM audit_policy WHERE id=1",
-        &[],
-    )
-    .await
-    .ok()
-    .and_then(|rows| {
-        rows.first()
-            .and_then(|r| r.try_get::<_, Option<Vec<String>>>(0).ok())
-            .flatten()
-    })
-    .is_some_and(|areas| areas.iter().any(|s| s == "audit"))
+
+pub async fn reason_required(factory: &TxFactory, admin: &AdminPermissionProof) -> bool {
+    factory
+        .run_admin_read_contract(admin, &sql::AUDIT_REASON_REQUIRED, &[])
+        .await
+        .ok()
+        .and_then(|rows| {
+            rows.first()
+                .and_then(|r| r.try_get::<_, Option<Vec<String>>>(0).ok())
+                .flatten()
+        })
+        .is_some_and(|areas| areas.iter().any(|s| s == "audit"))
 }
+
 pub async fn missing_reason(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    admin: &AdminPermissionProof,
     ip: &str,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
-    use setjoin_pg::Type;
-    let auth = super::scope(actor);
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"audit.reason_missing"},&super::envelope(&auth,operation,"audit.export"),&auth,super::deadline(),
- "SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,$4::text::inet,'audit.export','core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",&[(&ip,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
+) -> CommandOutcome<(), StatementFailure> {
+    let actor_id = admin.actor().get();
+    let env = envelope(user.user(), user.generation(), operation, "audit.export");
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::AUDIT_MISSING_REASON,
+            &[&actor_id, &ip],
+            Some(command("audit.reason_missing")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
+
 pub async fn put(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     level: &str,
     areas: &Vec<String>,
     reason: &str,
     ip: &str,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<bool, StatementFailure> {
-    use setjoin_pg::Type;
-    let auth = super::scope(actor);
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"audit.policy.set"},&super::envelope(&auth,operation,&serde_json::json!([level,areas,reason,ip]).to_string()),&auth,super::deadline(),
- "SELECT rust_compliance_audit_policy_set($2,$4,$5,$6,$7) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
- &[(&level,Type::TEXT),(areas,Type::TEXT_ARRAY),(&reason,Type::TEXT),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
+) -> CommandOutcome<bool, StatementFailure> {
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &serde_json::json!([level, areas, reason, ip]).to_string(),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::AUDIT_POLICY_SET,
+            &[&level, areas, &reason, &ip],
+            Some(command("audit.policy.set")),
+            |rows, audited| {
+                if audited {
+                    rows.first()
+                        .and_then(|r| r.try_get(0).ok())
+                        .ok_or_else(invalid)
+                } else {
+                    Ok(false)
+                }
+            },
+        )
+        .await
 }
+
 pub fn policy_body(level: &str, areas: &[String]) -> String {
     finish(format!(
         "{{\"level\":{},\"reasonRequiredAreas\":{}}}",
         quote(level),
-        serde_json::to_string(areas).expect("areas")
+        serde_json::to_string(areas).unwrap_or_else(|_| "[]".into())
     ))
 }
 
@@ -74,21 +114,22 @@ fn compact(raw: &str) -> String {
         if quoted {
             out.push(c);
             if escape {
-                escape = false
+                escape = false;
             } else if c == '\\' {
-                escape = true
+                escape = true;
             } else if c == '"' {
-                quoted = false
+                quoted = false;
             }
         } else if c == '"' {
             quoted = true;
-            out.push(c)
+            out.push(c);
         } else if !c.is_ascii_whitespace() {
-            out.push(c)
+            out.push(c);
         }
     }
     out
 }
+
 pub struct Query {
     pub action: String,
     pub user: String,
@@ -97,40 +138,22 @@ pub struct Query {
     pub limit: i64,
     pub offset: i64,
 }
-pub async fn list(exec: &ScopedExecutor, q: &Query) -> Result<String, StatementFailure> {
-    use setjoin_pg::Type;
-    let mut values = Vec::new();
-    let mut predicate = "1=1".to_owned();
-    for (column, value) in [
-        ("al.action", &q.action),
-        ("al.user_id", &q.user),
-        ("al.target_type", &q.target),
-    ] {
-        if !value.is_empty() {
-            values.push(value.clone());
-            predicate += &format!(
-                " AND {column}=(($1::text[])[{}]){}",
-                values.len(),
-                if column == "al.user_id" {
-                    "::bigint"
-                } else {
-                    ""
-                }
-            );
-        }
-    }
-    if !q.text.is_empty() {
-        values.push(format!("%{}%", q.text));
-        predicate += &format!(
-            " AND (al.notes ILIKE ($1::text[])[{n}] OR al.action ILIKE ($1::text[])[{n}])",
-            n = values.len()
-        );
-    }
-    let from = "FROM admin_audit_log al LEFT JOIN users u ON u.id=al.user_id";
-    let count = exec
-        .read(
-            &format!("SELECT count(*) {from} WHERE {predicate}"),
-            &[(&values, Type::TEXT_ARRAY)],
+
+pub async fn list(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    q: &Query,
+) -> Result<String, StatementFailure> {
+    let pattern = if q.text.is_empty() {
+        String::new()
+    } else {
+        format!("%{}%", q.text)
+    };
+    let count = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::AUDIT_LIST_COUNT,
+            &[&q.action, &q.user, &q.target, &pattern],
         )
         .await?;
     let total: i64 = count
@@ -138,7 +161,14 @@ pub async fn list(exec: &ScopedExecutor, q: &Query) -> Result<String, StatementF
         .ok_or_else(invalid)?
         .try_get(0)
         .map_err(|_| invalid())?;
-    let rows=exec.read_iterated(&format!("SELECT al.id,to_char(al.occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),al.user_id,COALESCE(u.email,'system'),COALESCE(al.ip::text,''),al.action,al.target_type,al.target_id,al.before_state::text,al.after_state::text,COALESCE(al.notes,'') {from} WHERE {predicate} ORDER BY al.occurred_at DESC LIMIT $2 OFFSET $3"),&[(&values,Type::TEXT_ARRAY),(&q.limit,Type::INT8),(&q.offset,Type::INT8)]).await?;
+    let mut tx = factory.begin_admin_read(admin).await?;
+    let rows = tx
+        .query_iterated_contract(
+            &sql::AUDIT_LIST_ROWS,
+            &[&q.action, &q.user, &q.target, &pattern, &q.limit, &q.offset],
+        )
+        .await?;
+    tx.finish().await?;
     let mut items = Vec::new();
     for r in rows {
         let entry = (|| {
@@ -182,7 +212,7 @@ pub async fn list(exec: &ScopedExecutor, q: &Query) -> Result<String, StatementF
             Some(entry)
         })();
         if let Some(entry) = entry {
-            items.push(entry)
+            items.push(entry);
         }
     }
     Ok(finish(format!(
@@ -194,8 +224,16 @@ pub async fn list(exec: &ScopedExecutor, q: &Query) -> Result<String, StatementF
         }
     )))
 }
-pub async fn csv(exec: &ScopedExecutor) -> String {
-    let Ok(rows)=exec.read_iterated("SELECT al.id,to_char(al.occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),COALESCE(u.email,'system'),COALESCE(al.ip::text,''),al.action,al.target_type,al.target_id,COALESCE(al.notes,'') FROM admin_audit_log al LEFT JOIN users u ON u.id=al.user_id ORDER BY al.occurred_at DESC LIMIT 10000",&[]).await else{return String::new();};
+
+pub async fn csv(factory: &TxFactory, admin: &AdminPermissionProof) -> String {
+    let Ok(mut tx) = factory.begin_admin_read(admin).await else {
+        return String::new();
+    };
+    let Ok(rows) = tx.query_iterated_contract(&sql::AUDIT_CSV, &[]).await else {
+        let _ = tx.finish().await;
+        return String::new();
+    };
+    let _ = tx.finish().await;
     let mut out = setjoin_contracts::csv::record(
         &[
             "ID",
@@ -243,14 +281,16 @@ pub async fn csv(exec: &ScopedExecutor) -> String {
     }
     out
 }
+
 pub async fn verify(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     from: Option<i64>,
     to: Option<i64>,
 ) -> Result<String, StatementFailure> {
-    use setjoin_pg::Type;
-    let rows=exec.read_scoped(&super::scope(actor),"SELECT row_id,valid,to_char(occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),action FROM verify_audit_chain($1::bigint,$2::bigint)",&[(&from,Type::INT8),(&to,Type::INT8)]).await?;
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::AUDIT_VERIFY, &[&from, &to])
+        .await?;
     let mut chain = Vec::new();
     for r in rows {
         let (Ok(id), Ok(valid), Ok(time), Ok(action)) = (

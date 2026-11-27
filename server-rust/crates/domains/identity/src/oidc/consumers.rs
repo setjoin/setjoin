@@ -43,15 +43,15 @@ struct Live {
 /// The stored row is the authority (owner-approved security fix 2026-11-05,
 /// #523): the credential's subject must be the row's user, and the row must be
 /// unrevoked and unexpired, whatever the token's own claims say.
-async fn live(exec: &ScopedExecutor, access: &Access) -> Option<Live> {
+async fn live(exec: &AuthDb, access: &Access) -> Option<Live> {
     // #525: the owner comes from the worker-owned credential reducer (RLS).
     let owner_sql = if crate::mutants::on("oidc-direct-token-owner") {
-        "SELECT user_id FROM oidc_tokens WHERE id=$1"
+        &crate::sql::OIDC_CONSUMERS_L49
     } else {
-        "SELECT user_id FROM rust_identity_oidc_token_owner($1)"
+        &crate::sql::OIDC_CONSUMERS_L51
     };
     let found = exec
-        .read(owner_sql, &[(&access.id, Type::TEXT)])
+        .read_contract(owner_sql, &[(&access.id, Type::TEXT)])
         .await
         .ok()?;
     let user = found.first()?.try_get::<_, i64>(0).ok()?;
@@ -61,16 +61,12 @@ async fn live(exec: &ScopedExecutor, access: &Access) -> Option<Live> {
     }
     let actor = ActorId::new(user).ok()?;
     let sql = if bound {
-        "SELECT scopes,client_id FROM oidc_tokens WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL AND expires_at>now()"
+        &crate::sql::OIDC_CONSUMERS_L64
     } else {
-        "SELECT scopes,client_id FROM oidc_tokens WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL"
+        &crate::sql::OIDC_CONSUMERS_L66
     };
     let rows = exec
-        .read_user_scoped(
-            actor,
-            sql,
-            &[(&access.id, Type::TEXT), (&user, Type::INT8)],
-        )
+        .read_user_scoped_contract(actor, sql, &[(&access.id, Type::TEXT), (&user, Type::INT8)])
         .await
         .ok()?;
     let row = rows.first()?;
@@ -79,10 +75,10 @@ async fn live(exec: &ScopedExecutor, access: &Access) -> Option<Live> {
         client: row.try_get(1).ok()?,
     })
 }
-async fn scopes(exec: &ScopedExecutor, access: &Access) -> Option<Vec<String>> {
+async fn scopes(exec: &AuthDb, access: &Access) -> Option<Vec<String>> {
     live(exec, access).await.map(|l| l.scopes)
 }
-pub async fn userinfo(exec: &ScopedExecutor, access: &Access) -> Option<String> {
+pub async fn userinfo(exec: &AuthDb, access: &Access) -> Option<String> {
     let scopes = scopes(exec, access).await?;
     let mut f = vec![("sub", json!(access.subject))];
     let email = scopes.iter().any(|s| s == "email");
@@ -91,9 +87,9 @@ pub async fn userinfo(exec: &ScopedExecutor, access: &Access) -> Option<String> 
         let user = access.subject.parse::<i64>().ok().filter(|u| *u > 0)?;
         let actor = ActorId::new(user).ok()?;
         let rows = exec
-            .read_user_scoped(
+            .read_user_scoped_contract(
                 actor,
-                "SELECT email,COALESCE(NULLIF(display_name,''),email) FROM users WHERE id=$1",
+                &crate::sql::OIDC_CONSUMERS_L96,
                 &[(&user, Type::INT8)],
             )
             .await
@@ -109,7 +105,7 @@ pub async fn userinfo(exec: &ScopedExecutor, access: &Access) -> Option<String> 
     }
     Some(crate::issuance::object(&f) + "\n")
 }
-pub async fn introspect(exec: &ScopedExecutor, access: Option<&Access>, caller: &str) -> String {
+pub async fn introspect(exec: &AuthDb, access: Option<&Access>, caller: &str) -> String {
     let Some(a) = access else {
         return "{\"active\":false}\n".into();
     };
@@ -125,15 +121,18 @@ pub async fn introspect(exec: &ScopedExecutor, access: Option<&Access>, caller: 
     crate::issuance::object(&[
         ("active", json!(true)),
         ("scope", json!(live.scopes.join(" "))),
-        ("client_id", json!(if any { caller } else { live.client.as_str() })),
+        (
+            "client_id",
+            json!(if any { caller } else { live.client.as_str() }),
+        ),
         ("sub", json!(a.subject)),
     ]) + "\n"
 }
-pub async fn authenticate(exec: &ScopedExecutor, id: &str, password: &str) -> bool {
+pub async fn authenticate(exec: &AuthDb, id: &str, password: &str) -> bool {
     secret(exec, id, password).await
 }
 pub async fn revoke(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     key: &SigningKey,
     cipher: &CodeCipher,
     issuer: &str,
@@ -174,27 +173,51 @@ pub async fn revoke(
         .unwrap_or_else(|| token.to_owned());
     let hash = format!("{:x}", Sha256::digest(token_id.as_bytes()));
     let target_sql = if crate::mutants::on("oidc-direct-revoke-target") {
-        "SELECT user_id FROM oidc_tokens WHERE (refresh_token_hash=$1 OR id=$2) AND client_id=$3 AND revoked_at IS NULL"
+        &crate::sql::OIDC_CONSUMERS_L177
     } else {
-        "SELECT user_id FROM rust_identity_oidc_revoke_target($1,$2,$3)"
+        &crate::sql::OIDC_CONSUMERS_L179
     };
-    let rows=exec.read(target_sql,&[(&hash,Type::TEXT),(&token_id,Type::TEXT),(&id,Type::TEXT)]).await.map_err(|_|OAuthError::new("server_error","token revocation failed"))?;
+    let rows = exec
+        .read_contract(
+            target_sql,
+            &[
+                (&hash, Type::TEXT),
+                (&token_id, Type::TEXT),
+                (&id, Type::TEXT),
+            ],
+        )
+        .await
+        .map_err(|_| OAuthError::new("server_error", "token revocation failed"))?;
     let result = if let Some(row) = rows.first() {
         let user: i64 = row
             .try_get(0)
             .map_err(|_| OAuthError::new("server_error", "token revocation failed"))?;
-        write(exec,user,"oidc-revoke","UPDATE oidc_tokens SET revoked_at=now() WHERE (refresh_token_hash=$1 OR id=$2) AND client_id=$3 AND user_id=$4 AND revoked_at IS NULL",&[(&hash,Type::TEXT),(&token_id,Type::TEXT),(&id,Type::TEXT),(&user,Type::INT8)],|_|Ok(()),"token revocation failed").await
+        write(
+            exec,
+            user,
+            "oidc-revoke",
+            &crate::sql::OIDC_CONSUMERS_L186,
+            &[
+                (&hash, Type::TEXT),
+                (&token_id, Type::TEXT),
+                (&id, Type::TEXT),
+                (&user, Type::INT8),
+            ],
+            |_| Ok(()),
+            "token revocation failed",
+        )
+        .await
     } else {
         let operation = setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes());
         match exec
-            .run_protocol_command(
+            .run_protocol_command_contract(
                 &format!("oidc-client:{id}"),
                 operation,
                 setjoin_pg::ReceiptCommand {
                     family: "F21",
                     command: "oidc-revoke-empty",
                 },
-                "UPDATE oidc_tokens SET revoked_at=now() WHERE false",
+                &crate::sql::OIDC_CONSUMERS_L197,
                 &[],
                 |_| Ok(()),
             )
@@ -215,7 +238,7 @@ pub async fn revoke(
     })
 }
 pub async fn end_session(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     key: &SigningKey,
     issuer: &str,
     fields: &BTreeMap<String, String>,
@@ -255,7 +278,20 @@ pub async fn end_session(
     let Some(user) = user else {
         return Err(OAuthError::new("server_error", "error terminating session"));
     };
-    write(exec,user,"oidc-end-session","UPDATE oidc_tokens SET revoked_at=now() WHERE user_id=$1 AND client_id=$2 AND revoked_at IS NULL",&[(&user,Type::INT8),(&id,Type::TEXT)],|_|Ok(()),"error terminating session").await.map_err(|e|OAuthError{description:"error terminating session".into(),..e})?;
+    write(
+        exec,
+        user,
+        "oidc-end-session",
+        &crate::sql::OIDC_CONSUMERS_L258,
+        &[(&user, Type::INT8), (&id, Type::TEXT)],
+        |_| Ok(()),
+        "error terminating session",
+    )
+    .await
+    .map_err(|e| OAuthError {
+        description: "error terminating session".into(),
+        ..e
+    })?;
     Ok(if get("state").is_empty() {
         "/".into()
     } else {

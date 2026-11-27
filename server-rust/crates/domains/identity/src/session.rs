@@ -1,7 +1,7 @@
 //! Established-session proof and profile. Identity comes only from a verified JWT.
 use serde_json::{json, Map, Value};
 use setjoin_authz::{legacy_jwt::LegacyKeys, signing_keys::KeySet};
-use setjoin_pg::{ScopedExecutor, Type};
+use setjoin_pg::{AuthDb, Type};
 
 pub struct Session {
     claims: Map<String, Value>,
@@ -76,7 +76,7 @@ impl Session {
     /// never a false claim that an operation was absent.
     pub async fn lookup_refresh(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         operation: setjoin_contracts::ids::OperationId,
     ) -> Result<bool, setjoin_pg::StatementFailure> {
         let invalid = || setjoin_pg::StatementFailure {
@@ -89,7 +89,23 @@ impl Session {
         }
         let user = setjoin_contracts::ids::ActorId::new(self.user()).map_err(|_| invalid())?;
         let op = uuid::Uuid::from_bytes(operation.0).to_string();
-        let result=exec.run_user_command(user,operation,"SELECT EXISTS(SELECT 1 FROM rust_operation_receipts WHERE operation_id=$3::text::uuid AND family='F21' AND command='refresh') WHERE EXISTS(SELECT 1 FROM users u JOIN oauth_tokens o ON o.user_id=u.id WHERE u.id=$1 AND u.enabled AND o.user_id=$1 AND o.token_hash=$2 AND o.revoked_at IS NULL AND o.expires_at>now() AND identity_transition_admission_allowed(u.id))",&[(&self.user(),Type::INT8),(&self.hash,Type::BYTEA),(&op,Type::TEXT)],|r|r.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await;
+        let result = exec
+            .run_user_command_contract(
+                user,
+                operation,
+                &crate::sql::SESSION_L92,
+                &[
+                    (&self.user(), Type::INT8),
+                    (&self.hash, Type::BYTEA),
+                    (&op, Type::TEXT),
+                ],
+                |r| {
+                    r.first()
+                        .and_then(|r| r.try_get(0).ok())
+                        .ok_or_else(invalid)
+                },
+            )
+            .await;
         match result {
             setjoin_pg::CommandOutcome::Committed(v) => Ok(v),
             _ => Err(invalid()),
@@ -98,7 +114,7 @@ impl Session {
     /// #454: a feature-flag or risk query error (also with the flag off), an invalid actor
     /// and an unreadable or unparsable stored value fail closed; only a missing row or level
     /// none/empty is "no risk claim". `user_risk.score` is smallint, read as int4.
-    pub async fn risk(&self, exec: &ScopedExecutor) -> Result<Option<Value>, setjoin_pg::StatementFailure> {
+    pub async fn risk(&self, exec: &AuthDb) -> Result<Option<Value>, setjoin_pg::StatementFailure> {
         let bad = || setjoin_pg::StatementFailure {
             sqlstate: None,
             hint: None,
@@ -109,9 +125,9 @@ impl Session {
         }
         let actor = setjoin_contracts::ids::ActorId::new(self.user()).map_err(|_| bad())?;
         let rows = exec
-            .read_user_scoped(
+            .read_user_scoped_contract(
                 actor,
-                "SELECT score::int4,level,signals::text FROM user_risk WHERE user_id=$1",
+                &crate::sql::LOGIN_L344,
                 &[(&self.user(), Type::INT8)],
             )
             .await?;
@@ -129,9 +145,10 @@ impl Session {
             json!({"user_score":score,"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
         ))
     }
+    #[allow(clippy::too_many_arguments)]
     pub async fn refresh(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         hash: &[u8],
         expected: Option<&Value>,
         new_hash: Option<&[u8]>,
@@ -146,44 +163,95 @@ impl Session {
         let claim_family = self.text("fam");
         let write = expected.is_some();
         let user = self.user();
-        exec.run_user_command_with_tail(actor,operation,"SELECT rust_identity_refresh($1,$2,$3,$4::text::jsonb,$5,$6,$7::text::uuid)::text",&[(&self.user(),Type::INT8),(&hash,Type::BYTEA),(&claim_family,Type::TEXT),(&expected,Type::TEXT),(&new_hash,Type::BYTEA),(&expiry,Type::INT8),(&family,Type::TEXT)],|rows|{let raw:String=rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(||setjoin_pg::StatementFailure{sqlstate:None,hint:None,message:"refresh result row".into()})?;serde_json::from_str(&raw).map_err(|_|setjoin_pg::StatementFailure{sqlstate:None,hint:None,message:"refresh result".into()})},|value:&Value|{
-            let record=write && value["status"]=="mint";let email=value["email"].as_str().unwrap_or("").to_owned();
-            async move {if record {let _=exec.protocol_statement("INSERT INTO auth_event_log(user_id,event,provider,email) VALUES($1,'login','jwt',NULLIF($2,''))",&[(&user,Type::INT8),(&email,Type::TEXT)]).await;}}
-        }).await
+        exec.run_user_command_contract_with_tail(
+            actor,
+            operation,
+            &crate::sql::SESSION_L149,
+            &[
+                (&self.user(), Type::INT8),
+                (&hash, Type::BYTEA),
+                (&claim_family, Type::TEXT),
+                (&expected, Type::TEXT),
+                (&new_hash, Type::BYTEA),
+                (&expiry, Type::INT8),
+                (&family, Type::TEXT),
+            ],
+            |rows| {
+                let raw: String =
+                    rows.first()
+                        .and_then(|r| r.try_get(0).ok())
+                        .ok_or_else(|| setjoin_pg::StatementFailure {
+                            sqlstate: None,
+                            hint: None,
+                            message: "refresh result row".into(),
+                        })?;
+                serde_json::from_str(&raw).map_err(|_| setjoin_pg::StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "refresh result".into(),
+                })
+            },
+            |value: &Value| {
+                let record = write && value["status"] == "mint";
+                let email = value["email"].as_str().unwrap_or("").to_owned();
+                async move {
+                    if record {
+                        let _ = exec
+                            .protocol_statement_contract(
+                                &crate::sql::SESSION_L151,
+                                &[(&user, Type::INT8), (&email, Type::TEXT)],
+                            )
+                            .await;
+                    }
+                }
+            },
+        )
+        .await
     }
     pub async fn revoke(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         operation: setjoin_contracts::ids::OperationId,
     ) -> setjoin_pg::CommandOutcome<i64, setjoin_pg::StatementFailure> {
         let Ok(actor) = setjoin_contracts::ids::ActorId::new(self.user()) else {
             return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
         };
-        exec.run_user_command(
+        exec.run_user_command_contract(
             actor,
             operation,
-            "SELECT revoke_user_sessions($1,'all','token_revoke_all',NULL,NULL,NULL)",
+            &crate::sql::ISSUANCE_L388,
             &[(&self.user(), Type::INT8)],
             |rows| {
-                rows.first()
-                    .and_then(|r| r.try_get(0).ok())
-                    .ok_or_else(|| setjoin_pg::StatementFailure {
+                rows.first().and_then(|r| r.try_get(0).ok()).ok_or_else(|| {
+                    setjoin_pg::StatementFailure {
                         sqlstate: None,
                         hint: None,
                         message: "revocation result".into(),
-                    })
+                    }
+                })
             },
         )
         .await
     }
-    pub async fn me(&self, exec: &ScopedExecutor) -> Result<Value, &'static str> {
+    pub async fn me(&self, exec: &AuthDb) -> Result<Value, &'static str> {
         let user = self.user();
-        let rows=exec.read("SELECT EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())),EXISTS(SELECT 1 FROM mailboxes WHERE user_id=u.id AND is_primary=true LIMIT 1),COALESCE(u.totp_enabled,false),(to_jsonb(u.totp_enabled_at AT TIME ZONE 'UTC')#>>'{}'),COALESCE(u.display_name,''),u.email FROM users u WHERE u.id=$1",&[(&user,Type::INT8)]).await.map_err(|_|"profile lookup failed")?;
+        let rows = exec
+            .read_contract(&crate::sql::SESSION_L181, &[(&user, Type::INT8)])
+            .await
+            .map_err(|_| "profile lookup failed")?;
         let r = rows.first().ok_or("profile lookup failed")?;
-        let delegates=exec.read("SELECT mb.id,mb.email,md.permission FROM mailbox_delegates md JOIN mailboxes mb ON mb.id=md.mailbox_id WHERE md.user_id=$1 AND md.permission IN ('send_as','full_access') AND mb.enabled=true ORDER BY lower(mb.email),mb.id",&[(&user,Type::INT8)]).await.unwrap_or_default().iter().map(|r|-> Result<Value,&'static str>{Ok(json!({"id":r.try_get::<_,i64>(0).map_err(|_|"profile lookup failed")?,"email":r.try_get::<_,String>(1).map_err(|_|"profile lookup failed")?,"permission":r.try_get::<_,String>(2).map_err(|_|"profile lookup failed")?}))}).collect::<Result<Vec<_>,&'static str>>()?;
-        let aliases=exec.read("SELECT a.email FROM aliases a JOIN mailboxes m ON m.id=a.mailbox_id JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND m.is_primary=true AND m.enabled=true AND lower(a.email)<>lower(u.email) ORDER BY lower(a.email),a.id",&[(&user,Type::INT8)]).await.unwrap_or_default().iter().map(|r|-> Result<Value,&'static str>{Ok(json!({"email":r.try_get::<_,String>(0).map_err(|_|"profile lookup failed")?}))}).collect::<Result<Vec<_>,&'static str>>()?;
+        let delegates=exec.read_contract(&crate::sql::SESSION_L183,&[(&user,Type::INT8)]).await.unwrap_or_default().iter().map(|r|-> Result<Value,&'static str>{Ok(json!({"id":r.try_get::<_,i64>(0).map_err(|_|"profile lookup failed")?,"email":r.try_get::<_,String>(1).map_err(|_|"profile lookup failed")?,"permission":r.try_get::<_,String>(2).map_err(|_|"profile lookup failed")?}))}).collect::<Result<Vec<_>,&'static str>>()?;
+        let aliases = exec
+            .read_contract(&crate::sql::SESSION_L184, &[(&user, Type::INT8)])
+            .await
+            .unwrap_or_default()
+            .iter()
+            .map(|r| -> Result<Value, &'static str> {
+                Ok(json!({"email":r.try_get::<_,String>(0).map_err(|_|"profile lookup failed")?}))
+            })
+            .collect::<Result<Vec<_>, &'static str>>()?;
         let guest = exec
-            .read("SELECT is_guest_account($1)", &[(&user, Type::INT8)])
+            .read_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&user, Type::INT8)])
             .await
             .map_err(|_| "account type lookup failed")?
             .first()
@@ -202,21 +270,5 @@ impl Session {
             out["actor_id"] = actor.clone();
         }
         Ok(out)
-    }
-}
-
-#[cfg(test)]
-mod fail_closed_454 {
-    //! #454: a failed feature-flag or risk read is an error, never "no risk claim".
-    #[test]
-    fn risk_lookup_error_is_an_error() {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        rt.block_on(async {
-            let exec = setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1).unwrap();
-            let mut claims = serde_json::Map::new();
-            claims.insert("uid".into(), serde_json::json!(7));
-            let session = super::Session { claims, hash: Vec::new() };
-            assert!(session.risk(&exec).await.is_err());
-        });
     }
 }

@@ -176,12 +176,15 @@ assert_mutant_fails "5a. FORCE RLS write violation (setjoin_app)" "42501" "RLS_V
   "$BIN" --mutant-json "$TMP/m5a_rls_write.json"
 
 # Mutant 5b: Cross-tenant read leak failing FORCE RLS deny probe (RLS_VIOLATION)
+# Note: V288 enforced FORCE RLS on `users`, so this mutant queries an RLS-exempt
+# org table (`domains`) to simulate an unguarded read leaking a row under the
+# foreign-tenant deny probe.
 cat >"$TMP/m5b_rls_read_leak.json" <<'JSON'
 [
   {
     "id": "mutant.rls_read_leak",
     "domain": "selftest",
-    "sql": "SELECT id FROM users WHERE id = $1",
+    "sql": "SELECT id FROM domains WHERE id > 0 AND $1 > 0 LIMIT 1",
     "params": ["int8"],
     "columns": [{"name": "id", "ty": "int8"}],
     "scope": "UserScoped",
@@ -300,4 +303,140 @@ printf '\n[[package]]\nname = "sqlx-macros"\nversion = "0.8.0"\n' \
 assert_mutant_fails "8b. sqlx-macros Cargo.lock injection" "PROC_MACRO_FORBIDDEN" "" \
   python3 "$ROOT/scripts/check-rust-sql-contracts.py" --root "$TMP/m8b"
 
-echo "✓ check-rust-sql-contracts-selftest: PASS (all 8 negative mutant classes rejected deterministically)"
+# Mutant 9a: Forged ReducerWritesCoreAudit outside crates/domains/*/src/sql.rs
+make_static_fixture "$TMP/m9a"
+cat >"$TMP/m9a/server-rust/crates/domains/sample/src/lib.rs" <<'RS'
+use setjoin_sql_catalog::SqlAuditPosture;
+pub const FORGED: SqlAuditPosture = SqlAuditPosture::ReducerWritesCoreAudit;
+RS
+assert_mutant_fails "9a. forged ReducerWritesCoreAudit outside sql.rs" "AUDIT_POSTURE_FORBIDDEN" "" \
+  python3 "$ROOT/scripts/check-rust-sql-contracts.py" --root "$TMP/m9a"
+
+# Mutant 9b: CTE-wrapped inline DML + audited reducer in src/sql.rs
+make_static_fixture "$TMP/m9b"
+mkdir -p "$TMP/m9b/mailserver/sql/reducers"
+cat >"$TMP/m9b/mailserver/sql/reducers/rust_admin_role_delete.sql" <<'SQL'
+CREATE OR REPLACE FUNCTION rust_admin_role_delete(p_actor bigint) RETURNS void AS $$
+BEGIN
+  PERFORM audit_write(p_actor, 'role_delete', 'role_group', 1, NULL, NULL, NULL, '', 'core');
+END;
+$$ LANGUAGE plpgsql;
+SQL
+cat >"$TMP/m9b/server-rust/crates/domains/sample/src/sql.rs" <<'RS'
+use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
+pub const CTE_SMUGGLE: SqlContract = SqlContract {
+    id: "sample.cte_smuggle",
+    domain: "sample",
+    sql: "WITH x AS (DELETE FROM users WHERE id = $2 RETURNING 1) SELECT rust_admin_role_delete($1)",
+    params: &[Type::INT8, Type::INT8],
+    columns: &[ColumnSpec::unnamed(Type::VOID)],
+    scope: SqlScope::AdminWrite,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::ReducerWritesCoreAudit,
+};
+RS
+assert_mutant_fails "9b. CTE-wrapped DML + ReducerWritesCoreAudit" "AUDIT_POSTURE_SQL_INVALID" "" \
+  python3 "$ROOT/scripts/check-rust-sql-contracts.py" --root "$TMP/m9b"
+
+# Mutant 9c: 'routine'-only reducer marked ReducerWritesCoreAudit
+make_static_fixture "$TMP/m9c"
+mkdir -p "$TMP/m9c/mailserver/sql/reducers"
+cat >"$TMP/m9c/mailserver/sql/reducers/rust_admin_routine_only.sql" <<'SQL'
+CREATE OR REPLACE FUNCTION rust_admin_routine_only(p_actor bigint) RETURNS void AS $$
+BEGIN
+  PERFORM audit_write(p_actor, 'routine_only', 'role_group', 1, NULL, NULL, NULL, '', 'routine');
+END;
+$$ LANGUAGE plpgsql;
+SQL
+cat >"$TMP/m9c/server-rust/crates/domains/sample/src/sql.rs" <<'RS'
+use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
+pub const ROUTINE_ONLY: SqlContract = SqlContract {
+    id: "sample.routine_only",
+    domain: "sample",
+    sql: "SELECT rust_admin_routine_only($1)",
+    params: &[Type::INT8],
+    columns: &[ColumnSpec::unnamed(Type::VOID)],
+    scope: SqlScope::AdminWrite,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::ReducerWritesCoreAudit,
+};
+RS
+assert_mutant_fails "9c. routine-only reducer marked ReducerWritesCoreAudit" "AUDIT_POSTURE_CORE_AUDIT_MISSING" "" \
+  python3 "$ROOT/scripts/check-rust-sql-contracts.py" --root "$TMP/m9c"
+
+# Mutant 9d: EXCEPTION WHEN OTHERS wrapping core audit_write
+make_static_fixture "$TMP/m9d"
+mkdir -p "$TMP/m9d/mailserver/sql/reducers"
+cat >"$TMP/m9d/mailserver/sql/reducers/rust_admin_swallow.sql" <<'SQL'
+CREATE OR REPLACE FUNCTION rust_admin_swallow(p_actor bigint) RETURNS void AS $$
+BEGIN
+  BEGIN
+    PERFORM audit_write(p_actor, 'swallowed', 'role_group', 1, NULL, NULL, NULL, '', 'core');
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
+END;
+$$ LANGUAGE plpgsql;
+SQL
+cat >"$TMP/m9d/server-rust/crates/domains/sample/src/sql.rs" <<'RS'
+use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
+pub const SWALLOWED_AUDIT: SqlContract = SqlContract {
+    id: "sample.swallowed_audit",
+    domain: "sample",
+    sql: "SELECT rust_admin_swallow($1)",
+    params: &[Type::INT8],
+    columns: &[ColumnSpec::unnamed(Type::VOID)],
+    scope: SqlScope::AdminWrite,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::ReducerWritesCoreAudit,
+};
+RS
+assert_mutant_fails "9d. EXCEPTION WHEN OTHERS wrapping audit_write" "AUDIT_POSTURE_SWALLOWED_AUDIT" "" \
+  python3 "$ROOT/scripts/check-rust-sql-contracts.py" --root "$TMP/m9d"
+
+# Mutant 9e: Non-$1 first argument (R2 p_actor bypass via $2 or literal)
+make_static_fixture "$TMP/m9e1"
+mkdir -p "$TMP/m9e1/mailserver/sql/reducers"
+cat >"$TMP/m9e1/mailserver/sql/reducers/rust_admin_role_delete.sql" <<'SQL'
+CREATE OR REPLACE FUNCTION rust_admin_role_delete(p_actor bigint, p_id bigint) RETURNS void AS $$
+BEGIN
+  PERFORM audit_write(p_actor, 'role_delete', 'role_group', p_id, NULL, NULL, NULL, '', 'core');
+END;
+$$ LANGUAGE plpgsql;
+SQL
+cat >"$TMP/m9e1/server-rust/crates/domains/sample/src/sql.rs" <<'RS'
+use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
+pub const SWAPPED_ACTOR: SqlContract = SqlContract {
+    id: "sample.swapped_actor",
+    domain: "sample",
+    sql: "SELECT rust_admin_role_delete($2, $1)",
+    params: &[Type::INT8, Type::INT8],
+    columns: &[ColumnSpec::unnamed(Type::VOID)],
+    scope: SqlScope::AdminWrite,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::ReducerWritesCoreAudit,
+};
+RS
+assert_mutant_fails '9e1. swapped $2 actor arg on ReducerWritesCoreAudit' "AUDIT_POSTURE_SQL_INVALID" "" \
+  python3 "$ROOT/scripts/check-rust-sql-contracts.py" --root "$TMP/m9e1"
+
+make_static_fixture "$TMP/m9e2"
+mkdir -p "$TMP/m9e2/mailserver/sql/reducers"
+cp "$TMP/m9e1/mailserver/sql/reducers/rust_admin_role_delete.sql" \
+  "$TMP/m9e2/mailserver/sql/reducers/rust_admin_role_delete.sql"
+cat >"$TMP/m9e2/server-rust/crates/domains/sample/src/sql.rs" <<'RS'
+use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
+pub const LITERAL_ACTOR: SqlContract = SqlContract {
+    id: "sample.literal_actor",
+    domain: "sample",
+    sql: "SELECT rust_admin_role_delete(1, $1)",
+    params: &[Type::INT8],
+    columns: &[ColumnSpec::unnamed(Type::VOID)],
+    scope: SqlScope::AdminWrite,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::ReducerWritesCoreAudit,
+};
+RS
+assert_mutant_fails "9e2. literal actor arg on ReducerWritesCoreAudit" "AUDIT_POSTURE_SQL_INVALID" "" \
+  python3 "$ROOT/scripts/check-rust-sql-contracts.py" --root "$TMP/m9e2"
+
+echo "✓ check-rust-sql-contracts-selftest: PASS (all 9 negative mutant classes rejected deterministically)"

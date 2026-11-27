@@ -634,7 +634,9 @@ async fn authorize_with_feature(
             ..
         } if allow_without_mailbox => {
             let iat = session.issued_at as f64;
-            let rows = tokio::time::timeout(precheck_timeout(), exec.read(
+            let actor = setjoin_contracts::ids::ActorId::new(session.user_id).ok()?;
+            let rows = tokio::time::timeout(precheck_timeout(), exec.read_user_scoped(
+                actor,
                 "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1) \
                  AND NOT EXISTS(SELECT 1 FROM mailboxes WHERE user_id=$1) \
                  AND NOT EXISTS(SELECT 1 FROM guest_account_status($1)) \

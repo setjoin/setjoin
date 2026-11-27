@@ -1,33 +1,24 @@
 //! Platform slice `updates-deploy`, group `updates`: the upgrade history list and the
 //! client update management routes (`/admin/updates/*`).
-//!
-//! Go's `UpgradeHandler.GetUpgradeHistory` and `UpdatesHandler`. Both read org-wide
-//! tables (`upgrade_history`, `devices`) for any admin holding a system permission. The device
-//! reads are confined to the caller's reach when it is domain scoped (owner-approved security
-//! fix 2026-11-05, #456; frozen Go showed every tenant's devices). Go ignores `rows.Scan` errors, and pgx stops a result set at the first scan
-//! error, so a NULL column ends the list with a partially filled entry; `devices` can never
-//! list more than one row because Go scans `last_seen` into a string, which pgx refuses for
-//! every value. The reads mirror that. The push is Go's whole effect: a `pg_notify` (its
-//! `notification_queue` insert targets a table the schema does not have and fails).
-use super::{command, deadline, done, envelope, invalid, nano, s, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use super::{command, deadline, done, envelope, invalid, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 
-/// `GET /admin/system/upgrade/status`: the 50 newest attempts; any query fault is Go's
-/// `200 []`.
-pub async fn history(exec: &ScopedExecutor) -> String {
-    let sql = format!(
-        "SELECT id, from_version, to_version, mode, ddl_classification, status, {}, {}, downtime_ms, COALESCE(error_message, '') \
-         FROM upgrade_history ORDER BY started_at DESC LIMIT 50",
-        nano("started_at"),
-        nano("completed_at")
-    );
-    let Ok(rows) = exec.read(&sql, &[]).await else {
+/// `GET /admin/system/upgrade/status`: the 50 newest attempts; any query fault is Go's `200 []`.
+pub async fn history(factory: &TxFactory, admin: &AdminPermissionProof) -> String {
+    let Ok(rows) = factory
+        .run_admin_read_contract(admin, &sql::UPDATES_HISTORY, &[])
+        .await
+    else {
         return done("[]".into());
     };
     let mut out = Vec::new();
     for r in &rows {
-        let text = |i: usize| r.try_get::<_, String>(i).map(|t| s(&t)).unwrap_or_else(|_| s(""));
+        let text = |i: usize| {
+            r.try_get::<_, String>(i)
+                .map(|t| s(&t))
+                .unwrap_or_else(|_| s(""))
+        };
         let completed = r
             .try_get::<_, Option<String>>(7)
             .ok()
@@ -44,7 +35,6 @@ pub async fn history(exec: &ScopedExecutor) -> String {
             text(6),
             completed,
         );
-        // A NULL downtime fails the scan: the entry keeps the zero value and ends the list.
         match r.try_get::<_, Option<i32>>(8) {
             Ok(Some(ms)) => {
                 entry += &format!(",\"downtime_ms\":{ms}");
@@ -81,29 +71,25 @@ fn effective(reach: i64) -> i64 {
 }
 
 /// `GET /admin/updates/summary`: every sub-query fails soft to its zero value.
-///
-/// Owner-approved security fix 2026-11-05 (#456): `reach` is the caller's user id when the caller is
-/// domain scoped and 0 for an organization-wide admin; a scoped caller counts only the devices of users inside
-/// its reach (frozen Go showed every tenant's devices to any admin holding a system permission).
-pub async fn summary(exec: &ScopedExecutor, reach: i64) -> String {
+pub async fn summary(factory: &TxFactory, admin: &AdminPermissionProof, reach: i64) -> String {
     let reach = effective(reach);
-    let perms: Vec<String> = crate::SYSTEM_CONSOLE.iter().map(|p| p.to_string()).collect();
-    let total = match exec
-        .read(
-            "SELECT COUNT(*)::bigint FROM devices d WHERE ($1::bigint = 0 OR admin_can_reach_perm($1, d.user_id, $2::text[]))",
-            &[(&reach, Type::INT8), (&perms, Type::TEXT_ARRAY)],
-        )
+    let perms: Vec<String> = crate::SYSTEM_CONSOLE
+        .iter()
+        .map(|p| (*p).to_owned())
+        .collect();
+    let total = match factory
+        .run_admin_read_contract(admin, &sql::UPDATES_DEVICES_TOTAL, &[&reach, &perms])
         .await
     {
-        Ok(rows) => rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()).unwrap_or(0),
+        Ok(rows) => rows
+            .first()
+            .and_then(|r| r.try_get::<_, i64>(0).ok())
+            .unwrap_or(0),
         Err(_) => 0,
     };
     let mut versions = Vec::new();
-    if let Ok(rows) = exec
-        .read(
-            "SELECT COALESCE(app_version, 'unknown'), COUNT(*)::bigint FROM devices d WHERE ($1::bigint = 0 OR admin_can_reach_perm($1, d.user_id, $2::text[])) GROUP BY app_version ORDER BY COUNT(*) DESC LIMIT 10",
-            &[(&reach, Type::INT8), (&perms, Type::TEXT_ARRAY)],
-        )
+    if let Ok(rows) = factory
+        .run_admin_read_contract(admin, &sql::UPDATES_DEVICES_BY_VERSION, &[&reach, &perms])
         .await
     {
         for r in &rows {
@@ -115,15 +101,11 @@ pub async fn summary(exec: &ScopedExecutor, reach: i64) -> String {
         }
     }
     let mut platforms = Vec::new();
-    if let Ok(rows) = exec
-        .read(
-            "SELECT platform, COUNT(*)::bigint FROM devices d WHERE ($1::bigint = 0 OR admin_can_reach_perm($1, d.user_id, $2::text[])) GROUP BY platform ORDER BY COUNT(*) DESC",
-            &[(&reach, Type::INT8), (&perms, Type::TEXT_ARRAY)],
-        )
+    if let Ok(rows) = factory
+        .run_admin_read_contract(admin, &sql::UPDATES_DEVICES_BY_PLATFORM, &[&reach, &perms])
         .await
     {
         for r in &rows {
-            // A NULL platform fails the scan: a zero entry, then pgx ends the loop.
             match r.try_get::<_, Option<String>>(0) {
                 Ok(Some(platform)) => platforms.push(format!(
                     "{{\"platform\":{},\"count\":{}}}",
@@ -144,23 +126,24 @@ pub async fn summary(exec: &ScopedExecutor, reach: i64) -> String {
     ))
 }
 
-/// `GET /admin/updates/devices`. Go scans the timestamp column into a string, which pgx
-/// rejects for every value, so the first row is kept with the columns scanned before the
-/// failure (a NULL earlier ends the scan sooner) and the list stops there.
+/// `GET /admin/updates/devices`.
 pub async fn devices(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     reach: i64,
     limit: i64,
     offset: i64,
 ) -> Result<String, StatementFailure> {
     let reach = effective(reach);
-    let perms: Vec<String> = crate::SYSTEM_CONSOLE.iter().map(|p| p.to_string()).collect();
-    let rows = exec
-        .read(
-            "SELECT d.id, d.device_name, d.platform, d.os_version, d.app_version FROM devices d \
-             WHERE ($3::bigint = 0 OR admin_can_reach_perm($3, d.user_id, $4::text[])) \
-             ORDER BY d.last_seen DESC NULLS LAST LIMIT $1 OFFSET $2",
-            &[(&limit, Type::INT8), (&offset, Type::INT8), (&reach, Type::INT8), (&perms, Type::TEXT_ARRAY)],
+    let perms: Vec<String> = crate::SYSTEM_CONSOLE
+        .iter()
+        .map(|p| (*p).to_owned())
+        .collect();
+    let rows = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::UPDATES_DEVICES_LIST,
+            &[&limit, &offset, &reach, &perms],
         )
         .await?;
     let mut entries = Vec::new();
@@ -187,31 +170,31 @@ pub async fn devices(
     )))
 }
 
-/// `POST /admin/updates/push`: the one effect that lands is `pg_notify('update_available',
-/// <count>)`, a single receipted statement.
+/// `POST /admin/updates/push`.
 pub async fn push(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     count: usize,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
     let payload = count.to_string();
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("update_push"),
-        &envelope(&auth, operation, &payload),
-        &auth,
-        deadline(),
-        "SELECT pg_notify('update_available', $4::text) WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
-        &[(&payload, Type::TEXT)],
-        |rows| {
-            if rows.len() == 1 {
-                Ok(())
-            } else {
-                Err(invalid())
-            }
-        },
-    )
-    .await
+    let env = envelope(user.user(), user.generation(), operation, &payload);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::UPDATES_PUSH_NOTIFY,
+            &[&payload],
+            Some(command("update_push")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }

@@ -49,7 +49,9 @@ async fn lost(kind: &str, cut: wire::CommitCut) -> Result<(), Err> {
   let observed=tokio::time::timeout(std::time::Duration::from_secs(10),&mut proxy.0).await???;if observed!=cut{return Err("wrong COMMIT cut".into());}
   if response.2.contains("access_token")||response.2.contains("refresh_token")||response.1["location"].as_str().is_some_and(|s|s.contains("code=")){return Err("OIDC credential escaped an unknown COMMIT".into());}
   let id=response.1["x-operation-id"].as_str().ok_or_else(||format!("missing unknown operation: {} {}",response.0,response.2))?;let operation=setjoin_contracts::ids::OperationId(*uuid::Uuid::parse_str(id)?.as_bytes());
-  let clean=setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),2).map_err(|e|e.0)?;let committed=cut==wire::CommitCut::AfterCommit;
+  let clean_app=setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),2).map_err(|e|e.0)?;
+  let clean_worker=setjoin_pg::ScopedExecutor::from_dsn(&db.dsn,2).map_err(|e|e.0)?;
+  let clean=setjoin_pg::AuthDb::from_executors(clean_app,clean_worker);let committed=cut==wire::CommitCut::AfterCommit;
   if let Some(kind)=operation_kind{
    let legacy=setjoin_authz::legacy_jwt::LegacyKeys::new(fixture["secret"].as_str().unwrap().as_bytes(),&["authserver-hmac-1"],None)?;
    let proof=setjoin_identity::session::Session::verify(session.strip_prefix("Bearer ").unwrap(),None,&legacy,"mailserver").ok_or("fresh session verification")?;
@@ -100,7 +102,7 @@ cut!(revoke_after_commit, "revoke", AfterCommit);
 cut!(end_before_commit, "end", BeforeCommit);
 cut!(end_after_commit, "end", AfterCommit);
 
-async fn decode_db() -> Result<(tokio_postgres::Client, setjoin_pg::ScopedExecutor), Err> {
+async fn decode_db() -> Result<(tokio_postgres::Client, setjoin_pg::AuthDb), Err> {
     let db = Db::for_case("IDFED1-row-decode").ok_or("assigned DB required")?;
     let c = db.connect().await?;
     c.query_one(
@@ -111,7 +113,8 @@ async fn decode_db() -> Result<(tokio_postgres::Client, setjoin_pg::ScopedExecut
     let app =
         setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().ok_or("DB_APP_DSN required")?, 2)
             .map_err(|e| e.0)?;
-    Ok((c, app))
+    let worker = setjoin_pg::ScopedExecutor::from_dsn(&db.dsn, 2).map_err(|e| e.0)?;
+    Ok((c, setjoin_pg::AuthDb::from_executors(app, worker)))
 }
 
 #[tokio::test]

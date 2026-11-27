@@ -75,7 +75,7 @@ impl AuthServer {
         if head {
             return failure(405, "method not allowed", true);
         }
-        let Some(policy) = device_trust::effective_policy(&self.exec, &device).await else {
+        let Some(policy) = device_trust::effective_policy(&self.auth_db, &device).await else {
             return failure(500, "internal error", false);
         };
         let version = policy.version();
@@ -120,7 +120,7 @@ impl AuthServer {
         let Ok(checkin) = decoded else {
             return failure(400, "invalid request body", false);
         };
-        let policy = match device_trust::checkin(&self.exec, &device, &checkin.events).await {
+        let policy = match device_trust::checkin(&self.auth_db, &device, &checkin.events).await {
             Ok(policy) => policy,
             Err(CheckinError::Failed) => return failure(500, "internal error", false),
         };

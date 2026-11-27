@@ -14,10 +14,7 @@ use setjoin_jmap::{BatchOp, Paged};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BatchArgs {
-    Valid {
-        ids: Vec<i64>,
-        bad: Vec<String>,
-    },
+    Valid { ids: Vec<i64>, bad: Vec<String> },
     Invalid(String),
 }
 

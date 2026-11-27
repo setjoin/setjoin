@@ -35,14 +35,30 @@ pub async fn restore_receipts(c: &tokio_postgres::Client, before: &[String]) {
 #[allow(dead_code)]
 pub fn security_expectation(baseline: &std::path::Path) -> serde_json::Value {
     use sha2::{Digest, Sha256};
-    let family=baseline.parent().unwrap().parent().unwrap();
-    let entries:serde_json::Value=serde_json::from_str(&std::fs::read_to_string(family.join("divergences.json")).unwrap()).unwrap();
-    let relative=baseline.strip_prefix(family).unwrap().to_str().unwrap();
-    let entry=entries.as_array().unwrap().iter().find(|e|e["baseline"]==relative).expect("reviewed security divergence");
-    assert_eq!(entry["reviewed"],true);
-    assert!(entry["reason"].as_str().unwrap().contains("owner-approved security fix 2026-11-05"));
-    assert_eq!(entry["sha256"],format!("{:x}",Sha256::digest(std::fs::read(baseline).unwrap())));
-    serde_json::from_str(&std::fs::read_to_string(family.join(entry["expectation"].as_str().unwrap())).unwrap()).unwrap()
+    let family = baseline.parent().unwrap().parent().unwrap();
+    let entries: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(family.join("divergences.json")).unwrap())
+            .unwrap();
+    let relative = baseline.strip_prefix(family).unwrap().to_str().unwrap();
+    let entry = entries
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["baseline"] == relative)
+        .expect("reviewed security divergence");
+    assert_eq!(entry["reviewed"], true);
+    assert!(entry["reason"]
+        .as_str()
+        .unwrap()
+        .contains("owner-approved security fix 2026-11-05"));
+    assert_eq!(
+        entry["sha256"],
+        format!("{:x}", Sha256::digest(std::fs::read(baseline).unwrap()))
+    );
+    serde_json::from_str(
+        &std::fs::read_to_string(family.join(entry["expectation"].as_str().unwrap())).unwrap(),
+    )
+    .unwrap()
 }
 
 /// Expected document for `baseline`. A protected case (an owner-approved security
@@ -50,7 +66,11 @@ pub fn security_expectation(baseline: &std::path::Path) -> serde_json::Value {
 /// baseline; `SECFIX3_WRITE_SECURITY=1` writes the expectation from the actual
 /// document (for human review against the baseline diff) and is never used in CI.
 #[allow(dead_code)]
-pub fn expected(baseline: &std::path::Path, protected: bool, actual: &serde_json::Value) -> serde_json::Value {
+pub fn expected(
+    baseline: &std::path::Path,
+    protected: bool,
+    actual: &serde_json::Value,
+) -> serde_json::Value {
     if !protected {
         return serde_json::from_slice(&std::fs::read(baseline).unwrap()).unwrap();
     }

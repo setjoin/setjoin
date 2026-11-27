@@ -98,12 +98,17 @@ pub fn start(
     let pair = certificate_pair(get)?;
     let executor = setjoin_pg::ScopedExecutor::from_dsn(&dsn, pool)
         .map_err(|e| format!("IMAP DB_DSN: {e:?}"))?;
+    let app_pool = executor
+        .try_app_pool()
+        .ok_or_else(|| "IMAP DB_DSN: AppPool unavailable".to_owned())?;
+    let tx_factory = setjoin_authz::principals::TxFactory::new(app_pool);
     let build = |tls: Option<&(PathBuf, PathBuf)>, implicit: bool| -> Result<Server, String> {
         let server = Server::new(
             executor.clone(),
             ThreatPolicy::Enforced(gate.clone()),
             WebhookPolicy::Wired(Arc::new(AuthEvents(webhooks.clone()))),
         )
+        .with_tx_factory(tx_factory.clone())
         .with_session_registry(registry.clone())
         .with_max_connections(max_conns)
         .with_per_user_max(per_user);
@@ -117,6 +122,9 @@ pub fn start(
         }
         if !server.webhooks_wired() {
             return Err("IMAP activation refused: auth webhooks are not wired".into());
+        }
+        if !server.tx_factory_wired() {
+            return Err("IMAP activation refused: TxFactory is not wired".into());
         }
         Ok(server)
     };

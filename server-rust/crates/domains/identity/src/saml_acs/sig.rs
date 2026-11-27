@@ -242,14 +242,18 @@ fn signed_info(si: Node<'_, '_>) -> Result<SignedInfo, Fail> {
 }
 
 fn canonical_info(bytes: &[u8]) -> Result<SignedInfo, Fail> {
-    let text = std::str::from_utf8(bytes).map_err(|_| fail("malformed", "canonical SignedInfo is not UTF-8"))?;
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| fail("malformed", "canonical SignedInfo is not UTF-8"))?;
     let doc = xml::parse(text)?;
     signed_info(doc.root_element())
 }
 
 fn agree(structural: &SignedInfo, covered: &SignedInfo) -> Result<(), Fail> {
     if structural != covered && !crate::mutants::on("saml-signedinfo-raw") {
-        return Err(fail("structure", "SignedInfo reads differently in the signed bytes"));
+        return Err(fail(
+            "structure",
+            "SignedInfo reads differently in the signed bytes",
+        ));
     }
     Ok(())
 }
@@ -345,7 +349,8 @@ fn verify_signature(
         Hash::S384 => Sha384::digest(&canonical).to_vec(),
         Hash::S512 => Sha512::digest(&canonical).to_vec(),
     };
-    if !bool::from(digest.ct_eq(&covered.digest_value)) && !crate::mutants::on("saml-digest-unchecked")
+    if !bool::from(digest.ct_eq(&covered.digest_value))
+        && !crate::mutants::on("saml-digest-unchecked")
     {
         return Err(fail("signature", "digest mismatch"));
     }

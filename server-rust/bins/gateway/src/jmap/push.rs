@@ -36,7 +36,10 @@ pub struct WebSocketRoute<K: KeySource + 'static> {
     devices: Arc<super::device_cache::DeviceCache>,
 }
 impl<K: KeySource + 'static> WebSocketRoute<K> {
-    pub fn with_device_cache(mut self,devices:Arc<super::device_cache::DeviceCache>)->Self{self.devices=devices;self}
+    pub fn with_device_cache(mut self, devices: Arc<super::device_cache::DeviceCache>) -> Self {
+        self.devices = devices;
+        self
+    }
 
     pub fn with_listen_hub(mut self, hub: setjoin_pg::ListenHub) -> Self {
         self.hub = super::hub::PushHub::with_listen_hub(hub);
@@ -481,7 +484,10 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
         })
     }
 }
-pub(super) fn cache_denies<K: KeySource>(commands: &JmapCommands<K>, identity: &PushIdentity) -> bool {
+pub(super) fn cache_denies<K: KeySource>(
+    commands: &JmapCommands<K>,
+    identity: &PushIdentity,
+) -> bool {
     commands.denylist.as_ref().is_some_and(|d| {
         !d.loaded()
             || chrono::DateTime::from_timestamp(identity.issued_at(), 0).is_none_or(|iat| {
@@ -518,13 +524,14 @@ pub(super) async fn app_allowed(
 }
 async fn drive_admin(exec: &setjoin_pg::ScopedExecutor, scope: &MailboxAuthContext) -> bool {
     let user = scope.actor().get();
-    exec.read_user_scoped(
+    crate::policy_composition::user_read(
+        exec,
         scope.actor(),
         "SELECT drive_has_admin_perm($1,'drive.view') OR drive_has_admin_perm($1,'drive.manage')",
         &[(&user, Type::INT8)],
     )
     .await
-    .is_ok_and(|r| r[0].get::<_, bool>(0))
+    .is_ok_and(|r| r.first().and_then(|row| row.try_get::<_, bool>(0).ok()) == Some(true))
 }
 pub(super) fn origin_host(raw: &str) -> Option<&str> {
     if raw.trim() != raw || raw.bytes().any(|b| b.is_ascii_control()) {
@@ -629,7 +636,7 @@ pub(super) async fn state_frames(
         task |= value.contains_key("task_id");
     }
     if valid || calendar || contact || task {
-        let tokens = setjoin_jmap::push_state::tokens(exec, scope).await;
+        let tokens = super::push_tokens(exec, scope).await;
         let mut changed = json!({"Email":tokens[0],"Mailbox":tokens[1],"Thread":tokens[2]});
         if calendar {
             changed["Calendar"] = json!(tokens[3]);

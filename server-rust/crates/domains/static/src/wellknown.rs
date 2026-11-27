@@ -1,6 +1,6 @@
 //! `mailserver/internal/wellknown`: `/.well-known/setjoin` and the
 //! Thunderbird autoconfig document.
-use setjoin_pg::{ScopedExecutor, Type};
+use setjoin_authz::principals::TxFactory;
 
 /// Go's `encoding/json` string form (HTML-escaped `<`, `>`, `&`, U+2028/9).
 pub fn go_json_string(s: &str) -> String {
@@ -88,13 +88,11 @@ fn split_host_port(h: &str) -> Option<&str> {
 
 /// `domains` lookup of `HandleAutoconfig`: a local domain by lowercase name.
 /// `None` is "unknown or the lookup failed" (Go answers 404 for both).
-pub async fn local_domain_exists(exec: &ScopedExecutor, domain: &str) -> bool {
-    exec.read(
-        "SELECT 1 FROM domains WHERE lower(name) = $1 AND is_local = TRUE LIMIT 1",
-        &[(&domain, Type::TEXT)],
-    )
-    .await
-    .is_ok_and(|rows| !rows.is_empty())
+pub async fn local_domain_exists(factory: &TxFactory, domain: &str) -> bool {
+    factory
+        .run_public_read_contract(&crate::sql::WELLKNOWN_LOCAL_DOMAIN, &[&domain])
+        .await
+        .is_ok_and(|rows| !rows.is_empty())
 }
 
 /// The autoconfig-v1.1 document. Go renders it with `html/template`, whose

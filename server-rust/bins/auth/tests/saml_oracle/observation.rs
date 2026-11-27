@@ -147,7 +147,8 @@ pub(super) fn expected_for(baseline: &std::path::Path, actual: &Value) -> Result
 
 /// `SAMLACS_WRITE_FEATURE=1` rewrites expectations instead of asserting them, so a run that
 /// did so must never pass: the environment's `close` fails it ("review and rerun").
-pub(super) static REGENERATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub(super) static REGENERATED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 pub(super) fn regeneration_guard() {
     if REGENERATED.load(std::sync::atomic::Ordering::SeqCst) && !std::thread::panicking() {
         panic!("expectations regenerated (SAMLACS_WRITE_FEATURE): review the diff and rerun without it");

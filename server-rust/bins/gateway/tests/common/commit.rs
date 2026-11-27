@@ -67,7 +67,12 @@ pub async fn commit_cut_proxy(
         server_write.write_u32(startup_len).await?;
         server_write.write_all(&startup).await?;
 
+        let skip_commit_complete = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let skip_req = skip_commit_complete.clone();
+        let skip_resp = skip_commit_complete;
+
         let requests = async {
+            let mut in_read_only = false;
             loop {
                 let tag = client_read.read_u8().await?;
                 let len = client_read.read_u32().await?;
@@ -76,8 +81,24 @@ pub async fn commit_cut_proxy(
                 }
                 let mut body = vec![0; len as usize - 4];
                 client_read.read_exact(&mut body).await?;
-                if tag == b'Q' && body == b"COMMIT\0" && cut == CommitCut::BeforeCommit {
-                    return Ok(CommitCut::BeforeCommit);
+                if tag == b'Q' {
+                    if body.starts_with(b"BEGIN READ ONLY")
+                        || body.starts_with(b"BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY")
+                        || body.starts_with(b"BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                    {
+                        in_read_only = true;
+                    } else if body.starts_with(b"BEGIN") {
+                        in_read_only = false;
+                    } else if body == b"ROLLBACK\0" {
+                        in_read_only = false;
+                    } else if body == b"COMMIT\0" {
+                        if in_read_only {
+                            in_read_only = false;
+                            skip_req.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        } else if cut == CommitCut::BeforeCommit {
+                            return Ok(CommitCut::BeforeCommit);
+                        }
+                    }
                 }
                 server_write.write_u8(tag).await?;
                 server_write.write_u32(len).await?;
@@ -93,8 +114,17 @@ pub async fn commit_cut_proxy(
                 }
                 let mut body = vec![0; len as usize - 4];
                 server_read.read_exact(&mut body).await?;
-                if tag == b'C' && body == b"COMMIT\0" && cut == CommitCut::AfterCommit {
-                    return Ok(CommitCut::AfterCommit);
+                if tag == b'C' && body == b"COMMIT\0" {
+                    let prev = skip_resp
+                        .try_update(
+                            std::sync::atomic::Ordering::SeqCst,
+                            std::sync::atomic::Ordering::SeqCst,
+                            |n| n.checked_sub(1),
+                        )
+                        .ok();
+                    if prev.is_none() && cut == CommitCut::AfterCommit {
+                        return Ok(CommitCut::AfterCommit);
+                    }
                 }
                 client_write.write_u8(tag).await?;
                 client_write.write_u32(len).await?;

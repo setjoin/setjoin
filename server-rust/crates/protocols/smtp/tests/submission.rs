@@ -117,9 +117,12 @@ async fn replay(corpus: &str) {
             owner.batch_execute(sql).await.unwrap();
         }
         let blobs = Arc::new(auth_blobs::Blobs::default());
+        let app_exec =
+            setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap();
         let mut server = setjoin_smtp::Submission::new(
             setjoin_pg::workers::WorkerDatabase::new(&db.dsn).unwrap(),
-        );
+        )
+        .with_app_executor(app_exec);
         if case["cert"] == true {
             server = server
                 .with_starttls_files(fixture("server.pem"), fixture("server.p8"))
@@ -187,7 +190,12 @@ async fn replay(corpus: &str) {
                     let mut byte = [0];
                     let n = tokio::time::timeout(Duration::from_secs(8), socket.read(&mut byte))
                         .await
-                        .unwrap_or_else(|_| panic!("{name} step {index}: read timed out after {} bytes", got.len()))
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "{name} step {index}: read timed out after {} bytes",
+                                got.len()
+                            )
+                        })
                         .unwrap_or(0);
                     assert_eq!(n, 1, "{name} step {index}: premature EOF");
                     got.push(byte[0]);
@@ -260,8 +268,11 @@ async fn unknown_and_disabled_accounts_spend_a_password_hash() {
         .batch_execute("UPDATE users SET password_hash='' WHERE id=9501015")
         .await
         .unwrap();
+    let app_exec =
+        setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap();
     let server = Arc::new(
         setjoin_smtp::Submission::new(setjoin_pg::workers::WorkerDatabase::new(&db.dsn).unwrap())
+            .with_app_executor(app_exec)
             .with_starttls_files(fixture("server.pem"), fixture("server.p8"))
             .unwrap(),
     );
@@ -339,8 +350,11 @@ async fn reauth_releases_previous_conn_tracker_slot() {
         .batch_execute(include_str!("../oracle/submission-seed.sql"))
         .await
         .unwrap();
+    let app_exec =
+        setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap();
     let server = Arc::new(
         setjoin_smtp::Submission::new(setjoin_pg::workers::WorkerDatabase::new(&db.dsn).unwrap())
+            .with_app_executor(app_exec)
             .with_starttls_files(fixture("server.pem"), fixture("server.p8"))
             .unwrap()
             .with_per_user_max(1),

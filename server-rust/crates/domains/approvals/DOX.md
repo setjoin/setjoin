@@ -7,9 +7,12 @@ IDs are distinct. Request-owned IDs identify targets, never authority.
 
 ## Scope and admission
 
-Tenant reads use `ScopedExecutor::read_scoped` and same-statement ownership
-predicates. The executor installs both mailbox and user GUCs from its verified
-context; `app.current_user_id` is required by approvals' FORCE RLS policies.
+Tenant reads and writes run through `TxFactory` capability handles (`UserTx` /
+`MailboxTx` over `AppPool`, and `AdminReadTx` / `AdminWriteTx` over `WorkerPool`
+for governed policy administration) with static `SqlContract` definitions in
+`src/sql.rs` and same-statement ownership predicates. The executor installs
+mailbox/user GUCs from verified principals; `app.current_user_id` is required
+by approvals' FORCE RLS policies (`approval_requests`, `approval_delegations`).
 The global policy collection requires live governed approvals permissions.
 Signed permission or domain claims alone never grant policy authority.
 Unsupported credentials and unmirrored security gates forward the whole request

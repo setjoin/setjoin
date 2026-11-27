@@ -4,10 +4,13 @@
 //! `requireMailPerm` (reads) or `requireMailPipeline` (writes and the consent
 //! start), then `requireOrgWideSurface`, from the live governed grants.
 use crate::admin_identity_input::query;
-use crate::mailboxes::{bare, body, json_body, segment, segment_path, unknown_outcome};
+use crate::mailboxes::{
+    bare, body, json_body, segment, segment_path, unknown_outcome, worker_write_contract,
+};
 use crate::{Body, BoxFuture, Intercept, RequestContext};
 use hyper::{Method, Request, Response};
 use serde::de::{MapAccess, Visitor};
+use setjoin_authz::principals::{AdminPermissionProof, PrincipalError, TxFactory, UserPrincipal};
 use setjoin_authz::token::KeySource;
 use setjoin_mailboxes::migration as db;
 use setjoin_mailboxes::private_policy;
@@ -17,6 +20,7 @@ use std::sync::Arc;
 
 pub struct MigrationRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: ScopedExecutor,
     pub keys: Arc<K>,
     pub issuer: String,
     /// Raw `DB_ENCRYPTION_KEY`: the root Go derives the `system` key from.
@@ -260,8 +264,9 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer, root) = (
+        let (exec, worker, keys, issuer, root) = (
             self.exec.clone(),
+            self.worker.clone(),
             self.keys.clone(),
             self.issuer.clone(),
             self.encryption_key.clone(),
@@ -283,12 +288,18 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
             else {
                 return bare(401, "Unauthorized", &c, "");
             };
+            let worker_pool_exec = runner.as_ref().map(|r| &r.worker).unwrap_or(&worker);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(worker_pool_exec))
+            else {
+                return bare(503, "service unavailable", &c, "");
+            };
             let Some(operation) = crate::jmap::random() else {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
-            let actor = auth.context();
-            let Ok(authority) = setjoin_mailboxes::authority(&exec, actor).await else {
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
                 return bare(503, "service unavailable", &c, "");
             };
             let path = r.uri().path().to_owned();
@@ -297,26 +308,40 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
                 Action::Jobs | Action::Job | Action::SourceGet => &setjoin_mailboxes::MAIL_CONSOLE,
                 _ => &db::PIPELINE,
             };
-            if !authority.allows_any(required) {
+            let admin = if auth.context().signed_admin() {
+                match factory.mint_admin_from_authorized(&auth, &client_ip).await {
+                    Ok(admin) => Some(admin),
+                    Err(PrincipalError::Unavailable(_)) => {
+                        return bare(503, "service unavailable", &c, "");
+                    }
+                    Err(_) => None,
+                }
+            } else {
+                None
+            };
+            let Some((admin, proof)) = admin.and_then(|admin| {
+                let proof = admin.require_any_permission(required).ok()?;
+                Some((admin, proof))
+            }) else {
                 let _ = setjoin_mailboxes::console_denied(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user,
                     &go_path,
                     &required.join("|"),
                     operation,
                 )
                 .await;
                 return bare(403, "Forbidden", &c, &id);
-            }
+            };
             // `requireOrgWideSurface`: a domain-scoped principal is refused, audited.
-            if authority.domain_scope() != 0 {
-                let detail = format!(
-                    "org-wide-only surface (domain-scoped principal; domain={})",
-                    authority.domain_scope()
-                );
-                let _ =
-                    setjoin_mailboxes::console_denied(&exec, actor, &go_path, &detail, operation)
-                        .await;
+            let scope = admin.enforced_domain_scope().unwrap_or(0);
+            if scope != 0 {
+                let detail =
+                    format!("org-wide-only surface (domain-scoped principal; domain={scope})");
+                let _ = setjoin_mailboxes::console_denied(
+                    &factory, &user, &go_path, &detail, operation,
+                )
+                .await;
                 return bare(403, "Forbidden", &c, &id);
             }
             let head = r.method() == Method::HEAD;
@@ -345,8 +370,8 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
             match what {
                 Action::Jobs => {
                     let status = query(r.uri(), "status").unwrap_or_default();
-                    let user = query(r.uri(), "user_id").unwrap_or_default();
-                    match db::list(&exec, &status, &user).await {
+                    let user_q = query(r.uri(), "user_id").unwrap_or_default();
+                    match db::list(&factory, &proof, &status, &user_q).await {
                         Ok(body) => reply(body),
                         Err(_) => problem(500, "query failed"),
                     }
@@ -355,7 +380,7 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
                     let Ok(job) = job_id() else {
                         return problem(400, "invalid job id");
                     };
-                    match db::get(&exec, job).await {
+                    match db::get(&factory, &proof, job).await {
                         Some(body) => reply(body),
                         None => problem(404, "job not found"),
                     }
@@ -364,7 +389,17 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
                     let Ok(job) = job_id() else {
                         return problem(400, "invalid job id");
                     };
-                    match db::delete(&exec, actor, job, operation).await {
+                    match worker_write_contract(
+                        worker_pool_exec,
+                        &proof,
+                        "migration.job.delete",
+                        &setjoin_mailboxes::sql::MIGRATION_JOB_DELETE,
+                        &[&job],
+                        operation,
+                        db::affected_any,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(true) => status_only(204),
                         CommandOutcome::Committed(false) => problem(404, "job not found"),
                         CommandOutcome::RolledBack(_) => problem(500, "delete failed"),
@@ -378,7 +413,7 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
                     let Some(key) = db::config_key(&source) else {
                         return problem(404, "unknown source type");
                     };
-                    let Some((value, encrypted)) = db::config(&exec, key).await else {
+                    let Some((value, encrypted)) = db::config(&factory, &user, key).await else {
                         return problem(404, "config not found");
                     };
                     if source == "imap" && !value.is_empty() {
@@ -415,7 +450,17 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
                     let Some(key) = db::config_key(&source) else {
                         return problem(404, "unknown source type");
                     };
-                    match db::delete_config(&exec, actor, key, operation).await {
+                    match worker_write_contract(
+                        worker_pool_exec,
+                        &proof,
+                        "migration.source.delete",
+                        &setjoin_mailboxes::sql::MIGRATION_CONFIG_DELETE,
+                        &[&key],
+                        operation,
+                        |rows| db::affected_any(rows).map(|_| ()),
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(()) => status_only(204),
                         CommandOutcome::RolledBack(_) => problem(500, "delete failed"),
                         CommandOutcome::Unknown { operation } => {
@@ -453,8 +498,8 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
                     }
                     let raw = db::imap_json(&body.host, port, &tls, &hosts, &cidrs);
                     save(
-                        &exec,
-                        actor,
+                        worker_pool_exec,
+                        &proof,
                         "imap.defaults",
                         &raw,
                         false,
@@ -499,8 +544,8 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
                         return problem(500, "encryption failed");
                     };
                     save(
-                        &exec,
-                        actor,
+                        worker_pool_exec,
+                        &proof,
                         "ews.global",
                         &wrapped,
                         true,
@@ -532,9 +577,18 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
                     let Some(wrapped) = seal(&root, &cfg.json()) else {
                         return problem(500, "encryption failed");
                     };
-                    save(&exec, actor, "m365.app", &wrapped, true, operation, &c, &id)
-                        .await
-                        .unwrap_or_else(|| status_only(204))
+                    save(
+                        worker_pool_exec,
+                        &proof,
+                        "m365.app",
+                        &wrapped,
+                        true,
+                        operation,
+                        &c,
+                        &id,
+                    )
+                    .await
+                    .unwrap_or_else(|| status_only(204))
                 }
                 Action::Cancel | Action::Retry | Action::Pause | Action::Resume => {
                     let Some(runner) = &runner else {
@@ -636,7 +690,7 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
                             }
                         }
                         "m365" => {
-                            let cfg = match db::config(&runner.worker, "m365.app").await {
+                            let cfg = match db::config(&factory, &user, "m365.app").await {
                                 Some((value, true)) => match db::unseal(&value, &root) {
                                     db::Unsealed::Plain(v) => db::M365::from_value(&v).ok(),
                                     _ => None,
@@ -674,10 +728,23 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
                     let Ok(body) = buffered::<StartBody>(&mut r).await else {
                         return problem(400, "invalid JSON body");
                     };
-                    start(runner, actor, body, operation, &problem, &c, &id).await
+                    start(
+                        &factory, &proof, &user, runner, body, operation, &problem, &c, &id,
+                    )
+                    .await
                 }
                 Action::Callback => {
-                    callback(&exec, runner.as_ref(), actor, &r, &root, operation, &c, &id).await
+                    callback(
+                        &factory,
+                        runner.as_ref(),
+                        &user,
+                        &r,
+                        &root,
+                        operation,
+                        &c,
+                        &id,
+                    )
+                    .await
                 }
                 Action::Connect => {
                     // Owner-approved security fix #531 (2026-11-06): with HOSTNAME unset, empty or
@@ -696,7 +763,7 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
                         return text_error(400, "unknown cloud", &c, &id);
                     }
                     let stored =
-                        match db::config(&exec, "m365.app").await {
+                        match db::config(&factory, &user, "m365.app").await {
                             Some((value, true)) => value,
                             _ => return text_error(
                                 400,
@@ -763,7 +830,7 @@ impl<K: KeySource + 'static> Intercept for MigrationRoute<K> {
                         // A value the header writer would have rewritten: let Go answer.
                         return bare(503, "service unavailable", &c, "");
                     };
-                    match db::mint_consent(&exec, actor, &token, &cloud, 600, operation).await {
+                    match db::mint_consent(&factory, &user, &token, &cloud, 600, operation).await {
                         CommandOutcome::Committed(()) => {}
                         CommandOutcome::RolledBack(_) => {
                             return text_error(500, "failed to start consent flow", &c, &id)
@@ -805,8 +872,8 @@ fn seal(root: &str, plaintext: &str) -> Option<String> {
 
 #[allow(clippy::too_many_arguments)]
 async fn save(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    worker: &ScopedExecutor,
+    proof: &AdminPermissionProof,
     key: &str,
     value: &str,
     sealed: bool,
@@ -814,7 +881,17 @@ async fn save(
     c: &RequestContext,
     id: &str,
 ) -> Option<Response<Body>> {
-    match db::put_config(exec, actor, key, value, sealed, operation).await {
+    match worker_write_contract(
+        worker,
+        proof,
+        "migration.source.save",
+        &setjoin_mailboxes::sql::MIGRATION_CONFIG_UPSERT,
+        &[&key, &value, &sealed],
+        operation,
+        db::affected_any,
+    )
+    .await
+    {
         CommandOutcome::Committed(_) => None,
         CommandOutcome::RolledBack(_) => Some(bare(500, "save failed", c, id)),
         CommandOutcome::Unknown { operation } => Some(unknown_outcome(operation, c, id)),
@@ -831,9 +908,12 @@ fn default_port(p: i64) -> i64 {
 }
 
 /// Go's `AdminAPI.Start`: one job per target, then each is started.
+#[allow(clippy::too_many_arguments)]
 async fn start(
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
+    user: &UserPrincipal,
     runner: &Runner,
-    actor: &setjoin_authz::AuthContext,
     body: StartBody,
     operation: [u8; 16],
     problem: &(impl Fn(u16, &str) -> Response<Body> + Sync),
@@ -870,8 +950,7 @@ async fn start(
     {
         return problem(400, "every target needs source_email and target_email");
     }
-    let worker = &runner.worker;
-    let use_global = db::has_global(worker, &body.source_type).await;
+    let use_global = db::has_global(factory, &body.source_type).await;
     if body.source_type == "m365" && !use_global {
         return problem(
             400,
@@ -932,7 +1011,8 @@ async fn start(
         let Some(sealed) = db::seal(config.to_string().as_bytes(), &key) else {
             continue;
         };
-        let Some(mailbox) = db::mailbox_for_email(worker, &target.target_email).await else {
+        let Some(mailbox) = db::mailbox_for_email(factory, proof, &target.target_email).await
+        else {
             if first_error.is_empty() {
                 first_error = format!("no mailbox found for {}", target.target_email);
             }
@@ -941,7 +1021,7 @@ async fn start(
         // One receipt per job: the request's operation id, varied by target.
         let mut op = operation;
         op[15] = op[15].wrapping_add(index as u8);
-        match db::insert_job(worker, actor, &body.source_type, &sealed, mailbox, op).await {
+        match db::insert_job(factory, user, &body.source_type, &sealed, mailbox, op).await {
             CommandOutcome::Committed(job) => ids.push(job),
             CommandOutcome::RolledBack(_) => {
                 if first_error.is_empty() {
@@ -1004,9 +1084,9 @@ async fn buffered<T: serde::de::DeserializeOwned>(r: &mut Request<Body>) -> Resu
 
 #[allow(clippy::too_many_arguments)]
 async fn callback(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
     runner: Option<&Runner>,
-    actor: &setjoin_authz::AuthContext,
+    user: &UserPrincipal,
     r: &Request<Body>,
     root: &str,
     operation: [u8; 16],
@@ -1043,12 +1123,12 @@ async fn callback(
             .unwrap_or_else(|| "Admin consent was not granted".into());
         return error(400, &msg);
     }
-    let cloud = match db::consume_consent(exec, actor, &state, operation).await {
+    let cloud = match db::consume_consent(factory, user, &state, operation).await {
         CommandOutcome::Committed(cloud) => cloud,
         CommandOutcome::RolledBack(_) => return error(400, "invalid or expired state"),
         CommandOutcome::Unknown { operation } => return finish(unknown_outcome(operation, c, id)),
     };
-    let stored = match db::config(exec, "m365.app").await {
+    let stored = match db::config(factory, user, "m365.app").await {
         Some((v, true)) => v,
         _ => return error(400, "M365 config not found"),
     };
@@ -1079,8 +1159,8 @@ async fn callback(
         return error(500, "failed to save config");
     };
     match db::complete_consent(
-        runner.map(|r| &r.worker).unwrap_or(exec),
-        actor,
+        factory,
+        user,
         &wrapped,
         &format!("tenant={tenant} cloud={cloud}"),
         completion,

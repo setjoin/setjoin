@@ -326,6 +326,7 @@ async fn observe(db: &Db, name: &str, record: bool) -> Result<(), BoxError> {
         RouteTable::proxy_all().with(setjoin_gateway::surface::SurfaceRoute {
             discovery: Some(Arc::new(discovery)),
             exec,
+            worker: None,
             keys: Arc::new(common::recovery_keys()),
             issuer: "mailserver".into(),
             config: Arc::new(setjoin_gateway::surface::SurfaceConfig::from_env()),

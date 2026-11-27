@@ -274,7 +274,7 @@ impl<K: KeySource> JmapCommands<K> {
         } else {
             Bytes::new()
         };
-        self.try_message(route, &raw_id, &parts, &bytes, &ctx, &a)
+        self.try_message(route, &raw_id, &parts, &bytes, &ctx, &a, &authorized)
             .await
     }
 
@@ -292,6 +292,7 @@ impl<K: KeySource> JmapCommands<K> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn try_message(
         &self,
         route: Route,
@@ -300,6 +301,7 @@ impl<K: KeySource> JmapCommands<K> {
         body: &Bytes,
         ctx: &RequestContext,
         a: &Admitted,
+        authorized: &setjoin_authz::Authorized,
     ) -> Response<Body> {
         let rid = a.request_id.as_str();
         let worker = self.worker.as_ref().unwrap_or(&self.exec);
@@ -311,12 +313,35 @@ impl<K: KeySource> JmapCommands<K> {
                 let Ok(focused) = decode_focus(body) else {
                     return crate::mailboxes::bare(400, "invalid request body", ctx, rid);
                 };
-                let owned = match setjoin_jmap::messages::owned_message(worker, a.user, id).await {
+                let owned = match super::worker_read_contract(
+                    worker,
+                    &setjoin_jmap::sql::MESSAGES_OWNED_MESSAGE,
+                    &[&id, &a.user],
+                )
+                .await
+                .and_then(|rows| setjoin_jmap::messages::decode_owned_message(&rows))
+                {
                     Ok(Some(owned)) => owned,
                     _ => return crate::mailboxes::bare(404, "message not found", ctx, rid),
                 };
                 let Ok(mailbox_id) = MailboxId::new(owned.mailbox) else {
                     return crate::mailboxes::bare(500, "internal error", ctx, rid);
+                };
+                let Some(tx) = self.tx_factory() else {
+                    return crate::mailboxes::bare(500, "internal error", ctx, rid);
+                };
+                let Ok(mb) = tx
+                    .mint_mailbox_from_authorized(
+                        authorized,
+                        mailbox_id,
+                        &ctx.identity.client_ip.to_string(),
+                    )
+                    .await
+                else {
+                    return crate::mailboxes::bare(404, "message not found", ctx, rid);
+                };
+                let Ok(mutate_cap) = mb.require_mutate() else {
+                    return crate::mailboxes::bare(403, "forbidden", ctx, rid);
                 };
                 let scope = MailboxAuthContext::from_authenticated_session(
                     a.auth.actor(),
@@ -327,8 +352,8 @@ impl<K: KeySource> JmapCommands<K> {
                     return crate::mailboxes::bare(500, "internal error", ctx, rid);
                 };
                 match setjoin_jmap::messages::set_focus(
-                    worker,
-                    &scope,
+                    &tx,
+                    &mutate_cap,
                     &envelope,
                     std::time::Instant::now() + super::COMMAND_DEADLINE,
                     id,
@@ -357,12 +382,19 @@ impl<K: KeySource> JmapCommands<K> {
                     }
                 }
             }
-            Route::Download => self.raw_download(raw_id, parts, ctx, a).await,
+            Route::Download => self.raw_download(raw_id, parts, ctx, a, authorized).await,
             Route::Zip => {
                 let Some(id) = positive_id(raw_id) else {
                     return crate::mailboxes::bare(400, "invalid message id", ctx, rid);
                 };
-                let source = match setjoin_jmap::messages::zip_source(worker, a.user, id).await {
+                let source = match super::worker_read_contract(
+                    worker,
+                    &setjoin_jmap::sql::MESSAGES_ZIP_SOURCE,
+                    &[&id, &a.user],
+                )
+                .await
+                .and_then(|rows| setjoin_jmap::messages::decode_zip_source(&rows))
+                {
                     Ok(source) => source,
                     Err(_) => return crate::mailboxes::bare(500, "database error", ctx, rid),
                 };
@@ -382,7 +414,7 @@ impl<K: KeySource> JmapCommands<K> {
                 )
                 .await
             }
-            Route::Unsubscribe => self.unsubscribe(raw_id, worker, ctx, a).await,
+            Route::Unsubscribe => self.unsubscribe(raw_id, worker, ctx, a, authorized).await,
         }
     }
 
@@ -392,6 +424,7 @@ impl<K: KeySource> JmapCommands<K> {
         parts: &hyper::http::request::Parts,
         ctx: &RequestContext,
         a: &Admitted,
+        authorized: &setjoin_authz::Authorized,
     ) -> Response<Body> {
         let rid = a.request_id.as_str();
         if self.services.is_none() {
@@ -401,7 +434,14 @@ impl<K: KeySource> JmapCommands<K> {
             return crate::mailboxes::bare(400, "invalid email ID", ctx, rid);
         };
         let worker = self.worker.as_ref().unwrap_or(&self.exec);
-        let owned = match setjoin_jmap::messages::owned_message(worker, a.user, id).await {
+        let owned = match super::worker_read_contract(
+            worker,
+            &setjoin_jmap::sql::MESSAGES_OWNED_MESSAGE,
+            &[&id, &a.user],
+        )
+        .await
+        .and_then(|rows| setjoin_jmap::messages::decode_owned_message(&rows))
+        {
             Ok(Some(owned)) => owned,
             Ok(None) => return crate::mailboxes::bare(404, "email not found", ctx, rid),
             Err(_) => return crate::mailboxes::bare(500, "database error", ctx, rid),
@@ -444,7 +484,7 @@ impl<K: KeySource> JmapCommands<K> {
         )) else {
             return crate::mailboxes::bare(500, "internal error", ctx, rid);
         };
-        let response = self.download(&inner, ctx, &a.auth, rid).await;
+        let response = self.download(&inner, ctx, &a.auth, authorized, rid).await;
         if response.status() != hyper::StatusCode::OK {
             return crate::mailboxes::bare(404, "email not found", ctx, rid);
         }
@@ -478,13 +518,20 @@ impl<K: KeySource> JmapCommands<K> {
         worker: &setjoin_pg::ScopedExecutor,
         ctx: &RequestContext,
         a: &Admitted,
+        authorized: &setjoin_authz::Authorized,
     ) -> Response<Body> {
         let rid = a.request_id.as_str();
-        let (header, from) =
-            match setjoin_jmap::messages::unsubscribe_source(worker, a.user, raw_id).await {
-                Ok(Some(found)) => found,
-                _ => return crate::mailboxes::bare(404, "message not found", ctx, rid),
-            };
+        let (header, from) = match super::worker_read_contract(
+            worker,
+            &setjoin_jmap::sql::MESSAGES_UNSUBSCRIBE_SOURCE,
+            &[&raw_id, &a.user],
+        )
+        .await
+        .and_then(|rows| setjoin_jmap::messages::decode_unsubscribe_source(&rows))
+        {
+            Ok(Some(found)) => found,
+            _ => return crate::mailboxes::bare(404, "message not found", ctx, rid),
+        };
         if header.is_empty() {
             return crate::mailboxes::bare(
                 400,
@@ -507,13 +554,24 @@ impl<K: KeySource> JmapCommands<K> {
             }
         }
         let target = raw_id.parse::<i64>().ok();
-        let Ok(envelope) = self.envelope(&a.auth, raw_id.as_bytes()) else {
+        let Some(tx) = self.tx_factory() else {
             return crate::mailboxes::bare(500, "internal error", ctx, rid);
         };
+        let Ok(user) = tx
+            .mint_user_from_authorized(authorized, &ctx.identity.client_ip.to_string())
+            .await
+        else {
+            return crate::mailboxes::bare(500, "internal error", ctx, rid);
+        };
+        let Ok(op_bytes) = super::random_bytes() else {
+            return crate::mailboxes::bare(500, "internal error", ctx, rid);
+        };
+        let envelope =
+            super::http::user_envelope(&user, op_bytes, Sha256::digest(raw_id.as_bytes()).into());
         let _ = a.mailbox;
         match setjoin_jmap::messages::record_unsubscribe(
-            worker,
-            &a.auth,
+            &tx,
+            &user,
             &envelope,
             std::time::Instant::now() + super::COMMAND_DEADLINE,
             target,

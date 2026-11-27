@@ -246,7 +246,7 @@ impl AuthServer {
         let key = self.oidc_key.as_ref().expect("enabled OP key");
         let reply = if req.uri().path() == "/oauth/introspect" {
             if let Some((id, password)) = credentials.as_ref() {
-                if oidc::authenticate(&self.exec, id, password).await {
+                if oidc::authenticate(&self.auth_db, id, password).await {
                     let access = oidc::access(
                         key,
                         cipher,
@@ -256,7 +256,7 @@ impl AuthServer {
                     Response::builder()
                         .header("content-type", "application/json")
                         .body(body(
-                            oidc::introspect(&self.exec, access.as_ref(), id).await,
+                            oidc::introspect(&self.auth_db, access.as_ref(), id).await,
                         ))
                         .unwrap()
                 } else {
@@ -284,7 +284,7 @@ impl AuthServer {
                 .unwrap_or_else(|| fields.get("access_token").map(String::as_str).unwrap_or(""));
             match oidc::access(key, cipher, &issuer, token) {
                 None => Self::oidc_plain(401, "access token invalid"),
-                Some(access) => match oidc::userinfo(&self.exec, &access).await {
+                Some(access) => match oidc::userinfo(&self.auth_db, &access).await {
                     Some(info) => Response::builder()
                         .header("content-type", "application/json")
                         .body(body(info))
@@ -298,7 +298,7 @@ impl AuthServer {
             }
         } else if req.uri().path() == "/revoke" {
             match oidc::revoke(
-                &self.exec,
+                &self.auth_db,
                 key,
                 cipher,
                 &issuer,
@@ -314,7 +314,7 @@ impl AuthServer {
                 Err(e) => Self::oidc_error(e),
             }
         } else if req.uri().path() == "/end_session" {
-            match oidc::end_session(&self.exec, key, &issuer, &fields).await {
+            match oidc::end_session(&self.auth_db, key, &issuer, &fields).await {
                 Ok(location) => Self::oidc_redirect(&method, &location),
                 Err(e) => Self::oidc_error(e),
             }
@@ -343,7 +343,7 @@ impl AuthServer {
             let grant = dispatch_grant.as_deref().unwrap_or("");
             if grant == "authorization_code" {
                 match oidc::code_exchange(
-                    &self.exec,
+                    &self.auth_db,
                     self.oidc_key.as_ref().expect("enabled OP key"),
                     &format!("https://{}", self.config.oidc_hostname),
                     &fields,
@@ -358,7 +358,7 @@ impl AuthServer {
                 }
             } else if grant == "refresh_token" {
                 match oidc::refresh_exchange(
-                    &self.exec,
+                    &self.auth_db,
                     self.oidc_key.as_ref().expect("enabled OP key"),
                     &format!("https://{}", self.config.oidc_hostname),
                     &fields,
@@ -448,17 +448,17 @@ impl AuthServer {
         let id = fields.get("id").map(String::as_str).unwrap_or("");
         let reply=async {
             if id.is_empty(){return Self::oidc_plain(400,"auth request callback is missing id");}
-            let request=match oidc::request(&self.exec,id).await {
+            let request=match oidc::request(&self.auth_db,id).await {
                 Ok(Some(r))=>r,
                 Ok(None)=>return Self::oidc_plain(400,"auth request not found: no rows in result set"),
                 Err(_)=>return Self::oidc_plain(400,"auth request not found"),
             };
             if let Some(session)=&session{if request.user()!=Some(session.user()){return Self::oidc_plain(400,"auth request not found: no rows in result set");}}
             if !request.done(){return Self::oidc_callback_error(req.method(),&request,"interaction_required","Unfortunately, the user may be not logged in and/or additional interaction is required.");}
-            if let Err(error)=oidc::client(&self.exec,request.client()).await{return Self::oidc_callback_error(req.method(),&request,"server_error",&error);}
+            if let Err(error)=oidc::client(&self.auth_db,request.client()).await{return Self::oidc_callback_error(req.method(),&request,"server_error",&error);}
             let code=match self.oidc_cipher.as_ref().expect("enabled OP cipher").encrypt(request.id()){Ok(code)=>code,Err(error)=>return Self::oidc_callback_error(req.method(),&request,"server_error",&error)};
             let operation=setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes());
-            match oidc::bind_code(&self.exec,&request,&code,operation).await {
+            match oidc::bind_code(&self.auth_db,&request,&code,operation).await {
                 setjoin_pg::CommandOutcome::Committed(true)=>Self::oidc_redirect(req.method(),&oidc::query_response(request.redirect(),&[("code",&code),("state",request.state())],false)),
                 setjoin_pg::CommandOutcome::Unknown{operation}=>{
                     let mut reply=Self::oidc_callback_error(req.method(),&request,"server_error","authorization code binding outcome unknown");reply.headers_mut().insert("x-operation-id",setjoin_pg::operation_hex(operation).parse().unwrap());reply
@@ -544,7 +544,7 @@ impl AuthServer {
             if setjoin_identity::mutants::on("oidc-complete-get-bind") {
                 return self.oidc_bind(&method, &session, id).await;
             }
-            let pending = match oidc::request(&self.exec, id).await {
+            let pending = match oidc::request(&self.auth_db, id).await {
                 Ok(Some(r)) if r.user().is_none() && !r.done() => r,
                 _ => return invalid(),
             };
@@ -618,7 +618,7 @@ impl AuthServer {
         id: &str,
     ) -> Response<Body> {
         let operation = setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes());
-        match oidc::complete_request(&self.exec, session, id, operation).await {
+        match oidc::complete_request(&self.auth_db, session, id, operation).await {
             setjoin_pg::CommandOutcome::Committed(true) => Self::oidc_redirect(
                 method,
                 &oidc::query_response("/authorize/callback", &[("id", id)], false),
@@ -726,7 +726,7 @@ impl AuthServer {
             if fields.get("max_age").is_some_and(|v|v.parse::<u64>().is_err()){return Self::oidc_plain(400,"ErrorType=invalid_request Description=cannot parse auth request Parent=schema: error converting value for \"max_age\"");}
             if get("client_id").is_empty(){return Self::oidc_plain(400,"auth request is missing client_id");}
             if get("redirect_uri").is_empty(){return Self::oidc_plain(400,"auth request is missing redirect_uri");}
-            let client=match oidc::client(&self.exec,get("client_id")).await{Ok(c)=>c,Err(_)=>return Self::oidc_plain(400,"unable to retrieve client by id")};
+            let client=match oidc::client(&self.auth_db,get("client_id")).await{Ok(c)=>c,Err(_)=>return Self::oidc_plain(400,"unable to retrieve client by id")};
             if let Some(error)=oidc::redirect_error(&client,get("redirect_uri"),get("response_type")){return Self::oidc_plain(400,error);}
             let fail=|kind:&str,description:&str|Self::oidc_redirect(&method,&oidc::query_response(get("redirect_uri"),&[("error",kind),("error_description",description),("state",get("state"))],get("response_mode")=="fragment"));
             if get("prompt").split(' ').any(|p|p=="none")&&get("prompt").split(' ').count()>1{return fail("invalid_request","The prompt parameter `none` must only be used as a single value");}
@@ -742,7 +742,7 @@ impl AuthServer {
             if !client.public&&get("code_challenge").is_empty()&&!setjoin_identity::mutants::on("oidc-confidential-authorize-no-pkce"){return fail("invalid_request","code_challenge is required: PKCE must be used by every client");}
             if !get("id_token_hint").is_empty()&&!self.oidc_key.as_ref().unwrap().verify(get("id_token_hint")).is_some_and(|c|c["iss"]==format!("https://{}",self.config.oidc_hostname)){return fail("login_required","The id_token_hint is invalid. If you have any questions, you may contact the administrator of the application.");}
             if !get("request").is_empty(){return fail("request_not_supported","");}
-            match oidc::create_request(&self.exec,&client,get("redirect_uri"),get("state"),get("nonce"),get("code_challenge"),get("code_challenge_method"),&scopes,setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes())).await {
+            match oidc::create_request(&self.auth_db,&client,get("redirect_uri"),get("state"),get("nonce"),get("code_challenge"),get("code_challenge_method"),&scopes,setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes())).await {
                 setjoin_pg::CommandOutcome::Committed(id)=>Self::oidc_redirect(&method,&format!("/auth/oidc/op/complete?id={id}")),
                 setjoin_pg::CommandOutcome::Unknown{operation}=>{let mut r=Self::oidc_plain(500,"unable to save auth request");r.headers_mut().insert("x-operation-id",setjoin_pg::operation_hex(operation).parse().unwrap());r},
                 _=>Self::oidc_plain(500,"unable to save auth request"),

@@ -11,7 +11,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 use setjoin_conformance::ldap_fake::{Entry, FakeLdap, Transport, CA_PEM};
 use setjoin_conformance::{fixture, golden, harness::Db};
-use setjoin_directory_sync::catalog::{IdentitySourceRuntime, SourceConfig};
+use setjoin_gateway::directory_sync_workers::catalog::{IdentitySourceRuntime, SourceConfig};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -1045,7 +1045,8 @@ async fn a_stopped_workers_lease_is_released() -> Opt {
         assert!(held, "the abandoned cycle held the lease");
         let other = "0b1a2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
         let db = setjoin_pg::workers::WorkerDatabase::new(&st.db.dsn)?;
-        setjoin_directory_sync::ldap::normalized::release_abandoned(&db, other).await?;
+        setjoin_gateway::directory_sync_workers::ldap_normalized::release_abandoned(&db, other)
+            .await?;
         let still: i64 = st
             .owner
             .query_one(
@@ -1055,7 +1056,8 @@ async fn a_stopped_workers_lease_is_released() -> Opt {
             .await?
             .get(0);
         assert_eq!(still, 1, "another instance's lease is left alone");
-        setjoin_directory_sync::ldap::normalized::release_abandoned(&db, instance).await?;
+        setjoin_gateway::directory_sync_workers::ldap_normalized::release_abandoned(&db, instance)
+            .await?;
         let left: i64 = st
             .owner
             .query_one(

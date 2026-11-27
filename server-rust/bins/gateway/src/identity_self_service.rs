@@ -75,27 +75,45 @@ pub struct IdentitySelfServiceRoute<K: KeySource + 'static> {
 
 #[derive(Default)]
 struct WebhookBody {
-    url:String,
-    events:Vec<Option<String>>,
-    scope:String,
+    url: String,
+    events: Vec<Option<String>>,
+    scope: String,
 }
 impl<'de> serde::Deserialize<'de> for WebhookBody {
-    fn deserialize<D:serde::Deserializer<'de>>(decoder:D)->Result<Self,D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(decoder: D) -> Result<Self, D::Error> {
         struct Fields;
         impl<'de> Visitor<'de> for Fields {
-            type Value=WebhookBody;
-            fn expecting(&self,f:&mut fmt::Formatter<'_>)->fmt::Result {f.write_str("a JSON object")}
-            fn visit_unit<E:serde::de::Error>(self)->Result<WebhookBody,E> {Ok(WebhookBody::default())}
-            fn visit_map<M:MapAccess<'de>>(self,mut map:M)->Result<WebhookBody,M::Error> {
-                let mut body=WebhookBody::default();
-                while let Some(key)=map.next_key::<String>()? {
+            type Value = WebhookBody;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a JSON object")
+            }
+            fn visit_unit<E: serde::de::Error>(self) -> Result<WebhookBody, E> {
+                Ok(WebhookBody::default())
+            }
+            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<WebhookBody, M::Error> {
+                let mut body = WebhookBody::default();
+                while let Some(key) = map.next_key::<String>()? {
                     match crate::guests_input::fold(&key).as_str() {
-                        "url"=>if let Some(value)=map.next_value::<Option<String>>()? {body.url=value;},
+                        "url" => {
+                            if let Some(value) = map.next_value::<Option<String>>()? {
+                                body.url = value;
+                            }
+                        }
                         // Go JSON null clears a slice, including a duplicate
                         // field that previously supplied a nonempty array.
-                        "eventtypes"=>body.events=map.next_value::<Option<Vec<Option<String>>>>()?.unwrap_or_default(),
-                        "scope"=>if let Some(value)=map.next_value::<Option<String>>()? {body.scope=value;},
-                        _=>{let _:serde::de::IgnoredAny=map.next_value()?;}
+                        "eventtypes" => {
+                            body.events = map
+                                .next_value::<Option<Vec<Option<String>>>>()?
+                                .unwrap_or_default()
+                        }
+                        "scope" => {
+                            if let Some(value) = map.next_value::<Option<String>>()? {
+                                body.scope = value;
+                            }
+                        }
+                        _ => {
+                            let _: serde::de::IgnoredAny = map.next_value()?;
+                        }
                     }
                 }
                 Ok(body)
@@ -174,9 +192,9 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
         crate::identity_migration::matches(r)
             || crate::identity_smime::matches(r)
             || (matches!(*r.method(), Method::GET | Method::HEAD)
-            && (crate::inventory::path_score("/auth/me/org-chart", path).is_some()
-                || crate::inventory::path_score("/auth/me/webhooks", path).is_some()
-                || crate::inventory::path_score("/auth/me/mailtips", path).is_some()))
+                && (crate::inventory::path_score("/auth/me/org-chart", path).is_some()
+                    || crate::inventory::path_score("/auth/me/webhooks", path).is_some()
+                    || crate::inventory::path_score("/auth/me/mailtips", path).is_some()))
             || (*r.method() == Method::POST
                 && (crate::inventory::path_score("/auth/me/dlp-check", path).is_some()
                     || crate::inventory::path_score("/auth/me/read-receipt", path).is_some()))
@@ -190,9 +208,11 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
     fn admits_member(&self, headers: hyper::HeaderMap, scheme: &'static str) -> BoxFuture<bool> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
         Box::pin(async move {
-            setjoin_authz::authorize_mailserver_identity_request(&exec, &keys, &issuer, &headers, scheme)
-                .await
-                .is_some()
+            setjoin_authz::authorize_mailserver_identity_request(
+                &exec, &keys, &issuer, &headers, scheme,
+            )
+            .await
+            .is_some()
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
@@ -206,26 +226,67 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
-            let admission=if crate::identity_migration::matches(&r) {
-                setjoin_authz::authorize_mailserver_identity_request(&exec,&keys,&issuer,r.headers(),c.identity.proto).await
-            }else{
-                setjoin_authz::authorize_request(&exec,&keys,&issuer,r.headers(),c.identity.proto).await
+            let admission = if crate::identity_migration::matches(&r) {
+                setjoin_authz::authorize_mailserver_identity_request(
+                    &exec,
+                    &keys,
+                    &issuer,
+                    r.headers(),
+                    c.identity.proto,
+                )
+                .await
+            } else {
+                setjoin_authz::authorize_request(
+                    &exec,
+                    &keys,
+                    &issuer,
+                    r.headers(),
+                    c.identity.proto,
+                )
+                .await
             };
-            let Some(auth)=admission else {return bare(401,"Unauthorized",&c,&id);};
+            let Some(auth) = admission else {
+                return bare(401, "Unauthorized", &c, &id);
+            };
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(principal) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return bare(401, "Unauthorized", &c, &id);
+            };
             if crate::identity_migration::matches(&r) {
-                return crate::identity_migration::handle(&exec,auth.context(),r,&c,id,operation,migration_runner.as_ref()).await;
+                return crate::identity_migration::handle(
+                    &factory,
+                    &principal,
+                    r,
+                    &c,
+                    id,
+                    operation,
+                    migration_runner.as_ref(),
+                )
+                .await;
             }
             if crate::identity_smime::matches(&r) {
-                return crate::identity_smime::handle(&exec, auth.context(), r, &c, id, operation).await;
+                return crate::identity_smime::handle(&factory, &principal, r, &c, id, operation)
+                    .await;
             }
             if crate::inventory::path_score("/auth/me/webhooks/{id}", r.uri().path()).is_some() {
                 // Frozen Go ignores ParseInt's error (including saturation).
-                let target = crate::admin_identity_input::atoi(&crate::mailboxes::segment(r.uri().path(), 4));
+                let target = crate::admin_identity_input::atoi(&crate::mailboxes::segment(
+                    r.uri().path(),
+                    4,
+                ));
                 return match setjoin_identity::self_service::webhook_delete(
-                    &exec, auth.context(), target, operation,
-                ).await {
+                    &factory, &principal, target, operation,
+                )
+                .await
+                {
                     CommandOutcome::Committed(true) => {
-                        let mut reply = crate::jmap::reply::response(String::new(), c.identity.proto, id);
+                        let mut reply =
+                            crate::jmap::reply::response(String::new(), c.identity.proto, id);
                         *reply.status_mut() = hyper::StatusCode::NO_CONTENT;
                         reply.headers_mut().remove(hyper::header::CONTENT_TYPE);
                         reply
@@ -238,7 +299,7 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
             if crate::inventory::path_score("/auth/me/webhooks", r.uri().path()).is_some() {
                 if r.method() == Method::POST {
                     // `requireWebhookCap` runs after auth and before the handler reads the body.
-                    match setjoin_identity::self_service::webhook_count(&exec, auth.context()).await {
+                    match setjoin_identity::self_service::webhook_count(&factory, &principal).await {
                         Err(_) => return bare(503, "unable to verify webhook subscription budget", &c, &id),
                         Ok(n) if n >= setjoin_identity::self_service::MAX_WEBHOOK_SUBSCRIPTIONS_PER_USER => {
                             return bare(
@@ -252,7 +313,9 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
                         }
                         Ok(_) => {}
                     }
-                    let Ok(input) = crate::admin_identity_input::first::<WebhookBody>(&mut r, body_cap()).await else {
+                    let Ok(input) =
+                        crate::admin_identity_input::first::<WebhookBody>(&mut r, body_cap()).await
+                    else {
                         return bare(400, "url and eventTypes required", &c, &id);
                     };
                     if input.url.is_empty() || input.events.is_empty() {
@@ -261,7 +324,11 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
                     if !input.scope.is_empty() && input.scope != "self" {
                         return bare(400, "self-service webhooks require self scope", &c, &id);
                     }
-                    let events = input.events.into_iter().map(Option::unwrap_or_default).collect::<Vec<_>>();
+                    let events = input
+                        .events
+                        .into_iter()
+                        .map(Option::unwrap_or_default)
+                        .collect::<Vec<_>>();
                     let mut seen = std::collections::HashSet::new();
                     for event in &events {
                         if !setjoin_platform::webhooks::is_known_event_type(event) {
@@ -274,7 +341,12 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
                     if !setjoin_authz::ssrf::valid_public_http(&input.url)
                         || !resolves_public(&*resolver, &input.url).await
                     {
-                        return bare(400, "webhook URL must be http(s) and point to a public host", &c, &id);
+                        return bare(
+                            400,
+                            "webhook URL must be http(s) and point to a public host",
+                            &c,
+                            &id,
+                        );
                     }
                     let Ok(secret) = setjoin_platform::webhook_secret::generate_secret() else {
                         return bare(500, "secret sealing failed", &c, &id);
@@ -283,23 +355,35 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
                         return bare(500, "secret sealing failed", &c, &id);
                     };
                     return match setjoin_identity::self_service::webhook_create(
-                        &exec, auth.context(), &input.url, &json!(events).to_string(),
-                        &sealed, webhook_codec.active_key_id(), operation,
-                    ).await {
+                        &factory,
+                        &principal,
+                        &input.url,
+                        &json!(events).to_string(),
+                        &sealed,
+                        webhook_codec.active_key_id(),
+                        operation,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(created) => {
                             let body = setjoin_identity::issuance::object(&[
-                                ("id", json!(created)), ("scope", json!("self")),
-                                ("secret", json!(secret)), ("url", json!(input.url)),
+                                ("id", json!(created)),
+                                ("scope", json!("self")),
+                                ("secret", json!(secret)),
+                                ("url", json!(input.url)),
                             ]) + "\n";
-                            let mut response = crate::jmap::reply::response(body, c.identity.proto, id);
+                            let mut response =
+                                crate::jmap::reply::response(body, c.identity.proto, id);
                             *response.status_mut() = hyper::StatusCode::CREATED;
                             response
                         }
-                        CommandOutcome::Unknown { operation } => unknown_outcome(operation, &c, &id),
+                        CommandOutcome::Unknown { operation } => {
+                            unknown_outcome(operation, &c, &id)
+                        }
                         _ => bare(500, "create failed", &c, &id),
                     };
                 }
-                return match setjoin_identity::self_service::webhooks(&exec, auth.context()).await {
+                return match setjoin_identity::self_service::webhooks(&factory, &principal).await {
                     Ok(body) => crate::jmap::reply::response(body, c.identity.proto, id),
                     Err(_) => bare(500, "database error", &c, &id),
                 };
@@ -315,21 +399,29 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
                 if message <= 0 {
                     return bare(400, "invalid messageId", &c, &id);
                 }
+                let Ok(mb) = factory
+                    .mint_primary_mailbox_from_authorized(&auth, &client_ip)
+                    .await
+                else {
+                    return bare(500, "database error", &c, &id);
+                };
+                let Ok(cap) = mb.require_mutate() else {
+                    return bare(500, "database error", &c, &id);
+                };
                 return match setjoin_identity::self_service::read_receipt(
-                    &exec,
-                    auth.context(),
+                    &factory,
+                    &cap,
+                    &mb,
                     message,
                     input.consent,
                     operation,
                 )
                 .await
                 {
-                    Some(CommandOutcome::Committed(body)) => {
+                    CommandOutcome::Committed(body) => {
                         crate::jmap::reply::response(body, c.identity.proto, id)
                     }
-                    Some(CommandOutcome::Unknown { operation }) => {
-                        unknown_outcome(operation, &c, &id)
-                    }
+                    CommandOutcome::Unknown { operation } => unknown_outcome(operation, &c, &id),
                     _ => bare(500, "database error", &c, &id),
                 };
             }
@@ -337,18 +429,45 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
                 let recipients =
                     crate::admin_identity_input::query(r.uri(), "recipients").unwrap_or_default();
                 let from = crate::admin_identity_input::query(r.uri(), "from").unwrap_or_default();
+                let mb = factory
+                    .mint_primary_mailbox_from_authorized(&auth, &client_ip)
+                    .await
+                    .ok();
+                let read_cap = mb.as_ref().and_then(|m| m.require_read().ok());
+                let mb_pair = match (&mb, &read_cap) {
+                    (Some(m), Some(cap)) => Some((m.mailbox().get(), cap)),
+                    _ => None,
+                };
+                let delegate_send_as_allowed = if !from.is_empty() {
+                    let user_id = principal.user().get();
+                    worker
+                        .read(
+                            setjoin_identity::sql::SELF_SERVICE_L678.sql,
+                            &[
+                                (&user_id, setjoin_pg::Type::INT8),
+                                (&from, setjoin_pg::Type::TEXT),
+                            ],
+                        )
+                        .await
+                        .ok()
+                        .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
                 let body = setjoin_identity::self_service::mailtips(
-                    &exec,
-                    &worker,
-                    auth.context(),
+                    &factory,
+                    &principal,
+                    mb_pair,
                     &recipients,
                     &from,
+                    delegate_send_as_allowed,
                 )
                 .await;
                 return crate::jmap::reply::response(body, c.identity.proto, id);
             }
             if crate::inventory::path_score("/auth/me/org-chart", r.uri().path()).is_some() {
-                let mut target = auth.context().user_id();
+                let mut target = principal.user().get();
                 if let Some(raw) =
                     crate::admin_identity_input::query(r.uri(), "userId").filter(|s| !s.is_empty())
                 {
@@ -373,25 +492,52 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
                     };
                     target = parsed;
                 }
-                return match setjoin_identity::self_service::org_chart(
-                    &exec,
-                    auth.context(),
-                    target,
-                )
-                .await
-                {
-                    Some(body) => crate::jmap::reply::response(body, c.identity.proto, id),
-                    None => bare(
+                // Cross-user same-domain org-chart reads run on the dedicated BYPASSRLS worker pool.
+                let actor_id = principal.user().get();
+                let params: &[setjoin_pg::Param<'_>] = &[
+                    (&actor_id, setjoin_pg::Type::INT8),
+                    (&target, setjoin_pg::Type::INT8),
+                ];
+                let allowed = worker
+                    .read(setjoin_identity::sql::SELF_SERVICE_L552.sql, params)
+                    .await
+                    .ok()
+                    .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
+                    .unwrap_or(false);
+                if !allowed {
+                    return bare(
                         403,
                         "cannot view org chart for users in other domains",
                         &c,
                         &id,
-                    ),
-                };
+                    );
+                }
+                let managers = worker
+                    .read(setjoin_identity::sql::SELF_SERVICE_L559.sql, params)
+                    .await
+                    .ok()
+                    .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, String>(0).ok()))
+                    .unwrap_or_else(|| "[]".into());
+                let reports = worker
+                    .read(setjoin_identity::sql::SELF_SERVICE_L560.sql, params)
+                    .await
+                    .ok()
+                    .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, String>(0).ok()))
+                    .unwrap_or_else(|| "[]".into());
+                let user_json = worker
+                    .read(setjoin_identity::sql::SELF_SERVICE_L561.sql, params)
+                    .await
+                    .ok()
+                    .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, String>(0).ok()))
+                    .unwrap_or_else(|| "null".into());
+                let body = setjoin_identity::self_service::format_org_chart(
+                    &managers, &reports, &user_json,
+                );
+                return crate::jmap::reply::response(body, c.identity.proto, id);
             }
             if crate::inventory::path_score("/auth/me/dlp-check", r.uri().path()).is_some() {
                 use setjoin_identity::self_service as db;
-                if !db::advisory_enabled(&exec, "feature.dlp").await {
+                if !db::advisory_enabled(&factory, "feature.dlp").await {
                     return crate::jmap::reply::response(
                         "{\"violated\":false}\n".into(),
                         c.identity.proto,
@@ -403,7 +549,13 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
                 else {
                     return bare(400, "invalid body", &c, &id);
                 };
-                let Some(mailbox) = db::primary_mailbox(&exec, auth.context()).await else {
+                let Ok(mb) = factory
+                    .mint_primary_mailbox_from_authorized(&auth, &client_ip)
+                    .await
+                else {
+                    return bare(500, "database error", &c, &id);
+                };
+                let Ok(cap) = mb.require_read() else {
                     return bare(500, "database error", &c, &id);
                 };
                 let recipients = input.recipients.map(|xs| {
@@ -412,9 +564,9 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
                         .collect::<Vec<_>>()
                 });
                 let body = db::dlp_check(
-                    &exec,
-                    auth.context(),
-                    mailbox,
+                    &factory,
+                    &cap,
+                    mb.mailbox().get(),
                     &json!(recipients).to_string(),
                     &input.subject,
                     &input.text,
@@ -429,10 +581,7 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
                     return bare(400, "invalid id", &c, &id);
                 };
                 return match setjoin_identity::self_service::app_password_revoke(
-                    &exec,
-                    auth.context(),
-                    target,
-                    operation,
+                    &factory, &principal, target, operation,
                 )
                 .await
                 {
@@ -459,8 +608,8 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
                     return bare(400, "name is required", &c, &id);
                 }
                 let Ok(outcome) = setjoin_identity::self_service::app_password_create(
-                    &exec,
-                    auth.context(),
+                    &factory,
+                    &principal,
                     &input.name,
                     &input.label,
                     operation,
@@ -488,7 +637,7 @@ impl<K: KeySource + 'static> Intercept for IdentitySelfServiceRoute<K> {
                     CommandOutcome::Unknown { operation } => unknown_outcome(operation, &c, &id),
                 };
             }
-            match setjoin_identity::self_service::app_passwords(&exec, auth.context()).await {
+            match setjoin_identity::self_service::app_passwords(&factory, &principal).await {
                 Ok(body) => crate::jmap::reply::response(body, c.identity.proto, id),
                 Err(_) => bare(500, "database error", &c, &id),
             }

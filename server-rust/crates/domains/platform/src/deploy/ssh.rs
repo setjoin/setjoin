@@ -234,7 +234,8 @@ pub(super) async fn call(
         result=channel.exec(true,command)=>result.map_err(|e|(e.to_string(),Vec::new()))?,
     }
     let collect = async {
-        let (mut out, mut err, mut status, mut signal) = (Capture::default(), Capture::default(), None, None);
+        let (mut out, mut err, mut status, mut signal) =
+            (Capture::default(), Capture::default(), None, None);
         while let Some(message) = channel.wait().await {
             match message {
                 ChannelMsg::Data { data } => out.push(&data),
@@ -318,6 +319,11 @@ mod secfix11_tests {
             capture.push(&chunk);
         }
         assert_eq!(capture.0.len(), OUTPUT_CAP);
-        assert!(OUTPUT_CAP > 4096, "the reported 4096-byte prefix is untouched");
+        const {
+            assert!(
+                OUTPUT_CAP > 4096,
+                "the reported 4096-byte prefix is untouched"
+            );
+        }
     }
 }

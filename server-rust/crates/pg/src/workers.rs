@@ -37,7 +37,8 @@ impl Drop for RevocationSnapshotDriver {
                     let _ = tokio::time::timeout(
                         std::time::Duration::from_secs(2),
                         cancel.cancel_query(NoTls),
-                    ).await;
+                    )
+                    .await;
                 });
             }
         }

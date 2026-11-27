@@ -212,7 +212,9 @@ pub struct BeginRoute<K: KeySource + 'static>(
     pub Option<Arc<ReceiptKeys>>,
 );
 impl<K: KeySource + 'static> Intercept for BeginRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         r.method() == Method::POST && r.uri().path() == "/api/recovery/uploads"
     }
@@ -327,9 +329,18 @@ impl<K: KeySource + 'static> Intercept for BeginRoute<K> {
             };
             let receipt = serde_json::to_string(&offer.receipt).expect("receipt JSON");
             let items = serde_json::to_string(&offer.inventory).expect("inventory JSON");
+            let Some(factory) = commands.tx_factory() else {
+                return fail(503, "service unavailable");
+            };
+            let Ok(user) = factory
+                .mint_user_from_authorized(&a, &c.identity.client_ip.to_string())
+                .await
+            else {
+                return fail(500, "recovery control operation failed");
+            };
             match setjoin_blobs::begin_upload(
-                &commands.worker_exec,
-                a.context(),
+                &factory,
+                &user,
                 setjoin_blobs::BeginUpload {
                     session: &session,
                     incident: &incident,

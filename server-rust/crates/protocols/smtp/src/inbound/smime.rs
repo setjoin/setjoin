@@ -340,9 +340,9 @@ fn extract(data: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
         let content_types = setjoin_mime::unfold_headers(headers)
             .split(|b| *b == b'\n')
             .filter(|line| {
-                line.iter()
-                    .position(|b| *b == b':')
-                    .is_some_and(|i| setjoin_mime::trim_space(&line[..i]).eq_ignore_ascii_case(b"content-type"))
+                line.iter().position(|b| *b == b':').is_some_and(|i| {
+                    setjoin_mime::trim_space(&line[..i]).eq_ignore_ascii_case(b"content-type")
+                })
             })
             .count();
         if content_types != 1 {
@@ -560,11 +560,19 @@ mod tests {
         let signed = "Content-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"b\"\r\n";
         let attack = format!("--B\r\n{UNSIGNED}--B--\r\n");
         let body = format!("{SIGNED}{SIGNATURE}--b--\r\n");
-        let lower = format!("content-type: multipart/mixed; boundary=B\r\n{signed}\r\n{attack}{body}");
-        let folded = format!("Content-Type: multipart/mixed;\r\n boundary=B\r\n{signed}\r\n{attack}{body}");
-        let after = format!("{signed}Content-Type: multipart/mixed; boundary=B\r\n\r\n{attack}{body}");
+        let lower =
+            format!("content-type: multipart/mixed; boundary=B\r\n{signed}\r\n{attack}{body}");
+        let folded =
+            format!("Content-Type: multipart/mixed;\r\n boundary=B\r\n{signed}\r\n{attack}{body}");
+        let after =
+            format!("{signed}Content-Type: multipart/mixed; boundary=B\r\n\r\n{attack}{body}");
         let preamble = format!("{signed}\r\n{attack}{body}");
-        for (name, data) in [("lowercase", lower), ("folded", folded), ("second header after", after), ("preamble only", preamble)] {
+        for (name, data) in [
+            ("lowercase", lower),
+            ("folded", folded),
+            ("second header after", after),
+            ("preamble only", preamble),
+        ] {
             assert!(extract(data.as_bytes()).is_none(), "{name}");
         }
         // One header in any case, folded or not, with a blank preamble still verifies.

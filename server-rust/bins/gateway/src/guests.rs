@@ -122,11 +122,20 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                 );
                 *r.uri_mut() = hyper::Uri::from_parts(parts).expect("original URI parts");
             }
-            if !matches!(setjoin_guests::enabled(&exec).await, Ok(true)) {
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return problem(503, "service unavailable", r.uri().path(), &c, id, None);
+            };
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return problem(500, "database error", r.uri().path(), &c, id, None);
+            };
+            if !matches!(setjoin_guests::enabled(&factory).await, Ok(true)) {
                 return problem(404, "not found", r.uri().path(), &c, id, None);
             }
             if r.method() == hyper::Method::POST && r.uri().path() == "/api/me/guest-invites" {
-                if !matches!(setjoin_guests::approval_enabled(&exec).await, Ok(true)) {
+                if !matches!(setjoin_guests::approval_enabled(&factory).await, Ok(true)) {
                     return problem(404, "not found", r.uri().path(), &c, id, None);
                 }
                 let body = match crate::guests_input::read::<crate::guests_input::Submission>(
@@ -149,14 +158,8 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                 let Some(operation) = crate::jmap::random() else {
                     return problem(503, "service unavailable", r.uri().path(), &c, id, None);
                 };
-                return match setjoin_guests::submit(
-                    &worker,
-                    auth.context(),
-                    &email,
-                    message,
-                    operation,
-                )
-                .await
+                return match setjoin_guests::submit(&factory, &user, &email, message, operation)
+                    .await
                 {
                     setjoin_pg::CommandOutcome::Committed(Some(request)) => {
                         let mut response = crate::jmap::reply::response(
@@ -183,19 +186,30 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                     }
                 };
             }
-            if r.uri().path().starts_with("/api/admin/") {
+            let admin_proof = if r.uri().path().starts_with("/api/admin/") {
                 let write = !matches!(*r.method(), hyper::Method::GET | hyper::Method::HEAD)
                     || r.uri().path().ends_with("/sponsor-options");
-                if !matches!(
-                    setjoin_guests::allowed(&exec, auth.context(), write).await,
-                    Ok(true)
-                ) {
+                let required: &[&str] = if write {
+                    &["guests.manage"]
+                } else {
+                    &["guests.manage", "guests.view"]
+                };
+                let proof = if auth.context().signed_admin() {
+                    factory
+                        .mint_admin_from_authorized(&auth, &client_ip)
+                        .await
+                        .ok()
+                        .and_then(|admin| admin.require_any_permission(required).ok())
+                } else {
+                    None
+                };
+                let Some(proof) = proof else {
                     let decoded =
                         crate::guests_input::go_utf8(&crate::inventory::unescape(r.uri().path()));
                     let path = decoded.strip_prefix("/api").unwrap_or(&decoded);
                     let _ = setjoin_guests::console_denied(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &user,
                         path,
                         if write {
                             "guests.manage"
@@ -208,8 +222,24 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                     let mut response = problem(403, "Forbidden", "", &c, id, None);
                     response.headers_mut().remove("content-language");
                     return response;
-                }
-            }
+                };
+                Some(proof)
+            } else {
+                None
+            };
+            let Some(admin_proof) = admin_proof else {
+                let mut response = crate::jmap::reply::response(
+                    "404 page not found\n".into(),
+                    c.identity.proto,
+                    id,
+                );
+                *response.status_mut() = hyper::StatusCode::NOT_FOUND;
+                response.headers_mut().insert(
+                    "content-type",
+                    hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
+                );
+                return response;
+            };
             let create = r.method() == hyper::Method::POST && r.uri().path() == "/api/admin/guests";
             let recovery = r.method() == hyper::Method::POST
                 && r.uri()
@@ -288,14 +318,8 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                         expires: body.expires.as_deref(),
                     }
                 };
-                return match setjoin_guests::invite(
-                    &worker,
-                    auth.context(),
-                    input,
-                    &hash,
-                    operation,
-                )
-                .await
+                return match setjoin_guests::invite(&factory, &admin_proof, input, &hash, operation)
+                    .await
                 {
                     setjoin_pg::CommandOutcome::Committed(prepared) => {
                         if recovery {
@@ -310,7 +334,6 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                         let delivered = crate::guest_mail::send(
                             &worker,
                             delivery.as_deref(),
-                            auth.context(),
                             &prepared,
                             &token,
                         )
@@ -404,8 +427,8 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                         return problem(503, "service unavailable", r.uri().path(), &c, id, None);
                     };
                     return match setjoin_guests::revoke(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &admin_proof,
                         target,
                         invite,
                         operation,
@@ -461,8 +484,9 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                         return problem(503, "service unavailable", r.uri().path(), &c, id, None);
                     };
                     return match setjoin_guests::set_domain(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &admin_proof,
+                        &user,
                         &domain,
                         true,
                         operation,
@@ -505,8 +529,9 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                     return problem(503, "service unavailable", r.uri().path(), &c, id, None);
                 };
                 return match setjoin_guests::set_domain(
-                    &worker,
-                    auth.context(),
+                    &factory,
+                    &admin_proof,
+                    &user,
                     &domain,
                     false,
                     operation,
@@ -569,11 +594,7 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                         return problem(503, "service unavailable", r.uri().path(), &c, id, None);
                     };
                     return match setjoin_guests::assign_profile(
-                        &worker,
-                        auth.context(),
-                        target,
-                        profile,
-                        operation,
+                        &factory, &user, target, profile, operation,
                     )
                     .await
                     {
@@ -620,8 +641,8 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                         return problem(503, "service unavailable", r.uri().path(), &c, id, None);
                     };
                     return match setjoin_guests::transfer(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &admin_proof,
                         target,
                         sponsor,
                         operation,
@@ -697,8 +718,8 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                         return problem(503, "service unavailable", r.uri().path(), &c, id, None);
                     };
                     return match setjoin_guests::set_status(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &admin_proof,
                         target,
                         &action,
                         expires.as_deref(),
@@ -735,7 +756,7 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
             if r.uri().path() == "/api/admin/guests"
                 && matches!(*r.method(), hyper::Method::GET | hyper::Method::HEAD)
             {
-                return match setjoin_guests::list(&worker, auth.context()).await {
+                return match setjoin_guests::list(&factory, &admin_proof).await {
                     Ok(body) => crate::jmap::reply::response(
                         crate::jmap::reply::go_compact(&body).unwrap_or_default() + "\n",
                         c.identity.proto,
@@ -765,7 +786,7 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                     if query.len() > 200 {
                         return problem(400, "q is too long", r.uri().path(), &c, id, None);
                     }
-                    return match setjoin_guests::sponsors(&worker, auth.context(), target, query)
+                    return match setjoin_guests::sponsors(&factory, &admin_proof, target, query)
                         .await
                     {
                         Ok(body) => crate::jmap::reply::response(
@@ -786,7 +807,7 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                     let Some(target) = raw.parse::<i64>().ok().filter(|n| *n > 0) else {
                         return problem(400, "invalid id", r.uri().path(), &c, id, None);
                     };
-                    return match setjoin_guests::get(&worker, auth.context(), target).await {
+                    return match setjoin_guests::get(&factory, &admin_proof, target).await {
                         Ok(Some(body)) => crate::jmap::reply::response(
                             crate::jmap::reply::go_compact(&body).unwrap_or_default() + "\n",
                             c.identity.proto,
@@ -800,7 +821,7 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
             if matches!(*r.method(), hyper::Method::GET | hyper::Method::HEAD)
                 && r.uri().path() == "/api/admin/guest-profile-domains"
             {
-                return match setjoin_guests::profile_domains(&worker, auth.context()).await {
+                return match setjoin_guests::profile_domains(&factory, &admin_proof).await {
                     Ok(body) => crate::jmap::reply::response(
                         crate::jmap::reply::go_compact(&body).unwrap_or_default() + "\n",
                         c.identity.proto,
@@ -849,8 +870,8 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                     return problem(503, "service unavailable", r.uri().path(), &c, id, None);
                 };
                 return match setjoin_guests::save_profile(
-                    &worker,
-                    auth.context(),
+                    &factory,
+                    &admin_proof,
                     profile_id,
                     &body,
                     operation,
@@ -881,7 +902,7 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
             if matches!(*r.method(), hyper::Method::GET | hyper::Method::HEAD)
                 && r.uri().path() == "/api/admin/guest-profiles"
             {
-                return match setjoin_guests::profiles(&worker, auth.context()).await {
+                return match setjoin_guests::profiles(&factory, &admin_proof).await {
                     Ok(body) => crate::jmap::reply::response(
                         crate::jmap::reply::go_compact(&body).unwrap_or_default() + "\n",
                         c.identity.proto,
@@ -909,8 +930,8 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                     return problem(503, "service unavailable", r.uri().path(), &c, id, None);
                 };
                 return match setjoin_guests::delete_profile(
-                    &worker,
-                    auth.context(),
+                    &factory,
+                    &admin_proof,
                     target,
                     operation,
                 )
@@ -933,8 +954,7 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                     .filter(|s| !s.is_empty() && !s.contains('/'))
                 {
                     if let Ok(target) = target.parse::<i64>() {
-                        return match setjoin_guests::profile(&worker, auth.context(), target).await
-                        {
+                        return match setjoin_guests::profile(&factory, &admin_proof, target).await {
                             Ok(body) => crate::jmap::reply::response(
                                 crate::jmap::reply::go_compact(&body).unwrap_or_default() + "\n",
                                 c.identity.proto,

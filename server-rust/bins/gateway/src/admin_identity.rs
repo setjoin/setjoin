@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 pub struct AdminIdentityRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
 }
@@ -151,7 +152,12 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        let (exec, worker, keys, issuer) = (
+            self.exec.clone(),
+            self.worker.clone(),
+            self.keys.clone(),
+            self.issuer.clone(),
+        );
         Box::pin(async move {
             let Some(what) = action(r.method(), r.uri().path()) else {
                 return bare(404, "not found", &c, "");
@@ -167,9 +173,21 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
-            let authority = setjoin_admin_identity::authority(&exec, actor)
-                .await
-                .unwrap_or_else(|_| setjoin_admin_identity::Authority::lookup_failed());
+            let worker_exec = worker.as_ref().unwrap_or(&exec);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(worker_exec))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let admin_principal = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
+            };
             let path = r.uri().path().to_owned();
             let go_path = segment_path(&path);
             let required: &[&str] = match what {
@@ -191,39 +209,55 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                 | Action::Permissions => &setjoin_admin_identity::roles::ROLES_MANAGE,
                 _ => &setjoin_admin_identity::AUTH_CONSOLE,
             };
-            if !authority.allows_any(required) {
+            let Some(admin_principal) = admin_principal.filter(|a| a.allows_any(required)) else {
                 let _ = setjoin_admin_identity::console_denied(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user_principal,
                     &go_path,
                     &required.join("|"),
                     operation,
                 )
                 .await;
                 return bare(403, "Forbidden", &c, &id);
-            }
-            if authority.refused_for_scope(required) {
+            };
+            let scope = admin_principal.enforced_domain_scope().unwrap_or(0);
+            if admin_principal.refused_for_scope(required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
                     required.join("|"),
-                    authority.domain_scope()
+                    scope
                 );
                 let _ = setjoin_admin_identity::console_denied(
-                    &exec, actor, &go_path, &detail, operation,
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &detail,
+                    operation,
                 )
                 .await;
                 return bare(403, "Forbidden", &c, &id);
             }
+            let Ok(admin_proof) = admin_principal.require_any_permission(required) else {
+                let _ = setjoin_admin_identity::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
             if roles::is_write(what)
-                && setjoin_admin_identity::roles::reason_required(&exec).await
+                && setjoin_admin_identity::roles::reason_required(&factory, &admin_proof).await
                 && r.headers()
                     .get("x-audit-reason")
                     .is_none_or(|v| v.as_bytes().is_empty())
             {
                 setjoin_admin_identity::roles::missing_reason(
-                    &exec,
-                    actor,
-                    &c.identity.client_ip.to_string(),
+                    &factory,
+                    &user_principal,
+                    &ip,
                     operation,
                 )
                 .await;
@@ -244,11 +278,20 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                     | Action::Permissions
             ) {
                 return roles::serve(
-                    &exec, what, r, actor, &authority, &c, &id, &path, &go_path, operation,
+                    &factory,
+                    what,
+                    r,
+                    &user_principal,
+                    &admin_principal,
+                    &admin_proof,
+                    &c,
+                    &id,
+                    &path,
+                    &go_path,
+                    operation,
                 )
                 .await;
             }
-            let scope = authority.domain_scope();
             let reply =
                 |body: String| crate::jmap::reply::response(body, c.identity.proto, id.clone());
             let full = |status: u16, detail: &str| problem(status, detail, &go_path, &c, &id);
@@ -279,7 +322,8 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                         .unwrap_or(0)
                         .clamp(0, 1_000_000);
                     match setjoin_admin_identity::users(
-                        &exec,
+                        &factory,
+                        &admin_proof,
                         actor.user_id(),
                         scope,
                         &q,
@@ -296,7 +340,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                     let Some(user) = target(4) else {
                         return full(400, "invalid user id");
                     };
-                    match setjoin_admin_identity::user(&exec, scope, user).await {
+                    match setjoin_admin_identity::user(&factory, &admin_proof, scope, user).await {
                         Ok(Some(body)) => reply(body),
                         Ok(None) => full(404, "user not found"),
                         Err(_) => db(),
@@ -310,13 +354,22 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                     }
                     match what {
                         Action::Aliases => {
-                            match setjoin_admin_identity::aliases(&exec, scope, user).await {
+                            match setjoin_admin_identity::aliases(
+                                &factory,
+                                &admin_proof,
+                                scope,
+                                user,
+                            )
+                            .await
+                            {
                                 Ok(body) => reply(body),
                                 Err(_) => db(),
                             }
                         }
                         Action::Quota => {
-                            match setjoin_admin_identity::quota(&exec, scope, user).await {
+                            match setjoin_admin_identity::quota(&factory, &admin_proof, scope, user)
+                                .await
+                            {
                                 Some(body) => reply(body),
                                 None => full(404, "mailbox not found"),
                             }
@@ -329,8 +382,13 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                             if body.email.is_empty() {
                                 return full(400, "email required");
                             }
-                            let Some((mailbox, _)) =
-                                setjoin_admin_identity::primary_mailbox(&exec, scope, user).await
+                            let Some((mailbox, _)) = setjoin_admin_identity::primary_mailbox(
+                                &factory,
+                                &admin_proof,
+                                scope,
+                                user,
+                            )
+                            .await
                             else {
                                 return full(404, "primary mailbox not found");
                             };
@@ -341,14 +399,26 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                             // Owner-approved security fix 2026-11-05 (#373): a domain-scoped
                             // admin binds only addresses in the mailbox's own domain.
                             if !setjoin_admin_identity::alias_domain_allowed(
-                                &exec, scope, mailbox, &email,
+                                &factory,
+                                &admin_proof,
+                                scope,
+                                mailbox,
+                                &email,
                             )
                             .await
                             {
                                 return full(403, "alias address is outside the mailbox's domain");
                             }
-                            match setjoin_admin_identity::add_alias(
-                                &exec, actor, scope, user, mailbox, &email, operation,
+                            let enforce_domain = setjoin_admin_identity::alias_enforce_domain();
+                            match crate::mailboxes::worker_write_contract_family(
+                                worker_exec,
+                                &admin_proof,
+                                setjoin_admin_identity::FAMILY,
+                                "user.alias.add",
+                                &setjoin_admin_identity::sql::USER_ALIAS_ADD,
+                                &[&mailbox, &user, &scope, &email, &enforce_domain],
+                                operation,
+                                setjoin_admin_identity::parse_alias_id,
                             )
                             .await
                             {
@@ -374,12 +444,26 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                                 return full(400, "invalid JSON");
                             };
                             let bytes = body.quota_bytes.filter(|n| *n > 0);
-                            let day = body.sending_quota_day.filter(|n| *n > 0);
-                            if bytes.is_none() && day.is_none() {
+                            let day_raw = body.sending_quota_day.filter(|n| *n > 0);
+                            if bytes.is_none() && day_raw.is_none() {
                                 return full(400, "no fields to update");
                             }
-                            match setjoin_admin_identity::set_quota(
-                                &exec, actor, scope, user, bytes, day, operation,
+                            let day = match day_raw {
+                                Some(d) => match i32::try_from(d) {
+                                    Ok(v) => Some(v),
+                                    Err(_) => return db(),
+                                },
+                                None => None,
+                            };
+                            match crate::mailboxes::worker_write_contract_family(
+                                worker_exec,
+                                &admin_proof,
+                                setjoin_admin_identity::FAMILY,
+                                "user.quota.set",
+                                &setjoin_admin_identity::sql::USER_QUOTA_SET,
+                                &[&user, &scope, &bytes, &day],
+                                operation,
+                                setjoin_admin_identity::parse_count,
                             )
                             .await
                             {
@@ -397,8 +481,15 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                     if user <= 0 || alias <= 0 {
                         return full(400, "invalid id");
                     }
-                    match setjoin_admin_identity::remove_alias(
-                        &exec, actor, scope, user, alias, operation,
+                    match crate::mailboxes::worker_write_contract_family(
+                        worker_exec,
+                        &admin_proof,
+                        setjoin_admin_identity::FAMILY,
+                        "user.alias.remove",
+                        &setjoin_admin_identity::sql::USER_ALIAS_REMOVE,
+                        &[&alias, &user, &scope],
+                        operation,
+                        setjoin_admin_identity::parse_count,
                     )
                     .await
                     {
@@ -411,7 +502,9 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                     let Some(user) = target(4) else {
                         return bare(400, "invalid user id", &c, &id);
                     };
-                    match setjoin_admin_identity::app_passwords(&exec, scope, user).await {
+                    match setjoin_admin_identity::app_passwords(&factory, &admin_proof, scope, user)
+                        .await
+                    {
                         Ok(body) => reply(body),
                         Err(_) => bare(500, "database error", &c, &id),
                     }
@@ -428,7 +521,9 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                             &id,
                         );
                     };
-                    match setjoin_admin_identity::app_access(&exec, scope, user).await {
+                    match setjoin_admin_identity::app_access(&factory, &admin_proof, scope, user)
+                        .await
+                    {
                         Ok(body) => reply(body),
                         Err(_) => internal(),
                     }
@@ -479,14 +574,16 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                             &id,
                         );
                     };
-                    match setjoin_admin_identity::set_app_access(
-                        &exec,
-                        actor,
-                        scope,
-                        user,
-                        &app,
-                        body.enabled,
+                    let actor_id = actor.user_id();
+                    match crate::mailboxes::worker_write_contract_family(
+                        worker_exec,
+                        &admin_proof,
+                        setjoin_admin_identity::FAMILY,
+                        "user.app_access.set",
+                        &setjoin_admin_identity::sql::USER_APP_ACCESS_SET,
+                        &[&user, &app, &body.enabled, &actor_id, &scope],
                         operation,
+                        setjoin_admin_identity::parse_count,
                     )
                     .await
                     {
@@ -528,13 +625,15 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                     let Some(user) = target(4) else {
                         return bare(400, "bad id", &c, &id);
                     };
-                    match setjoin_admin_identity::sessions(&exec, scope, user).await {
+                    match setjoin_admin_identity::sessions(&factory, &admin_proof, scope, user)
+                        .await
+                    {
                         Ok(Some(body)) => reply(body),
                         Ok(None) => bare(404, "not found", &c, &id),
                         Err(_) => bare(500, "database error", &c, &id),
                     }
                 }
-                _ => unreachable!("roles actions return above"),
+                _ => bare(404, "not found", &c, &id),
             }
         })
     }

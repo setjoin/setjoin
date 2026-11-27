@@ -11,9 +11,9 @@ pub(super) async fn run(what: Action, r: Request<Body>, e: &Env<'_>) -> Response
     if domain.is_empty() {
         return e.bare(400, "domain required");
     }
-    let scope = e.authority.domain_scope();
+    let scope = e.domain_scope;
     if scope > 0 {
-        let Ok(Some(name)) = dns::scope_name(e.exec, scope).await else {
+        let Ok(Some(name)) = dns::scope_name(e.factory, e.admin, scope).await else {
             return e.bare(403, "domain not found");
         };
         if crate::guests_input::lower(&domain) != crate::guests_input::lower(&name) {
@@ -21,9 +21,9 @@ pub(super) async fn run(what: Action, r: Request<Body>, e: &Env<'_>) -> Response
         }
     }
     let body = if what == Action::DnsRecords {
-        dns::records(e.exec, &domain).await
+        dns::records(e.factory, e.admin, &domain).await
     } else {
-        dns::verify(e.exec, e.resolver, &domain).await
+        dns::verify(e.factory, e.admin, e.resolver, &domain).await
     };
     e.reply(body, 200)
 }

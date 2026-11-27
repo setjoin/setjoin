@@ -2,13 +2,13 @@
 --
 -- Producers: chat_schedule_message, chat_scheduled_list, chat_scheduled_cancel.
 --
--- scheduled_actions has NO RLS (R4-by-parameter) and its mailbox_id column is
--- NULLable — chat rows carry mailbox_id=NULL (a channel has no mailbox owner)
--- so the generic cancel_scheduled_action (owner-scoped by p_mailbox_id) can
--- NEVER match a chat row. This trio is the chat-owned replacement: ownership
--- lives in payload->>'userId', set server-side from p_user_id (R2, never
--- trusted from the caller at list/cancel time) and re-checked in the SAME
--- statement as every list/cancel query (R1/R3).
+-- V287 Wave B FORCE RLS on `scheduled_actions` fails closed on `mailbox_id IS NULL`
+-- under `setjoin_app` so org/compliance jobs cannot be enumerated. Chat scheduled
+-- messages carry `mailbox_id = NULL` (a channel has no mailbox owner) with
+-- server-derived `payload->>'userId'`. These three reducers run as worker-owned
+-- SECURITY DEFINER (`SET search_path = pg_catalog, public`) and enforce strict
+-- fail-closed `app.current_user_id` GUC binding whenever called from a
+-- non-privileged role (`NOT public.rls_caller_is_privileged()`).
 --
 -- BZ179 (scheduled-send invalid): a missing/past p_fire_at at enqueue time,
 -- or a cancel attempt against a row that is not pending/failed/not-yours/
@@ -23,10 +23,16 @@ DECLARE
     v_payload jsonb;
     v_id      uuid;
 BEGIN
+    IF NOT public.rls_caller_is_privileged() THEN
+        IF p_user_id IS NULL
+           OR p_user_id IS DISTINCT FROM NULLIF(current_setting('app.current_user_id', true), '')::bigint THEN
+            RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+        END IF;
+    END IF;
     -- membership checked at ENQUEUE time (BZ163); the handler re-checks at
     -- FIRE time via chat_message_send itself (TOCTOU — a member kicked
     -- between now and fire_at must not silently post).
-    PERFORM chat_require_role(p_channel_id, p_user_id);
+    PERFORM public.chat_require_role(p_channel_id, p_user_id);
     IF coalesce(btrim(p_body), '') = '' OR octet_length(p_body) > 65536 THEN
         RAISE EXCEPTION 'message body empty or over 64KiB'
             USING ERRCODE='BZ168', HINT='{"type":"invalidArguments"}';
@@ -43,10 +49,14 @@ BEGIN
       'parentId', p_parent_id, 'mentions', to_jsonb(COALESCE(p_mentions, '{}'::bigint[])),
       'broadcast', p_broadcast
     );
-    v_id := enqueue_scheduled_action('chat_send', p_fire_at, v_payload, NULL);
+    v_id := public.enqueue_scheduled_action('chat_send', p_fire_at, v_payload, NULL);
     RETURN v_id;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership(
+    'public.chat_schedule_message(bigint,bigint,text,bigint,bigint[],text,timestamp with time zone)'::regprocedure
+);
 
 -- chat_scheduled_list: the caller's own pending + FAILED chat_send rows.
 -- Failed rows stay visible (grill-decided, plan Task 2): silent content loss
@@ -55,16 +65,28 @@ $$ LANGUAGE plpgsql;
 -- body let the user copy it out and re-send; Dismiss is chat_scheduled_cancel
 -- on a failed row.
 CREATE OR REPLACE FUNCTION chat_scheduled_list(p_user_id bigint) RETURNS jsonb AS $$
-    SELECT COALESCE(jsonb_agg(jsonb_build_object(
-             'actionId', id, 'channelId', (payload->>'channelId')::bigint,
-             'body', payload->>'body', 'fireAt', fire_at, 'status', status,
-             'failureCode', payload->>'failureCode', 'lastError', last_error
-           ) ORDER BY fire_at ASC), '[]'::jsonb)
-      FROM scheduled_actions
-     WHERE action_kind = 'chat_send'
-       AND status IN ('pending', 'failed')
-       AND payload->>'userId' = p_user_id::text;
-$$ LANGUAGE sql STABLE;
+BEGIN
+    IF NOT public.rls_caller_is_privileged() THEN
+        IF p_user_id IS NULL
+           OR p_user_id IS DISTINCT FROM NULLIF(current_setting('app.current_user_id', true), '')::bigint THEN
+            RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+        END IF;
+    END IF;
+    RETURN COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+                 'actionId', id, 'channelId', (payload->>'channelId')::bigint,
+                 'body', payload->>'body', 'fireAt', fire_at, 'status', status,
+                 'failureCode', payload->>'failureCode', 'lastError', last_error
+               ) ORDER BY fire_at ASC)
+          FROM public.scheduled_actions
+         WHERE action_kind = 'chat_send'
+           AND status IN ('pending', 'failed')
+           AND payload->>'userId' = p_user_id::text
+    ), '[]'::jsonb);
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.chat_scheduled_list(bigint)'::regprocedure);
 
 -- chat_scheduled_cancel: works on pending AND failed (dismiss); ownership +
 -- id + status all folded into ONE DELETE (R1/R3, no check-then-act window).
@@ -76,8 +98,14 @@ CREATE OR REPLACE FUNCTION chat_scheduled_cancel(
 DECLARE
     v_count int;
 BEGIN
+    IF NOT public.rls_caller_is_privileged() THEN
+        IF p_user_id IS NULL
+           OR p_user_id IS DISTINCT FROM NULLIF(current_setting('app.current_user_id', true), '')::bigint THEN
+            RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+        END IF;
+    END IF;
     WITH del AS (
-        DELETE FROM scheduled_actions
+        DELETE FROM public.scheduled_actions
          WHERE id = p_action_id
            AND action_kind = 'chat_send'
            AND status IN ('pending', 'failed')
@@ -90,4 +118,6 @@ BEGIN
             USING ERRCODE='BZ179', HINT='{"type":"invalidArguments","detail":"not pending/failed, not yours, or does not exist"}';
     END IF;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.chat_scheduled_cancel(bigint,uuid)'::regprocedure);

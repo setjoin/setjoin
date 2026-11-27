@@ -1,17 +1,38 @@
 //! CardDAV's verified-user data access (#427). No request-owned identity.
-use setjoin_pg::{ScopedExecutor, StatementFailure, Type};
+use crate::{actor_scoped_op, command, deadline, user_envelope};
+use setjoin_authz::principals::{ReadCapability, TxFactory, UserPrincipal};
+use setjoin_contracts::ids::OperationId;
+use setjoin_pg::{CommandOutcome, OperationLookup, Row, StatementFailure};
+
 /// Go RequireApp's independent, best-effort routine denial audit.
 pub async fn blocked_audit(
-    exec: &ScopedExecutor,
-    user: i64,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     ip: &str,
 ) -> Result<(), StatementFailure> {
-    exec.read(
-        crate::sql::CARDDAV_BLOCKED_AUDIT.sql,
-        &[(&user, Type::INT8), (&ip, Type::TEXT)],
-    )
-    .await?;
-    Ok(())
+    let uid = user.user().get();
+    let tag = format!("blocked:{uid}:{ip}");
+    let mut op_bytes = [0u8; 16];
+    op_bytes.copy_from_slice(&<sha2::Sha256 as sha2::Digest>::digest(tag.as_bytes())[..16]);
+    op_bytes[0] |= 1;
+    let env = user_envelope(user, OperationId(op_bytes), &tag);
+    match tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::CARDDAV_BLOCKED_AUDIT,
+            &[&uid, &ip],
+            None,
+            |_| Ok(()),
+        )
+        .await
+    {
+        CommandOutcome::Committed(()) => Ok(()),
+        CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e))
+        | CommandOutcome::RolledBack(setjoin_pg::Rejection::Body(e)) => Err(e),
+        _ => Err(crate::invalid()),
+    }
 }
 
 pub struct Book {
@@ -20,9 +41,14 @@ pub struct Book {
     pub name: String,
     pub description: String,
 }
-pub async fn books(exec: &ScopedExecutor, user: i64) -> Result<Vec<Book>, StatementFailure> {
-    let rows = exec
-        .read(crate::sql::CARDDAV_BOOKS.sql, &[(&user, Type::INT8)])
+
+pub async fn books(
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+) -> Result<Vec<Book>, StatementFailure> {
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &crate::sql::CARDDAV_BOOKS, &[&uid])
         .await?;
     Ok(rows
         .iter()
@@ -41,7 +67,8 @@ pub struct Contact {
     pub etag: String,
     pub row: crate::contacts::ContactRow,
 }
-fn contact(row: &setjoin_pg::Row) -> Result<Contact, StatementFailure> {
+
+fn contact(row: &Row) -> Result<Contact, StatementFailure> {
     Ok(Contact {
         id: row.get(18),
         etag: row.get(19),
@@ -49,31 +76,32 @@ fn contact(row: &setjoin_pg::Row) -> Result<Contact, StatementFailure> {
         row: crate::contacts::contact_row(row)?,
     })
 }
+
 pub async fn get_contact(
-    exec: &ScopedExecutor,
-    user: i64,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     book: i64,
     uid: &str,
 ) -> Result<Option<Contact>, StatementFailure> {
-    let rows = exec
-        .read(
-            crate::sql::CARDDAV_GET_CONTACT.sql,
-            &[(&book, Type::INT8), (&uid, Type::TEXT), (&user, Type::INT8)],
+    let user_id = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(
+            user,
+            &crate::sql::CARDDAV_GET_CONTACT,
+            &[&book, &uid, &user_id],
         )
         .await?;
     rows.first().map(contact).transpose()
 }
 
 pub async fn book(
-    exec: &ScopedExecutor,
-    user: i64,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     id: i64,
 ) -> Result<Option<Book>, StatementFailure> {
-    let rows = exec
-        .read(
-            crate::sql::CARDDAV_BOOK.sql,
-            &[(&id, Type::INT8), (&user, Type::INT8)],
-        )
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &crate::sql::CARDDAV_BOOK, &[&id, &uid])
         .await?;
     Ok(rows.first().map(|r| Book {
         id: r.get(0),
@@ -82,78 +110,65 @@ pub async fn book(
         description: r.get(3),
     }))
 }
+
 pub async fn list_contacts(
-    exec: &ScopedExecutor,
-    user: i64,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     book: i64,
 ) -> Result<Vec<Contact>, StatementFailure> {
-    let rows = exec
-        .read(
-            crate::sql::CARDDAV_LIST_CONTACTS.sql,
-            &[(&book, Type::INT8), (&user, Type::INT8)],
-        )
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &crate::sql::CARDDAV_LIST_CONTACTS, &[&book, &uid])
         .await?;
     rows.iter().map(contact).collect()
 }
 
 pub async fn search_contacts(
-    exec: &ScopedExecutor,
-    user: i64,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     book: i64,
     text: &str,
 ) -> Result<Vec<Contact>, StatementFailure> {
+    let uid = user.user().get();
     let pattern = format!("%{text}%");
-    let rows = exec
-        .read(
-            crate::sql::CARDDAV_SEARCH_CONTACTS.sql,
-            &[
-                (&user, Type::INT8),
-                (&book, Type::INT8),
-                (&text, Type::TEXT),
-                (&pattern, Type::TEXT),
-            ],
+    let rows = tx_factory
+        .run_user_read_contract(
+            user,
+            &crate::sql::CARDDAV_SEARCH_CONTACTS,
+            &[&uid, &book, &text, &pattern],
         )
         .await?;
     rows.iter().map(contact).collect()
 }
+
 /// Frozen Go batches on UID alone across the caller's owned books. The href's
 /// collection is deliberately not a second selector (carddav.go:361–402).
 pub async fn contacts_by_uids(
-    exec: &ScopedExecutor,
-    user: i64,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     uids: &[String],
 ) -> Result<Vec<Contact>, StatementFailure> {
+    let uid = user.user().get();
     let uids = uids.to_vec();
-    let rows = exec
-        .read(
-            crate::sql::CARDDAV_CONTACTS_BY_UIDS.sql,
-            &[(&uids, Type::TEXT_ARRAY), (&user, Type::INT8)],
-        )
+    let rows = tx_factory
+        .run_user_read_contract(user, &crate::sql::CARDDAV_CONTACTS_BY_UIDS, &[&uids, &uid])
         .await?;
     Ok(rows.iter().filter_map(|r| contact(r).ok()).collect())
 }
+
 pub async fn sync(
-    exec: &ScopedExecutor,
-    user: i64,
+    tx_factory: &TxFactory,
+    read: &ReadCapability,
     book: &Book,
     since: &str,
 ) -> Result<Option<String>, StatementFailure> {
-    use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
-    let scope = setjoin_pg::MailboxAuthContext::from_authenticated_session(
-        ActorId::new(user).expect("verified user"),
-        MailboxId::new(book.mailbox).expect("owned book"),
-        Generation(1),
-    );
-    let rows = exec
-        .read_scoped(
-            &scope,
-            crate::sql::CARDDAV_SYNC.sql,
-            &[
-                (&book.mailbox, Type::INT8),
-                (&book.id, Type::INT8),
-                (&since, Type::TEXT),
-                (&user, Type::INT8),
-            ],
+    let mb = read.mailbox().get();
+    let uid = read.actor().get();
+    let rows = tx_factory
+        .run_mailbox_read_contract(
+            read,
+            &crate::sql::CARDDAV_SYNC,
+            &[&mb, &book.id, &since, &uid],
         )
         .await?;
     Ok(rows.first().map(|r| r.get(0)))
@@ -174,69 +189,87 @@ impl Operation {
         }
     }
 }
+
+fn remap_unknown(
+    outcome: CommandOutcome<String, StatementFailure>,
+    external: OperationId,
+) -> CommandOutcome<String, StatementFailure> {
+    match outcome {
+        CommandOutcome::Unknown { .. } => CommandOutcome::Unknown {
+            operation: external,
+        },
+        other => other,
+    }
+}
+
 /// One canonical reducer call, with the publishing statement rechecking the
-/// verified actor's collection owner. No mailbox GUC, matching Go's Call.
+/// verified actor's collection owner.
 pub async fn publish(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     book: i64,
     contact: i64,
     payload: &str,
     kind: Operation,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    use setjoin_contracts::ids::{ActorId, OperationId};
-    let user = actor.user_id();
-    let publisher = exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand {
-        family: "F17",
-        command: kind.command(),
-    });
-    let project = |rows: &[setjoin_pg::Row]| {
+) -> CommandOutcome<String, StatementFailure> {
+    let uid = user.user().get();
+    let external = OperationId(operation);
+    let scoped = actor_scoped_op(user.user(), external);
+    let env = user_envelope(
+        user,
+        scoped,
+        &format!("{}:{book}:{contact}:{payload}", kind.command()),
+    );
+    let project = |rows: Vec<Row>| {
         Ok(rows
             .first()
             .map(|r| r.get(0))
             .unwrap_or_else(|| "{}".into()))
     };
-    match kind {
+    let receipt = Some(command(kind.command()));
+    let outcome = match kind {
         Operation::Create => {
-            publisher
-                .run_user_command(
-                    ActorId::new(user).expect("verified actor"),
-                    OperationId(operation),
-                    crate::sql::CARDDAV_CREATE.sql,
-                    &[(&user, Type::INT8), (&book, Type::INT8), (&payload, Type::TEXT)],
+            tx_factory
+                .run_user_write_contract_pipelined(
+                    user,
+                    &env,
+                    deadline(),
+                    &crate::sql::CARDDAV_CREATE,
+                    &[&uid, &book, &payload],
+                    receipt,
                     project,
                 )
                 .await
         }
         Operation::Update => {
-            publisher
-                .run_user_command(
-                    ActorId::new(user).expect("verified actor"),
-                    OperationId(operation),
-                    crate::sql::CARDDAV_UPDATE.sql,
-                    &[
-                        (&user, Type::INT8),
-                        (&book, Type::INT8),
-                        (&contact, Type::INT8),
-                        (&payload, Type::TEXT),
-                    ],
+            tx_factory
+                .run_user_write_contract_pipelined(
+                    user,
+                    &env,
+                    deadline(),
+                    &crate::sql::CARDDAV_UPDATE,
+                    &[&uid, &book, &contact, &payload],
+                    receipt,
                     project,
                 )
                 .await
         }
         Operation::Delete => {
-            publisher
-                .run_user_command(
-                    ActorId::new(user).expect("verified actor"),
-                    OperationId(operation),
-                    crate::sql::CARDDAV_DELETE.sql,
-                    &[(&user, Type::INT8), (&book, Type::INT8), (&contact, Type::INT8)],
+            tx_factory
+                .run_user_write_contract_pipelined(
+                    user,
+                    &env,
+                    deadline(),
+                    &crate::sql::CARDDAV_DELETE,
+                    &[&uid, &book, &contact],
+                    receipt,
                     project,
                 )
                 .await
         }
-    }
+    };
+    remap_unknown(outcome, external)
 }
 
 /// Org-wide ADR-004 directory view, reached only through the verified user's
@@ -244,68 +277,90 @@ pub async fn publish(
 /// gal.go:98 except for its hidden-manager disclosure: owner-approved security fix 2026-11-05
 /// (#427/#512), the manager's name is shown only when the manager is itself visible to the caller.
 pub async fn gal_users(
-    exec: &ScopedExecutor,
-    user: i64,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     id: Option<i64>,
     text: &str,
     limit: Option<i64>,
 ) -> Result<Vec<String>, StatementFailure> {
+    let uid = user.user().get();
     let pattern = format!("%{text}%");
-    let sql = if setjoin_contracts::mutants::on("gal-manager-disclosed") {
-        crate::sql::CARDDAV_GAL_USERS_MUTANT.sql
+    let contract = if setjoin_contracts::mutants::on("gal-manager-disclosed") {
+        &crate::sql::CARDDAV_GAL_USERS_MUTANT
     } else {
-        crate::sql::CARDDAV_GAL_USERS.sql
+        &crate::sql::CARDDAV_GAL_USERS
     };
-    let rows = exec
-        .read(
-            sql,
-            &[
-                (&user, Type::INT8),
-                (&id, Type::INT8),
-                (&text, Type::TEXT),
-                (&pattern, Type::TEXT),
-                (&limit, Type::INT8),
-            ],
-        )
+    let rows = tx_factory
+        .run_user_read_contract(user, contract, &[&uid, &id, &text, &pattern, &limit])
         .await?;
     Ok(rows.iter().map(|r| r.get(0)).collect())
 }
+
 /// Go's best-effort disclosure journal: no business write is acknowledged by
 /// the read response. The canonical definer re-filters every member id.
 pub async fn gal_record(
-    exec: &ScopedExecutor,
-    user: i64,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     ids: &[i64],
 ) -> Result<(), StatementFailure> {
     if ids.is_empty() {
         return Ok(());
     }
+    let uid = user.user().get();
     let ids = ids.to_vec();
-    exec.read(
-        crate::sql::CARDDAV_GAL_RECORD.sql,
-        &[(&user, Type::INT8), (&ids, Type::INT8_ARRAY)],
-    )
-    .await?;
+    let tag = format!("gal_record:{uid}:{ids:?}");
+    let mut op_bytes = [0u8; 16];
+    op_bytes.copy_from_slice(&<sha2::Sha256 as sha2::Digest>::digest(tag.as_bytes())[..16]);
+    op_bytes[0] |= 1;
+    let env = user_envelope(user, OperationId(op_bytes), &tag);
+    let _ = tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::CARDDAV_GAL_RECORD,
+            &[&uid, &ids],
+            None,
+            |_| Ok(()),
+        )
+        .await;
     Ok(())
 }
+
 pub async fn gal_sync(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     micros: i64,
     count: i64,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    use setjoin_contracts::ids::{ActorId, OperationId};
-    let user = actor.user_id();
-    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F17",command:"carddav-gal-sync"}).run_user_command(ActorId::new(user).expect("verified user"),OperationId(operation),crate::sql::CARDDAV_GAL_SYNC.sql,&[(&user,Type::INT8),(&micros,Type::INT8),(&count,Type::INT8)],|rows|Ok(rows.first().map(|r|r.get(0)).unwrap_or_default())).await
+) -> CommandOutcome<String, StatementFailure> {
+    let uid = user.user().get();
+    let external = OperationId(operation);
+    let scoped = actor_scoped_op(user.user(), external);
+    let env = user_envelope(user, scoped, &format!("gal_sync:{uid}:{micros}:{count}"));
+    remap_unknown(
+        tx_factory
+            .run_user_write_contract_pipelined(
+                user,
+                &env,
+                deadline(),
+                &crate::sql::CARDDAV_GAL_SYNC,
+                &[&uid, &micros, &count],
+                Some(command("carddav-gal-sync")),
+                |rows| Ok(rows.first().map(|r| r.get(0)).unwrap_or_default()),
+            )
+            .await,
+        external,
+    )
 }
 
 pub async fn primary_mailbox(
-    exec: &ScopedExecutor,
-    user: i64,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
 ) -> Result<Option<i64>, StatementFailure> {
-    let rows = exec
-        .read(crate::sql::CARDDAV_PRIMARY_MAILBOX.sql, &[(&user, Type::INT8)])
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &crate::sql::CARDDAV_PRIMARY_MAILBOX, &[&uid])
         .await?;
     Ok(rows.first().map(|r| r.get(0)))
 }
@@ -329,26 +384,21 @@ impl OutcomeKind {
         }
     }
 }
+
 /// Fresh verified-user lookup takes the same actor/operation lock as publication
 /// and only observes that actor's hashed receipt under current identity admission.
 pub async fn lookup_operation(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
-    operation: setjoin_contracts::ids::OperationId,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+    operation: OperationId,
     kind: OutcomeKind,
 ) -> Result<bool, StatementFailure> {
-    use setjoin_contracts::ids::ActorId;
-    let invalid = || StatementFailure {
-        sqlstate: None,
-        hint: None,
-        message: "CardDAV outcome authority unavailable".into(),
-    };
-    let user = actor.user_id();
-    let op = setjoin_pg::operation_hex(operation);
-    let command = kind.command();
-    match exec.run_user_command(ActorId::new(user).map_err(|_|invalid())?,operation,
-        crate::sql::DAV_LOOKUP_OPERATION.sql,
-        &[(&user,Type::INT8),(&op,Type::TEXT),(&command,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await {
-        setjoin_pg::CommandOutcome::Committed(found)=>Ok(found),_=>Err(invalid()),
+    let scoped = actor_scoped_op(user.user(), operation);
+    match tx_factory
+        .lookup_user_command(user, scoped, command(kind.command()))
+        .await?
+    {
+        OperationLookup::Committed => Ok(true),
+        _ => Ok(false),
     }
 }

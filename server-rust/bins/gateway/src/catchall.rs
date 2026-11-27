@@ -120,14 +120,21 @@ impl CatchallRoute {
     }
 
     /// Fallback for unconfigured bare `/rtc`, matching Go's root SPA/404 branch without forwarding or 308 redirects.
-    pub(crate) fn serve_spa_or_404(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
+    pub(crate) fn serve_spa_or_404(
+        &self,
+        r: Request<Body>,
+        c: RequestContext,
+    ) -> BoxFuture<Response<Body>> {
         let exec = self.exec.clone();
         let website = self.website.clone();
         Box::pin(async move {
             if let Some(website) = website {
                 if r.uri().path() == "/" && matches!(*r.method(), Method::GET | Method::HEAD) {
-                    if let Some(exec) = exec.as_ref() {
-                        if setjoin_static::website::needs_setup(exec).await {
+                    if let Some(factory) = exec
+                        .as_ref()
+                        .and_then(|e| crate::policy_composition::tx_factory_from_executors(e, None))
+                    {
+                        if setjoin_static::website::needs_setup(&factory).await {
                             return redirect(&r, &c, 302, "/setup");
                         }
                     }
@@ -139,9 +146,17 @@ impl CatchallRoute {
     }
 }
 impl Intercept for CatchallRoute {
-    fn requires_session(&self,r:&Request<Body>)->bool{
-        r.uri().path().strip_prefix("/api").and_then(|path|self.inventory.go_match(r.method(),path,None))
-            .is_some_and(|route|matches!(route.path.as_str(),"/chat/"|"/drive/"|"/meet"|"/meet/"))
+    fn requires_session(&self, r: &Request<Body>) -> bool {
+        r.uri()
+            .path()
+            .strip_prefix("/api")
+            .and_then(|path| self.inventory.go_match(r.method(), path, None))
+            .is_some_and(|route| {
+                matches!(
+                    route.path.as_str(),
+                    "/chat/" | "/drive/" | "/meet" | "/meet/"
+                )
+            })
     }
     fn matches(&self, r: &Request<Body>) -> bool {
         self.inventory
@@ -197,11 +212,18 @@ impl Intercept for CatchallRoute {
                         };
                         let auth = match &admission {
                             Some(f) => match f
-                                .admit(r.headers().clone(), r.method().clone(), r.uri().clone(), scope)
+                                .admit(
+                                    r.headers().clone(),
+                                    r.method().clone(),
+                                    r.uri().clone(),
+                                    scope,
+                                )
                                 .await
                             {
                                 Ok(auth) => auth,
-                                Err(refusal) => return crate::deny::native(refusal, r.headers(), &c),
+                                Err(refusal) => {
+                                    return crate::deny::native(refusal, r.headers(), &c)
+                                }
                             },
                             None => {
                                 return crate::deny::native(
@@ -286,8 +308,11 @@ impl Intercept for CatchallRoute {
             }
             if let Some(website) = website {
                 if r.uri().path() == "/" && matches!(*r.method(), Method::GET | Method::HEAD) {
-                    if let Some(exec) = exec.as_ref() {
-                        if setjoin_static::website::needs_setup(exec).await {
+                    if let Some(factory) = exec
+                        .as_ref()
+                        .and_then(|e| crate::policy_composition::tx_factory_from_executors(e, None))
+                    {
+                        if setjoin_static::website::needs_setup(&factory).await {
                             return redirect(&r, &c, 302, "/setup");
                         }
                     }

@@ -1,9 +1,10 @@
-//! Conditional access (F03) slice `remaining`: policy export and diff. Both are reads that
-//! repeat Go's queries and render Go's structs field for field.
+//! Conditional access (F03) slice `remaining`: policy export and diff. Both are reads via
+//! `AdminReadTx` that repeat Go's queries and render Go's structs field for field.
 use super::policies::compact;
-use super::{done, invalid, s};
+use super::{done, invalid, s, sql};
 use serde_json::Value;
-use setjoin_pg::{ScopedExecutor, StatementFailure};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::StatementFailure;
 use std::collections::BTreeMap;
 
 fn bad<E>(_: E) -> StatementFailure {
@@ -64,13 +65,12 @@ fn strings(list: &Option<Vec<String>>) -> String {
 
 /// `GET .../export`: `{schemaVersion, generatedBy, policies, named_locations, auth_strengths}`
 /// of the live rows.
-pub async fn export(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT name, description, priority, scope_type, scope_target, conditions::text, actions::text \
-             FROM conditional_access_policies WHERE deleted_at IS NULL ORDER BY priority ASC",
-            &[],
-        )
+pub async fn export(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::EXPORT_POLICIES, &[])
         .await?;
     let mut policies = Vec::new();
     for r in &rows {
@@ -97,11 +97,8 @@ pub async fn export(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
         item.push('}');
         policies.push(item);
     }
-    let rows = exec
-        .read(
-            "SELECT id, name, ip_ranges::text, countries::text, is_trusted FROM named_locations WHERE deleted_at IS NULL",
-            &[],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::EXPORT_LOCATIONS, &[])
         .await?;
     let mut locations = Vec::new();
     for r in &rows {
@@ -114,11 +111,8 @@ pub async fn export(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
             r.try_get::<_, bool>(4).map_err(bad)?
         ));
     }
-    let rows = exec
-        .read(
-            "SELECT id, slug, name, builtin, requirement::text, min_acr FROM auth_strengths",
-            &[],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::EXPORT_STRENGTHS, &[])
         .await?;
     let mut strengths = Vec::new();
     for r in &rows {
@@ -126,10 +120,7 @@ pub async fn export(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
             None => "null".to_string(),
             Some(list) => format!(
                 "[{}]",
-                list.iter()
-                    .map(strings)
-                    .collect::<Vec<_>>()
-                    .join(",")
+                list.iter().map(strings).collect::<Vec<_>>().join(",")
             ),
         };
         strengths.push(format!(
@@ -158,17 +149,14 @@ pub struct DocPolicy {
 }
 
 /// `POST .../diff`: `{added, changed, removed}` of names against the live rows; the
-/// fingerprint is the compacted conditions plus actions, so key order still counts. Go ranges a
-/// map for `removed` (random order); this answers in name order.
+/// fingerprint is the compacted conditions plus actions, so key order still counts.
 pub async fn diff(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     policies: &[DocPolicy],
 ) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT name, conditions::text, actions::text FROM conditional_access_policies WHERE deleted_at IS NULL",
-            &[],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::DIFF_POLICIES, &[])
         .await?;
     let fingerprint = |conditions: Option<&str>, actions: Option<&str>| {
         compact(conditions.unwrap_or("{}")) + &compact(actions.unwrap_or("{}"))

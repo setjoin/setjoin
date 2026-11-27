@@ -4,8 +4,8 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, Response, StatusCode};
 use serde::Deserialize;
-use setjoin_authz::device::{DeviceRequest, DeviceResolver};
-use setjoin_pg::{workers::WorkerDatabase, ScopedExecutor};
+use setjoin_authz::device::{DeviceRequest, DeviceResolver, VerifiedDevice};
+use setjoin_pg::{workers::WorkerDatabase, ScopedExecutor, Type};
 use setjoin_static::telemetry::Report;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -105,8 +105,33 @@ pub fn device_hmac_key_from_env() -> Vec<u8> {
         .into_bytes()
 }
 
+async fn insert_report(
+    db: &WorkerDatabase,
+    device: &VerifiedDevice,
+    report: &Report,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let usage = serde_json::to_string(&report.feature_usage)?;
+    db.connect()
+        .await?
+        .query(
+            "INSERT INTO device_telemetry(device_id,app_version,os_version,crash_count,uptime_hours,feature_usage) \
+             VALUES($1,$2,$3,$4,$5,$6::text::jsonb)",
+            &[
+                (&device.id(), Type::INT8),
+                (&report.app_version, Type::TEXT),
+                (&report.os_version, Type::TEXT),
+                (&report.crash_count, Type::INT8),
+                (&report.uptime_hours, Type::INT8),
+                (&usage, Type::TEXT),
+            ],
+        )
+        .await?;
+    Ok(())
+}
+
 pub async fn serve(
     exec: &ScopedExecutor,
+    worker_exec: Option<&ScopedExecutor>,
     mut r: Request<Body>,
     c: &RequestContext,
     id: String,
@@ -123,13 +148,22 @@ pub async fn serve(
     if claimed <= 0 {
         return reply(400, Some("device_id is required"), c, id);
     }
-    let resolver = DeviceResolver::new(
+    let mut resolver = DeviceResolver::new(
         exec.clone(),
         device_hmac_key_from_env(),
         setjoin_config_secret::CryptoProfile::parse(
             &std::env::var("CRYPTO_ALGORITHM_PROFILE").unwrap_or_default(),
         ),
     );
+    if let Some(w) = worker_exec {
+        resolver = resolver.with_worker(w.clone());
+    } else if let Ok(dsn) = std::env::var("DB_WORKER_DSN") {
+        if !dsn.trim().is_empty() {
+            if let Ok(w) = ScopedExecutor::from_dsn(&dsn, 2) {
+                resolver = resolver.with_worker(w);
+            }
+        }
+    }
     let target = r.uri().path_and_query().map_or("/", |p| p.as_str());
     let inner = target.strip_prefix("/api").unwrap_or(target);
     let Some(device) = resolver
@@ -153,9 +187,7 @@ pub async fn serve(
     let worker = std::env::var("DB_WORKER_DSN").ok();
     let inserted = async {
         let db = WorkerDatabase::from_dsns(&request, worker.as_deref()).ok()?;
-        setjoin_static::telemetry::insert(&db, &device, &report)
-            .await
-            .ok()
+        insert_report(&db, &device, &report).await.ok()
     }
     .await;
     if inserted.is_none() {

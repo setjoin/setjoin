@@ -3,29 +3,26 @@
 //! message-bound sender-control center and the user spam/phishing report.
 //!
 //! Every statement names the verified user in its own WHERE (R1-R3); ids in paths, queries
-//! and bodies only name targets. Writes are receipted: one statement where Go's transaction
-//! is one statement (trusted senders, external-sender toggle, the admin model switches with
-//! their reach check folded in), a reducer otherwise (`rust_mailsec_sender_list_replace`,
-//! `rust_mailsec_sender_never_block`, `rust_mailsec_report`, and the existing
-//! `sender_list_replace` / `sender_control_action` reducers Go already calls).
-use super::{command, deadline, done, envelope, invalid, s, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, Row, ScopedExecutor, StatementFailure, Type};
+//! and bodies only name targets. User self-service writes run via `UserTx` / `MailboxTx`,
+//! including `rust_user_external_sender_warning_set` (retiring the legacy
+//! direct `UPDATE users`). Admin dashboard reads run via `AdminReadTx`; admin model switches
+//! execute `SPAM_MODEL_*` (`WorkerBypass` over `user_spam_model` with FORCE RLS `V287`)
+//! through the gateway composition root so no extra `admin_audit_log` row breaks Go parity.
+use super::{command, deadline, done, envelope, invalid, mailbox_envelope, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, MutateCapability, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, Row, StatementFailure};
 
 /// `feature.sender_control_center` as Go's toggle store resolves it (default OFF).
-pub async fn sender_control_on(worker: &ScopedExecutor) -> Result<bool, StatementFailure> {
-    let rows = worker
-        .read(
-            "SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.sender_control_center'),false)",
-            &[],
-        )
+pub async fn sender_control_on(factory: &TxFactory) -> Result<bool, StatementFailure> {
+    let rows = factory
+        .run_public_read_contract(&sql::SPAM_SENDER_CONTROL_ON, &[])
         .await?;
     rows.first()
         .and_then(|r| r.try_get::<_, bool>(0).ok())
         .ok_or_else(invalid)
 }
 
-fn flag(rows: &[Row]) -> Result<bool, StatementFailure> {
+fn flag(rows: Vec<Row>) -> Result<bool, StatementFailure> {
     rows.first()
         .and_then(|r| r.try_get::<_, bool>(0).ok())
         .ok_or_else(invalid)
@@ -47,8 +44,12 @@ pub fn go_float(f: f64) -> String {
 
 // ---- admin: dashboard and model switches ----
 
-async fn count(worker: &ScopedExecutor, sql: &str) -> i64 {
-    match worker.read(sql, &[]).await {
+async fn count(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    contract: &'static setjoin_sql_catalog::SqlContract,
+) -> i64 {
+    match factory.run_admin_read_contract(admin, contract, &[]).await {
         Ok(rows) => rows
             .first()
             .and_then(|r| r.try_get::<_, i64>(0).ok())
@@ -60,17 +61,23 @@ async fn count(worker: &ScopedExecutor, sql: &str) -> i64 {
 /// `GET /admin/spam`: Go ignores every scan error (the field keeps its zero value), so each
 /// aggregate degrades to 0 on its own. The batch-load gauges are the Go delivery path's
 /// process-local counters; standalone F06 callers default to an idle store.
-pub async fn dashboard(worker: &ScopedExecutor) -> String {
-    dashboard_with_stats(worker, Default::default()).await
+pub async fn dashboard(factory: &TxFactory, admin: &AdminPermissionProof) -> String {
+    dashboard_with_stats(factory, admin, Default::default()).await
 }
 
-pub async fn dashboard_with_stats(worker: &ScopedExecutor, stats: setjoin_spam::BatchStats) -> String {
-    let (batch_models, batch_bytes, batch_loads, batch_hits) = (stats.resident_models,stats.resident_bytes,stats.loads,stats.hits);
-    let enabled = match worker
-        .read(
-            "SELECT enabled FROM feature_toggles WHERE key = 'feature.ml_spam'",
-            &[],
-        )
+pub async fn dashboard_with_stats(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    stats: setjoin_spam::BatchStats,
+) -> String {
+    let (batch_models, batch_bytes, batch_loads, batch_hits) = (
+        stats.resident_models,
+        stats.resident_bytes,
+        stats.loads,
+        stats.hits,
+    );
+    let enabled = match factory
+        .run_admin_read_contract(admin, &sql::SPAM_DASHBOARD_ENABLED, &[])
         .await
     {
         Ok(rows) => rows
@@ -80,11 +87,8 @@ pub async fn dashboard_with_stats(worker: &ScopedExecutor, stats: setjoin_spam::
         Err(_) => false,
     };
     // One statement per Go query: a failing one only zeroes its own fields.
-    let (models, samples): (i64, i64) = match worker
-        .read(
-            "SELECT COALESCE(COUNT(*), 0)::bigint, COALESCE(SUM(sample_count), 0)::bigint FROM user_spam_model",
-            &[],
-        )
+    let (models, samples): (i64, i64) = match factory
+        .run_admin_read_contract(admin, &sql::SPAM_DASHBOARD_TOTALS, &[])
         .await
     {
         Ok(rows) => rows
@@ -93,11 +97,8 @@ pub async fn dashboard_with_stats(worker: &ScopedExecutor, stats: setjoin_spam::
             .unwrap_or_default(),
         Err(_) => (0, 0),
     };
-    let average: f64 = match worker
-        .read(
-            "SELECT COALESCE(AVG(sample_count), 0)::text FROM user_spam_model",
-            &[],
-        )
+    let average: f64 = match factory
+        .run_admin_read_contract(admin, &sql::SPAM_DASHBOARD_AVG, &[])
         .await
     {
         Ok(rows) => rows
@@ -107,21 +108,10 @@ pub async fn dashboard_with_stats(worker: &ScopedExecutor, stats: setjoin_spam::
             .unwrap_or(0.0),
         Err(_) => 0.0,
     };
-    let disabled = count(
-        worker,
-        "SELECT COALESCE(COUNT(*), 0)::bigint FROM user_spam_model WHERE disabled = TRUE",
-    )
-    .await;
-    let active = count(
-        worker,
-        "SELECT COALESCE(COUNT(*), 0)::bigint FROM user_spam_model WHERE trained_at > now() - INTERVAL '7 days'",
-    )
-    .await;
-    let (fp, fneg, classified): (i64, i64, i64) = match worker
-        .read(
-            "SELECT COALESCE(SUM(fp_count), 0)::bigint, COALESCE(SUM(fn_count), 0)::bigint, COALESCE(SUM(classified_count), 0)::bigint FROM user_spam_model",
-            &[],
-        )
+    let disabled = count(factory, admin, &sql::SPAM_DASHBOARD_DISABLED).await;
+    let active = count(factory, admin, &sql::SPAM_DASHBOARD_ACTIVE).await;
+    let (fp, fneg, classified): (i64, i64, i64) = match factory
+        .run_admin_read_contract(admin, &sql::SPAM_DASHBOARD_COUNTS, &[])
         .await
     {
         Ok(rows) => rows
@@ -136,15 +126,8 @@ pub async fn dashboard_with_stats(worker: &ScopedExecutor, stats: setjoin_spam::
         0.0
     };
     let mut top = vec![];
-    if let Ok(rows) = worker
-        .read(
-            "SELECT m.user_id, COALESCE(u.email, 'unknown'), m.sample_count, \
-             to_char(m.trained_at, 'YYYY-MM-DD HH24:MI') AS trained, \
-             (octet_length(m.model_bytes) / 1024)::int4 AS size_kb, m.disabled \
-             FROM user_spam_model m LEFT JOIN users u ON u.id = m.user_id \
-             ORDER BY m.sample_count DESC LIMIT 10",
-            &[],
-        )
+    if let Ok(rows) = factory
+        .run_admin_read_contract(admin, &sql::SPAM_DASHBOARD_TOP, &[])
         .await
     {
         for r in &rows {
@@ -182,66 +165,20 @@ pub enum Switch {
     Enable,
 }
 
-/// Go's reach check plus the write, in one statement so the check cannot go stale before
-/// the write (R3). `Committed(false)` is Go's 403 "target user not within your
-/// administrative scope"; a statement error is its 500 "database error".
-pub async fn switch_model(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
-    target: i64,
-    what: Switch,
-    operation: [u8; 16],
-) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    let (name, sql) = match what {
-        Switch::Reset => (
-            "spam.model.reset",
-            "WITH r AS (SELECT admin_can_reach($2, $4) AS ok), \
-             d AS (DELETE FROM user_spam_model WHERE user_id = $4 AND (SELECT ok FROM r) RETURNING 1) \
-             SELECT ok FROM r WHERE $1::bigint >= 0 AND $3::text <> ''",
-        ),
-        Switch::Disable => (
-            "spam.model.disable",
-            "WITH r AS (SELECT admin_can_reach($2, $4) AS ok), \
-             i AS (INSERT INTO user_spam_model (user_id, model_bytes, sample_count, disabled) \
-                   SELECT $4, '\\x'::bytea, 0, TRUE FROM r WHERE ok \
-                   ON CONFLICT (user_id) DO UPDATE SET disabled = TRUE RETURNING 1) \
-             SELECT ok FROM r WHERE $1::bigint >= 0 AND $3::text <> ''",
-        ),
-        Switch::Enable => (
-            "spam.model.enable",
-            "WITH r AS (SELECT admin_can_reach($2, $4) AS ok), \
-             u AS (UPDATE user_spam_model SET disabled = FALSE WHERE user_id = $4 AND (SELECT ok FROM r) RETURNING 1) \
-             SELECT ok FROM r WHERE $1::bigint >= 0 AND $3::text <> ''",
-        ),
-    };
-    setjoin_pg::run_receipted_command(
-        worker,
-        command(name),
-        &envelope(&auth, operation, &format!("{name}:{target}")),
-        &auth,
-        deadline(),
-        sql,
-        &[(&target, Type::INT8)],
-        flag,
-    )
-    .await
-}
-
 // ---- user: sender lists ----
 
 /// `GET /settings/senders` with the sender-control center OFF. A scan failure skips the
 /// row and the deferred row error is never read (Go), so only a failed query is an error.
 pub async fn senders_legacy(
-    worker: &ScopedExecutor,
-    user: i64,
+    factory: &TxFactory,
+    user: &UserPrincipal,
 ) -> Result<String, StatementFailure> {
-    let rows = worker
-        .read_iterated(
-            "SELECT sender, list_type FROM user_sender_list WHERE user_id = $1 ORDER BY list_type, sender",
-            &[(&user, Type::INT8)],
-        )
+    let uid = user.user().get();
+    let mut tx = factory.begin_user_read(user).await?;
+    let rows = tx
+        .query_iterated_contract(&sql::SPAM_SENDERS_LEGACY, &[&uid])
         .await?;
+    tx.finish().await?;
     let (mut safe, mut blocked) = (vec![], vec![]);
     for r in &rows {
         let (Ok(sender), Ok(kind)) = (r.try_get::<_, String>(0), r.try_get::<_, String>(1)) else {
@@ -266,7 +203,7 @@ pub struct Raw {
     pub generation: String,
 }
 impl Raw {
-    fn from(rows: &[Row]) -> Result<Raw, StatementFailure> {
+    fn from(rows: Vec<Row>) -> Result<Raw, StatementFailure> {
         let body: String = rows
             .first()
             .and_then(|r| r.try_get::<_, String>(0).ok())
@@ -281,39 +218,45 @@ impl Raw {
 }
 
 /// `GET /settings/senders` with the center ON: `sender_list_read`.
-pub async fn sender_list_read(worker: &ScopedExecutor, user: i64) -> Result<Raw, StatementFailure> {
+pub async fn sender_list_read(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+) -> Result<Raw, StatementFailure> {
+    let uid = user.user().get();
     Raw::from(
-        &worker
-            .read("SELECT sender_list_read($1)::text", &[(&user, Type::INT8)])
+        factory
+            .run_user_read_contract(user, &sql::SPAM_SENDER_LIST_READ, &[&uid])
             .await?,
     )
 }
 
 /// `PUT /settings/senders` with the center OFF: delete-all plus re-insert, one transaction.
 pub async fn sender_list_replace_legacy(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     safe: &[String],
     blocked: &[String],
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
+    let uid = user.user().get();
     let (safe, blocked) = (safe.to_vec(), blocked.to_vec());
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("senders.replace"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("senders.replace:{}:{}", safe.len(), blocked.len()),
-        ),
-        &auth,
-        deadline(),
-        "SELECT rust_mailsec_sender_list_replace($2, $4, $5) WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[(&safe, Type::TEXT_ARRAY), (&blocked, Type::TEXT_ARRAY)],
-        flag,
-    )
-    .await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("senders.replace:{}:{}", safe.len(), blocked.len()),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::SPAM_SENDER_LIST_REPLACE_LEGACY,
+            &[&uid, &safe, &blocked],
+            Some(command("senders.replace")),
+            flag,
+        )
+        .await
 }
 
 /// `PUT /settings/senders` with the center ON: the existing `sender_list_replace` reducer,
@@ -321,8 +264,8 @@ pub async fn sender_list_replace_legacy(
 /// role for replays).
 #[allow(clippy::too_many_arguments)]
 pub async fn sender_list_replace(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     operation_id: &str,
     generation: i64,
     digest: &str,
@@ -330,67 +273,70 @@ pub async fn sender_list_replace(
     blocked: &Option<Vec<String>>,
     operation: [u8; 16],
 ) -> CommandOutcome<Raw, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("senders.replace.generation"),
-        &envelope(&auth, operation, &format!("senders.replace.generation:{operation_id}")),
-        &auth,
-        deadline(),
-        "SELECT sender_list_replace($2, $4::text::uuid, $5, $6, $7, $8)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&operation_id, Type::TEXT),
-            (&generation, Type::INT8),
-            (&digest, Type::TEXT),
-            (safe, Type::TEXT_ARRAY),
-            (blocked, Type::TEXT_ARRAY),
-        ],
-        Raw::from,
-    )
-    .await
+    let uid = user.user().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("senders.replace.generation:{operation_id}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::SPAM_SENDER_LIST_REPLACE,
+            &[&uid, &operation_id, &generation, &digest, safe, blocked],
+            Some(command("senders.replace.generation")),
+            Raw::from,
+        )
+        .await
 }
 
 /// `POST /settings/senders/never-block` with the center OFF.
 pub async fn never_block(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     sender: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("senders.never_block"),
-        &envelope(&auth, operation, "senders.never_block"),
-        &auth,
-        deadline(),
-        "SELECT rust_mailsec_sender_never_block($2, $4) WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[(&sender, Type::TEXT)],
-        flag,
-    )
-    .await
+    let uid = user.user().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        "senders.never_block",
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::SPAM_NEVER_BLOCK,
+            &[&uid, &sender],
+            Some(command("senders.never_block")),
+            flag,
+        )
+        .await
 }
 
 // ---- user: sender-control center ----
 
 /// `GET /settings/sender-control`.
 pub async fn sender_control_read(
-    worker: &ScopedExecutor,
-    user: i64,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     mailbox: i64,
     message: i64,
     received_at: &str,
 ) -> Result<Raw, StatementFailure> {
+    let uid = user.user().get();
     Raw::from(
-        &worker
-            .read(
-                "SELECT sender_control_read($1, $2, $3, $4::text::timestamptz)::text",
-                &[
-                    (&user, Type::INT8),
-                    (&mailbox, Type::INT8),
-                    (&message, Type::INT8),
-                    (&received_at, Type::TEXT),
-                ],
+        factory
+            .run_user_read_contract(
+                user,
+                &sql::SPAM_SENDER_CONTROL_READ,
+                &[&uid, &mailbox, &message, &received_at],
             )
             .await?,
     )
@@ -409,48 +355,51 @@ pub struct ControlAction<'a> {
 }
 
 pub async fn sender_control_action(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     a: &ControlAction<'_>,
     operation: [u8; 16],
 ) -> CommandOutcome<Raw, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("sender_control.action"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("sender_control.action:{}", a.operation_id),
-        ),
-        &auth,
-        deadline(),
-        "SELECT sender_control_action($2, $4, $5, $6::text::timestamptz, $7::text::uuid, $8, $9, $10, $11::text::uuid)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&a.mailbox, Type::INT8),
-            (&a.message, Type::INT8),
-            (&a.received_at, Type::TEXT),
-            (&a.operation_id, Type::TEXT),
-            (&a.action, Type::TEXT),
-            (&a.generation, Type::INT8),
-            (&a.digest, Type::TEXT),
-            (&a.target_operation, Type::TEXT),
-        ],
-        Raw::from,
-    )
-    .await
+    let uid = user.user().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("sender_control.action:{}", a.operation_id),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::SPAM_SENDER_CONTROL_ACTION,
+            &[
+                &uid,
+                &a.mailbox,
+                &a.message,
+                &a.received_at,
+                &a.operation_id,
+                &a.action,
+                &a.generation,
+                &a.digest,
+                &a.target_operation,
+            ],
+            Some(command("sender_control.action")),
+            Raw::from,
+        )
+        .await
 }
 
 // ---- user: trusted (image-allow) senders ----
 
 /// `GET /settings/trusted-senders`: Go checks `rows.Err()` here, so any failure is a 500.
-pub async fn trusted_list(worker: &ScopedExecutor, user: i64) -> Result<String, StatementFailure> {
-    let rows = worker
-        .read(
-            "SELECT sender, to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') \
-             FROM user_image_allow WHERE user_id = $1 ORDER BY created_at DESC, sender",
-            &[(&user, Type::INT8)],
-        )
+pub async fn trusted_list(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+) -> Result<String, StatementFailure> {
+    let uid = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &sql::SPAM_TRUSTED_LIST, &[&uid])
         .await?;
     let mut items = vec![];
     for r in &rows {
@@ -466,38 +415,30 @@ pub async fn trusted_list(worker: &ScopedExecutor, user: i64) -> Result<String, 
 /// `POST /settings/trusted-senders` (upsert) or `DELETE /settings/trusted-senders/{sender}`:
 /// one statement each, the verified user in the same WHERE or VALUES.
 pub async fn trusted_write(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     sender: &str,
     add: bool,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    let (name, sql) = if add {
-        (
-            "trusted_senders.add",
-            "INSERT INTO user_image_allow (user_id, sender) SELECT $2, $4 \
-             WHERE $1::bigint >= 0 AND $3::text <> '' \
-             ON CONFLICT (user_id, sender) DO NOTHING RETURNING true",
-        )
+    let uid = user.user().get();
+    let (name, contract) = if add {
+        ("trusted_senders.add", &sql::SPAM_TRUSTED_ADD)
     } else {
-        (
-            "trusted_senders.remove",
-            "DELETE FROM user_image_allow WHERE user_id = $2 AND sender = $4 \
-             AND $1::bigint >= 0 AND $3::text <> '' RETURNING true",
-        )
+        ("trusted_senders.remove", &sql::SPAM_TRUSTED_REMOVE)
     };
-    setjoin_pg::run_receipted_command(
-        worker,
-        command(name),
-        &envelope(&auth, operation, name),
-        &auth,
-        deadline(),
-        sql,
-        &[(&sender, Type::TEXT)],
-        |_| Ok(true),
-    )
-    .await
+    let env = envelope(user.user(), user.generation(), operation, name);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            contract,
+            &[&uid, &sender],
+            Some(command(name)),
+            |_| Ok(true),
+        )
+        .await
 }
 
 // ---- user: external-sender warning ----
@@ -511,12 +452,10 @@ fn json_bool(b: bool) -> &'static str {
 }
 
 /// `GET /settings/external-sender`: each of Go's three reads degrades on error.
-pub async fn external_get(worker: &ScopedExecutor, user: i64) -> String {
-    let (user_enabled, email) = match worker
-        .read(
-            "SELECT COALESCE(external_sender_warning, TRUE), email FROM users WHERE id = $1",
-            &[(&user, Type::INT8)],
-        )
+pub async fn external_get(factory: &TxFactory, user: &UserPrincipal) -> String {
+    let uid = user.user().get();
+    let (user_enabled, email) = match factory
+        .run_user_read_contract(user, &sql::SPAM_EXTERNAL_USER, &[&uid])
         .await
     {
         Ok(rows) => match rows.first() {
@@ -531,13 +470,8 @@ pub async fn external_get(worker: &ScopedExecutor, user: i64) -> String {
     let domain = email.rsplit_once('@').map_or("", |(_, d)| d).to_owned();
     let mut domain_part = String::new();
     if !email.is_empty() && !domain.is_empty() {
-        if let Ok(rows) = worker
-            .read(
-                "SELECT esc.enabled, esc.warn_text, esc.warn_color FROM domains d \
-                 JOIN external_sender_config esc ON esc.domain_id = d.id \
-                 WHERE lower(d.name) = lower($1) AND d.is_local = TRUE",
-                &[(&domain, Type::TEXT)],
-            )
+        if let Ok(rows) = factory
+            .run_user_read_contract(user, &sql::SPAM_EXTERNAL_DOMAIN, &[&domain])
             .await
         {
             // Go scans warn_color into a plain string: a NULL fails the whole Scan.
@@ -559,11 +493,8 @@ pub async fn external_get(worker: &ScopedExecutor, user: i64) -> String {
             }
         }
     }
-    let global = match worker
-        .read(
-            "SELECT value::text FROM system_config WHERE key = 'external_sender.enabled'",
-            &[],
-        )
+    let global = match factory
+        .run_user_read_contract(user, &sql::SPAM_EXTERNAL_GLOBAL, &[])
         .await
     {
         Ok(rows) => rows
@@ -579,53 +510,60 @@ pub async fn external_get(worker: &ScopedExecutor, user: i64) -> String {
     ))
 }
 
-/// `PUT /settings/external-sender`: one UPDATE on the verified user.
+/// `PUT /settings/external-sender`: update via `rust_user_external_sender_warning_set`.
 pub async fn external_put(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     enabled: bool,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("external_sender.set"),
-        &envelope(&auth, operation, "external_sender.set"),
-        &auth,
-        deadline(),
-        "UPDATE users SET external_sender_warning = $4 WHERE id = $2 \
-         AND $1::bigint >= 0 AND $3::text <> '' RETURNING true",
-        &[(&enabled, Type::BOOL)],
-        |_| Ok(true),
-    )
-    .await
+    let uid = user.user().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        "external_sender.set",
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::SPAM_EXTERNAL_PUT,
+            &[&uid, &enabled],
+            Some(command("external_sender.set")),
+            |_| Ok(true),
+        )
+        .await
 }
 
 // ---- user: report ----
 
 /// `POST /report` with the center OFF. `Committed(false)` is Go's 404 "message not found".
 pub async fn report(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    cap: &MutateCapability,
     message: i64,
     kind: &str,
     note: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("report"),
-        &envelope(&auth, operation, &format!("report:{message}:{kind}")),
-        &auth,
-        deadline(),
-        "SELECT rust_mailsec_report($2, $4, $5, $6) WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&message, Type::INT8),
-            (&kind, Type::TEXT),
-            (&note, Type::TEXT),
-        ],
-        flag,
-    )
-    .await
+    let uid = cap.actor().get();
+    let env = mailbox_envelope(
+        cap.actor(),
+        cap.mailbox(),
+        operation,
+        &format!("report:{message}:{kind}"),
+    );
+    factory
+        .run_mailbox_write_contract_pipelined(
+            cap,
+            &env,
+            deadline(),
+            &sql::SPAM_REPORT,
+            &[&uid, &message, &kind, &note],
+            Some(command("report")),
+            flag,
+        )
+        .await
 }

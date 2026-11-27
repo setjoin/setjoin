@@ -85,6 +85,17 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return crate::mailboxes::bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                let mut reply = crate::chat::problem(500, "database error", "", &c, id);
+                reply.headers_mut().remove("content-language");
+                return reply;
+            };
             let write = !matches!(r.method().as_str(), "GET" | "HEAD");
             let required: &[&str] = if path == "/admin/chat-ediscovery/export"
                 || path == "/admin/chat-ediscovery/search"
@@ -96,14 +107,15 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
             } else {
                 &["chat.compliance_view", "chat.compliance_manage"]
             };
-            let allowed = match setjoin_compliance::authority(&exec, auth.context()).await {
-                Ok(v) => v.allows_any(required),
-                Err(_) => false,
+            let admin_opt = if auth.context().signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
             };
-            if !allowed {
+            let Some(admin_principal) = admin_opt.filter(|v| v.allows_any(required)) else {
                 let _ = setjoin_compliance::console_denied(
-                    &exec,
-                    auth.context(),
+                    &factory,
+                    &user_principal,
                     &path,
                     &required.join("|"),
                     nonce,
@@ -112,8 +124,35 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
                 let mut reply = crate::chat::problem(403, "Forbidden", "", &c, id);
                 reply.headers_mut().remove("content-language");
                 return reply;
+            };
+            let Ok(admin) = admin_principal.require_any_permission(required) else {
+                let _ = setjoin_compliance::console_denied(
+                    &factory,
+                    &user_principal,
+                    &path,
+                    &required.join("|"),
+                    nonce,
+                )
+                .await;
+                let mut reply = crate::chat::problem(403, "Forbidden", "", &c, id);
+                reply.headers_mut().remove("content-language");
+                return reply;
+            };
+            let signed_non_admin = !auth.context().signed_admin();
+            match exec
+                .read(
+                    "SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.chat_compliance'),false)",
+                    &[],
+                )
+                .await
+            {
+                Ok(v) if v.first().and_then(|r| r.try_get::<_, bool>(0).ok()) == Some(true) => {}
+                Ok(_) | Err(_) => {
+                    let mut reply = crate::chat::problem(404, "not found", "", &c, id);
+                    reply.headers_mut().remove("content-language");
+                    return reply;
+                }
             }
-            match exec.read("SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.chat_compliance'),false)",&[]).await{Ok(v)if v[0].get::<_,bool>(0)=>{},Ok(_)|Err(_)=>{let mut reply=crate::chat::problem(404,"not found","",&c,id);reply.headers_mut().remove("content-language");return reply;}}
             let language = crate::chat_channels::problem_language(r.headers());
             let mut response=async {
             if path == "/admin/chat-ediscovery/export" {
@@ -131,7 +170,7 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
                 }
                 if channels.is_empty(){return crate::chat::problem(400,"channels is required",&path,&c,id);}
                 let query=serde_json::json!({"channels":channels,"includeAttachments":crate::chat::query(&r,"includeAttachments").as_deref()==Some("1")});
-                let result=setjoin_compliance::chat::command(&worker,auth.context(),"export",&serde_json::json!({"caseId":case,"query":query}),&c.identity.client_ip.to_string(),nonce).await;
+                let result=setjoin_compliance::chat::command(&factory,&admin,signed_non_admin,"export",&serde_json::json!({"caseId":case,"query":query}),&ip,nonce).await;
                 if let setjoin_pg::CommandOutcome::Committed(v)=&result {
                     if v["status"]==200 {
                         if let Some(begin)=v["raw"].as_str().and_then(|s|serde_json::from_str(s).ok()) {
@@ -168,11 +207,12 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
                 let data = serde_json::json!({"caseId":case,"channelId":channel,"beforeId":before,"limit":limit});
                 return command(
                     setjoin_compliance::chat::command(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &admin,
+                        signed_non_admin,
                         "read",
                         &data,
-                        &c.identity.client_ip.to_string(),
+                        &ip,
                         nonce,
                     )
                     .await,
@@ -196,11 +236,12 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
                 };
                 return command(
                     setjoin_compliance::chat::command(
-                        &worker,
-                        auth.context(),
+                        &factory,
+                        &admin,
+                        signed_non_admin,
                         "search",
                         &data,
-                        &c.identity.client_ip.to_string(),
+                        &ip,
                         nonce,
                     )
                     .await,
@@ -217,11 +258,12 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
                 };
                 return command(
                     setjoin_compliance::chat::command(
-                        &exec,
-                        auth.context(),
+                        &factory,
+                        &admin,
+                        signed_non_admin,
                         "hold",
                         &data,
-                        &c.identity.client_ip.to_string(),
+                        &ip,
                         nonce,
                     )
                     .await,
@@ -248,11 +290,12 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
                 };
                 return command(
                     setjoin_compliance::chat::command(
-                        &exec,
-                        auth.context(),
+                        &factory,
+                        &admin,
+                        signed_non_admin,
                         "release",
                         &data,
-                        &c.identity.client_ip.to_string(),
+                        &ip,
                         nonce,
                     )
                     .await,
@@ -283,13 +326,15 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
                 if action == "delete" {
                     let confirm = crate::chat::query(&r, "confirm").unwrap_or_default();
                     let result = setjoin_compliance::chat::policy(
-                        &exec,
-                        auth.context(),
+                        &factory,
+                        &user_principal,
+                        &admin,
+                        signed_non_admin,
                         action,
                         target,
                         &serde_json::json!({}),
                         &confirm,
-                        &c.identity.client_ip.to_string(),
+                        &ip,
                         nonce,
                     )
                     .await;
@@ -337,13 +382,15 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
                     return crate::chat::problem(422, "name is required", &path, &c, id);
                 }
                 let result = setjoin_compliance::chat::policy(
-                    &exec,
-                    auth.context(),
+                    &factory,
+                    &user_principal,
+                    &admin,
+                    signed_non_admin,
                     action,
                     target,
                     &data,
                     "",
-                    &c.identity.client_ip.to_string(),
+                    &ip,
                     nonce,
                 )
                 .await;
@@ -357,23 +404,10 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
                 let Ok(case) = value.parse::<i64>() else {
                     return crate::chat::problem(400, "invalid caseId", &path, &c, id);
                 };
-                let body = match setjoin_compliance::chat::holds(&worker, case).await {
+                let body = match setjoin_compliance::chat::holds(&factory, &admin, case, &ip).await {
                     Ok(v) => v,
                     Err(_) => return crate::chat::problem(500, "database error", &path, &c, id),
                 };
-                let mut op = [0; 16];
-                if getrandom::getrandom(&mut op).is_ok() {
-                    setjoin_compliance::chat::audit(
-                        &exec,
-                        auth.context(),
-                        "chat_case_hold_list",
-                        "ediscovery_case",
-                        case,
-                        &c.identity.client_ip.to_string(),
-                        op,
-                    )
-                    .await;
-                }
                 return crate::compliance::json_response(200, body, &c, id);
             }
             if path == "/admin/chat-compliance/overview" {
@@ -400,7 +434,8 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
                     next += chrono::Duration::hours(24);
                 }
                 let result = setjoin_compliance::chat::overview(
-                    &worker,
+                    &factory,
+                    &admin,
                     &next.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
                 )
                 .await;
@@ -413,11 +448,11 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
                 };
             }
             let result = if path == "/admin/chat-purge/preview" {
-                setjoin_compliance::chat::preview(&worker).await
+                setjoin_compliance::chat::preview(&factory, &admin).await
             } else if path == "/admin/chat-ediscovery/cases" {
-                setjoin_compliance::chat::cases(&exec).await
+                setjoin_compliance::chat::cases(&factory, &admin).await
             } else {
-                setjoin_compliance::chat::policies(&exec).await
+                setjoin_compliance::chat::policies(&factory, &admin).await
             };
             match result {
                 Ok(body) => crate::compliance::json_response(200, body, &c, id),

@@ -1,5 +1,5 @@
 //! Native exact-blob bearer route. Every continuation rechecks live authority.
-use crate::{Body, BoxFuture, Intercept, RequestContext, recovery_worker::S3Store};
+use crate::{recovery_worker::S3Store, Body, BoxFuture, Intercept, RequestContext};
 use hyper::{Method, Request, Response};
 use setjoin_pg::{ScopedExecutor, Type};
 use sha2::{Digest, Sha256};
@@ -165,10 +165,26 @@ impl AttachmentCommands {
         } else {
             0
         };
-        let Ok(Some((size, content_type))) =
-            setjoin_blobs::attachment_metadata(&self.worker_exec, &a.identity, &hash, delegated)
-                .await
-        else {
+        let meta = match self.worker_exec.try_worker_pool() {
+            Some(wp) => match wp.begin_repeatable_read_only().await {
+                Ok(mut tx) => {
+                    let params: &[&(dyn setjoin_pg::ToSql + Sync)] = &[&hash, &user, &delegated];
+                    let res = tx
+                        .query_contract(&setjoin_blobs::sql::ATTACHMENT_METADATA, params)
+                        .await
+                        .map(|rows| setjoin_blobs::decode_attachment_metadata(&rows));
+                    let _ = tx.rollback().await;
+                    res
+                }
+                Err(e) => Err(e),
+            },
+            None => Err(setjoin_pg::StatementFailure {
+                hint: None,
+                sqlstate: None,
+                message: "worker pool unavailable".into(),
+            }),
+        };
+        let Ok(Some((size, content_type))) = meta else {
             return problem(404, "Not Found");
         };
         // This route always stats live S3 metadata, even when a normal blob

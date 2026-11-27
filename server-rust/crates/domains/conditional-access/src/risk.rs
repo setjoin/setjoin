@@ -1,21 +1,18 @@
-//! Conditional access (F03) slice `remaining`: the user-risk dashboard routes. Both run on the
-//! worker credential, as Go does (`user_risk` has FORCE RLS); `reset` is one receipted statement
-//! carrying Go's whole transaction (the update and its audit row).
-use super::cmd::run;
+//! Conditional access (F03) slice `remaining`: the user-risk dashboard routes. Both run on
+//! `AdminWorkerPool` via `TxFactory` (`AdminReadTx` / `AdminWriteTx<Unaudited -> Audited>`).
 use super::policies::compact;
-use super::{done, invalid, s};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use super::{command, deadline, done, envelope, invalid, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::{AuditEvent, CommandOutcome, Rejection, StatementFailure};
 
 /// `GET /admin/user-risk?limit=`: elevated rows by score, `limit` default 100, capped at 500.
-pub async fn list(worker: &ScopedExecutor, limit: i64) -> Result<String, StatementFailure> {
-    let rows = worker
-        .read(
-            "SELECT r.user_id, COALESCE(u.email, ''), r.score::int, r.level, r.signals::text, r.updated_at::text \
-             FROM user_risk r JOIN users u ON u.id = r.user_id \
-             WHERE r.level != 'none' ORDER BY r.score DESC LIMIT $1",
-            &[(&limit, Type::INT8)],
-        )
+pub async fn list(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    limit: i64,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::USER_RISK_LIST, &[&limit])
         .await?;
     let bad = |_| invalid();
     let mut out = Vec::new();
@@ -36,37 +33,56 @@ pub async fn list(worker: &ScopedExecutor, limit: i64) -> Result<String, Stateme
 /// `POST /admin/user-risk/{id}/reset`: `true` when a row was reset (and audited), `false` for
 /// Go's 404 `user_risk not found`.
 pub async fn reset(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     ip: &str,
     user: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
     let after = format!("{{\"action\":\"risk_reset\",\"user_id\":{user}}}");
-    run(
-        worker,
-        actor,
-        "user_risk_reset",
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
         operation,
         &format!("{ip}:{user}"),
-        "WITH r AS (UPDATE user_risk SET score=0, level='none', signals='[]'::jsonb, \
-         remediated_at=now(), updated_at=now() WHERE user_id=$4 RETURNING user_id), \
-         a AS (SELECT audit_write($2,'user_risk.reset','user_risk',$4,NULL,$5::text::jsonb,$6::text::inet,'','core') FROM r) \
-         SELECT (SELECT count(*) FROM r)::bigint, (SELECT count(*) FROM a)::bigint \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[(&user, Type::INT8), (&after, Type::TEXT), (&ip, Type::TEXT)],
-        |rows| match rows {
-            [row] => {
-                let reset = row.try_get::<_, i64>(0).map_err(|_| invalid())?;
-                let audited = row.try_get::<_, i64>(1).map_err(|_| invalid())?;
-                if reset == audited && reset <= 1 {
-                    Ok(reset == 1)
-                } else {
-                    Err(invalid())
-                }
-            }
-            _ => Err(invalid()),
-        },
-    )
-    .await
+    );
+    let mut tx = match factory.begin_admin_write(admin, &env, deadline()).await {
+        Ok(tx) => tx,
+        Err(r) => return CommandOutcome::RolledBack(r),
+    };
+    let rows = match tx.query_contract(&sql::USER_RISK_RESET, &[&user]).await {
+        Ok(rows) => rows,
+        Err(e) => {
+            let _ = tx.rollback().await;
+            return CommandOutcome::RolledBack(Rejection::Statement(e));
+        }
+    };
+    if rows.is_empty() {
+        let _ = tx.rollback().await;
+        return CommandOutcome::Committed(false);
+    }
+    let Ok(mut audit) = AuditEvent::new("user_risk.reset", "user_risk") else {
+        let _ = tx.rollback().await;
+        return CommandOutcome::RolledBack(Rejection::Body(invalid()));
+    };
+    audit = audit
+        .with_target_id(user)
+        .with_after_json(after)
+        .with_notes("");
+    if !ip.is_empty() {
+        audit = audit.with_ip(ip);
+    }
+    let mut tx = match tx.record_audit(&audit).await {
+        Ok(tx) => tx,
+        Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
+    };
+    if let Err(e) = tx.record_receipt(command("user_risk_reset")).await {
+        let _ = tx.rollback().await;
+        return CommandOutcome::RolledBack(Rejection::Statement(e));
+    }
+    match tx.commit().await {
+        CommandOutcome::Committed(()) => CommandOutcome::Committed(true),
+        CommandOutcome::RolledBack(r) => CommandOutcome::RolledBack(r),
+        CommandOutcome::Unknown { operation } => CommandOutcome::Unknown { operation },
+    }
 }

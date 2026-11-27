@@ -92,7 +92,7 @@ impl Registration {
     /// one-time token is returned and only its SHA-256 is stored.
     pub async fn hold_link(
         &self,
-        worker: &ScopedExecutor,
+        worker: &AuthDb,
         flow: &str,
         subject: &str,
         groups: &Option<Vec<String>>,
@@ -104,8 +104,8 @@ impl Registration {
         let hash = Sha256::digest(token.as_bytes()).to_vec();
         let groups = groups.as_ref().map(|g| json!(g).to_string());
         let rows = worker
-            .protocol_query(
-                "SELECT rust_identity_saml_link_hold($1,$2::text::uuid,$3,$4,$5::text::jsonb)::text",
+            .protocol_query_contract(
+                &crate::sql::SAML_FLOW_L108,
                 &[
                     (&self.id, Type::INT8),
                     (&flow, Type::TEXT),
@@ -122,16 +122,20 @@ impl Registration {
     /// Single-use release of the held assertion for this link flow.
     pub async fn take_link(
         &self,
-        worker: &ScopedExecutor,
+        worker: &AuthDb,
         flow: &str,
         token: &str,
     ) -> Option<(String, Option<Vec<String>>)> {
         use sha2::{Digest, Sha256};
         let hash = Sha256::digest(token.as_bytes()).to_vec();
         let rows = worker
-            .protocol_query(
-                "SELECT rust_identity_saml_link_take($1,$2::text::uuid,$3)::text",
-                &[(&self.id, Type::INT8), (&flow, Type::TEXT), (&hash, Type::BYTEA)],
+            .protocol_query_contract(
+                &crate::sql::SAML_FLOW_L133,
+                &[
+                    (&self.id, Type::INT8),
+                    (&flow, Type::TEXT),
+                    (&hash, Type::BYTEA),
+                ],
             )
             .await
             .ok()?;
@@ -139,13 +143,19 @@ impl Registration {
         if v["status"] != "taken" {
             return None;
         }
-        let groups = v["groups"]
-            .as_array()
-            .map(|a| a.iter().filter_map(|g| g.as_str().map(str::to_owned)).collect());
+        let groups = v["groups"].as_array().map(|a| {
+            a.iter()
+                .filter_map(|g| g.as_str().map(str::to_owned))
+                .collect()
+        });
         Some((v["subject"].as_str()?.to_owned(), groups))
     }
     /// The identity of a held link, for the sealed finish.
-    pub fn held_assertion(&self, subject: String, groups: Option<Vec<String>>) -> crate::rp::Assertion {
+    pub fn held_assertion(
+        &self,
+        subject: String,
+        groups: Option<Vec<String>>,
+    ) -> crate::rp::Assertion {
         crate::rp::Assertion::saml(self.entity.clone(), subject, String::new(), groups)
     }
     /// The cookie name login set for this relay token.
@@ -211,15 +221,15 @@ impl Registration {
     /// Consume the assertion (and, SP-initiated, its request) exactly once.
     pub async fn consume(
         &self,
-        worker: &ScopedExecutor,
+        worker: &AuthDb,
         claims: &Claims,
         request_id: Option<&str>,
     ) -> Consumed {
         let expires = claims.not_on_or_after.saturating_add(saml_acs::SKEW);
         let request = request_id.map(str::to_owned);
         let rows = worker
-            .protocol_query(
-                "SELECT rust_identity_saml_consume($1,$2,$3,$4)::text",
+            .protocol_query_contract(
+                &crate::sql::SAML_FLOW_L222,
                 &[
                     (&self.id, Type::INT8),
                     (&claims.assertion_id, Type::TEXT),
@@ -313,7 +323,7 @@ impl crate::rp::Federated for Registration {
 /// a single `audit_write` statement. The actor is the signed-in user on success and
 /// NULL on a failure (nothing is authenticated); no assertion content is recorded.
 pub async fn audit(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     registration: i64,
     action: &str,
     actor: Option<i64>,
@@ -322,8 +332,8 @@ pub async fn audit(
 ) {
     let action = format!("saml.acs.{action}");
     let _ = exec
-        .protocol_statement(
-            "SELECT audit_write($1,$2,'saml_registration',$3,NULL,NULL,NULLIF($4,'')::inet,$5,'core')",
+        .protocol_statement_contract(
+            &crate::sql::SAML_FLOW_L326,
             &[
                 (&actor, Type::INT8),
                 (&action, Type::TEXT),

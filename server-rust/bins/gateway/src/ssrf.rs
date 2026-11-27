@@ -2,8 +2,8 @@
 //! name that later resolves to an internal address is the fetcher's dial-time
 //! guard to refuse; this only rejects bad schemes, missing hosts and literal
 //! internal addresses.
-use std::net::IpAddr;
 pub use setjoin_authz::ssrf::blocked;
+use std::net::IpAddr;
 
 /// `true` when Go's `ValidateURL` accepts `raw`.
 pub fn valid_url(raw: &str) -> bool {

@@ -229,20 +229,49 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let admin_principal = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
+            };
             let path = r.uri().path().to_owned();
             let go_path = path.strip_prefix("/api").unwrap_or(&path).to_owned();
             let go_path = crate::guests_input::go_utf8(&crate::inventory::unescape(&go_path));
             let query = r.uri().query().unwrap_or("").to_owned();
             // `r.URL.Query()` is read before the gate by the shadow handler's key check
             // only; every route resolves its query lazily below.
-            let authority = setjoin_admin_identity::authority(&exec, actor)
-                .await
-                .unwrap_or_else(|_| setjoin_admin_identity::Authority::lookup_failed());
+            let Some(authority) = admin_principal else {
+                if let Some(perm) = gates(what).first() {
+                    let _ = setjoin_admin_identity::console_denied(
+                        &factory,
+                        &user_principal,
+                        &go_path,
+                        perm,
+                        operation,
+                    )
+                    .await;
+                }
+                return bare(403, "Forbidden", &c, &id);
+            };
+            let scope = authority.enforced_domain_scope().unwrap_or(0);
             // Go's audited route guards (`RequirePermAudited`), one per permission.
             for perm in gates(what) {
                 if !authority.allows_any(&[perm]) {
                     let _ = setjoin_admin_identity::console_denied(
-                        &exec, actor, &go_path, perm, operation,
+                        &factory,
+                        &user_principal,
+                        &go_path,
+                        perm,
+                        operation,
                     )
                     .await;
                     return bare(403, "Forbidden", &c, &id);
@@ -250,24 +279,30 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                 if authority.refused_for_scope(&[perm]) {
                     let detail = format!(
                         "{perm} (domain-scoped principal; org-wide-only surface, domain={})",
-                        authority.domain_scope()
+                        scope
                     );
                     let _ = setjoin_admin_identity::console_denied(
-                        &exec, actor, &go_path, &detail, operation,
+                        &factory,
+                        &user_principal,
+                        &go_path,
+                        &detail,
+                        operation,
                     )
                     .await;
                     return bare(403, "Forbidden", &c, &id);
                 }
             }
+            let Ok(admin_proof) = authority.require_any_permission(gates(what)) else {
+                return bare(403, "Forbidden", &c, &id);
+            };
             if let Some(perm) = reason_perm(what) {
                 let area = perm.split('.').next().unwrap_or("");
-                if up::reason_required(&exec, area).await
+                if up::reason_required(&factory, &admin_proof, area).await
                     && r.headers()
                         .get("x-audit-reason")
                         .is_none_or(|v| v.as_bytes().is_empty())
                 {
-                    let ip = c.identity.client_ip.to_string();
-                    up::missing_reason(&exec, actor, &ip, perm, operation).await;
+                    up::missing_reason(&factory, &user_principal, &ip, perm, operation).await;
                     return bare(400, "reason_required", &c, &id);
                 }
             }
@@ -276,7 +311,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
             let unscoped = |perms: &[&str]| -> Option<&'static str> {
                 if !perms.iter().all(|p| authority.global_any(&[p])) {
                     Some(LIVE)
-                } else if authority.domain_scope() != 0 {
+                } else if scope != 0 {
                     Some(UNSCOPED)
                 } else {
                     None
@@ -291,18 +326,19 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                         return bare(403, detail, &c, &id);
                     }
                     let (result, fallback) = match what {
-                        Action::Status => {
-                            (up::status(&worker).await, "identity upgrade status failed")
-                        }
+                        Action::Status => (
+                            up::status(&factory, &admin_proof).await,
+                            "identity upgrade status failed",
+                        ),
                         Action::Preflight => {
                             let ok = secrets_ok().await;
                             (
-                                up::preflight(&worker, &runtime, ok).await,
+                                up::preflight(&factory, &admin_proof, &runtime, ok).await,
                                 "identity upgrade preflight failed",
                             )
                         }
                         _ => (
-                            up::retirement_check(&worker).await,
+                            up::retirement_check(&factory, &admin_proof).await,
                             "identity retirement check failed",
                         ),
                     };
@@ -328,7 +364,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                     if let Some(detail) = unscoped(&upgrade) {
                         return bare(403, detail, &c, &id);
                     }
-                    match up::shadow(&worker, &key).await {
+                    match up::shadow(&factory, &admin_proof, &key).await {
                         Ok(raw) => raw_json(raw, r.headers().get("if-none-match"), &c, &id),
                         Err(e) => failed(&e, "identity shadow check failed", &go_path, &c, &id),
                     }
@@ -347,7 +383,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                     }
                     let ok = secrets_ok().await;
                     let source = (!key.is_empty()).then_some(key.as_str());
-                    match up::doctor(&worker, &runtime, ok, source).await {
+                    match up::doctor(&factory, &admin_proof, &runtime, ok, source).await {
                         Ok(raw) => raw_json(raw, r.headers().get("if-none-match"), &c, &id),
                         Err(e) => failed(&e, "identity doctor failed", &go_path, &c, &id),
                     }
@@ -378,7 +414,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                             return bare(403, detail, &c, &id);
                         }
                         let ok = secrets_ok().await;
-                        return match up::preflight(&worker, &runtime, ok).await {
+                        return match up::preflight(&factory, &admin_proof, &runtime, ok).await {
                             Ok(raw) => raw_json(raw, r.headers().get("if-none-match"), &c, &id),
                             Err(e) => flat(&e, "identity backfill plan failed", &c, &id),
                         };
@@ -423,7 +459,15 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                     }
                     let ok = secrets_ok().await;
                     let raw = match up::backfill_start(
-                        &worker, actor, &checksum, &key, &reason, &runtime, ok, operation,
+                        &factory,
+                        &user_principal,
+                        &admin_proof,
+                        &checksum,
+                        &key,
+                        &reason,
+                        &runtime,
+                        ok,
+                        operation,
                     )
                     .await
                     {
@@ -537,7 +581,15 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                         return bare(403, detail, &c, &id);
                     }
                     let raw = match up::canary(
-                        &worker, actor, &source, generation, enabled, &users, &reason, operation,
+                        &factory,
+                        &user_principal,
+                        &admin_proof,
+                        &source,
+                        generation,
+                        enabled,
+                        &users,
+                        &reason,
+                        operation,
                     )
                     .await
                     {
@@ -585,7 +637,9 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                     if let Some(detail) = unscoped(&upgrade) {
                         return bare(403, detail, &c, &id);
                     }
-                    match up::rollback(&worker, actor, &reason, operation).await {
+                    match up::rollback(&factory, &user_principal, &admin_proof, &reason, operation)
+                        .await
+                    {
                         CommandOutcome::Committed(raw) => raw_json(
                             raw.unwrap_or_default(),
                             r.headers().get("if-none-match"),
@@ -677,8 +731,8 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                     let request = format!("{{\"sinceSeconds\":{since}}}");
                     let source = (!source.is_empty()).then_some(source.as_str());
                     let raw = match up::diagnostic_create(
-                        &worker,
-                        actor,
+                        &factory,
+                        &admin_proof,
                         &key,
                         source,
                         transition.as_deref(),
@@ -714,7 +768,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                 }
                 Action::DiagStatus => {
                     // Go's `IdentityJob`: any of the three job permissions, unscoped.
-                    if authority.domain_scope() != 0 {
+                    if scope != 0 {
                         return bare(403, UNSCOPED, &c, &id);
                     }
                     if !authority.global_any(&["audit.export", "identity.write", "system.upgrade"])
@@ -724,7 +778,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                     let Some(job) = nonzero_uuid(&segment(&path, 6)) else {
                         return bare(400, "invalid identity job id", &c, &id);
                     };
-                    let raw = match ops::job(&worker, user, &job).await {
+                    let raw = match ops::job(&factory, &admin_proof, user, &job).await {
                         Ok(raw) => raw,
                         Err(_) => return bare(500, "identity job read failed", &c, &id),
                     };
@@ -760,7 +814,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                     let Some(job) = nonzero_uuid(&segment(&path, 6)) else {
                         return bare(400, "invalid identity job id", &c, &id);
                     };
-                    let raw = match ops::job(&worker, user, &job).await {
+                    let raw = match ops::job(&factory, &admin_proof, user, &job).await {
                         Ok(raw) => raw,
                         Err(_) => return bare(500, "identity diagnostic status failed", &c, &id),
                     };
@@ -793,8 +847,14 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                     if state != "completed" {
                         return bare(409, "identity diagnostic bundle is not ready", &c, &id);
                     }
-                    let bundle = match up::diagnostic_download(&worker, actor, &job, operation)
-                        .await
+                    let bundle = match up::diagnostic_download(
+                        &factory,
+                        &user_principal,
+                        &admin_proof,
+                        &job,
+                        operation,
+                    )
+                    .await
                     {
                         CommandOutcome::Committed(Some(bundle)) => bundle,
                         CommandOutcome::Committed(None) => {
@@ -874,7 +934,9 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
                     let Some(job) = nonzero_uuid(&segment(&path, 6)) else {
                         return bare(400, "invalid identity job id", &c, &id);
                     };
-                    match up::diagnostic_delete(&worker, actor, &job, &reason, operation).await {
+                    match up::diagnostic_delete(&factory, &admin_proof, &job, &reason, operation)
+                        .await
+                    {
                         CommandOutcome::Committed(_) => {
                             let mut response = crate::jmap::reply::response(
                                 String::new(),

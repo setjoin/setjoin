@@ -18,7 +18,7 @@
 #![forbid(unsafe_code)]
 
 use serde::Deserialize;
-use setjoin_sql_catalog::{RlsCheck, SqlContract, SqlScope, Type};
+use setjoin_sql_catalog::{RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
 use std::{
     collections::{BTreeMap, HashSet},
     env, fs,
@@ -36,6 +36,22 @@ const ALL_CONTRACTS: &[&[SqlContract]] = &[
     setjoin_user_settings::SQL_CONTRACTS,
     setjoin_approvals::SQL_CONTRACTS,
     setjoin_calendar::SQL_CONTRACTS,
+    setjoin_guests::SQL_CONTRACTS,
+    setjoin_office::SQL_CONTRACTS,
+    setjoin_static::SQL_CONTRACTS,
+    setjoin_devices::SQL_CONTRACTS,
+    setjoin_chat::SQL_CONTRACTS,
+    setjoin_drive::SQL_CONTRACTS,
+    setjoin_jmap::SQL_CONTRACTS,
+    setjoin_mail_security::SQL_CONTRACTS,
+    setjoin_mailboxes::SQL_CONTRACTS,
+    setjoin_meet::SQL_CONTRACTS,
+    setjoin_conditional_access::SQL_CONTRACTS,
+    setjoin_compliance::SQL_CONTRACTS,
+    setjoin_directory_sync::SQL_CONTRACTS,
+    setjoin_platform::SQL_CONTRACTS,
+    setjoin_admin_identity::SQL_CONTRACTS,
+    setjoin_identity::SQL_CONTRACTS,
 ];
 
 const FIRST_CUSTOM_OID: u32 = 16384;
@@ -55,6 +71,7 @@ struct OwnedContract {
     columns: Vec<OwnedColumn>,
     scope: SqlScope,
     rls_check: RlsCheck,
+    audit: SqlAuditPosture,
 }
 
 impl From<&SqlContract> for OwnedContract {
@@ -74,6 +91,7 @@ impl From<&SqlContract> for OwnedContract {
                 .collect(),
             scope: c.scope,
             rls_check: c.rls_check,
+            audit: c.audit,
         }
     }
 }
@@ -93,11 +111,14 @@ struct MutantContractJson {
     columns: Vec<MutantColumnJson>,
     scope: String,
     rls_check: String,
+    #[serde(default)]
+    audit: Option<String>,
 }
 
 fn parse_scope(raw: &str) -> Result<SqlScope, String> {
     match raw {
         "MailboxReadOnly" => Ok(SqlScope::MailboxReadOnly),
+        "MailboxAuditedRead" => Ok(SqlScope::MailboxAuditedRead),
         "MailboxReadWrite" => Ok(SqlScope::MailboxReadWrite),
         "UserScoped" => Ok(SqlScope::UserScoped),
         "AdminRead" => Ok(SqlScope::AdminRead),
@@ -113,6 +134,14 @@ fn parse_rls_check(raw: &str) -> Result<RlsCheck, String> {
         "PrepareAndExplain" => Ok(RlsCheck::PrepareAndExplain),
         "PrepareExplainAndRlsDenyProbe" => Ok(RlsCheck::PrepareExplainAndRlsDenyProbe),
         other => Err(format!("unknown RlsCheck '{other}'")),
+    }
+}
+
+fn parse_audit_posture(raw: Option<&str>) -> Result<SqlAuditPosture, String> {
+    match raw {
+        None | Some("Standard") => Ok(SqlAuditPosture::Standard),
+        Some("ReducerWritesCoreAudit") => Ok(SqlAuditPosture::ReducerWritesCoreAudit),
+        Some(other) => Err(format!("unknown SqlAuditPosture '{other}'")),
     }
 }
 
@@ -183,6 +212,7 @@ fn load_mutant_contracts(path: &str) -> Result<Vec<OwnedContract>, String> {
             columns,
             scope: parse_scope(&item.scope)?,
             rls_check: parse_rls_check(&item.rls_check)?,
+            audit: parse_audit_posture(item.audit.as_deref())?,
         });
     }
     Ok(out)
@@ -224,7 +254,7 @@ fn swap_dsn_user(dsn: &str, new_user: &str) -> Result<String, String> {
     Ok(parts.join(" "))
 }
 
-fn resolve_dsns() -> Result<(String, String), String> {
+fn resolve_dsns() -> Result<(String, String, bool), String> {
     let base = env::var("TEST_DB_DSN")
         .ok()
         .filter(|v| !v.trim().is_empty())
@@ -241,13 +271,15 @@ fn resolve_dsns() -> Result<(String, String), String> {
             swap_dsn_user(base, "setjoin_app")
         })?;
 
-    let worker_dsn = env::var("DB_WORKER_DSN")
+    let explicit_worker = env::var("DB_WORKER_DSN")
         .ok()
-        .filter(|v| !v.trim().is_empty())
+        .filter(|v| !v.trim().is_empty());
+    let worker_explicit = explicit_worker.is_some();
+    let worker_dsn = explicit_worker
         .or(base)
         .ok_or_else(|| "DB_WORKER_DSN, TEST_DB_DSN, or DB_DSN is required".to_owned())?;
 
-    Ok((app_dsn, worker_dsn))
+    Ok((app_dsn, worker_dsn, worker_explicit))
 }
 
 async fn connect_pg(dsn: &str, label: &str) -> Result<Client, String> {
@@ -260,7 +292,11 @@ async fn connect_pg(dsn: &str, label: &str) -> Result<Client, String> {
     Ok(client)
 }
 
-async fn verify_roles(app: &Client, worker: &Client) -> Result<(String, i32, String), String> {
+async fn verify_roles(
+    app: &Client,
+    worker: &Client,
+    worker_explicit: bool,
+) -> Result<(String, i32, String), String> {
     let app_row = app
         .query_one(
             "SELECT current_user::text, r.rolsuper, r.rolbypassrls, \
@@ -298,7 +334,15 @@ async fn verify_roles(app: &Client, worker: &Client) -> Result<(String, i32, Str
     let worker_user: String = worker_row.get(0);
     let worker_super: bool = worker_row.get(1);
     let worker_bypass: bool = worker_row.get(2);
-    if !worker_super && !worker_bypass {
+    if worker_explicit {
+        if worker_super || !worker_bypass {
+            return Err(format!(
+                "PREFLIGHT_WORKER_ROLE_FORBIDDEN: explicit DB_WORKER_DSN role '{worker_user}' \
+                 must have rolsuper=false AND rolbypassrls=true \
+                 (got rolsuper={worker_super}, rolbypassrls={worker_bypass})"
+            ));
+        }
+    } else if !worker_super && !worker_bypass {
         return Err(format!(
             "PREFLIGHT_WORKER_ROLE_FORBIDDEN: worker role '{worker_user}' must have rolbypassrls=true OR rolsuper=true"
         ));
@@ -333,6 +377,21 @@ fn preflight_static(contracts: &[OwnedContract]) -> Result<(), Vec<String>> {
                 "PREFLIGHT_ADMIT_FAILED [{}]: statement rejected by setjoin_pg::statement::admit: {reason}",
                 c.id
             ));
+        }
+        if c.audit == SqlAuditPosture::ReducerWritesCoreAudit {
+            if c.scope != SqlScope::AdminWrite {
+                errs.push(format!(
+                    "AUDIT_POSTURE_SCOPE_INVALID [{}]: ReducerWritesCoreAudit requires SqlScope::AdminWrite (got {})",
+                    c.id,
+                    c.scope.as_str()
+                ));
+            }
+            if c.params.first() != Some(&Type::INT8) {
+                errs.push(format!(
+                    "AUDIT_POSTURE_ACTOR_INVALID [{}]: ReducerWritesCoreAudit requires $1 to be INT8 p_actor",
+                    c.id
+                ));
+            }
         }
         for (idx, ty) in c.params.iter().enumerate() {
             if ty.oid() >= FIRST_CUSTOM_OID {
@@ -472,7 +531,18 @@ impl RlsFixture {
             .map_err(|e| format!("seed foreign user failed: {:?}", e.as_db_error()))?
             .get(0);
 
-        // Ensure victim_mailbox_id diverges from victim_user_id (if equal, create a spare first).
+        // Seed foreign_mailbox before victim_mailbox so victim_mailbox_id naturally
+        // diverges from victim_user_id even on a fresh database where sequences align.
+        let foreign_mailbox_id: i64 = worker
+            .query_one(
+                "INSERT INTO mailboxes (domain_id, user_id, email, display_name, is_primary) \
+                 VALUES ($1, $2, $3, 'Foreign', TRUE) RETURNING id",
+                &[&domain_id, &foreign_user_id, &foreign_email],
+            )
+            .await
+            .map_err(|e| format!("seed foreign mailbox failed: {:?}", e.as_db_error()))?
+            .get(0);
+
         let mut victim_mailbox_id: i64 = worker
             .query_one(
                 "INSERT INTO mailboxes (domain_id, user_id, email, display_name, is_primary) \
@@ -483,18 +553,13 @@ impl RlsFixture {
             .map_err(|e| format!("seed victim mailbox failed: {:?}", e.as_db_error()))?
             .get(0);
         if victim_mailbox_id == victim_user_id {
+            // Insert a secondary non-primary mailbox so trg_mailbox_primary_enforce
+            // (BZ014) is always satisfied while victim_mailbox_id != victim_user_id.
             let alt_email = format!("victim-alt-{tag}@{domain_name}");
-            worker
-                .execute(
-                    "UPDATE mailboxes SET is_primary = FALSE WHERE id = $1",
-                    &[&victim_mailbox_id],
-                )
-                .await
-                .map_err(|e| format!("adjust victim mailbox failed: {:?}", e.as_db_error()))?;
             victim_mailbox_id = worker
                 .query_one(
                     "INSERT INTO mailboxes (domain_id, user_id, email, display_name, is_primary) \
-                     VALUES ($1, $2, $3, 'Victim Alt', TRUE) RETURNING id",
+                     VALUES ($1, $2, $3, 'Victim Alt', FALSE) RETURNING id",
                     &[&domain_id, &victim_user_id, &alt_email],
                 )
                 .await
@@ -506,16 +571,6 @@ impl RlsFixture {
                 })?
                 .get(0);
         }
-
-        let foreign_mailbox_id: i64 = worker
-            .query_one(
-                "INSERT INTO mailboxes (domain_id, user_id, email, display_name, is_primary) \
-                 VALUES ($1, $2, $3, 'Foreign', TRUE) RETURNING id",
-                &[&domain_id, &foreign_user_id, &foreign_email],
-            )
-            .await
-            .map_err(|e| format!("seed foreign mailbox failed: {:?}", e.as_db_error()))?
-            .get(0);
 
         // Seed rows into FORCE RLS tables probed by migrated domain contracts.
         let victim_calendar_id: i64 = worker
@@ -783,7 +838,7 @@ fn build_rls_probe_values(contract: &OwnedContract, fixture: &RlsFixture) -> Vec
         && (sql_lower.contains("r.id=$1") || sql_lower.contains("where id=$1"));
     let is_mailbox_scope = matches!(
         contract.scope,
-        SqlScope::MailboxReadOnly | SqlScope::MailboxReadWrite
+        SqlScope::MailboxReadOnly | SqlScope::MailboxAuditedRead | SqlScope::MailboxReadWrite
     );
     let mut vals = Vec::with_capacity(contract.params.len());
     for (idx, ty) in contract.params.iter().enumerate() {
@@ -868,7 +923,9 @@ async fn apply_scope_gucs(
     let mb = mailbox_id.map(|v| v.to_string()).unwrap_or_default();
     let uid = user_id.map(|v| v.to_string()).unwrap_or_default();
     let (mb_val, uid_val) = match scope {
-        SqlScope::MailboxReadOnly | SqlScope::MailboxReadWrite => (mb, uid),
+        SqlScope::MailboxReadOnly | SqlScope::MailboxAuditedRead | SqlScope::MailboxReadWrite => {
+            (mb, uid)
+        }
         SqlScope::UserScoped | SqlScope::AdminRead | SqlScope::AdminWrite => (String::new(), uid),
         SqlScope::AuthPreScope | SqlScope::WorkerBypass => (String::new(), String::new()),
     };
@@ -905,7 +962,10 @@ async fn verify_one_contract(
     worker: &Client,
     fixture: &RlsFixture,
 ) -> Result<(), String> {
-    let client = if contract.scope.is_worker_bypass() {
+    let client = if contract.scope.is_worker_bypass()
+        || contract.scope.is_admin()
+        || matches!(contract.scope, SqlScope::AuthPreScope)
+    {
         worker
     } else {
         app
@@ -977,11 +1037,17 @@ async fn verify_inside_tx(
     // Check result column count, built-in OID < 16384, exact type, and optional name.
     let actual_cols = stmt.columns();
     if actual_cols.len() != contract.columns.len() {
+        let actual_desc = actual_cols
+            .iter()
+            .map(|c| format!("{}:{}({})", c.name(), c.type_().name(), c.type_().oid()))
+            .collect::<Vec<_>>()
+            .join(", ");
         return Err(format!(
-            "COLUMN_COUNT_MISMATCH [{}]: declared {} columns, PostgreSQL returned {}",
+            "COLUMN_COUNT_MISMATCH [{}]: declared {} columns, PostgreSQL returned {} [{}]",
             contract.id,
             contract.columns.len(),
-            actual_cols.len()
+            actual_cols.len(),
+            actual_desc
         ));
     }
     for (idx, (expected, actual)) in contract.columns.iter().zip(actual_cols.iter()).enumerate() {
@@ -1182,8 +1248,8 @@ async fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
-    let (app_dsn, worker_dsn) = match resolve_dsns() {
-        Ok(pair) => pair,
+    let (app_dsn, worker_dsn, worker_explicit) = match resolve_dsns() {
+        Ok(triple) => triple,
         Err(e) => {
             eprintln!("FAIL: PREFLIGHT_DSN_MISSING: {e}");
             return ExitCode::from(1);
@@ -1205,7 +1271,7 @@ async fn main() -> ExitCode {
         }
     });
 
-    let (app_user, pg_ver, worker_user) = match verify_roles(&app, &worker).await {
+    let (app_user, pg_ver, worker_user) = match verify_roles(&app, &worker, worker_explicit).await {
         Ok(info) => info,
         Err(e) => {
             eprintln!("FAIL: {e}");
@@ -1296,6 +1362,7 @@ mod tests {
         let scopes: HashSet<SqlScope> = contracts.iter().map(|c| c.scope).collect();
         for required in [
             SqlScope::MailboxReadOnly,
+            SqlScope::MailboxAuditedRead,
             SqlScope::MailboxReadWrite,
             SqlScope::UserScoped,
             SqlScope::AdminRead,
@@ -1346,6 +1413,7 @@ mod tests {
             }],
             scope: SqlScope::UserScoped,
             rls_check: RlsCheck::PrepareAndExplain,
+            audit: SqlAuditPosture::Standard,
         };
         let errs = preflight_static(&[bad.clone(), bad]).unwrap_err();
         assert!(errs.iter().any(|e| e.contains("CUSTOM_OID_FORBIDDEN")));

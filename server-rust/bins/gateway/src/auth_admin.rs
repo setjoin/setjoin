@@ -114,14 +114,27 @@ impl<K: KeySource + 'static> Intercept for AuthAdminRoute<K> {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
-            let Ok(authority) = setjoin_platform::authority(&exec, auth.context()).await else {
+            let Some(factory) = crate::policy_composition::tx_factory_from_executors(&exec, None)
+            else {
                 return bare(503, "service unavailable", &c, &id);
             };
-            if !authority.allows_any(&setjoin_platform::IDENTITY_WRITE) {
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let admin_opt = if auth.context().signed_admin() {
+                match factory.mint_admin_from_authorized(&auth, &ip).await {
+                    Ok(p) => Some(p),
+                    Err(_) => return bare(503, "service unavailable", &c, &id),
+                }
+            } else {
+                None
+            };
+            if !admin_opt.is_some_and(|a| a.allows_any(&setjoin_platform::IDENTITY_WRITE)) {
                 let go_path = segment_path(r.uri().path());
                 let _ = setjoin_platform::console_denied(
-                    &exec,
-                    auth.context(),
+                    &factory,
+                    &user_principal,
                     &go_path,
                     "identity.write",
                     operation,

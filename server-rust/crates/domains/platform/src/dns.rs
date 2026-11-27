@@ -5,8 +5,9 @@
 //! Go uses the process resolver (`net.LookupMX`), so the production resolver reads
 //! `/etc/resolv.conf` and a fixed name server is available for tests. Lookup failures render
 //! Go's `DNSError` text (`lookup <name> on <server>: <reason>`).
-use super::{done, s};
-use setjoin_pg::{ScopedExecutor, StatementFailure, Type};
+use super::{done, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::StatementFailure;
 use std::net::SocketAddr;
 
 /// Where lookups go.
@@ -178,26 +179,32 @@ impl Resolver {
 
 /// The scope name of a domain-scoped principal; `None` when the domain row is gone.
 pub async fn scope_name(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     domain_scope: i64,
 ) -> Result<Option<String>, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT name FROM domains WHERE id = $1",
-            &[(&domain_scope, Type::INT8)],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::DNS_SCOPE_NAME, &[&domain_scope])
         .await?;
     Ok(rows.first().and_then(|r| r.try_get::<_, String>(0).ok()))
 }
 
 /// First selector row of `domain_signing_keys`, or every one.
-async fn selectors(exec: &ScopedExecutor, domain: &str, one: bool) -> Option<Vec<String>> {
-    let sql = if one {
-        "SELECT selector FROM domain_signing_keys WHERE domain = $1 LIMIT 1"
+async fn selectors(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    domain: &str,
+    one: bool,
+) -> Option<Vec<String>> {
+    let contract = if one {
+        &sql::DNS_SELECTORS_ONE
     } else {
-        "SELECT selector FROM domain_signing_keys WHERE domain = $1"
+        &sql::DNS_SELECTORS_ALL
     };
-    let rows = exec.read(sql, &[(&domain, Type::TEXT)]).await.ok()?;
+    let rows = factory
+        .run_admin_read_contract(admin, contract, &[&domain])
+        .await
+        .ok()?;
     Some(
         rows.iter()
             .filter_map(|r| r.try_get::<_, String>(0).ok())
@@ -206,12 +213,9 @@ async fn selectors(exec: &ScopedExecutor, domain: &str, one: bool) -> Option<Vec
 }
 
 /// `GET /admin/dns/records`.
-pub async fn records(exec: &ScopedExecutor, domain: &str) -> String {
-    let host = exec
-        .read(
-            "SELECT value->>'value' FROM system_config WHERE key = 'gateway_hostname'",
-            &[],
-        )
+pub async fn records(factory: &TxFactory, admin: &AdminPermissionProof, domain: &str) -> String {
+    let host = factory
+        .run_admin_read_contract(admin, &sql::DNS_GATEWAY_HOSTNAME, &[])
         .await
         .ok()
         .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, String>(0).ok()))
@@ -221,16 +225,13 @@ pub async fn records(exec: &ScopedExecutor, domain: &str) -> String {
     } else {
         host
     };
-    let stamp = exec
-        .read(
-            "SELECT to_char(now() AT TIME ZONE 'UTC','YYYYMMDD\"T\"HH24MISS\"Z\"')",
-            &[],
-        )
+    let stamp = factory
+        .run_admin_read_contract(admin, &sql::DNS_UTC_STAMP, &[])
         .await
         .ok()
         .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, String>(0).ok()))
         .unwrap_or_default();
-    let mut dkim: Vec<String> = selectors(exec, domain, false)
+    let mut dkim: Vec<String> = selectors(factory, admin, domain, false)
         .await
         .unwrap_or_default()
         .iter()
@@ -323,7 +324,12 @@ async fn txt_check(
 }
 
 /// `GET /admin/dns/verify`.
-pub async fn verify(exec: &ScopedExecutor, resolver: &Resolver, domain: &str) -> String {
+pub async fn verify(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    resolver: &Resolver,
+    domain: &str,
+) -> String {
     let mut checks = Vec::new();
     let mut all = true;
     match resolver.mx(domain).await {
@@ -363,7 +369,7 @@ pub async fn verify(exec: &ScopedExecutor, resolver: &Resolver, domain: &str) ->
         &mut checks,
     )
     .await;
-    if let Some(selector) = selectors(exec, domain, true)
+    if let Some(selector) = selectors(factory, admin, domain, true)
         .await
         .and_then(|v| v.into_iter().next())
     {

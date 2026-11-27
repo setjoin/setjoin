@@ -55,8 +55,17 @@ HARD_BANNED_PATTERNS = [
     ),
     ("::mint", re.compile(r"::\s*(?:mint\b|\{[^}]*\bmint\b)")),
     ("AppPool", re.compile(r"\bAppPool\b")),
+    ("AdminWorkerPool", re.compile(r"\bAdminWorkerPool\b")),
+    ("PreAuthReadTx", re.compile(r"\bPreAuthReadTx\b")),
+    ("begin_pre_auth_read", re.compile(r"\bbegin_pre_auth_read\b")),
+    ("run_pre_auth_read_contract", re.compile(r"\brun_pre_auth_read_contract\b")),
+    ("run_pre_auth_read_pipelined", re.compile(r"\brun_pre_auth_read_pipelined\b")),
     ("WorkerPool", re.compile(r"\bWorkerPool\b")),
     ("WorkerTx", re.compile(r"\bWorkerTx\b")),
+    ("WorkerDatabase", re.compile(r"\bWorkerDatabase\b")),
+    ("ScopedExecutor", re.compile(r"\bScopedExecutor\b")),
+    ("from_authenticated_session", re.compile(r"\bfrom_authenticated_session\b")),
+    ("from_authenticated_user", re.compile(r"\bfrom_authenticated_user\b")),
     ("deadpool_postgres", re.compile(r"\bdeadpool_postgres\b")),
 ]
 
@@ -73,28 +82,7 @@ LEGACY_PATTERNS = [
     ("from_authenticated_user", re.compile(r"\bfrom_authenticated_user\b")),
 ]
 
-WAVE_1_8_LEGACY_ALLOWLIST = {
-    "crates/domains/approvals/src/email.rs": {"from_authenticated_session"},
-    "crates/domains/calendar/src/carddav.rs": {"from_authenticated_session"},
-    "crates/domains/calendar/src/dav.rs": {"from_authenticated_session"},
-    "crates/domains/chat/src/workers.rs": {"WorkerDatabase"},
-    "crates/domains/compliance/src/chat_export.rs": {"WorkerDatabase"},
-    "crates/domains/compliance/src/search.rs": {"WorkerDatabase"},
-    "crates/domains/directory-sync/src/ad/runtime.rs": {"WorkerDatabase"},
-    "crates/domains/directory-sync/src/catalog.rs": {"WorkerDatabase"},
-    "crates/domains/directory-sync/src/ldap/engine.rs": {"WorkerDatabase"},
-    "crates/domains/directory-sync/src/ldap/normalized.rs": {"WorkerDatabase"},
-    "crates/domains/directory-sync/src/ldap/runtime.rs": {"WorkerDatabase"},
-    "crates/domains/drive/src/lib.rs": {"from_authenticated_session"},
-    "crates/domains/identity/src/login.rs": {"ScopedExecutor::from_dsn"},
-    "crates/domains/identity/src/self_service.rs": {"from_authenticated_session"},
-    "crates/domains/identity/src/session.rs": {"ScopedExecutor::from_dsn"},
-    "crates/domains/identity/src/totp.rs": {"ScopedExecutor::from_dsn"},
-    "crates/domains/identity/src/webauthn.rs": {"ScopedExecutor::from_dsn"},
-    "crates/domains/mail-security/src/dlp.rs": {"from_authenticated_session"},
-    "crates/domains/office/src/lib.rs": {"from_authenticated_session"},
-    "crates/domains/static/src/telemetry.rs": {"WorkerDatabase"},
-}
+WAVE_1_8_LEGACY_ALLOWLIST: dict[str, set[str]] = {}
 
 
 def strip_rust_comments(text: str) -> str:

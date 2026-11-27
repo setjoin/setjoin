@@ -66,7 +66,7 @@ pub(crate) async fn file(
             .insert("location", location.parse().unwrap());
         return reply;
     }
-    let mut file = match tokio::fs::File::open(path).await {
+    let file = match tokio::fs::File::open(path).await {
         Ok(file) => file,
         Err(e) => return file_error(reply, e),
     };
@@ -268,12 +268,18 @@ pub(crate) async fn upload(
                 .boxed(),
         );
         let mut total = 0usize;
-        let stream = body.into_data_stream().map(|chunk| -> Result<bytes::Bytes,crate::BoxError> {
-            let bytes=chunk?;
-            total=total.checked_add(bytes.len()).ok_or_else(||std::io::Error::other("multipart too large"))?;
-            if total>CAP{return Err(std::io::Error::other("multipart too large").into());}
-            Ok(bytes)
-        });
+        let stream =
+            body.into_data_stream()
+                .map(|chunk| -> Result<bytes::Bytes, crate::BoxError> {
+                    let bytes = chunk?;
+                    total = total
+                        .checked_add(bytes.len())
+                        .ok_or_else(|| std::io::Error::other("multipart too large"))?;
+                    if total > CAP {
+                        return Err(std::io::Error::other("multipart too large").into());
+                    }
+                    Ok(bytes)
+                });
         let mut form = multer::Multipart::new(stream, boundary);
         let mut values = vec![];
         let mut file = None;

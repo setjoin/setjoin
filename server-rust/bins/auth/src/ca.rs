@@ -22,10 +22,10 @@ impl AuthServer {
     /// Required CA and device-trust feature flags (#454/#457). A lookup error
     /// fails closed at the caller (500 on login/MFA/OIDC; 503 on SAML ACS).
     pub(super) async fn ca_flags(&self) -> Result<(bool, bool), ()> {
-        let ca = login::enabled(&self.exec, "feature.conditional_access")
+        let ca = login::enabled(&self.auth_db, "feature.conditional_access")
             .await
             .map_err(|_| ())?;
-        let dt = login::enabled(&self.exec, "feature.device_trust_enforcement")
+        let dt = login::enabled(&self.auth_db, "feature.device_trust_enforcement")
             .await
             .map_err(|_| ())?;
         Ok((ca, dt))
@@ -290,18 +290,17 @@ impl AuthServer {
         }
         let device_hash = format!("{:x}", Sha256::digest(fp.as_bytes()));
         let actor = setjoin_contracts::ids::ActorId::new(user_id).ok()?;
-        let rows = self
-            .exec
-            .read_user_scoped(
-                actor,
-                "SELECT compliance_status FROM managed_devices WHERE device_hash=$1 AND user_id=$2",
-                &[
-                    (&device_hash, setjoin_pg::Type::TEXT),
-                    (&user_id, setjoin_pg::Type::INT8),
-                ],
-            )
-            .await
-            .ok()?;
+        let rows = crate::policy_composition::user_read(
+            &self.exec,
+            actor,
+            "SELECT compliance_status FROM managed_devices WHERE device_hash=$1 AND user_id=$2",
+            &[
+                (&device_hash, setjoin_pg::Type::TEXT),
+                (&user_id, setjoin_pg::Type::INT8),
+            ],
+        )
+        .await
+        .ok()?;
         let status = rows.first()?.try_get::<_, String>(0).ok()?;
         map_managed_compliance_to_claim(&device_hash, &status)
     }
@@ -312,13 +311,12 @@ impl AuthServer {
         if policy_id == 0 {
             return (None, "always".to_owned());
         }
-        let Ok(rows) = self
-            .exec
-            .read(
-                "SELECT policy_session_view($1)::text",
-                &[(&policy_id, setjoin_pg::Type::INT8)],
-            )
-            .await
+        let Ok(rows) = crate::policy_composition::pre_auth_read(
+            self.pre_auth_pool.as_ref(),
+            "SELECT policy_session_view($1)::text",
+            &[(&policy_id, setjoin_pg::Type::INT8)],
+        )
+        .await
         else {
             return (Some(3600), "never".to_owned());
         };

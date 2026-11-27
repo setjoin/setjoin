@@ -54,7 +54,7 @@ use crate::{
 use hyper::HeaderMap;
 use serde_json::{Map, Value};
 use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
-use setjoin_pg::{ScopedExecutor, Type};
+use setjoin_pg::{PreAuthReadTx, Row, ScopedExecutor, SqlContract, StatementFailure, ToSql, Type};
 use std::{
     collections::BTreeSet,
     fmt,
@@ -670,6 +670,7 @@ pub struct PolicyGate<K: KeySource + 'static> {
     attachment_secrets: Vec<Vec<u8>>,
     replay: Arc<dpop::ReplayCache>,
     geo: Option<Arc<CountryDb>>,
+    tx_factory: Option<TxFactory>,
 }
 
 impl<K: KeySource + 'static> PolicyGate<K> {
@@ -694,7 +695,51 @@ impl<K: KeySource + 'static> PolicyGate<K> {
             attachment_secrets: Vec::new(),
             replay: Arc::new(dpop::ReplayCache::default()),
             geo: None,
+            tx_factory: None,
         }
+    }
+
+    /// Attach a capability-gated [`TxFactory`] (sharing its [`GroupResolver`]
+    /// and private pre-auth [`AdminWorkerPool`] seam) (#546a).
+    pub fn with_tx_factory(mut self, factory: TxFactory) -> Self {
+        let groups = factory.group_resolver().clone();
+        self.engine = Arc::new(Engine::with_group_resolver(
+            self.exec.clone(),
+            groups.clone(),
+        ));
+        self.groups = groups;
+        self.tx_factory = Some(factory);
+        self
+    }
+
+    pub fn tx_factory(&self) -> Option<&TxFactory> {
+        self.tx_factory.as_ref()
+    }
+
+    /// Open a private `BEGIN READ ONLY` pre-authentication credential-proof
+    /// transaction backed by `TxFactory`'s encapsulated `AdminWorkerPool` (#546a).
+    pub async fn begin_pre_auth_read(&self) -> Result<PreAuthReadTx, StatementFailure> {
+        let factory = self.tx_factory.as_ref().ok_or_else(|| StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "policy gate tx_factory not configured".into(),
+        })?;
+        factory.begin_pre_auth_read().await
+    }
+
+    /// Execute a static [`SqlScope::AuthPreScope`] pre-authentication contract
+    /// through `TxFactory`'s private `AdminWorkerPool` seam (#546a).
+    pub async fn run_pre_auth_read_contract(
+        &self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        let factory = self.tx_factory.as_ref().ok_or_else(|| StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "policy gate tx_factory not configured".into(),
+        })?;
+        factory.run_pre_auth_read_contract(contract, values).await
     }
 
     pub fn with_group_resolver(mut self, groups: Arc<GroupResolver>) -> Self {
@@ -1194,7 +1239,12 @@ impl<K: KeySource + 'static> PolicyGate<K> {
                         GateThreatAction::Allow => {}
                     }
                 }
-                let verdict = basic::verify_with_dummy(
+                let pre_auth = self
+                    .tx_factory
+                    .as_ref()
+                    .and_then(TxFactory::admin_worker_pool);
+                let verdict = basic::verify_with_pre_auth(
+                    pre_auth,
                     &self.exec,
                     &self.passwords,
                     email,
@@ -1312,60 +1362,67 @@ impl<K: KeySource + 'static> PolicyGate<K> {
                         return Err(GateDenial::SpnegoFailed);
                     }
                 };
-                let (user, totp_required) =
-                    match kerberos::lookup_principal(&self.exec, &principal).await {
-                        PrincipalLookup::Found(u) => (u, false),
-                        PrincipalLookup::TotpRequired(u) => (u, true),
-                        PrincipalLookup::Guest(u) => {
-                            kerberos::record_kerberos_event(
-                                &self.exec,
-                                Some(u.user_id),
-                                "login_failed",
-                                Some(&u.email),
-                                Some(&client_ip),
-                                Some(r#"{"reason":"guest_refused"}"#),
-                            )
-                            .await;
-                            if let Some(threat) = &self.threat {
-                                let guest_meta = GateThreatMeta {
-                                    source_ip: client_ip,
-                                    username: u.email,
-                                    protocol: "http".into(),
-                                    user_agent: req.user_agent.to_owned(),
-                                    ..Default::default()
-                                };
-                                threat.record_result(&guest_meta, false, 0).await;
-                            }
-                            return Err(GateDenial::GuestRefused);
+                let pre_auth = self
+                    .tx_factory
+                    .as_ref()
+                    .and_then(TxFactory::admin_worker_pool);
+                let (user, totp_required) = match kerberos::lookup_principal_with_pre_auth(
+                    pre_auth, &self.exec, &principal,
+                )
+                .await
+                {
+                    PrincipalLookup::Found(u) => (u, false),
+                    PrincipalLookup::TotpRequired(u) => (u, true),
+                    PrincipalLookup::Guest(u) => {
+                        kerberos::record_kerberos_event(
+                            &self.exec,
+                            Some(u.user_id),
+                            "login_failed",
+                            Some(&u.email),
+                            Some(&client_ip),
+                            Some(r#"{"reason":"guest_refused"}"#),
+                        )
+                        .await;
+                        if let Some(threat) = &self.threat {
+                            let guest_meta = GateThreatMeta {
+                                source_ip: client_ip,
+                                username: u.email,
+                                protocol: "http".into(),
+                                user_agent: req.user_agent.to_owned(),
+                                ..Default::default()
+                            };
+                            threat.record_result(&guest_meta, false, 0).await;
                         }
-                        PrincipalLookup::NotFound => {
-                            kerberos::record_kerberos_event(
-                                &self.exec,
-                                None,
-                                "login_failed",
-                                None,
-                                Some(&client_ip),
-                                Some(r#"{"reason":"user_not_found"}"#),
-                            )
-                            .await;
-                            if let Some(threat) = &self.threat {
-                                let principal_meta = GateThreatMeta {
-                                    source_ip: client_ip,
-                                    username: principal,
-                                    protocol: "http".into(),
-                                    user_agent: req.user_agent.to_owned(),
-                                    ..Default::default()
-                                };
-                                threat.record_result(&principal_meta, false, 0).await;
-                            }
-                            return Err(GateDenial::InvalidCredential);
+                        return Err(GateDenial::GuestRefused);
+                    }
+                    PrincipalLookup::NotFound => {
+                        kerberos::record_kerberos_event(
+                            &self.exec,
+                            None,
+                            "login_failed",
+                            None,
+                            Some(&client_ip),
+                            Some(r#"{"reason":"user_not_found"}"#),
+                        )
+                        .await;
+                        if let Some(threat) = &self.threat {
+                            let principal_meta = GateThreatMeta {
+                                source_ip: client_ip,
+                                username: principal,
+                                protocol: "http".into(),
+                                user_agent: req.user_agent.to_owned(),
+                                ..Default::default()
+                            };
+                            threat.record_result(&principal_meta, false, 0).await;
                         }
-                        PrincipalLookup::Unavailable => {
-                            return Err(GateDenial::Unavailable(
-                                "kerberos principal lookup unavailable".into(),
-                            ));
-                        }
-                    };
+                        return Err(GateDenial::InvalidCredential);
+                    }
+                    PrincipalLookup::Unavailable => {
+                        return Err(GateDenial::Unavailable(
+                            "kerberos principal lookup unavailable".into(),
+                        ));
+                    }
+                };
                 // Phase 2: targeted account lockout check without double rate-limit burn.
                 let user_meta = GateThreatMeta {
                     source_ip: client_ip.clone(),
@@ -1530,10 +1587,13 @@ impl<K: KeySource + 'static> PolicyGate<K> {
                 return Err(GateDenial::SessionRevoked);
             }
         }
+        let actor = setjoin_contracts::ids::ActorId::new(user_id)
+            .map_err(|_| GateDenial::Unavailable("invalid user id".into()))?;
         let iat_f64 = issued_at as f64;
         let durable = tokio::time::timeout(
             crate::precheck_timeout(),
-            self.exec.read(
+            self.exec.read_user_scoped(
+                actor,
                 "SELECT EXISTS(SELECT 1 FROM session_revocations \
                   WHERE user_id = $1 AND expires_at > now() \
                     AND ((scope = 'all' AND not_before >= to_timestamp($2::float8)) \
@@ -1549,7 +1609,7 @@ impl<K: KeySource + 'static> PolicyGate<K> {
         )
         .await;
         let revoked = match durable {
-            Ok(Ok(rows)) => Some(rows[0].get::<_, bool>(0)),
+            Ok(Ok(rows)) => rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()),
             _ => None,
         };
         if revoked == Some(true) {
@@ -1983,10 +2043,13 @@ pub async fn check_protocol_post_auth(
     surface: ProtocolSurface,
     user_id: i64,
 ) -> Result<(), GateDenial> {
+    let actor = setjoin_contracts::ids::ActorId::new(user_id)
+        .map_err(|_| GateDenial::Unavailable("invalid user id".into()))?;
     let iat = SENTINEL_NON_JWT_IAT as f64;
     let revoked_rows = tokio::time::timeout(
         crate::precheck_timeout(),
-        exec.read(
+        exec.read_user_scoped(
+            actor,
             "SELECT EXISTS(SELECT 1 FROM session_revocations \
               WHERE user_id = $1 AND expires_at > now() \
                 AND scope = 'all' AND not_before >= to_timestamp($2::float8))",
@@ -2101,9 +2164,12 @@ pub async fn lookup_primary_mailbox_lifecycle(
     exec: &ScopedExecutor,
     user_id: i64,
 ) -> Result<Option<(i64, bool)>, GateDenial> {
+    let actor = setjoin_contracts::ids::ActorId::new(user_id)
+        .map_err(|_| GateDenial::Unavailable("invalid user id".into()))?;
     let rows = tokio::time::timeout(
         crate::precheck_timeout(),
-        exec.read(
+        exec.read_user_scoped(
+            actor,
             "SELECT id, mailbox_lifecycle_access_allowed(id) \
                FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
             &[(&user_id, Type::INT8)],
@@ -2135,10 +2201,13 @@ pub async fn check_session_revocation(
     family: &str,
     iat: f64,
 ) -> Result<(), GateDenial> {
+    let actor = setjoin_contracts::ids::ActorId::new(user_id)
+        .map_err(|_| GateDenial::Unavailable("invalid user id".into()))?;
     let cached = denylist.is_some_and(|d| d.is_revoked(user_id, jti, family, iat as i64));
     let durable = tokio::time::timeout(
         crate::precheck_timeout(),
-        exec.read(
+        exec.read_user_scoped(
+            actor,
             "SELECT EXISTS(SELECT 1 FROM session_revocations \
               WHERE user_id = $1 AND expires_at > now() \
                 AND ((scope = 'all' AND not_before >= to_timestamp($2::float8)) \
@@ -2154,7 +2223,7 @@ pub async fn check_session_revocation(
     )
     .await;
     let revoked = match durable {
-        Ok(Ok(rows)) => Some(rows[0].get::<_, bool>(0)),
+        Ok(Ok(rows)) => rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()),
         _ => None,
     };
     if cached || revoked == Some(true) {

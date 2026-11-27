@@ -55,22 +55,24 @@ fn require_db() -> bool {
     std::env::var("REQUIRE_DB").as_deref() == Ok("1")
 }
 
+fn explicit_app_dsn() -> Option<String> {
+    std::env::var("DB_APP_DSN").ok().filter(|v| !v.is_empty())
+}
+
+fn explicit_worker_dsn() -> Option<String> {
+    std::env::var("DB_WORKER_DSN")
+        .ok()
+        .filter(|v| !v.is_empty())
+}
+
 fn app_dsn(owner: &str) -> String {
-    if let Ok(v) = std::env::var("DB_APP_DSN") {
-        if !v.is_empty() {
-            return v;
-        }
-    }
-    swap_dsn_user(owner, "setjoin_app")
+    explicit_app_dsn().unwrap_or_else(|| swap_dsn_user(owner, "setjoin_app"))
 }
 
 fn worker_dsn(owner: &str) -> String {
-    if let Ok(v) = std::env::var("DB_WORKER_DSN") {
-        if !v.is_empty() {
-            return v;
-        }
-    }
-    swap_dsn_user(owner, "setjoin_worker")
+    // Match WorkerDatabase::from_dsns & tests/sql-contracts: never strip a
+    // SCRAM-SHA-256 password to forge setjoin_worker when DB_WORKER_DSN is unset.
+    explicit_worker_dsn().unwrap_or_else(|| owner.to_owned())
 }
 
 fn swap_dsn_user(dsn: &str, role: &str) -> String {
@@ -467,12 +469,7 @@ fn burst_has_trailing_commit(buf: &[u8]) -> bool {
             return false;
         }
         let tag = buf[pos];
-        let len = i32::from_be_bytes([
-            buf[pos + 1],
-            buf[pos + 2],
-            buf[pos + 3],
-            buf[pos + 4],
-        ]);
+        let len = i32::from_be_bytes([buf[pos + 1], buf[pos + 2], buf[pos + 3], buf[pos + 4]]);
         if len < 4 {
             return false;
         }
@@ -882,7 +879,11 @@ async fn admin_write_and_sensitive_read_commit_core_audit_under_lean_policy_and_
         })
         .await
         .unwrap_err();
-    assert_eq!(err_closure.sqlstate.as_deref(), Some("22P02"), "{err_closure:?}");
+    assert_eq!(
+        err_closure.sqlstate.as_deref(),
+        Some("22P02"),
+        "{err_closure:?}"
+    );
     assert!(
         !tx2_executed.load(Ordering::SeqCst),
         "Tx 2 closure must NEVER run when Tx 1 audit fails"
@@ -1301,7 +1302,8 @@ async fn mid_pipeline_bz001_returns_bz001_not_25p02_and_recycles_cleanly_on_pool
         .unwrap()[0]
         .get(0);
 
-    // Business step calls calendar_free_busy_multi with nonexistent mailbox -> raises real BZ001!
+    // Business step calls jmap_calendar_event_set_occurrence with in-scope mailbox_a
+    // and nonexistent master_id -> raises real BZ001 without tripping GUC binding!
     // Step 4 (receipt insert) receives 25P02; step 5 (COMMIT) rolls back cleanly.
     let env = make_envelope(mb.authority());
     let cmd = ReceiptCommand {
@@ -1313,8 +1315,8 @@ async fn mid_pipeline_bz001_returns_bz001_not_25p02_and_recycles_cleanly_on_pool
             &env,
             &mb,
             deadline(),
-            "SELECT calendar_free_busy_multi(-9999999::bigint, ARRAY[]::bigint[], now(), now())::text",
-            &[],
+            "SELECT jmap_calendar_event_set_occurrence($1, -9999999::bigint, now(), 'this', '{}'::jsonb)::text",
+            &[(&fx.mailbox_a, Type::INT8)],
             Some(cmd),
             |_| Ok(()),
         )
@@ -1754,7 +1756,9 @@ async fn interactive_capability_tx_local_refusal_rolls_back_cleanly_without_unkn
     let out_user = pool
         .run_user_write(&env_user, &user, deadline(), async |tx| {
             let mismatched: i32 = 42;
-            let _ = tx.query("SELECT $1::text", &[(&mismatched, Type::TEXT)]).await?;
+            let _ = tx
+                .query("SELECT $1::text", &[(&mismatched, Type::TEXT)])
+                .await?;
             Ok::<_, setjoin_pg::StatementFailure>(())
         })
         .await;
@@ -1820,6 +1824,360 @@ async fn interactive_capability_tx_local_refusal_rolls_back_cleanly_without_unkn
         rolled_back_audit_count, 0,
         "audit row in AdminWriteTx must roll back after local statement refusal"
     );
+
+    fx.cleanup().await;
+}
+
+// ---------------------------------------------------------------------------
+// Wave 1.8 Phase 546a live DB proofs
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn phase546a_audited_reducer_contract_enforces_db_core_audit_proof() {
+    use setjoin_pg::{
+        AdminReducerOutcome, ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope,
+    };
+    let Some(fx) = setup_fixture("546a_audited_reducer").await else {
+        return;
+    };
+    let worker_pool = WorkerPool::from_dsn(&fx.worker_dsn, 4).expect("WorkerPool");
+    let admin_pool = worker_pool.admin_pool();
+    let admin = mint::admin(ActorId::new(fx.user_a).unwrap(), Generation(1));
+
+    // Create a disposable custom role to delete via rust_admin_role_delete.
+    let role_id: i64 = fx
+        .owner
+        .query_one(
+            "INSERT INTO admin_role_groups (name, permissions) \
+             VALUES ($1, ARRAY['users.read']) RETURNING id",
+            &[&format!("p546a-role-{}", fx.user_a)],
+        )
+        .await
+        .unwrap()
+        .get(0);
+
+    static ROLE_DELETE_CONTRACT: SqlContract = SqlContract {
+        id: "test546a.admin_role_delete",
+        domain: "test",
+        sql: "SELECT rust_admin_role_delete($1, $2, $3, $4)::text",
+        params: &[Type::INT8, Type::INT8, Type::INT8, Type::TEXT],
+        columns: &[ColumnSpec::unnamed(Type::TEXT)],
+        scope: SqlScope::AdminWrite,
+        rls_check: RlsCheck::PrepareAndExplain,
+        audit: SqlAuditPosture::ReducerWritesCoreAudit,
+    };
+
+    static STANDARD_CONTRACT: SqlContract = SqlContract {
+        id: "test546a.standard_not_audited",
+        domain: "test",
+        sql: "SELECT $1::bigint",
+        params: &[Type::INT8],
+        columns: &[ColumnSpec::unnamed(Type::INT8)],
+        scope: SqlScope::AdminWrite,
+        rls_check: RlsCheck::PrepareAndExplain,
+        audit: SqlAuditPosture::Standard,
+    };
+
+    // 1. Standard posture contract is refused locally before execution.
+    let env_std = make_envelope(admin.authority());
+    let tx_std = admin_pool
+        .begin_admin_write(&env_std, &admin, deadline())
+        .await
+        .unwrap();
+    let std_err = match tx_std
+        .execute_audited_reducer_contract(&STANDARD_CONTRACT, &[])
+        .await
+    {
+        Ok(_) => panic!("Standard posture must be refused by execute_audited_reducer_contract"),
+        Err(e) => e,
+    };
+    assert!(std_err.message.contains("ReducerWritesCoreAudit"));
+
+    // 2. Branch-only early return (404 role not found) leaves app.core_audit_written
+    //    unset -> returns rollback-only AdminReducerOutcome::NoOp (cannot commit!).
+    let missing_id: i64 = -999_999;
+    let scope_global: i64 = 0;
+    let ip = "127.0.0.1";
+    let env_noop = make_envelope(admin.authority());
+    let tx_noop = admin_pool
+        .begin_admin_write(&env_noop, &admin, deadline())
+        .await
+        .unwrap();
+    let outcome_noop = tx_noop
+        .execute_audited_reducer_contract(&ROLE_DELETE_CONTRACT, &[&scope_global, &missing_id, &ip])
+        .await
+        .expect("404 early return yields Ok(NoOp)");
+    match outcome_noop {
+        AdminReducerOutcome::NoOp { tx, rows } => {
+            let body: String = rows[0].get(0);
+            assert!(body.contains("404"), "expected 404 payload, got {body}");
+            tx.rollback().await.expect("rollback NoOp cleanly");
+        }
+        AdminReducerOutcome::Audited { .. } => {
+            panic!("branch-only 404 return without audit_write MUST NOT transition to Audited")
+        }
+    }
+
+    // 3. Successful deletion invokes audit_write(p_actor, ..., 'core') ->
+    //    PostgreSQL sets app.core_audit_written='1' -> transitions to Audited
+    //    with zero double-auditing and R2-bound p_actor!
+    let before_audits: i64 = fx
+        .owner
+        .query_one(
+            "SELECT count(*)::bigint FROM admin_audit_log \
+             WHERE user_id = $1 AND action = 'role_delete' AND target_id = $2",
+            &[&fx.user_a, &role_id],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(before_audits, 0);
+
+    let env_del = make_envelope(admin.authority());
+    let tx_del = admin_pool
+        .begin_admin_write(&env_del, &admin, deadline())
+        .await
+        .unwrap();
+    let outcome_del = tx_del
+        .execute_audited_reducer_contract(&ROLE_DELETE_CONTRACT, &[&scope_global, &role_id, &ip])
+        .await
+        .expect("audited delete succeeds");
+    match outcome_del {
+        AdminReducerOutcome::Audited { tx, rows } => {
+            let body: String = rows[0].get(0);
+            assert!(body.contains("204"), "expected 204 payload, got {body}");
+            assert!(matches!(tx.commit().await, CommandOutcome::Committed(())));
+        }
+        AdminReducerOutcome::NoOp { tx, .. } => {
+            let _ = tx.rollback().await;
+            panic!("expected Audited outcome when core audit_write ran");
+        }
+    }
+
+    let after_audits: i64 = fx
+        .owner
+        .query_one(
+            "SELECT count(*)::bigint FROM admin_audit_log \
+             WHERE user_id = $1 AND action = 'role_delete' AND target_id = $2",
+            &[&fx.user_a, &role_id],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(
+        after_audits, 1,
+        "exactly one core audit row must exist (zero double-auditing)"
+    );
+
+    fx.cleanup().await;
+}
+
+#[tokio::test]
+async fn phase546a_effect_writes_lock_order_semaphore_lookup_iterated_and_pre_auth() {
+    use setjoin_pg::{
+        ColumnSpec, OperationLookup, RlsCheck, SqlAuditPosture, SqlContract, SqlScope,
+    };
+    let Some(mut fx) = setup_fixture("546a_effect_preauth").await else {
+        return;
+    };
+    let app_pool = AppPool::from_dsn(&fx.app_dsn, 4)
+        .expect("AppPool")
+        .with_effect_concurrency(2);
+    let worker_pool = WorkerPool::from_dsn(&fx.worker_dsn, 4).expect("WorkerPool");
+    let admin_pool = worker_pool.admin_pool();
+
+    let mb = mint::mailbox(
+        ActorId::new(fx.user_a).unwrap(),
+        MailboxId::new(fx.mailbox_a).unwrap(),
+        Generation(1),
+    );
+    let user = mint::user(ActorId::new(fx.user_a).unwrap(), Generation(1));
+    let admin = mint::admin(ActorId::new(fx.user_a).unwrap(), Generation(1));
+
+    let has_explicit_app = explicit_app_dsn().is_some();
+    let has_explicit_worker = explicit_worker_dsn().is_some();
+
+    // 1. Mailbox effect write: idle_in_transaction_session_timeout = 8s,
+    //    #481 prelock_mailbox_hierarchy, durable receipt, lookup_mailbox_command.
+    let cmd_mb = ReceiptCommand {
+        family: "test546a",
+        command: "mailbox_effect",
+    };
+    let env_mb = make_envelope(mb.authority());
+    fx.created_ops.push(env_mb.operation);
+    let out = app_pool
+        .run_mailbox_effect_write(cmd_mb, &env_mb, &mb, deadline(), async |tx| {
+            tx.prelock_mailbox_hierarchy().await?;
+            let rows = tx
+                .query(
+                    "SELECT current_setting('idle_in_transaction_session_timeout'), \
+                            (NOT r.rolsuper AND NOT r.rolbypassrls), current_user::text \
+                       FROM pg_roles r WHERE r.rolname = current_user",
+                    &[],
+                )
+                .await?;
+            Ok((
+                rows[0].get::<_, String>(0),
+                rows[0].get::<_, bool>(1),
+                rows[0].get::<_, String>(2),
+            ))
+        })
+        .await;
+    match out {
+        CommandOutcome::Committed((idle_timeout, non_bypass, role)) => {
+            assert_eq!(idle_timeout, "8s");
+            if has_explicit_app {
+                assert!(
+                    non_bypass,
+                    "DB_APP_DSN role must be NOSUPERUSER NOBYPASSRLS"
+                );
+                assert_eq!(role, "setjoin_app");
+            }
+        }
+        other => panic!("expected Committed mailbox effect write, got {other:?}"),
+    }
+    assert_eq!(
+        app_pool
+            .lookup_mailbox_command(&mb, env_mb.operation, cmd_mb)
+            .await
+            .unwrap(),
+        OperationLookup::Committed
+    );
+    assert_eq!(
+        app_pool
+            .lookup_mailbox_command(&mb, OperationId([0xEE; 16]), cmd_mb)
+            .await
+            .unwrap(),
+        OperationLookup::Absent
+    );
+
+    // 2. User effect write + lookup_user_command.
+    let cmd_u = ReceiptCommand {
+        family: "test546a",
+        command: "user_effect",
+    };
+    let env_u = make_envelope(user.authority());
+    fx.created_ops.push(env_u.operation);
+    let out_u = app_pool
+        .run_user_effect_write(cmd_u, &env_u, &user, deadline(), async |tx| {
+            let rows = tx
+                .query(
+                    "SELECT current_setting('idle_in_transaction_session_timeout'), \
+                            (NOT r.rolsuper AND NOT r.rolbypassrls), current_user::text \
+                       FROM pg_roles r WHERE r.rolname = current_user",
+                    &[],
+                )
+                .await?;
+            Ok((
+                rows[0].get::<_, String>(0),
+                rows[0].get::<_, bool>(1),
+                rows[0].get::<_, String>(2),
+            ))
+        })
+        .await;
+    match out_u {
+        CommandOutcome::Committed((idle_timeout, non_bypass, role)) => {
+            assert_eq!(idle_timeout, "8s");
+            if has_explicit_app {
+                assert!(
+                    non_bypass,
+                    "DB_APP_DSN role must be NOSUPERUSER NOBYPASSRLS"
+                );
+                assert_eq!(role, "setjoin_app");
+            }
+        }
+        other => panic!("expected Committed user effect write, got {other:?}"),
+    }
+    assert_eq!(
+        app_pool
+            .lookup_user_command(&user, env_u.operation, cmd_u)
+            .await
+            .unwrap(),
+        OperationLookup::Committed
+    );
+
+    // 3. query_iterated_contract on ReadOnly handles preserves partial rows on mid-stream error.
+    static ITER_MB: SqlContract = SqlContract {
+        id: "test546a.iter_mb",
+        domain: "test",
+        sql: "SELECT CASE WHEN g = 3 THEN 1 / (g - 3) ELSE g END AS v FROM generate_series(1, 5) g",
+        params: &[],
+        columns: &[ColumnSpec::named("v", Type::INT4)],
+        scope: SqlScope::MailboxReadOnly,
+        rls_check: RlsCheck::PrepareAndExplain,
+        audit: SqlAuditPosture::Standard,
+    };
+    let mut ro = app_pool.begin_mailbox_read(&mb).await.unwrap();
+    let partial = ro.query_iterated_contract(&ITER_MB, &[]).await.unwrap();
+    assert_eq!(
+        partial
+            .iter()
+            .map(|r| r.get::<_, i32>(0))
+            .collect::<Vec<_>>(),
+        vec![1, 2],
+        "query_iterated_contract must retain rows delivered before mid-stream error"
+    );
+    ro.finish().await.unwrap();
+
+    // 4. Encapsulated AdminWorkerPool: cross-tenant AdminSensitiveRead + PreAuthReadTx.
+    let audit_ev = AuditEvent::new("test546a.cross_tenant_read", "message").unwrap();
+    let all_rows = admin_pool
+        .run_admin_sensitive_read(
+            &admin,
+            &audit_ev,
+            "SELECT count(*)::bigint, \
+                    (SELECT (r.rolbypassrls OR r.rolsuper) FROM pg_roles r WHERE r.rolname = current_user), \
+                    current_user::text \
+               FROM messages WHERE id = ANY($1)",
+            &[(&vec![fx.message_a, fx.message_b], Type::INT8_ARRAY)],
+        )
+        .await
+        .expect("AdminWorkerPool sensitive read");
+    assert_eq!(
+        all_rows[0].get::<_, i64>(0),
+        2,
+        "AdminWorkerPool BYPASSRLS sees cross-tenant messages after Tx 1 core audit"
+    );
+    assert!(
+        all_rows[0].get::<_, bool>(1),
+        "AdminWorkerPool role must have rolbypassrls or rolsuper"
+    );
+    if has_explicit_worker {
+        assert_eq!(all_rows[0].get::<_, String>(2), "setjoin_worker");
+    }
+
+    static PRE_AUTH_USER: SqlContract = SqlContract {
+        id: "test546a.pre_auth_user",
+        domain: "test",
+        sql: "SELECT u.id, (r.rolbypassrls OR r.rolsuper), current_user::text \
+                FROM users u JOIN pg_roles r ON r.rolname = current_user WHERE u.id = $1",
+        params: &[Type::INT8],
+        columns: &[
+            ColumnSpec::named("id", Type::INT8),
+            ColumnSpec::unnamed(Type::BOOL),
+            ColumnSpec::unnamed(Type::TEXT),
+        ],
+        scope: SqlScope::AuthPreScope,
+        rls_check: RlsCheck::PrepareAndExplain,
+        audit: SqlAuditPosture::Standard,
+    };
+    let mut pre_tx = admin_pool.begin_pre_auth_read().await.unwrap();
+    let pre_rows = pre_tx
+        .query_contract(&PRE_AUTH_USER, &[&fx.user_b])
+        .await
+        .unwrap();
+    assert_eq!(pre_rows.len(), 1);
+    assert_eq!(pre_rows[0].get::<_, i64>(0), fx.user_b);
+    assert!(
+        pre_rows[0].get::<_, bool>(1),
+        "PreAuthReadTx role must have rolbypassrls or rolsuper"
+    );
+    if has_explicit_worker {
+        assert_eq!(pre_rows[0].get::<_, String>(2), "setjoin_worker");
+    }
+    // PreAuthReadTx refuses non-AuthPreScope contracts locally.
+    assert!(pre_tx.query_contract(&ITER_MB, &[]).await.is_err());
+    pre_tx.finish().await.unwrap();
 
     fx.cleanup().await;
 }

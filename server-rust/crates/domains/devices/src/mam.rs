@@ -1,16 +1,17 @@
 //! MAM console. Registry ids and authoritative device ids are distinct namespaces.
-use super::{done, invalid, nano, scope, StatementFailure};
+use super::{command, deadline, done, envelope, invalid, sql, StatementFailure};
 use serde_json::{json, Value};
-use setjoin_authz::AuthContext;
-use setjoin_pg::ScopedExecutor;
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, Rejection};
 
-/// Both Posture C policy layers under the authenticated admin GUC.
+/// Both Posture C policy layers under the verified admin proof.
 pub async fn list_policies(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
 ) -> Result<String, StatementFailure> {
-    let sql=format!("SELECT (SELECT jsonb_agg(jsonb_build_object('id',id,'policy_key',policy_key,'policy_value',policy_value,'updated_at',{}) ORDER BY policy_key)::text FROM device_policy WHERE device_id IS NULL), (SELECT jsonb_agg(jsonb_build_object('id',id,'policy_key',policy_key,'policy_value',policy_value,'group_type',group_type,'group_id',group_id,'updated_at',{}) ORDER BY group_type,group_id,policy_key)::text FROM device_policy_groups)",nano("updated_at"),nano("updated_at"));
-    let rows = exec.read_scoped(&scope(actor), &sql, &[]).await?;
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::MAM_LIST_POLICIES, &[])
+        .await?;
     let row = rows.first().ok_or_else(invalid)?;
     let parse = |i| -> Result<Value, StatementFailure> {
         let text: Option<String> = row.try_get(i).map_err(|_| invalid())?;
@@ -21,9 +22,6 @@ pub async fn list_policies(
         json!({"global":parse(0)?,"groups":parse(1)?}).to_string(),
     ))
 }
-
-use super::{command, deadline, envelope};
-use setjoin_pg::{CommandOutcome, Type};
 
 /// Go's map[string]string decoder: first JSON value, case-folded field name,
 /// null map/values, and duplicate fields retain encoding/json's map merge.
@@ -63,37 +61,66 @@ pub fn policies(body: &[u8]) -> Result<Option<serde_json::Map<String, Value>>, S
 }
 
 pub async fn set_global(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     policies: &Option<serde_json::Map<String, Value>>,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    let auth = scope(actor);
     let payload = json!(policies.as_ref().cloned().unwrap_or_default()).to_string();
-    setjoin_pg::run_receipted_command(exec,command("mam_global_policy_set"),&envelope(&auth,operation,&payload),&auth,deadline(),
-        "SELECT rust_mam_global_policy_set($4::text::jsonb) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-        &[(&payload,Type::TEXT)],|rows|rows.first().ok_or_else(invalid)?.try_get(0).map_err(|_|invalid())).await
+    let env = envelope(user.user(), user.generation(), operation, &payload);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MAM_SET_GLOBAL,
+            &[&payload],
+            Some(command("mam_global_policy_set")),
+            |rows| {
+                rows.first()
+                    .ok_or_else(invalid)?
+                    .try_get(0)
+                    .map_err(|_| invalid())
+            },
+        )
+        .await
 }
+
 /// A separate transaction, matching Go's checked post-commit notification.
 pub async fn notify(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     device: i64,
     version: i64,
     action: &str,
     mut operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
     operation[15] ^= 0x80;
-    let auth = scope(actor);
     let payload = format!(
         "{{\"device_id\":{device},\"version\":{version},\"action\":{}}}",
         super::s(action)
     );
-    setjoin_pg::run_receipted_command(exec,command("mam_policy_notify"),&envelope(&auth,operation,&payload),&auth,deadline(),
-        "SELECT pg_notify('device_policy',$4::text) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-        &[(&payload,Type::TEXT)],|rows|if rows.len()==1 {Ok(())}else{Err(invalid())}).await
+    let env = envelope(user.user(), user.generation(), operation, &payload);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MAM_NOTIFY,
+            &[&payload],
+            Some(command("mam_policy_notify")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
+#[allow(clippy::type_complexity)]
 pub fn group(body: &[u8]) -> Result<(String, i64, Option<serde_json::Map<String, Value>>), String> {
     use super::gojson::{self, Kind, V};
     // Go ignores null for these non-pointer scalar fields, retaining an
@@ -118,44 +145,76 @@ pub fn group(body: &[u8]) -> Result<(String, i64, Option<serde_json::Map<String,
     };
     Ok((group, id, policies(body)?))
 }
+
 pub async fn set_group(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     group: &str,
     id: i64,
     policies: &Option<serde_json::Map<String, Value>>,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
     let payload = json!(policies.as_ref().cloned().unwrap_or_default()).to_string();
-    setjoin_pg::run_receipted_command(exec,command("mam_group_policy_set"),&envelope(&auth,operation,&format!("{group}\n{id}\n{payload}")),&auth,deadline(),
-        "SELECT rust_mam_group_policy_set($4::text,$5::bigint,$6::text::jsonb) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-        &[(&group,Type::TEXT),(&id,Type::INT8),(&payload,Type::TEXT)],|rows|if rows.len()==1 {Ok(())}else{Err(invalid())}).await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{group}\n{id}\n{payload}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MAM_SET_GROUP,
+            &[&group, &id, &payload],
+            Some(command("mam_group_policy_set")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 pub async fn delete_group(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     group: &str,
     id: i64,
     key: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(exec,command("mam_group_policy_delete"),&envelope(&auth,operation,&format!("{group}\n{id}\n{key}")),&auth,deadline(),
-        "DELETE FROM device_policy_groups WHERE group_type=$4::text AND group_id=$5::bigint AND policy_key=$6::text AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
-        &[(&group,Type::TEXT),(&id,Type::INT8),(&key,Type::TEXT)],|rows|Ok(!rows.is_empty())).await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{group}\n{id}\n{key}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MAM_DELETE_GROUP,
+            &[&group, &id, &key],
+            Some(command("mam_group_policy_delete")),
+            |rows| Ok(!rows.is_empty()),
+        )
+        .await
 }
 
 /// Stable registry ids, enriched only by state with the same owner/fingerprint.
 pub async fn list_devices(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     domain_scope: i64,
 ) -> Result<String, StatementFailure> {
-    let sql=format!("SELECT r.id,r.user_id,COALESCE(NULLIF(m.platform,''),'unknown'),COALESCE(m.device_name,''),COALESCE(m.os_version,''),COALESCE(m.app_version,''),COALESCE(NULLIF(m.compliance_status,''),'unknown'),{},(m.wipe_requested IS NOT NULL AND m.wipe_requested NOT IN ('','none')),{} FROM device_registry r LEFT JOIN mdm_device_state m ON m.device_id=r.device_fingerprint AND m.user_id=r.user_id WHERE ($1::bigint<=0 OR r.user_id IN (SELECT id FROM users WHERE domain_id=$1)) ORDER BY COALESCE(m.last_checkin_at,r.last_seen) DESC NULLS LAST,r.id",nano("COALESCE(m.last_checkin_at,r.last_seen)"),nano("COALESCE(m.created_at,r.first_seen)"));
-    let rows = exec
-        .read_scoped(&scope(actor), &sql, &[(&domain_scope, Type::INT8)])
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::MAM_LIST_DEVICES, &[&domain_scope])
         .await?;
     let mut devices = vec![];
     for row in &rows {
@@ -168,7 +227,16 @@ pub async fn list_devices(
         let id: i64 = row.try_get(0).map_err(|_| invalid())?;
         let user: i64 = row.try_get(1).map_err(|_| invalid())?;
         let wipe: bool = row.try_get(8).map_err(|_| invalid())?;
-        devices.push(format!("{{\"id\":{id},\"user_id\":{user},\"platform\":{},\"device_name\":{},\"os_version\":{},\"app_version\":{},\"compliance_status\":{},\"last_checkin_at\":{},\"wipe_requested\":{wipe},\"created_at\":{}}}",super::s(&text(2)?),super::s(&text(3)?),super::s(&text(4)?),super::s(&text(5)?),super::s(&text(6)?),date(7)?,date(9)?));
+        devices.push(format!(
+            "{{\"id\":{id},\"user_id\":{user},\"platform\":{},\"device_name\":{},\"os_version\":{},\"app_version\":{},\"compliance_status\":{},\"last_checkin_at\":{},\"wipe_requested\":{wipe},\"created_at\":{}}}",
+            super::s(&text(2)?),
+            super::s(&text(3)?),
+            super::s(&text(4)?),
+            super::s(&text(5)?),
+            super::s(&text(6)?),
+            date(7)?,
+            date(9)?
+        ));
     }
     Ok(done(format!(
         "{{\"devices\":[{}],\"total\":{}}}",
@@ -179,21 +247,22 @@ pub async fn list_devices(
 
 /// None hides missing/out-of-scope registry ids alike; Some(0) is registry-only.
 pub async fn resolve(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     registry: i64,
     domain_scope: i64,
 ) -> Result<Option<i64>, StatementFailure> {
-    let rows=exec.read_scoped(&scope(actor),
-        "SELECT COALESCE(dev.id,0) FROM device_registry r LEFT JOIN devices dev ON dev.user_id=r.user_id AND dev.fingerprint=r.device_fingerprint::text WHERE r.id=$1 AND ($2::bigint<=0 OR r.user_id IN (SELECT id FROM users WHERE domain_id=$2))",
-        &[(&registry,Type::INT8),(&domain_scope,Type::INT8)]).await?;
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::MAM_RESOLVE, &[&registry, &domain_scope])
+        .await?;
     rows.first()
         .map(|row| row.try_get(0).map_err(|_| invalid()))
         .transpose()
 }
+
 pub async fn events(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     device: i64,
     limit: i64,
     domain_scope: i64,
@@ -201,17 +270,8 @@ pub async fn events(
     if device == 0 {
         return Ok("{\"events\":[],\"total\":0}\n".into());
     }
-    let sql=format!("SELECT e.device_id,e.event_type,e.severity,e.details::text,{} FROM device_events e WHERE e.device_id=$1 AND ($3::bigint<=0 OR EXISTS(SELECT 1 FROM devices dev JOIN users u ON u.id=dev.user_id WHERE dev.id=e.device_id AND u.domain_id=$3)) ORDER BY e.occurred_at DESC LIMIT $2",nano("e.occurred_at"));
-    let rows = exec
-        .read_scoped(
-            &scope(actor),
-            &sql,
-            &[
-                (&device, Type::INT8),
-                (&limit, Type::INT8),
-                (&domain_scope, Type::INT8),
-            ],
-        )
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::MAM_EVENTS, &[&device, &limit, &domain_scope])
         .await?;
     let mut events = vec![];
     for row in &rows {
@@ -246,9 +306,10 @@ pub async fn events(
 
 /// One evidence INSERT transaction, separately acknowledged before notification.
 /// Domain scope is re-derived in this statement; it never trusts stale resolution.
+#[allow(clippy::too_many_arguments)]
 pub async fn log_event(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     device: i64,
     domain_scope: i64,
     event: &str,
@@ -256,43 +317,89 @@ pub async fn log_event(
     details: &Value,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
     let details = details.to_string();
-    setjoin_pg::run_receipted_command(exec,command("mam_device_event"),&envelope(&auth,operation,&format!("{device}\n{domain_scope}\n{event}\n{severity}\n{details}")),&auth,deadline(),
-        "INSERT INTO device_events(device_id,event_type,severity,details,occurred_at) SELECT $4::bigint,$5::text,$6::text,$7::text::jsonb,clock_timestamp() WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' AND ($8::bigint<=0 OR EXISTS(SELECT 1 FROM devices dev JOIN users u ON u.id=dev.user_id WHERE dev.id=$4 AND u.domain_id=$8)) RETURNING device_id",
-        &[(&device,Type::INT8),(&event,Type::TEXT),(&severity,Type::TEXT),(&details,Type::TEXT),(&domain_scope,Type::INT8)],|rows|Ok(!rows.is_empty())).await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{device}\n{domain_scope}\n{event}\n{severity}\n{details}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MAM_LOG_EVENT,
+            &[&device, &event, &severity, &details, &domain_scope],
+            Some(command("mam_device_event")),
+            |rows| Ok(!rows.is_empty()),
+        )
+        .await
 }
 
 pub async fn set_device(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     device: i64,
     domain_scope: i64,
     policies: &Option<serde_json::Map<String, Value>>,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
     let payload = json!(policies.as_ref().cloned().unwrap_or_default()).to_string();
-    setjoin_pg::run_receipted_command(exec,command("mam_device_policy_set"),&envelope(&auth,operation,&format!("{device}\n{domain_scope}\n{payload}")),&auth,deadline(),
-        "SELECT rust_mam_device_policy_set($4::bigint,$5::bigint,$6::text::jsonb) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-        &[(&device,Type::INT8),(&domain_scope,Type::INT8),(&payload,Type::TEXT)],|rows|if rows.len()==1 {Ok(())}else{Err(invalid())}).await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{device}\n{domain_scope}\n{payload}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MAM_SET_DEVICE,
+            &[&device, &domain_scope, &payload],
+            Some(command("mam_device_policy_set")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
-pub fn out_of_scope(error: &setjoin_pg::Rejection<StatementFailure>) -> bool {
-    matches!(error,setjoin_pg::Rejection::Statement(e)|setjoin_pg::Rejection::Body(e) if e.sqlstate.as_deref()==Some("BZ081"))
+
+pub fn out_of_scope(error: &Rejection<StatementFailure>) -> bool {
+    matches!(error, Rejection::Statement(e) | Rejection::Body(e) if e.sqlstate.as_deref() == Some("BZ081"))
 }
 
 pub async fn delete_device(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     device: i64,
     domain_scope: i64,
     key: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(exec,command("mam_device_policy_delete"),&envelope(&auth,operation,&format!("{device}\n{domain_scope}\n{key}")),&auth,deadline(),
-        "DELETE FROM device_policy dp WHERE dp.device_id=$4::bigint AND dp.policy_key=$5::text AND ($6::bigint<=0 OR EXISTS(SELECT 1 FROM devices dev JOIN users u ON u.id=dev.user_id WHERE dev.id=dp.device_id AND u.domain_id=$6)) AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING dp.id",
-        &[(&device,Type::INT8),(&key,Type::TEXT),(&domain_scope,Type::INT8)],|rows|Ok(!rows.is_empty())).await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{device}\n{domain_scope}\n{key}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MAM_DELETE_DEVICE,
+            &[&device, &key, &domain_scope],
+            Some(command("mam_device_policy_delete")),
+            |rows| Ok(!rows.is_empty()),
+        )
+        .await
 }
 
 /// pgx decodes `map[string]any` numbers as float64 before encoding/json writes

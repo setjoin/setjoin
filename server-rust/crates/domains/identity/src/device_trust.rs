@@ -3,7 +3,7 @@
 //! check-in reducer. Callers hold a `VerifiedDevice`; HTTP framing is in auth.
 use serde_json::{json, Value};
 use setjoin_authz::device::VerifiedDevice;
-use setjoin_pg::{ScopedExecutor, Type};
+use setjoin_pg::{AuthDb, Type};
 use std::collections::BTreeMap;
 
 /// Owner-approved security bound (#341): Go accepted any count in 64 KiB.
@@ -76,13 +76,10 @@ impl Effective {
 }
 
 /// GET /device/policy: the trusted evaluator on the request credential.
-pub async fn effective_policy(exec: &ScopedExecutor, device: &VerifiedDevice) -> Option<Effective> {
+pub async fn effective_policy(exec: &AuthDb, device: &VerifiedDevice) -> Option<Effective> {
     let id = device.id();
     let rows = exec
-        .read(
-            "SELECT mdm_effective_policy($1)::text",
-            &[(&id, Type::INT8)],
-        )
+        .read_contract(&crate::sql::DEVICE_TRUST_L85, &[(&id, Type::INT8)])
         .await
         .ok()?;
     Effective::decode(&rows.first()?.get::<_, Option<String>>(0)?)
@@ -93,7 +90,7 @@ pub async fn effective_policy(exec: &ScopedExecutor, device: &VerifiedDevice) ->
 /// client timeout can never commit late. Writes no `rust_operation_receipts`
 /// row (#473: check-in is a periodic heartbeat retried with a fresh nonce).
 pub async fn checkin(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     device: &VerifiedDevice,
     events: &[Event],
 ) -> Result<Effective, CheckinError> {
@@ -106,8 +103,8 @@ pub async fn checkin(
     )
     .to_string();
     let raw = exec
-        .run_protocol_tx(
-            "SELECT rust_device_checkin($1,$2::text::jsonb)::text",
+        .run_protocol_tx_contract(
+            &crate::sql::DEVICE_TRUST_L117,
             &[(&id, Type::INT8), (&events, Type::TEXT)],
             |rows| Ok(rows.first().and_then(|r| r.get::<_, Option<String>>(0))),
         )

@@ -225,8 +225,9 @@ async fn lost_reply(kind: &str, cut: commit::CommitCut) {
     let proof =
         setjoin_identity::session::Session::verify(&token, None, &legacy, "mailserver").unwrap();
     let committed = cut == commit::CommitCut::AfterCommit;
+    let auth_db = setjoin_pg::AuthDb::from_executors(exec.clone(), exec.clone());
     assert_eq!(
-        setjoin_identity::webauthn::lookup_operation(&exec, &proof, op, operation)
+        setjoin_identity::webauthn::lookup_operation(&auth_db, &proof, op, operation)
             .await
             .unwrap(),
         committed
@@ -237,7 +238,7 @@ async fn lost_reply(kind: &str, cut: commit::CommitCut) {
     let foreign =
         setjoin_identity::session::Session::verify(&foreign, None, &legacy, "mailserver").unwrap();
     assert!(
-        !setjoin_identity::webauthn::lookup_operation(&exec, &foreign, op, operation)
+        !setjoin_identity::webauthn::lookup_operation(&auth_db, &foreign, op, operation)
             .await
             .unwrap()
     );
@@ -335,7 +336,7 @@ async fn lost_reply(kind: &str, cut: commit::CommitCut) {
     }
     c.execute("INSERT INTO session_revocations(scope,user_id,jti,reason,expires_at) VALUES('jti',$1,'idmfa2-commit','idmfa2 fault authority',now()+interval '1 hour')",&[&a.user]).await.unwrap();
     assert!(
-        setjoin_identity::webauthn::lookup_operation(&exec, &proof, op, operation)
+        setjoin_identity::webauthn::lookup_operation(&auth_db, &proof, op, operation)
             .await
             .is_err()
     );

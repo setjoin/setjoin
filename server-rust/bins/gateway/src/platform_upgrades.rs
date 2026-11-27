@@ -8,8 +8,8 @@ use crate::problem::Problem;
 use crate::{Body, RequestContext};
 use hyper::{Method, Request, Response};
 use serde_json::{Map, Value};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, Param, ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 use setjoin_platform::upgrades as db;
 use std::collections::BTreeMap;
 
@@ -32,15 +32,51 @@ pub(crate) enum Kind {
 pub(crate) const TABLE: [(&str, &str, Kind); 11] = [
     ("GET", "/api/admin/system/upgrades", Kind::Console),
     ("POST", "/api/admin/system/upgrades/preview", Kind::Preview),
-    ("POST", "/api/admin/system/upgrades/challenges", Kind::ChallengeIssue),
-    ("POST", "/api/admin/system/upgrades/challenges/complete", Kind::ChallengeComplete),
-    ("POST", "/api/admin/system/upgrades/intents", Kind::IntentRequest),
-    ("GET", "/api/admin/system/upgrades/intents/{id}", Kind::IntentRead),
-    ("GET", "/api/admin/system/upgrades/intents/{id}/diagnostics", Kind::Diagnostics),
-    ("POST", "/api/admin/system/upgrades/intents/{id}/cancel", Kind::IntentCancel),
-    ("GET", "/api/admin/system/upgrades/recovery-context", Kind::RecoveryContext),
-    ("POST", "/api/admin/system/upgrades/recovery-sets", Kind::RecoverySet),
-    ("POST", "/api/admin/system/upgrades/restore-proofs", Kind::RestoreProof),
+    (
+        "POST",
+        "/api/admin/system/upgrades/challenges",
+        Kind::ChallengeIssue,
+    ),
+    (
+        "POST",
+        "/api/admin/system/upgrades/challenges/complete",
+        Kind::ChallengeComplete,
+    ),
+    (
+        "POST",
+        "/api/admin/system/upgrades/intents",
+        Kind::IntentRequest,
+    ),
+    (
+        "GET",
+        "/api/admin/system/upgrades/intents/{id}",
+        Kind::IntentRead,
+    ),
+    (
+        "GET",
+        "/api/admin/system/upgrades/intents/{id}/diagnostics",
+        Kind::Diagnostics,
+    ),
+    (
+        "POST",
+        "/api/admin/system/upgrades/intents/{id}/cancel",
+        Kind::IntentCancel,
+    ),
+    (
+        "GET",
+        "/api/admin/system/upgrades/recovery-context",
+        Kind::RecoveryContext,
+    ),
+    (
+        "POST",
+        "/api/admin/system/upgrades/recovery-sets",
+        Kind::RecoverySet,
+    ),
+    (
+        "POST",
+        "/api/admin/system/upgrades/restore-proofs",
+        Kind::RestoreProof,
+    ),
 ];
 
 /// Routes Go wraps in `requireReason(system.upgrade)`.
@@ -57,7 +93,13 @@ pub(crate) fn reason_wrapped(kind: Kind) -> bool {
 
 const FAILED: &str = "upgrade control operation failed";
 
-fn refused(failure: &StatementFailure, path: &str, r: &Request<Body>, c: &RequestContext, id: &str) -> Response<Body> {
+fn refused(
+    failure: &StatementFailure,
+    path: &str,
+    r: &Request<Body>,
+    c: &RequestContext,
+    id: &str,
+) -> Response<Body> {
     match db::classify(failure) {
         Some(refusal) => render(
             Problem::new(refusal.status, refusal.detail)
@@ -79,7 +121,8 @@ fn refused(failure: &StatementFailure, path: &str, r: &Request<Body>, c: &Reques
 
 /// Go's `writeUpgradeRaw`: the status and the reducer's bytes, nothing appended.
 fn raw(body: db::Raw, status: u16, c: &RequestContext, id: &str) -> Response<Body> {
-    let mut response = crate::jmap::reply::response(body.unwrap_or_default(), c.identity.proto, id.to_owned());
+    let mut response =
+        crate::jmap::reply::response(body.unwrap_or_default(), c.identity.proto, id.to_owned());
     *response.status_mut() = hyper::StatusCode::from_u16(status).expect("status");
     response
 }
@@ -125,11 +168,17 @@ async fn decode(r: &mut Request<Body>) -> Result<Option<Map<String, Value>>, &'s
 
 /// Case-folded, strict member lookup (`DisallowUnknownFields`): a member naming no known
 /// field fails the decode; a repeated member is last-wins.
-fn members<'a>(map: &'a Map<String, Value>, known: &[&'static str]) -> Result<BTreeMap<&'static str, &'a Value>, ()> {
+fn members<'a>(
+    map: &'a Map<String, Value>,
+    known: &[&'static str],
+) -> Result<BTreeMap<&'static str, &'a Value>, ()> {
     let mut found = BTreeMap::new();
     for (key, value) in map {
         let folded = crate::guests_input::fold(key);
-        let Some(name) = known.iter().find(|k| crate::guests_input::fold(k) == folded) else {
+        let Some(name) = known
+            .iter()
+            .find(|k| crate::guests_input::fold(k) == folded)
+        else {
             return Err(());
         };
         found.insert(*name, value);
@@ -221,7 +270,8 @@ fn reason_ok(r: &Request<Body>, reason: &str) -> bool {
         && header(r, "x-audit-reason").trim() == reason
 }
 
-const BAD_REASON: &str = "body reason must exactly match X-Audit-Reason and contain 8-1024 safe characters";
+const BAD_REASON: &str =
+    "body reason must exactly match X-Audit-Reason and contain 8-1024 safe characters";
 
 /// Go's `validateUpgradeIdempotency`: the key must equal the header and parse as a UUID.
 fn idempotency(r: &Request<Body>, key: &str) -> Result<String, &'static str> {
@@ -234,7 +284,10 @@ fn idempotency(r: &Request<Body>, key: &str) -> Result<String, &'static str> {
 /// Go's `VerifyFreshAAL2` with `CurrentFreshAAL2Policy` (5 min age, 30 s future skew, 16
 /// distinct AMR values) and `upgradeStepUpBindings`: the session and factor digests the
 /// challenge reducer binds, plus the sorted distinct AMR list.
-pub(crate) fn step_up(auth: &setjoin_authz::Authorized, challenge: &str) -> Option<(Vec<u8>, Vec<u8>, Vec<String>)> {
+pub(crate) fn step_up(
+    auth: &setjoin_authz::Authorized,
+    challenge: &str,
+) -> Option<(Vec<u8>, Vec<u8>, Vec<String>)> {
     use sha2::{Digest, Sha256};
     let user = auth.context().user_id();
     let issued = auth.issued_at();
@@ -268,7 +321,8 @@ pub(crate) fn step_up(auth: &setjoin_authz::Authorized, challenge: &str) -> Opti
     let at = chrono::DateTime::from_timestamp(issued, 0)?
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let jti = auth.token_id();
-    let session = Sha256::digest(format!("setjoin-upgrade-session-v1\n{user}\n{jti}\n{at}").as_bytes());
+    let session =
+        Sha256::digest(format!("setjoin-upgrade-session-v1\n{user}\n{jti}\n{at}").as_bytes());
     let factor = Sha256::digest(
         format!(
             "setjoin-upgrade-factor-v1\n{user}\n{challenge}\n{}\n{}\n{jti}",
@@ -281,7 +335,10 @@ pub(crate) fn step_up(auth: &setjoin_authz::Authorized, challenge: &str) -> Opti
 }
 
 fn digest_ok(text: &str) -> bool {
-    text.len() == 64 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    text.len() == 64
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// `strconv.ParseInt(.., 10, 64)` that must also round-trip (`id > 0`, canonical form).
@@ -291,7 +348,9 @@ fn canonical_positive(text: &str) -> Option<i64> {
 }
 
 fn segment(path: &str, index: usize) -> String {
-    crate::guests_input::go_utf8(&crate::inventory::unescape(path.split('/').nth(index).unwrap_or("")))
+    crate::guests_input::go_utf8(&crate::inventory::unescape(
+        path.split('/').nth(index).unwrap_or(""),
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -299,15 +358,17 @@ pub(crate) async fn serve(
     kind: Kind,
     mut r: Request<Body>,
     c: &RequestContext,
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     auth: &setjoin_authz::Authorized,
     operation: [u8; 16],
     id: &str,
     path: &str,
 ) -> Response<Body> {
-    let actor = auth.context();
-    debug_assert!(matches!(*r.method(), Method::GET | Method::HEAD | Method::POST));
-    let user = actor.user_id();
+    debug_assert!(matches!(
+        *r.method(),
+        Method::GET | Method::HEAD | Method::POST
+    ));
     let problem = |detail: &str| bare(400, detail, c, id);
     macro_rules! decoded {
         ($object:ident, $found:ident, $known:expr) => {
@@ -329,7 +390,6 @@ pub(crate) async fn serve(
             }
         };
     }
-    // Reads and writes both finish here: the reducer's JSON, its refusal, or Go's 500.
     macro_rules! finish_read {
         ($result:expr, $status:expr) => {
             match $result.await {
@@ -343,9 +403,8 @@ pub(crate) async fn serve(
             match $outcome.await {
                 CommandOutcome::Committed(body) => raw(body, $status, c, id),
                 CommandOutcome::RolledBack(rejection) => match rejection {
-                    setjoin_pg::Rejection::Statement(failure) | setjoin_pg::Rejection::Body(failure) => {
-                        refused(&failure, path, &r, c, id)
-                    }
+                    setjoin_pg::Rejection::Statement(failure)
+                    | setjoin_pg::Rejection::Body(failure) => refused(&failure, path, &r, c, id),
                     _ => bare(500, FAILED, c, id),
                 },
                 CommandOutcome::Unknown { operation } => unknown_outcome(operation, c, id),
@@ -353,32 +412,16 @@ pub(crate) async fn serve(
         };
     }
     match kind {
-        Kind::Console => finish_read!(
-            db::read(exec, "SELECT upgrade_console_read($1::bigint)::text", &[(&user, Type::INT8)]),
-            200
-        ),
-        Kind::RecoveryContext => finish_read!(
-            db::read(exec, "SELECT upgrade_recovery_context_read($1::bigint)::text", &[(&user, Type::INT8)]),
-            200
-        ),
+        Kind::Console => finish_read!(db::console_read(factory, admin), 200),
+        Kind::RecoveryContext => finish_read!(db::recovery_context_read(factory, admin), 200),
         Kind::IntentRead | Kind::Diagnostics => {
             let Some(intent) = canonical_positive(&segment(r.uri().path(), 6)) else {
                 return problem("invalid upgrade intent id");
             };
             if kind == Kind::IntentRead {
-                finish_read!(
-                    db::read(exec, "SELECT upgrade_intent_read($1::bigint)::text", &[(&intent, Type::INT8)]),
-                    200
-                )
+                finish_read!(db::intent_read(factory, admin, intent), 200)
             } else {
-                finish_read!(
-                    db::read(
-                        exec,
-                        "SELECT upgrade_intent_diagnostics($1::bigint,$2::bigint)::text",
-                        &[(&user, Type::INT8), (&intent, Type::INT8)]
-                    ),
-                    200
-                )
+                finish_read!(db::intent_diagnostics(factory, admin, intent), 200)
             }
         }
         Kind::ChallengeComplete => {
@@ -395,23 +438,9 @@ pub(crate) async fn serve(
                     id,
                 );
             };
-            let acr = "aal2";
-            let params: Vec<Param<'_>> = vec![
-                (&user, Type::INT8),
-                (&challenge, Type::TEXT),
-                (&session, Type::BYTEA),
-                (&factor, Type::BYTEA),
-                (&amr, Type::TEXT_ARRAY),
-                (&acr, Type::TEXT),
-            ];
             finish_write!(
-                db::write(
-                    exec,
-                    actor,
-                    "upgrade_challenge_complete",
-                    "SELECT upgrade_challenge_complete($4::bigint,$5::text::uuid,$6::bytea,$7::bytea,$8::text[],$9::text)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-                    &params,
-                    operation
+                db::challenge_complete(
+                    factory, admin, &challenge, &session, &factor, &amr, "aal2", operation
                 ),
                 200
             )
@@ -424,27 +453,30 @@ pub(crate) async fn serve(
             if !reason_ok(&r, &reason) {
                 return problem(BAD_REASON);
             }
-            let params: Vec<Param<'_>> = vec![
-                (&user, Type::INT8),
-                (&release, Type::TEXT),
-                (&reason, Type::TEXT),
-                (&schedule, Type::INT8),
-            ];
             finish_read!(
-                db::read(
-                    exec,
-                    "SELECT upgrade_intent_preview($1::bigint,$2::text,$3::text,CASE WHEN $4::bigint IS NULL THEN NULL ELSE 'epoch'::timestamptz+$4::bigint*interval '1 microsecond' END)::text",
-                    &params
-                ),
+                db::intent_preview(factory, admin, &release, &reason, schedule),
                 200
             )
         }
         Kind::ChallengeIssue | Kind::IntentRequest => {
             let issue = kind == Kind::ChallengeIssue;
             let known: &[&'static str] = if issue {
-                &["releaseId", "reason", "scheduleAt", "previewDigest", "idempotencyKey"]
+                &[
+                    "releaseId",
+                    "reason",
+                    "scheduleAt",
+                    "previewDigest",
+                    "idempotencyKey",
+                ]
             } else {
-                &["releaseId", "reason", "scheduleAt", "previewDigest", "elevationId", "idempotencyKey"]
+                &[
+                    "releaseId",
+                    "reason",
+                    "scheduleAt",
+                    "previewDigest",
+                    "elevationId",
+                    "idempotencyKey",
+                ]
             };
             decoded!(object, m, known);
             let release = field!(string(m.get("releaseId")));
@@ -472,42 +504,16 @@ pub(crate) async fn serve(
                 Err(detail) => return problem(detail),
             };
             if issue {
-                let params: Vec<Param<'_>> = vec![
-                    (&user, Type::INT8),
-                    (&release, Type::TEXT),
-                    (&reason, Type::TEXT),
-                    (&schedule, Type::INT8),
-                    (&digest, Type::TEXT),
-                    (&key, Type::TEXT),
-                ];
                 finish_write!(
-                    db::write(
-                        exec,
-                        actor,
-                        "upgrade_challenge_issue",
-                        "SELECT upgrade_challenge_issue($4::bigint,$5::text,$6::text,CASE WHEN $7::bigint IS NULL THEN NULL ELSE 'epoch'::timestamptz+$7::bigint*interval '1 microsecond' END,$8::text,$9::text::uuid)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-                        &params,
-                        operation
+                    db::challenge_issue(
+                        factory, admin, &release, &reason, schedule, &digest, &key, operation
                     ),
                     200
                 )
             } else {
-                let params: Vec<Param<'_>> = vec![
-                    (&user, Type::INT8),
-                    (&release, Type::TEXT),
-                    (&reason, Type::TEXT),
-                    (&schedule, Type::INT8),
-                    (&digest, Type::TEXT),
-                    (&elevation, Type::TEXT),
-                    (&key, Type::TEXT),
-                ];
                 finish_write!(
-                    db::write(
-                        exec,
-                        actor,
-                        "upgrade_intent_request",
-                        "SELECT upgrade_intent_request($4::bigint,$5::text,$6::text,CASE WHEN $7::bigint IS NULL THEN NULL ELSE 'epoch'::timestamptz+$7::bigint*interval '1 microsecond' END,$8::text,$9::text::uuid,$10::text::uuid)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-                        &params,
+                    db::intent_request(
+                        factory, admin, &release, &reason, schedule, &digest, &elevation, &key,
                         operation
                     ),
                     202
@@ -527,36 +533,27 @@ pub(crate) async fn serve(
             let Some(generation) = canonical_positive(&generation) else {
                 return problem("invalid upgrade state generation");
             };
-            let params: Vec<Param<'_>> = vec![
-                (&user, Type::INT8),
-                (&intent, Type::INT8),
-                (&generation, Type::INT8),
-                (&reason, Type::TEXT),
-            ];
             finish_write!(
-                db::write(
-                    exec,
-                    actor,
-                    "upgrade_intent_cancel",
-                    "SELECT upgrade_intent_cancel($4::bigint,$5::bigint,$6::bigint,$7::text)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-                    &params,
-                    operation
-                ),
+                db::intent_cancel(factory, admin, intent, generation, &reason, operation),
                 200
             )
         }
         Kind::RecoverySet => {
-            decoded!(object, m, &[
-                "recoverySetId",
-                "timelineId",
-                "sourceReleaseId",
-                "schemaVersion",
-                "manifestDigest",
-                "checks",
-                "createdAt",
-                "expiresAt",
-                "reason"
-            ]);
+            decoded!(
+                object,
+                m,
+                &[
+                    "recoverySetId",
+                    "timelineId",
+                    "sourceReleaseId",
+                    "schemaVersion",
+                    "manifestDigest",
+                    "checks",
+                    "createdAt",
+                    "expiresAt",
+                    "reason"
+                ]
+            );
             let set = field!(string(m.get("recoverySetId")));
             let timeline = field!(string(m.get("timelineId")));
             let source = field!(string(m.get("sourceReleaseId")));
@@ -575,35 +572,30 @@ pub(crate) async fn serve(
             let (Some(set), Some(timeline)) = (uuid(&set), uuid(&timeline)) else {
                 return problem("invalid recovery-set identity");
             };
-            // pgx cannot encode a Go int outside int32 into an INTEGER parameter.
             let Ok(schema) = i32::try_from(schema) else {
                 return bare(500, FAILED, c, id);
             };
-            let params: Vec<Param<'_>> = vec![
-                (&user, Type::INT8),
-                (&set, Type::TEXT),
-                (&timeline, Type::TEXT),
-                (&source, Type::TEXT),
-                (&schema, Type::INT4),
-                (&manifest, Type::TEXT),
-                (&checks, Type::TEXT),
-                (&created, Type::INT8),
-                (&expires, Type::INT8),
-            ];
             finish_write!(
-                db::write(
-                    exec,
-                    actor,
-                    "upgrade_recovery_set_record",
-                    "SELECT upgrade_recovery_set_record($4::bigint,$5::text::uuid,$6::text::uuid,$7::text,$8::int,$9::text,$10::text::jsonb,'epoch'::timestamptz+$11::bigint*interval '1 microsecond','epoch'::timestamptz+$12::bigint*interval '1 microsecond')::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-                    &params,
-                    operation
+                db::recovery_set_record(
+                    factory, admin, &set, &timeline, &source, schema, &manifest, &checks, created,
+                    expires, operation
                 ),
                 201
             )
         }
         Kind::RestoreProof => {
-            decoded!(object, m, &["proofId", "recoverySetId", "targetId", "checks", "provedAt", "reason"]);
+            decoded!(
+                object,
+                m,
+                &[
+                    "proofId",
+                    "recoverySetId",
+                    "targetId",
+                    "checks",
+                    "provedAt",
+                    "reason"
+                ]
+            );
             let proof = field!(string(m.get("proofId")));
             let set = field!(string(m.get("recoverySetId")));
             let target = field!(string(m.get("targetId")));
@@ -616,22 +608,9 @@ pub(crate) async fn serve(
             let (Some(proof), Some(set)) = (uuid(&proof), uuid(&set)) else {
                 return problem("invalid restore-proof identity");
             };
-            let params: Vec<Param<'_>> = vec![
-                (&user, Type::INT8),
-                (&proof, Type::TEXT),
-                (&set, Type::TEXT),
-                (&target, Type::TEXT),
-                (&checks, Type::TEXT),
-                (&proved, Type::INT8),
-            ];
             finish_write!(
-                db::write(
-                    exec,
-                    actor,
-                    "upgrade_restore_proof_record",
-                    "SELECT upgrade_restore_proof_record($4::bigint,$5::text::uuid,$6::text::uuid,$7::text,$8::text::jsonb,'epoch'::timestamptz+$9::bigint*interval '1 microsecond')::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-                    &params,
-                    operation
+                db::restore_proof_record(
+                    factory, admin, &proof, &set, &target, &checks, proved, operation
                 ),
                 201
             )

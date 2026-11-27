@@ -1,11 +1,11 @@
 //! Signed approval-email capability. Identity is sealed after HMAC verification.
-use crate::{
-    invalid, ActorId, Generation, MailboxAuthContext, MailboxId, ScopedExecutor, StatementFailure,
-    Type,
-};
 use base64::{engine::general_purpose::URL_SAFE, Engine};
 use hmac::{Hmac, Mac};
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
+use setjoin_contracts::ids::ActorId;
+use setjoin_pg::{CommandOutcome, StatementFailure};
 use sha2::Sha256;
+
 #[derive(serde::Deserialize, Default)]
 #[serde(default)]
 struct Claims {
@@ -14,9 +14,11 @@ struct Claims {
     d: String,
     e: i64,
 }
+
 pub struct Capability {
     claims: Claims,
 }
+
 impl Capability {
     pub fn verify(token: &str, secret: &[u8], now: i64) -> Option<Self> {
         let (payload, sig) = token.split_once('.')?;
@@ -30,44 +32,29 @@ impl Capability {
         }
         Some(Self { claims })
     }
+
+    pub fn request_id(&self) -> i64 {
+        self.claims.r
+    }
+
     pub fn decision(&self) -> &str {
         &self.claims.d
     }
-    async fn scope(&self, exec: &ScopedExecutor) -> Result<MailboxAuthContext, StatementFailure> {
-        let user = self.claims.a;
-        let rows = exec
-            .read(crate::sql::EMAIL_PRIMARY_MAILBOX.sql, &[(&user, Type::INT8)])
-            .await?;
-        let mailbox = rows
-            .first()
-            .map(|r| r.get::<_, i64>(0))
-            .ok_or_else(invalid)?;
-        Ok(MailboxAuthContext::from_authenticated_session(
-            ActorId::new(user).map_err(|_| invalid())?,
-            MailboxId::new(mailbox).map_err(|_| invalid())?,
-            Generation(1),
-        ))
+
+    pub fn actor_user_id(&self) -> Option<ActorId> {
+        ActorId::new(self.claims.a).ok()
     }
+
     pub async fn decide(
         &self,
-        exec: &ScopedExecutor,
-        worker: &ScopedExecutor,
+        tx_factory: &TxFactory,
+        user: &UserPrincipal,
         consumer: &str,
         operation: [u8; 16],
-    ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-        let scope = match self.scope(exec).await {
-            Ok(a) => a,
-            Err(e) => {
-                return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Body(e))
-            }
-        };
+    ) -> CommandOutcome<String, StatementFailure> {
         crate::decide_consumer(
-            if matches!(consumer, "mail.external_send" | "mail.group_moderation") {
-                worker
-            } else {
-                exec
-            },
-            &scope,
+            tx_factory,
+            user,
             consumer,
             self.claims.r,
             &self.claims.d,
@@ -76,18 +63,16 @@ impl Capability {
         )
         .await
     }
+
     pub async fn request(
         &self,
-        exec: &ScopedExecutor,
+        tx_factory: &TxFactory,
+        user: &UserPrincipal,
     ) -> Result<Option<(String, String, String)>, StatementFailure> {
-        let user = self.claims.a;
+        let uid = user.user().get();
         let id = self.claims.r;
-        let rows = exec
-            .read_scoped(
-                &self.scope(exec).await?,
-                crate::sql::EMAIL_REQUEST.sql,
-                &[(&id, Type::INT8), (&user, Type::INT8)],
-            )
+        let rows = tx_factory
+            .run_user_read_contract(user, &crate::sql::EMAIL_REQUEST, &[&id, &uid])
             .await?;
         Ok(rows.first().map(|r| (r.get(0), r.get(1), r.get(2))))
     }

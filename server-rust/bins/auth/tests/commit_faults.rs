@@ -99,12 +99,19 @@ async fn check(cut: commit::CommitCut) {
         .unwrap()
         .get(0);
     let lookup = if let Some(ref id) = operation {
-        let clean =
+        let clean_app =
             setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2).unwrap();
-        let proof = setjoin_identity::login::verify(&clean, &email, "Password1!", setjoin_config_secret::CryptoProfile::Standard)
-            .await
-            .unwrap()
-            .unwrap();
+        let clean_worker = setjoin_pg::ScopedExecutor::from_dsn(&db.dsn, 2).unwrap();
+        let clean = setjoin_pg::AuthDb::from_executors(clean_app, clean_worker);
+        let proof = setjoin_identity::login::verify(
+            &clean,
+            &email,
+            "Password1!",
+            setjoin_config_secret::CryptoProfile::Standard,
+        )
+        .await
+        .unwrap()
+        .unwrap();
         let found = setjoin_identity::login::lookup_mint(&clean, &proof, id)
             .await
             .unwrap();

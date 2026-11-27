@@ -267,7 +267,11 @@ fn guest_allowed(method: &Method, path: &str) -> bool {
     })
 }
 
-pub(crate) fn revoked_problem(headers: &HeaderMap, identity: &ClientIdentity, detail: &str) -> Response<Body> {
+pub(crate) fn revoked_problem(
+    headers: &HeaderMap,
+    identity: &ClientIdentity,
+    detail: &str,
+) -> Response<Body> {
     let mut response = problem(headers, identity, 401, detail);
     crate::problem::set_body(
         &mut response,

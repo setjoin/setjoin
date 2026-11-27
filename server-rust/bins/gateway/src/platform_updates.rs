@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 pub struct PlatformUpdatesRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
     recovery: Option<crate::platform_recovery_admin::RecoveryAdmin>,
@@ -29,6 +30,7 @@ impl<K: KeySource + 'static> PlatformUpdatesRoute<K> {
     pub fn new(exec: ScopedExecutor, keys: Arc<K>, issuer: String) -> Self {
         Self {
             exec,
+            worker: None,
             keys,
             issuer,
             recovery: None,
@@ -36,14 +38,22 @@ impl<K: KeySource + 'static> PlatformUpdatesRoute<K> {
             deploy: None,
         }
     }
+    pub fn with_worker(mut self, worker: ScopedExecutor) -> Self {
+        self.worker = Some(worker);
+        self
+    }
     pub async fn with_deploy(
         mut self,
         worker: ScopedExecutor,
         config: setjoin_platform::deploy::Config,
     ) -> Self {
-        self.deploy = Some(Arc::new(
-            setjoin_platform::deploy::Wizard::load(worker, config).await,
-        ));
+        if let Some(factory) =
+            crate::policy_composition::tx_factory_from_executors(&worker, Some(&worker))
+        {
+            self.deploy = Some(Arc::new(
+                setjoin_platform::deploy::Wizard::load(factory, config).await,
+            ));
+        }
         self
     }
     pub fn with_airgap(mut self, store: Option<Arc<setjoin_platform::airgap::Store>>) -> Self {
@@ -257,6 +267,7 @@ impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        let worker = self.worker.clone();
         let recovery = self.recovery.clone();
         let airgap = self.airgap.clone();
         let deploy = self.deploy.clone();
@@ -288,36 +299,63 @@ impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+            let worker_exec = worker.as_ref().unwrap_or(&exec);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(worker_exec))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(500, "database error", &c, &id);
+            };
             let actor = auth.context();
             let go_path = segment_path(r.uri().path());
             let required = gate(what);
-            let authority = match setjoin_platform::authority(&exec, actor).await {
-                Ok(authority) if authority.allows_any(required) => authority,
-                _ => {
-                    let _ = setjoin_platform::console_denied(
-                        &exec,
-                        actor,
-                        &go_path,
-                        &required.join("|"),
-                        operation,
-                    )
-                    .await;
-                    return bare(403, "Forbidden", &c, &id);
-                }
+            let admin_opt = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
             };
-            if authority.refused_for_scope(required) {
+            let Some(admin_principal) = admin_opt.filter(|a| a.allows_any(required)) else {
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
+            let domain_scope = admin_principal.enforced_domain_scope().unwrap_or(0);
+            if admin_principal.refused_for_scope(required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
                     required.join("|"),
-                    authority.domain_scope()
+                    domain_scope
                 );
-                let _ =
-                    setjoin_platform::console_denied(&exec, actor, &go_path, &detail, operation)
-                        .await;
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &detail,
+                    operation,
+                )
+                .await;
                 return bare(403, "Forbidden", &c, &id);
             }
-            // #542 (owner-approved security fix 2026-11-05): the deploy wizard and the airgap
-            // upload are server-wide, so they need an organization-wide system.upgrade grant.
+            let Ok(admin) = admin_principal.require_any_permission(required) else {
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
             let org_wide_route = match what {
                 Action::DeployStart => Some("deploy-start"),
                 Action::DeployCancel => Some("deploy-cancel"),
@@ -327,13 +365,17 @@ impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
             };
             if let Some(route) = org_wide_route {
                 if !matches!(
-                    setjoin_platform::upgrade_org_wide(&exec, actor, route).await,
+                    setjoin_platform::upgrade_org_wide(&factory, &admin, route).await,
                     Ok(true)
                 ) {
                     let detail =
                         format!("{} (organization-wide grant required)", required.join("|"));
                     let _ = setjoin_platform::console_denied(
-                        &exec, actor, &go_path, &detail, operation,
+                        &factory,
+                        &user_principal,
+                        &go_path,
+                        &detail,
+                        operation,
                     )
                     .await;
                     return bare(403, "Forbidden", &c, &id);
@@ -352,7 +394,8 @@ impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
                     what == Action::DeployStart,
                     &wizard,
                     &mut r,
-                    &auth,
+                    user_principal,
+                    &admin,
                     &c,
                     &id,
                 )
@@ -382,15 +425,16 @@ impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
                         | crate::platform_recovery_admin::Kind::Close
                         | crate::platform_recovery_admin::Kind::Open
                         | crate::platform_recovery_admin::Kind::Accept
-                ) && setjoin_platform::upgrades::reason_required(&exec, "system").await
+                ) && setjoin_platform::upgrades::reason_required(&factory, &admin, "system")
+                    .await
                     && r.headers()
                         .get("x-audit-reason")
                         .is_none_or(|v| v.as_bytes().is_empty())
                 {
                     setjoin_platform::upgrades::missing_reason(
-                        &exec,
-                        actor,
-                        &c.identity.client_ip.to_string(),
+                        &factory,
+                        &user_principal,
+                        &ip,
                         "system.recovery",
                         operation,
                     )
@@ -409,17 +453,15 @@ impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
                 .await;
             }
             if let Action::Upgrade(kind) = what {
-                // `requireReason(system.upgrade)`: a reason-required area demands the header.
                 if upgrades::reason_wrapped(kind)
-                    && setjoin_platform::upgrades::reason_required(&exec, "system").await
+                    && setjoin_platform::upgrades::reason_required(&factory, &admin, "system").await
                     && r.headers()
                         .get("x-audit-reason")
                         .is_none_or(|v| v.as_bytes().is_empty())
                 {
-                    let ip = c.identity.client_ip.to_string();
                     setjoin_platform::upgrades::missing_reason(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user_principal,
                         &ip,
                         "system.upgrade",
                         operation,
@@ -427,18 +469,14 @@ impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
                     .await;
                     return bare(400, "reason_required", &c, &id);
                 }
-                return upgrades::serve(kind, r, &c, &exec, &auth, operation, &id, &go_path).await;
+                return upgrades::serve(
+                    kind, r, &c, &factory, &admin, &auth, operation, &id, &go_path,
+                )
+                .await;
             }
-            // #456: a domain-scoped caller sees only the devices of users inside its reach.
-            let reach = if authority.domain_scope() > 0 {
-                actor.user_id()
-            } else {
-                0
-            };
+            let reach = if domain_scope > 0 { actor.user_id() } else { 0 };
             let head = r.method() == Method::HEAD;
             let reply = |body: String, status: u16| {
-                // net/http buffers 2 KiB of a handler's output; a larger single write
-                // is flushed before the handler returns and sent chunked.
                 let chunked = body.len() > 2048 && !head;
                 let mut response = crate::jmap::reply::response(body, c.identity.proto, id.clone());
                 *response.status_mut() = hyper::StatusCode::from_u16(status).expect("status");
@@ -451,10 +489,11 @@ impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
                 response
             };
             match what {
-                Action::UpgradeHistory => reply(updates::history(&exec).await, 200),
-                Action::UpdatesSummary => reply(updates::summary(&exec, reach).await, 200),
+                Action::UpgradeHistory => reply(updates::history(&factory, &admin).await, 200),
+                Action::UpdatesSummary => {
+                    reply(updates::summary(&factory, &admin, reach).await, 200)
+                }
                 Action::UpdatesDevices => {
-                    // Go's `ParseLimitOffset(r, 50, 100)`.
                     let number = |name: &str| {
                         crate::admin_identity_input::query(r.uri(), name)
                             .and_then(|v| v.parse::<i64>().ok())
@@ -463,7 +502,7 @@ impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
                     let limit = number("limit");
                     let limit = if limit <= 0 || limit > 100 { 50 } else { limit };
                     let offset = number("offset").clamp(0, 1_000_000);
-                    match updates::devices(&exec, reach, limit, offset).await {
+                    match updates::devices(&factory, &admin, reach, limit, offset).await {
                         Ok(body) => reply(body, 200),
                         Err(_) => bare(500, "database error", &c, &id),
                     }
@@ -475,14 +514,16 @@ impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
                     if body.device_ids.is_empty() {
                         return bare(400, "device_ids is required", &c, &id);
                     }
-                    match updates::push(&exec, actor, body.device_ids.len(), operation).await {
-                        CommandOutcome::Committed(()) => {
-                            let mut response = reply(String::new(), 204);
-                            response.headers_mut().remove("content-type");
-                            response
-                        }
-                        // Go ignores a failed notify and still answers 204.
-                        CommandOutcome::RolledBack(_) => {
+                    match updates::push(
+                        &factory,
+                        &user_principal,
+                        &admin,
+                        body.device_ids.len(),
+                        operation,
+                    )
+                    .await
+                    {
+                        CommandOutcome::Committed(()) | CommandOutcome::RolledBack(_) => {
                             let mut response = reply(String::new(), 204);
                             response.headers_mut().remove("content-type");
                             response

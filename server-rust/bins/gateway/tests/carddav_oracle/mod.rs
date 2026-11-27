@@ -181,7 +181,7 @@ pub async fn run(route: &str, label: &str, mutant: Option<&'static str>) -> Resu
         let app=db.app.as_deref().unwrap_or(&db.dsn);
         let cut=match mutant{Some("commit-before")=>Some(common::commit::CommitCut::BeforeCommit),Some("commit-after")=>Some(common::commit::CommitCut::AfterCommit),_=>None};
         let mut commit_wire=if let Some(cut)=cut{Some(common::commit::commit_cut_proxy(app,cut).await)}else{None};
-        let wire=if mutant==Some("no-tenant-filter"){Some(wire::no_tenant_filter(app).await?)}else{None};
+        let wire=if mutant==Some("no-tenant-filter"){Some(wire::no_tenant_filter(&db.dsn).await?)}else{None};
         let target=wire.as_ref().map(|w|w.dsn.as_str()).or_else(||commit_wire.as_ref().map(|(dsn,_)|dsn.as_str())).unwrap_or(app);
         let table=RouteTable::proxy_all().with(Probe{inner:setjoin_gateway::carddav::CardDavRoute::new(common::patient_exec(target,if cut.is_some(){1}else{4})?,std::sync::Arc::new(common::recovery_keys()),"mailserver".into()),mutant}).with_catchall(setjoin_gateway::catchall::CatchallRoute::new());
         let table=if recording {RouteTable::proxy_all()}else{table};
@@ -224,16 +224,17 @@ pub async fn run(route: &str, label: &str, mutant: Option<&'static str>) -> Resu
             let operation=setjoin_contracts::ids::OperationId(raw);
             let (_,task)=commit_wire.take().ok_or("cut proxy missing")?;
             if tokio::time::timeout(std::time::Duration::from_secs(30),task).await???!=cut{return Err("wrong COMMIT barrier".into());}
-            let fresh=common::patient_exec(app,1)?;let keys=std::sync::Arc::new(common::recovery_keys());
+            let fresh=common::patient_exec(app,1)?;let fresh_tx=setjoin_gateway::policy_composition::tx_factory_from_executors(&fresh,None).ok_or("fresh tx factory unavailable")?;let keys=std::sync::Arc::new(common::recovery_keys());
             use setjoin_calendar::carddav::OutcomeKind;
             let kind=match route{"put"=>OutcomeKind::Create,"put-update"=>OutcomeKind::Update,"delete"=>OutcomeKind::Delete,_=>OutcomeKind::GalSync};
             for (user,expected) in [(a.user,cut==common::commit::CommitCut::AfterCommit),(b.user,false)]{
                 let mut h=hyper::HeaderMap::new();h.insert("authorization",format!("Bearer {}",common::recovery_token(user)).parse()?);
                 let proof=setjoin_authz::authorize_user_request(&fresh,&keys,"mailserver",&h,"http").await.ok_or("fresh recovery authority unavailable")?;
-                let found=setjoin_calendar::carddav::lookup_operation(&fresh,proof.context(),operation,kind).await.map_err(|_|"recovery lookup unavailable")?;
+                let principal=fresh_tx.mint_user_from_authorized(&proof,"127.0.0.1").await.map_err(|_|"fresh recovery principal unavailable")?;
+                let found=setjoin_calendar::carddav::lookup_operation(&fresh_tx,&principal,operation,kind).await.map_err(|_|"recovery lookup unavailable")?;
                 if found!=expected{return Err("actor-bound outcome mismatch".into());}
                 let wrong=if route=="put"{OutcomeKind::Delete}else{OutcomeKind::Create};
-                if setjoin_calendar::carddav::lookup_operation(&fresh,proof.context(),operation,wrong).await.map_err(|_|"wrong-kind lookup unavailable")?{return Err("receipt command boundary bypassed".into());}
+                if setjoin_calendar::carddav::lookup_operation(&fresh_tx,&principal,operation,wrong).await.map_err(|_|"wrong-kind lookup unavailable")?{return Err("receipt command boundary bypassed".into());}
             }
         }
         if mutant==Some("no-tenant-filter") && (status!=200 || !body.contains("Foreign private contact") || wire.as_ref().is_none_or(|w|w.hits.load(std::sync::atomic::Ordering::SeqCst)==0)){return Err("tenant mutant never reached foreign row".into());}

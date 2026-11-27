@@ -491,8 +491,12 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
         let exec = ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?
             .with_audit_keys("22".repeat(32), String::new());
+        let worker_dsn = std::env::var("DB_WORKER_DSN").unwrap_or_else(|_| db.dsn.clone());
+        let worker = ScopedExecutor::from_dsn(&worker_dsn, 4)
+            .map_err(|e| e.0)?
+            .with_audit_keys("22".repeat(32), String::new());
         let adapter = Probe {
-            inner: ConditionalAccessRoute { exec, worker: None, keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
+            inner: ConditionalAccessRoute { exec, worker: Some(worker), keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
             changed_status: mutant,
         };
         let mut inventory: Value = serde_json::from_str(include_str!("../../route-inventory.json"))?;

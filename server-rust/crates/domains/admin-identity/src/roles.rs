@@ -1,17 +1,9 @@
 //! Admin identity (F01) slice `roles`: role groups, memberships, the permission
 //! catalog and a user's effective permissions.
-//!
-//! Reads are `SELECT`s under the verified actor. Role create, update, delete,
-//! assign and remove each call one reducer mirroring Go's whole transaction
-//! (`rust_admin_role_*`); the reducer answers `{status,detail,id}` and every
-//! status other than the success one rolls the command back, so a problem
-//! leaves neither data nor a receipt. Bulk enqueue is Go's single `INSERT`.
-use super::{count as count_one, deadline, done, envelope, invalid, s, scope, Authority};
+use super::{count as count_one, deadline, done, envelope, invalid, s, sql, FAMILY};
 use serde_json::json;
-use setjoin_authz::AuthContext;
-use setjoin_pg::{
-    CommandOutcome, ReceiptCommand, Rejection, Row, ScopedExecutor, StatementFailure, Type,
-};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, Rejection, Row, StatementFailure};
 
 /// `roles.manage`: the only gate of every route in this slice.
 pub const ROLES_MANAGE: [&str; 1] = ["roles.manage"];
@@ -233,17 +225,6 @@ pub fn resource_name_problem(raw: &str) -> Option<&'static str> {
     None
 }
 
-impl Authority {
-    /// Go's `claims.HasPermission` over the live permission set.
-    pub fn holds(&self, permission: &str) -> bool {
-        self.permissions.iter().any(|p| p == permission)
-    }
-    /// The permissions the principal holds right now.
-    pub fn permissions(&self) -> &[String] {
-        &self.permissions
-    }
-}
-
 /// A Go problem response decided by the database transaction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Problem {
@@ -272,7 +253,6 @@ pub fn problem_of(error: &Rejection<StatementFailure>) -> Option<Problem> {
     })
 }
 
-/// A problem decided before the database (Go's validation order) or by it.
 fn verdict(rows: &[Row], success: u16) -> Result<Reply, StatementFailure> {
     let text: String = rows
         .first()
@@ -345,17 +325,16 @@ fn role_json(r: &RoleRow) -> String {
         s(&r.updated)
     )
 }
-const ROLE_COLUMNS: &str = "rg.id, rg.name, rg.description, rg.permissions, rg.domain_scope, rg.is_builtin, \
-    COALESCE((SELECT COUNT(*) FROM admin_role_assignments WHERE role_group_id = rg.id), 0)::bigint, \
-    rg.created_at::TEXT, rg.updated_at::TEXT";
 
 /// `GET /admin/roles`; a row that fails to scan is skipped, as Go does.
-pub async fn roles(exec: &ScopedExecutor, domain_scope: i64) -> Result<String, StatementFailure> {
-    let sql = format!(
-        "SELECT {ROLE_COLUMNS} FROM admin_role_groups rg WHERE ($1::bigint <= 0 OR rg.domain_scope = $1::bigint) \
-         ORDER BY rg.is_builtin DESC, rg.name ASC"
-    );
-    let rows = exec.read(&sql, &[(&domain_scope, Type::INT8)]).await?;
+pub async fn roles(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    domain_scope: i64,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::ROLES_LIST, &[&domain_scope])
+        .await?;
     let out: Vec<String> = rows
         .iter()
         .filter_map(role_row)
@@ -366,51 +345,22 @@ pub async fn roles(exec: &ScopedExecutor, domain_scope: i64) -> Result<String, S
 
 /// `GET /admin/roles/{id}`; `None` is Go's 404 (missing or out of scope).
 pub async fn role(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     actor: i64,
     domain_scope: i64,
     id: i64,
 ) -> Result<Option<String>, StatementFailure> {
-    let sql = format!(
-        "SELECT {ROLE_COLUMNS} FROM admin_role_groups rg WHERE rg.id = $1 AND ($2::bigint <= 0 OR rg.domain_scope = $2::bigint)"
-    );
-    let rows = exec
-        .read(&sql, &[(&id, Type::INT8), (&domain_scope, Type::INT8)])
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::ROLE_GET, &[&id, &domain_scope])
         .await?;
     let Some(row) = rows.first() else {
         return Ok(None);
     };
     let ro = role_row(row).ok_or_else(invalid)?;
-    let members = exec
-        .read(
-            "SELECT ra.user_id, u.email, u.display_name, ra.domain_override, ra.granted_by, ra.granted_at::TEXT, \
-             ra.expires_at::TEXT, \
-             CASE WHEN act.is_super THEN true \
-                  ELSE ea.perms <@ act.perms \
-                       AND NOT (cardinality(ea.perms) > 0 AND act.scope IS NOT NULL AND ea.scope IS NULL) \
-                       AND (cardinality(act.perms) = 0 OR admin_can_reach($2::bigint, ra.user_id)) \
-             END AS manageable, \
-             ra.scope_type, ra.scope_id, ss.name \
-             FROM admin_role_assignments ra \
-             JOIN users u ON u.id = ra.user_id \
-             CROSS JOIN LATERAL admin_effective_authority(ra.user_id) AS ea \
-             CROSS JOIN (SELECT EXISTS(SELECT 1 FROM admin_role_assignments \
-                          WHERE user_id=$2::bigint AND role_group_id=1 \
-                          AND (expires_at IS NULL OR expires_at > now())) AS is_super, a0.perms, a0.scope \
-                         FROM admin_effective_authority($2::bigint) AS a0) act \
-             LEFT JOIN admin_scope_sets ss ON ra.scope_type='set' AND ss.id = ra.scope_id \
-             WHERE ra.role_group_id = $1 \
-             AND ($3::bigint <= 0 OR EXISTS (SELECT 1 FROM admin_role_groups rg \
-                                 WHERE rg.id = ra.role_group_id AND rg.domain_scope = $3::bigint)) \
-             ORDER BY u.email",
-            &[
-                (&id, Type::INT8),
-                (&actor, Type::INT8),
-                (&domain_scope, Type::INT8),
-            ],
-        )
+    let members = factory
+        .run_admin_read_contract(admin, &sql::ROLE_MEMBERS, &[&id, &actor, &domain_scope])
         .await?;
-    // Go skips a member that fails to scan (a NULL granted_by, for one).
     let items: Vec<String> = members
         .iter()
         .filter_map(|r| {
@@ -452,13 +402,12 @@ pub async fn role(
 }
 
 /// `GET /admin/permissions`: every catalog row, "C" collation order.
-pub async fn catalog(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT permission_key, category, description, is_sensitive FROM admin_permissions \
-             ORDER BY category COLLATE \"C\", permission_key COLLATE \"C\"",
-            &[],
-        )
+pub async fn catalog(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::PERMISSIONS_CATALOG, &[])
         .await?;
     let out: Vec<String> = rows
         .iter()
@@ -478,18 +427,15 @@ pub async fn catalog(exec: &ScopedExecutor) -> Result<String, StatementFailure> 
 /// `GET /admin/users/{id}/effective-permissions`; `None` is Go's 404 for a
 /// target outside a domain-scoped admin's domain.
 pub async fn effective_permissions(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     domain_scope: i64,
     id: i64,
 ) -> Result<Option<String>, StatementFailure> {
     if domain_scope > 0 {
-        let rows = exec
-            .read(
-                "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND domain_id = $2)",
-                &[(&id, Type::INT8), (&domain_scope, Type::INT8)],
-            )
+        let rows = factory
+            .run_admin_read_contract(admin, &sql::USER_IN_DOMAIN, &[&id, &domain_scope])
             .await;
-        // Go answers 404 for a failed scope query as well.
         let inside = rows
             .ok()
             .and_then(|r| r.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
@@ -498,15 +444,8 @@ pub async fn effective_permissions(
             return Ok(None);
         }
     }
-    // `permissions.ResolveAuthority`: union in row order, narrowest scope.
-    let resolved = exec
-        .read(
-            "SELECT rg.permissions, COALESCE(ra.domain_override, rg.domain_scope) AS effective_scope \
-             FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id = ra.role_group_id \
-             WHERE ra.user_id = $1 AND (ra.expires_at IS NULL OR ra.expires_at > now()) \
-             AND admin_assignment_active(ra.eligible, ra.activated_until)",
-            &[(&id, Type::INT8)],
-        )
+    let resolved = factory
+        .run_admin_read_contract(admin, &sql::EFFECTIVE_AUTHORITY_ROWS, &[&id])
         .await?;
     let mut perms: Vec<String> = Vec::new();
     let mut narrowest: Option<i64> = None;
@@ -520,14 +459,8 @@ pub async fn effective_permissions(
             narrowest = Some(narrowest.map_or(sc, |n| n.min(sc)));
         }
     }
-    let rows = exec
-        .read(
-            "SELECT rg.id, rg.name, rg.permissions, COALESCE(ra.domain_override, rg.domain_scope) \
-             FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id = ra.role_group_id \
-             WHERE ra.user_id = $1 AND (ra.expires_at IS NULL OR ra.expires_at > now()) \
-             ORDER BY rg.name",
-            &[(&id, Type::INT8)],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::EFFECTIVE_SOURCES, &[&id])
         .await?;
     let sources: Vec<String> = rows
         .iter()
@@ -558,14 +491,12 @@ pub async fn effective_permissions(
 
 /// `SELECT permissions FROM admin_role_groups`: the bulk routes' Rule A input.
 pub async fn role_permissions(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     id: i64,
 ) -> Result<Option<Vec<String>>, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT permissions FROM admin_role_groups WHERE id = $1",
-            &[(&id, Type::INT8)],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::ROLE_PERMISSIONS, &[&id])
         .await?;
     match rows.first() {
         None => Ok(None),
@@ -574,84 +505,68 @@ pub async fn role_permissions(
 }
 
 /// Go's `RequireReason`: whether `roles` is a reason-required audit area.
-pub async fn reason_required(exec: &ScopedExecutor) -> bool {
-    exec.read(
-        "SELECT 'roles'=ANY(reason_required_areas) FROM audit_policy WHERE id=1",
-        &[],
-    )
-    .await
-    .ok()
-    .and_then(|r| r.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
-    .unwrap_or(false)
-}
-
-async fn audit_only(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    command: &'static str,
-    sql: &str,
-    params: &[setjoin_pg::Param<'_>],
-    payload: &str,
-    operation: [u8; 16],
-) {
-    let auth = scope(actor);
-    let _ = setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F01",
-            command,
-        },
-        &envelope(&auth, operation, payload),
-        &auth,
-        deadline(),
-        sql,
-        params,
-        count_one,
-    )
-    .await;
+pub async fn reason_required(factory: &TxFactory, admin: &AdminPermissionProof) -> bool {
+    let area = "roles";
+    factory
+        .run_admin_read_contract(admin, &sql::REASON_REQUIRED_AREA, &[&area])
+        .await
+        .ok()
+        .and_then(|r| r.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
+        .unwrap_or(false)
 }
 
 /// The durable `sensitive_action.reason_missing` row Go writes before its 400.
 pub async fn missing_reason(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     ip: &str,
     operation: [u8; 16],
 ) {
-    audit_only(
-        exec,
-        actor,
-        "reason_missing",
-        "SELECT count(*)::bigint FROM (SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,NULLIF($4::text,'')::inet,'roles.manage','core') \
-         WHERE $1::bigint >= 0 AND $3::text <> '') w",
-        &[(&ip, Type::TEXT)],
-        ip,
-        operation,
-    )
-    .await;
+    let actor = user.user().get();
+    let perm = "roles.manage";
+    let env = envelope(user.user(), user.generation(), operation, ip);
+    let _ = factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MISSING_REASON_AUDIT,
+            &[&actor, &ip, &perm],
+            Some(ReceiptCommand {
+                family: FAMILY,
+                command: "reason_missing",
+            }),
+            |rows| count_one(&rows).map(|_| ()),
+        )
+        .await;
 }
 
 /// Go's `mapProtectionErr` audit: autocommit, so it survives the rollback.
 pub async fn protection_denied(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     target: i64,
     code: &str,
     ip: &str,
     operation: [u8; 16],
 ) {
-    let after = json!({"code":code,"actor_id":actor.user_id(),"target_id":target}).to_string();
-    audit_only(
-        exec,
-        actor,
-        "admin_protection.denied",
-        "SELECT count(*)::bigint FROM (SELECT audit_write($2,'admin_protection.denied','user',$5,NULL,$4::text::jsonb,NULLIF($6::text,'')::inet,'','core') \
-         WHERE $1::bigint >= 0 AND $3::text <> '') w",
-        &[(&after, Type::TEXT), (&target, Type::INT8), (&ip, Type::TEXT)],
-        &after,
-        operation,
-    )
-    .await;
+    let actor = user.user().get();
+    let after = json!({"code": code, "actor_id": actor, "target_id": target}).to_string();
+    let env = envelope(user.user(), user.generation(), operation, &after);
+    let _ = factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::PROTECTION_DENIED_AUDIT,
+            &[&actor, &target, &after, &ip],
+            Some(ReceiptCommand {
+                family: FAMILY,
+                command: "admin_protection.denied",
+            }),
+            |rows| count_one(&rows).map(|_| ()),
+        )
+        .await;
 }
 
 pub struct NewRole<'a> {
@@ -663,68 +578,67 @@ pub struct NewRole<'a> {
 
 /// `POST /admin/roles` after the edge validation; the new role id.
 pub async fn create_role(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     role: &NewRole<'_>,
     ip: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    let auth = scope(actor);
     let permissions = role.permissions.to_vec();
-    setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F01",
-            command: "role_create",
-        },
-        &envelope(
-            &auth,
-            operation,
-            &format!(
-                "{}:{:?}:{:?}",
-                role.name, role.permissions, role.domain_scope
-            ),
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!(
+            "{}:{:?}:{:?}",
+            role.name, role.permissions, role.domain_scope
         ),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_role_create($2,$4,$5,$6,$7,$8) WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&role.name, Type::TEXT),
-            (&role.description, Type::TEXT),
-            (&permissions, Type::TEXT_ARRAY),
-            (&role.domain_scope, Type::INT8),
-            (&ip, Type::TEXT),
-        ],
-        |rows| match rows {
-            [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
-            _ => Err(invalid()),
-        },
-    )
-    .await
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::ROLE_CREATE,
+            &[
+                &role.name,
+                &role.description,
+                &permissions,
+                &role.domain_scope,
+                &ip,
+            ],
+            Some(ReceiptCommand {
+                family: FAMILY,
+                command: "role_create",
+            }),
+            |rows, _audited| match rows.as_slice() {
+                [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
+                _ => Err(invalid()),
+            },
+        )
+        .await
 }
 
 /// The decoded `PUT /admin/roles/{id}` patch; absent fields are `None`.
 pub struct RolePatch {
     pub name: Option<String>,
     pub description: Option<String>,
-    /// `None` when absent or empty, as Go's `len(req.Permissions) > 0`.
     pub permissions: Option<Vec<String>>,
     pub domain_scope: Option<i64>,
     pub sod_class: Option<String>,
-    /// Go's body validation outcome, evaluated after the lock and scope checks.
     pub problem: Option<Problem>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update_role(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     domain_scope: i64,
     id: i64,
     patch: &RolePatch,
     ip: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<Reply, StatementFailure> {
-    let auth = scope(actor);
     let status = patch.problem.as_ref().map_or(0i32, |p| i32::from(p.status));
     let detail = patch
         .problem
@@ -732,75 +646,77 @@ pub async fn update_role(
         .map(|p| p.detail.clone())
         .unwrap_or_default();
     let classes = classes_json();
-    setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F01",
-            command: "role_update",
-        },
-        &envelope(
-            &auth,
-            operation,
-            &format!(
-                "{id}:{domain_scope}:{:?}:{:?}:{:?}:{:?}:{:?}",
-                patch.name, patch.description, patch.permissions, patch.domain_scope, patch.sod_class
-            ),
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!(
+            "{id}:{domain_scope}:{:?}:{:?}:{:?}:{:?}:{:?}",
+            patch.name, patch.description, patch.permissions, patch.domain_scope, patch.sod_class
         ),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_role_update($2,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::text::jsonb,$14)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&domain_scope, Type::INT8),
-            (&id, Type::INT8),
-            (&patch.name, Type::TEXT),
-            (&patch.description, Type::TEXT),
-            (&patch.permissions, Type::TEXT_ARRAY),
-            (&patch.domain_scope, Type::INT8),
-            (&patch.sod_class, Type::TEXT),
-            (&status, Type::INT4),
-            (&detail, Type::TEXT),
-            (&classes, Type::TEXT),
-            (&ip, Type::TEXT),
-        ],
-        |rows| verdict(rows, 204),
-    )
-    .await
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::ROLE_UPDATE,
+            &[
+                &domain_scope,
+                &id,
+                &patch.name,
+                &patch.description,
+                &patch.permissions,
+                &patch.domain_scope,
+                &patch.sod_class,
+                &status,
+                &detail,
+                &classes,
+                &ip,
+            ],
+            Some(ReceiptCommand {
+                family: FAMILY,
+                command: "role_update",
+            }),
+            |rows, _audited| verdict(&rows, 204),
+        )
+        .await
 }
 
 pub async fn delete_role(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     domain_scope: i64,
     id: i64,
     ip: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<Reply, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F01",
-            command: "role_delete",
-        },
-        &envelope(&auth, operation, &format!("{id}:{domain_scope}")),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_role_delete($2,$4,$5,$6)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&domain_scope, Type::INT8),
-            (&id, Type::INT8),
-            (&ip, Type::TEXT),
-        ],
-        |rows| verdict(rows, 204),
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!("{id}:{domain_scope}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::ROLE_DELETE,
+            &[&domain_scope, &id, &ip],
+            Some(ReceiptCommand {
+                family: FAMILY,
+                command: "role_delete",
+            }),
+            |rows, _audited| verdict(&rows, 204),
+        )
+        .await
 }
 
 /// The decoded `POST /admin/roles/{id}/members` body, edge-validated.
 pub struct Assignment {
     pub user: i64,
     pub domain_override: Option<i64>,
-    /// UTC microsecond text, `None` when absent or empty.
     pub expires_at: Option<String>,
     pub expires_bad: bool,
     pub scope_type: Option<String>,
@@ -811,89 +727,91 @@ pub struct Assignment {
 
 #[allow(clippy::too_many_arguments)]
 pub async fn assign_member(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    authority: &Authority,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    domain_scope: i64,
+    permissions: &[String],
     role: i64,
     a: &Assignment,
     ip: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<Reply, StatementFailure> {
-    let auth = scope(actor);
-    let domain_scope = authority.domain_scope();
-    let perms = authority.permissions().to_vec();
+    let perms = permissions.to_vec();
     let status = a.problem.as_ref().map_or(0i32, |p| i32::from(p.status));
     let detail = a
         .problem
         .as_ref()
         .map(|p| p.detail.clone())
         .unwrap_or_default();
-    setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F01",
-            command: "role_assign",
-        },
-        &envelope(
-            &auth,
-            operation,
-            &format!(
-                "{role}:{}:{domain_scope}:{:?}:{:?}:{:?}:{:?}:{:?}",
-                a.user, a.domain_override, a.expires_at, a.scope_type, a.scope_id, a.eligible
-            ),
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!(
+            "{role}:{}:{domain_scope}:{:?}:{:?}:{:?}:{:?}:{:?}",
+            a.user, a.domain_override, a.expires_at, a.scope_type, a.scope_id, a.eligible
         ),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_role_assign($2,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&domain_scope, Type::INT8),
-            (&perms, Type::TEXT_ARRAY),
-            (&role, Type::INT8),
-            (&a.user, Type::INT8),
-            (&a.domain_override, Type::INT8),
-            (&a.expires_at, Type::TEXT),
-            (&a.expires_bad, Type::BOOL),
-            (&a.scope_type, Type::TEXT),
-            (&a.scope_id, Type::INT8),
-            (&a.eligible, Type::BOOL),
-            (&status, Type::INT4),
-            (&detail, Type::TEXT),
-            (&ip, Type::TEXT),
-        ],
-        |rows| verdict(rows, 201),
-    )
-    .await
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::ROLE_ASSIGN,
+            &[
+                &domain_scope,
+                &perms,
+                &role,
+                &a.user,
+                &a.domain_override,
+                &a.expires_at,
+                &a.expires_bad,
+                &a.scope_type,
+                &a.scope_id,
+                &a.eligible,
+                &status,
+                &detail,
+                &ip,
+            ],
+            Some(ReceiptCommand {
+                family: FAMILY,
+                command: "role_assign",
+            }),
+            |rows, _audited| verdict(&rows, 201),
+        )
+        .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn remove_member(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     domain_scope: i64,
     role: i64,
     user: i64,
     ip: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<Reply, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F01",
-            command: "role_revoke",
-        },
-        &envelope(&auth, operation, &format!("{role}:{user}:{domain_scope}")),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_role_remove($2,$4,$5,$6,$7)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&domain_scope, Type::INT8),
-            (&role, Type::INT8),
-            (&user, Type::INT8),
-            (&ip, Type::TEXT),
-        ],
-        |rows| verdict(rows, 204),
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!("{role}:{user}:{domain_scope}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::ROLE_REMOVE,
+            &[&domain_scope, &role, &user, &ip],
+            Some(ReceiptCommand {
+                family: FAMILY,
+                command: "role_revoke",
+            }),
+            |rows, _audited| verdict(&rows, 204),
+        )
+        .await
 }
 
 /// A validated bulk job, exactly as Go inserts it.
@@ -909,49 +827,51 @@ pub struct BulkJob<'a> {
 
 /// Go's one-statement `INSERT INTO bulk_role_jobs`: the job id.
 pub async fn enqueue_bulk(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     job: &BulkJob<'_>,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    let auth = scope(actor);
+    let actor = user.user().get();
     let users = job.users.to_vec();
     let total = job.users.len() as i32;
-    setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F01",
-            command: "role_bulk_enqueue",
-        },
-        &envelope(
-            &auth,
-            operation,
-            &format!(
-                "{}:{}:{:?}:{:?}:{:?}:{:?}:{}",
-                job.op, job.role, job.users, job.expires_at, job.scope_type, job.scope_id, job.eligible
-            ),
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!(
+            "{}:{}:{:?}:{:?}:{:?}:{:?}:{}",
+            job.op, job.role, job.users, job.expires_at, job.scope_type, job.scope_id, job.eligible
         ),
-        &auth,
-        deadline(),
-        "WITH inserted AS (INSERT INTO bulk_role_jobs (op, role_id, actor_id, user_ids, expires_at, total, scope_type, scope_id, eligible) \
-         SELECT $4, $5, $2, $6, $7::text::timestamptz, $8, $9, $10, $11 WHERE $1::bigint >= 0 AND $3::text <> '' RETURNING id) \
-         SELECT id FROM inserted",
-        &[
-            (&job.op, Type::TEXT),
-            (&job.role, Type::INT8),
-            (&users, Type::INT8_ARRAY),
-            (&job.expires_at, Type::TEXT),
-            (&total, Type::INT4),
-            (&job.scope_type, Type::TEXT),
-            (&job.scope_id, Type::INT8),
-            (&job.eligible, Type::BOOL),
-        ],
-        |rows| match rows {
-            [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
-            _ => Err(invalid()),
-        },
-    )
-    .await
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::ROLE_BULK_ENQUEUE,
+            &[
+                &job.op,
+                &job.role,
+                &actor,
+                &users,
+                &job.expires_at,
+                &total,
+                &job.scope_type,
+                &job.scope_id,
+                &job.eligible,
+            ],
+            Some(ReceiptCommand {
+                family: FAMILY,
+                command: "role_bulk_enqueue",
+            }),
+            |rows| match rows.as_slice() {
+                [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
+                _ => Err(invalid()),
+            },
+        )
+        .await
 }
 
 #[cfg(test)]

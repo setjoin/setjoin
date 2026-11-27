@@ -3,14 +3,15 @@
 //!
 //! `system_config` is global, so there is no tenant filter; the gateway adapter checks the
 //! console gate (`requireMailPerm` for reads, `requireSecurityWrite` for writes) before any of
-//! this runs. Writes are receipted reducers (`rust_mailsec_tls_policy_set`,
-//! `rust_mailsec_tls_config_set`) or one audit statement (certificate import). Go's TLS
-//! `ConfigStore` is built without a secrets codec, so a secret (`_enc`) value can never be
-//! written through it (500); only the console's `[ENCRYPTED]` echo of a stored secret passes.
-use super::{command, deadline, done, envelope, invalid, s, scope};
+//! this runs. Reads run via `AdminReadTx`; writes run via `UserTx` calling the receipted
+//! reducers (`rust_mailsec_tls_policy_set`, `rust_mailsec_tls_config_set`) or the certificate
+//! import audit statement. Go's TLS `ConfigStore` is built without a secrets codec, so a secret
+//! (`_enc`) value can never be written through it (500); only the console's `[ENCRYPTED]` echo
+//! of a stored secret passes.
+use super::{command, deadline, done, envelope, invalid, s, sql};
 use serde_json::{Map, Value};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -112,30 +113,27 @@ fn lenient_strings(raw: &str) -> Option<Vec<String>> {
     }
 }
 
-async fn stored(worker: &ScopedExecutor, key: &str) -> Option<String> {
-    let rows = worker
-        .read(
-            "SELECT value::text FROM system_config WHERE key = $1",
-            &[(&key, Type::TEXT)],
-        )
+async fn stored(factory: &TxFactory, admin: &AdminPermissionProof, key: &str) -> Option<String> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::TLS_STORED_VALUE, &[&key])
         .await
         .ok()?;
     rows.first()?.try_get::<_, String>(0).ok()
 }
 
 /// `GET /admin/outbound-tls-policy`: every failed key read falls back to the default.
-pub async fn policy_get(worker: &ScopedExecutor) -> String {
-    let enforce = match stored(worker, "outbound_tls_enforce_domains").await {
+pub async fn policy_get(factory: &TxFactory, admin: &AdminPermissionProof) -> String {
+    let enforce = match stored(factory, admin, "outbound_tls_enforce_domains").await {
         Some(raw) => lenient_strings(&raw),
         None => None,
     }
     .unwrap_or_default();
-    let skip = match stored(worker, "outbound_tls_skip_domains").await {
+    let skip = match stored(factory, admin, "outbound_tls_skip_domains").await {
         Some(raw) => lenient_strings(&raw),
         None => None,
     }
     .unwrap_or_default();
-    let mode = match stored(worker, "outbound_tls_global_mode").await {
+    let mode = match stored(factory, admin, "outbound_tls_global_mode").await {
         Some(raw) => match serde_json::from_str::<Value>(&raw) {
             Ok(Value::String(text)) => text,
             _ => String::new(),
@@ -158,8 +156,8 @@ pub async fn policy_get(worker: &ScopedExecutor) -> String {
 
 /// `PUT /admin/outbound-tls-policy` after validation: the three upserts and the notification.
 pub async fn policy_put(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     enforce: &[String],
     skip: &[String],
     mode: &str,
@@ -172,33 +170,29 @@ pub async fn policy_put(
         )
     };
     let (enforce_json, skip_json, mode_json) = (list(enforce), list(skip), s(mode));
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("tls.policy.put"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("tls.policy.put:{enforce_json}:{skip_json}:{mode_json}"),
-        ),
-        &auth,
-        deadline(),
-        "SELECT rust_mailsec_tls_policy_set($4::text::jsonb,$5::text::jsonb,$6::text::jsonb) \
-         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-        &[
-            (&enforce_json, Type::TEXT),
-            (&skip_json, Type::TEXT),
-            (&mode_json, Type::TEXT),
-        ],
-        |rows| {
-            if rows.len() == 1 {
-                Ok(())
-            } else {
-                Err(invalid())
-            }
-        },
-    )
-    .await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("tls.policy.put:{enforce_json}:{skip_json}:{mode_json}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::TLS_POLICY_SET,
+            &[&enforce_json, &skip_json, &mode_json],
+            Some(command("tls.policy.put")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 // ---- tls_* configuration ----
@@ -217,12 +211,12 @@ fn config_text(key: &str, value: &str, encrypted: bool) -> String {
 }
 
 /// `GET /admin/tls/config`: `GetByPrefix("tls_")` (the `_` is a LIKE wildcard, as in Go).
-pub async fn config_get(worker: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = worker
-        .read(
-            "SELECT key, value::text, encrypted FROM system_config WHERE key LIKE 'tls_%' ORDER BY key",
-            &[],
-        )
+pub async fn config_get(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::TLS_CONFIG_GET, &[])
         .await?;
     let mut config: BTreeMap<String, String> = BTreeMap::new();
     for row in &rows {
@@ -251,8 +245,9 @@ pub enum SetError {
 /// secret key when the console echoes the redaction sentinel, refuses any other secret value,
 /// and upserts the rest; Go then writes the `tls_config_set` audit row, here in the same transaction.
 pub async fn config_set(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    user: &UserPrincipal,
     ip: &str,
     values: &Map<String, Value>,
     operation: [u8; 16],
@@ -267,11 +262,8 @@ pub async fn config_set(
         let marshalled = go_marshal(value);
         if is_secret(key) {
             if value.as_str() == Some(REDACTED) {
-                let present = worker
-                    .read(
-                        "SELECT 1 FROM system_config WHERE key = $1",
-                        &[(*key, Type::TEXT)],
-                    )
+                let present = factory
+                    .run_admin_read_contract(admin, &sql::TLS_CONFIG_KEY_EXISTS, &[*key])
                     .await
                     .map_err(|e| SetError::Prepare(e.message))?;
                 if present.is_empty() {
@@ -295,32 +287,30 @@ pub async fn config_set(
     let after =
         serde_json::json!({"description": "TLS configuration", "keys": audited}).to_string();
     let notes = audited.join(",");
-    let auth = scope(actor);
-    let outcome = setjoin_pg::run_receipted_command(
-        worker,
-        command("tls.config.put"),
-        &envelope(&auth, operation, &format!("tls.config.put:{notes}")),
-        &auth,
-        deadline(),
-        "SELECT rust_mailsec_tls_config_set($4::text[],$5::text[],$6::boolean[],$2::bigint,$7::text,$8::text::jsonb,$9::text) \
-         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-        &[
-            (&keys, Type::TEXT_ARRAY),
-            (&texts, Type::TEXT_ARRAY),
-            (&flags, Type::BOOL_ARRAY),
-            (&ip, Type::TEXT),
-            (&after, Type::TEXT),
-            (&notes, Type::TEXT),
-        ],
-        |rows| {
-            if rows.len() == 1 {
-                Ok(())
-            } else {
-                Err(invalid())
-            }
-        },
-    )
-    .await;
+    let actor_id = user.user().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("tls.config.put:{notes}"),
+    );
+    let outcome = factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::TLS_CONFIG_SET,
+            &[&keys, &texts, &flags, &actor_id, &ip, &after, &notes],
+            Some(command("tls.config.put")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await;
     match outcome {
         CommandOutcome::Committed(()) => Ok(()),
         other => Err(SetError::Outcome(other)),
@@ -329,8 +319,8 @@ pub async fn config_set(
 
 /// The `tls_cert_import` core audit row Go writes after the files are on disk.
 pub async fn import_audit(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     ip: &str,
     cert_path: &str,
     key_path: &str,
@@ -341,25 +331,30 @@ pub async fn import_audit(
         s(cert_path),
         s(key_path)
     );
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("tls.cert.import"),
-        &envelope(&auth, operation, &format!("tls.cert.import:{after}")),
-        &auth,
-        deadline(),
-        "SELECT audit_write($2,'tls_cert_import','system_config',NULL,NULL,$4::text::jsonb,NULLIF($5::text,'')::inet,'','core') \
-         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-        &[(&after, Type::TEXT), (&ip, Type::TEXT)],
-        |rows| {
-            if rows.len() == 1 {
-                Ok(())
-            } else {
-                Err(invalid())
-            }
-        },
-    )
-    .await
+    let actor_id = user.user().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("tls.cert.import:{after}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::TLS_IMPORT_AUDIT,
+            &[&actor_id, &after, &ip],
+            Some(command("tls.cert.import")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 /// `{"certPath":..,"keyPath":..}` (a map, so sorted keys).
@@ -374,12 +369,9 @@ pub fn import_body(cert_path: &str, key_path: &str) -> String {
 // ---- status ----
 
 /// Go's `getConfig`: the scalar text of one key, "" on any error or absence.
-async fn config_value(worker: &ScopedExecutor, key: &str) -> String {
-    match worker
-        .read(
-            "SELECT COALESCE((SELECT value #>> '{}' FROM system_config WHERE key = $1), '')",
-            &[(&key, Type::TEXT)],
-        )
+async fn config_value(factory: &TxFactory, admin: &AdminPermissionProof, key: &str) -> String {
+    match factory
+        .run_admin_read_contract(admin, &sql::TLS_CONFIG_SCALAR, &[&key])
         .await
     {
         Ok(rows) => rows
@@ -417,12 +409,12 @@ fn split_csv(text: &str) -> Vec<String> {
     text.split(',').map(|p| p.trim().to_owned()).collect()
 }
 
-pub async fn status_input(worker: &ScopedExecutor) -> StatusInput {
-    let challenge = config_value(worker, "tls_autocert_challenge").await;
-    let domains = config_value(worker, "tls_autocert_domains").await;
-    let email = config_value(worker, "tls_autocert_email").await;
-    let dns_provider = config_value(worker, "tls_dns_provider").await;
-    let cache_dir = config_value(worker, "tls_autocert_cache_dir").await;
+pub async fn status_input(factory: &TxFactory, admin: &AdminPermissionProof) -> StatusInput {
+    let challenge = config_value(factory, admin, "tls_autocert_challenge").await;
+    let domains = config_value(factory, admin, "tls_autocert_domains").await;
+    let email = config_value(factory, admin, "tls_autocert_email").await;
+    let dns_provider = config_value(factory, admin, "tls_dns_provider").await;
+    let cache_dir = config_value(factory, admin, "tls_autocert_cache_dir").await;
     StatusInput {
         enabled: !challenge.is_empty() && !domains.is_empty(),
         domains: split_csv(&domains),

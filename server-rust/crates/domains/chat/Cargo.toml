@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 setjoin-authz = { path = "../../authz" }
 setjoin-pg = { path = "../../pg" }
+setjoin-sql-catalog = { path = "../../sql-catalog" }
 setjoin-contracts = { path = "../../contracts" }
 setjoin-db = { path = "../../db" }
 sha2 = "=0.10.9"

@@ -233,7 +233,7 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
             let ping_nanos = ping_secs.wrapping_mul(1_000_000_000);
             let mut initial = String::new();
             if let Some(scope) = &scope {
-                let tokens = setjoin_jmap::push_state::tokens(&commands.exec, scope).await;
+                let tokens = super::push_tokens(&commands.exec, scope).await;
                 let data = serde_json::json!({"@type":"StateChange","changed":{scope.mailbox().decimal():{"Email":tokens[0],"Mailbox":tokens[1],"Thread":tokens[2],"Calendar":tokens[3],"CalendarEvent":tokens[3],"Contact":tokens[4],"Task":tokens[5]}}});
                 initial = state_event(&data.to_string(), filter.as_ref()).unwrap_or_default();
             }
@@ -426,13 +426,14 @@ async fn write(
     }
 }
 async fn drive_admin(exec: &setjoin_pg::ScopedExecutor, actor: ActorId) -> bool {
-    exec.read_user_scoped(
+    crate::policy_composition::user_read(
+        exec,
         actor,
         "SELECT drive_has_admin_perm($1,'drive.view') OR drive_has_admin_perm($1,'drive.manage')",
         &[(&actor.get(), Type::INT8)],
     )
     .await
-    .is_ok_and(|r| r[0].get::<_, bool>(0))
+    .is_ok_and(|r| r.first().and_then(|row| row.try_get::<_, bool>(0).ok()) == Some(true))
 }
 
 fn raw(event: &super::hub::Event) -> Option<String> {

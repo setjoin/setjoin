@@ -123,43 +123,67 @@ pub async fn commit_cut_proxy(
 /// uses the same byte-level proxy; only the selected command's COMMIT cuts the
 /// whole fixture. Other connections are cancelled and reaped before returning.
 #[allow(dead_code)]
-pub async fn multiplex_commit_cut_proxy(dsn:&str,cut:CommitCut,command:&'static str)->(String,JoinHandle<io::Result<CommitCut>>){
-    let config:tokio_postgres::Config=dsn.parse().unwrap();
-    let listener=TcpListener::bind(("127.0.0.1",0)).await.unwrap();
-    let mut proxied=format!("host=127.0.0.1 port={}",listener.local_addr().unwrap().port());
-    let mut add=|key:&str,value:&str|{let escaped=value.replace('\\',"\\\\").replace('\'',"\\'");proxied.push_str(&format!(" {key}='{escaped}'"));};
-    if let Some(v)=config.get_user(){add("user",v);}
-    if let Some(v)=config.get_password(){add("password",std::str::from_utf8(v).unwrap());}
-    if let Some(v)=config.get_dbname(){add("dbname",v);}
-    if let Some(v)=config.get_options(){add("options",v);}
-    let dsn=dsn.to_owned();
+pub async fn multiplex_commit_cut_proxy(
+    dsn: &str,
+    cut: CommitCut,
+    command: &'static str,
+) -> (String, JoinHandle<io::Result<CommitCut>>) {
+    let config: tokio_postgres::Config = dsn.parse().unwrap();
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let mut proxied = format!(
+        "host=127.0.0.1 port={}",
+        listener.local_addr().unwrap().port()
+    );
+    let mut add = |key: &str, value: &str| {
+        let escaped = value.replace('\\', "\\\\").replace('\'', "\\'");
+        proxied.push_str(&format!(" {key}='{escaped}'"));
+    };
+    if let Some(v) = config.get_user() {
+        add("user", v);
+    }
+    if let Some(v) = config.get_password() {
+        add("password", std::str::from_utf8(v).unwrap());
+    }
+    if let Some(v) = config.get_dbname() {
+        add("dbname", v);
+    }
+    if let Some(v) = config.get_options() {
+        add("options", v);
+    }
+    let dsn = dsn.to_owned();
     struct Inner(JoinHandle<io::Result<CommitCut>>);
-    impl Drop for Inner{fn drop(&mut self){self.0.abort();}}
-    let task=tokio::spawn(async move{
-        let mut connections=tokio::task::JoinSet::new();
-        loop{tokio::select!{
-            accepted=listener.accept()=>{
-                let(mut client,_)=accepted?;let dsn=dsn.clone();
-                connections.spawn(async move{
-                    let(local,task)=commit_cut_proxy(&dsn,cut,command).await;
-                    let cfg:tokio_postgres::Config=local.parse().unwrap();
-                    let mut server=TcpStream::connect(("127.0.0.1",cfg.get_ports()[0])).await?;
-                    let mut inner=Inner(task);
-                    tokio::select!{
-                        result=&mut inner.0=>result.map_err(io::Error::other)?,
-                        result=tokio::io::copy_bidirectional(&mut client,&mut server)=>{
-                            result?;Err(io::Error::other("unselected PostgreSQL connection closed"))
+    impl Drop for Inner {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    let task = tokio::spawn(async move {
+        let mut connections = tokio::task::JoinSet::new();
+        loop {
+            tokio::select! {
+                accepted=listener.accept()=>{
+                    let(mut client,_)=accepted?;let dsn=dsn.clone();
+                    connections.spawn(async move{
+                        let(local,task)=commit_cut_proxy(&dsn,cut,command).await;
+                        let cfg:tokio_postgres::Config=local.parse().unwrap();
+                        let mut server=TcpStream::connect(("127.0.0.1",cfg.get_ports()[0])).await?;
+                        let mut inner=Inner(task);
+                        tokio::select!{
+                            result=&mut inner.0=>result.map_err(io::Error::other)?,
+                            result=tokio::io::copy_bidirectional(&mut client,&mut server)=>{
+                                result?;Err(io::Error::other("unselected PostgreSQL connection closed"))
+                            }
                         }
+                    });
+                }
+                result=connections.join_next(),if !connections.is_empty()=>{
+                    if let Some(Ok(Ok(observed)))=result{
+                        connections.abort_all();while connections.join_next().await.is_some(){}
+                        return Ok(observed);
                     }
-                });
-            }
-            result=connections.join_next(),if !connections.is_empty()=>{
-                if let Some(Ok(Ok(observed)))=result{
-                    connections.abort_all();while connections.join_next().await.is_some(){}
-                    return Ok(observed);
                 }
             }
-        }}
+        }
     });
-    (proxied,task)
+    (proxied, task)
 }

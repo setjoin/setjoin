@@ -2,7 +2,7 @@
 use crate::{session::Session, webauthn::RelyingParty};
 use serde_json::Value;
 use setjoin_contracts::ids::{ActorId, OperationId};
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use setjoin_pg::{AuthDb, CommandOutcome, StatementFailure, Type};
 use sha2::{Digest, Sha256};
 /// The reducer's JSON text is the first row's column. A missing row, NULL, wrong type or
 /// bad JSON rejects the statement with the function's existing failure.
@@ -17,7 +17,7 @@ fn json_row(rows: &[setjoin_pg::Row], message: &str) -> Result<Value, StatementF
         })
 }
 pub async fn begin(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     rp: &RelyingParty,
     operation: &str,
@@ -35,10 +35,10 @@ pub async fn begin(
         family: "F21",
         command: "mfa-webauthn-possession-begin",
     });
-    exec.run_user_command(
+    exec.run_user_command_contract(
         actor,
         OperationId(*uuid::Uuid::new_v4().as_bytes()),
-        "SELECT rust_identity_possession_webauthn_begin($1,$2::text::jsonb,$3,$4,$5)::text",
+        &crate::sql::POSSESSION_L41,
         &[
             (&session.user(), Type::INT8),
             (&claims, Type::TEXT),
@@ -72,10 +72,7 @@ impl Ceremony {
         self.target.as_deref()
     }
 }
-pub async fn peek(
-    exec: &ScopedExecutor,
-    session: &Session,
-) -> Result<Option<Ceremony>, StatementFailure> {
+pub async fn peek(exec: &AuthDb, session: &Session) -> Result<Option<Ceremony>, StatementFailure> {
     let Ok(actor) = ActorId::new(session.user()) else {
         return Ok(None);
     };
@@ -84,7 +81,17 @@ pub async fn peek(
     } else {
         "session"
     };
-    let rows=exec.read_user_scoped(actor,"SELECT challenge_hash,operation,target_ref FROM webauthn_ceremonies WHERE user_id=$1 AND kind='management_assertion' AND token_scope=$2 AND session_jti=$3 AND expires_at>now() ORDER BY created_at DESC LIMIT 1",&[(&session.user(),Type::INT8),(&scope,Type::TEXT),(&session.text("jti"),Type::TEXT)]).await?;
+    let rows = exec
+        .read_user_scoped_contract(
+            actor,
+            &crate::sql::POSSESSION_L87,
+            &[
+                (&session.user(), Type::INT8),
+                (&scope, Type::TEXT),
+                (&session.text("jti"), Type::TEXT),
+            ],
+        )
+        .await?;
     let Some(row) = rows.first() else {
         return Ok(None);
     };
@@ -100,14 +107,14 @@ pub async fn peek(
     }))
 }
 pub async fn finish(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     rp: &RelyingParty,
     ceremony: &Ceremony,
     raw: &[u8],
 ) -> CommandOutcome<Value, StatementFailure> {
     use crate::webauthn::ManagementResult;
-    use setjoin_pg::ProvenStatement;
+    use setjoin_pg::ProvenContract;
     let Ok(actor) = ActorId::new(session.user()) else {
         return CommandOutcome::Committed(serde_json::json!({"status":"internal"}));
     };
@@ -130,12 +137,45 @@ pub async fn finish(
         family: "F21",
         command: "mfa-webauthn-possession-finish",
     });
-    exec.run_user_proof_command(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),
-  "SELECT rust_identity_possession_webauthn_read($1,$2::text::jsonb,$3)::text",&[(&session.user(),Type::INT8),(&claims,Type::TEXT),(&ceremony.hash,Type::TEXT)],
-  |rows|{
-   let value:Value=json_row(rows,"management snapshot row")?;
-   if value["status"]!="ready"{return Ok(ProvenStatement::new("SELECT $1::text").bind(value.to_string(),Type::TEXT));}
-   let (verdict,factor)=match rp.management_verify(&value,&ceremony.hash,raw){ManagementResult::Malformed=>("malformed",None),ManagementResult::Rejected=>("invalid",None),ManagementResult::Accepted(id)=>("accepted",Some(id))};
-   Ok(ProvenStatement::new("SELECT rust_identity_possession_webauthn_finish($1,$2::text::jsonb,$3,$4,$5,$6)::text").bind(session.user(),Type::INT8).bind(claims.clone(),Type::TEXT).bind(ceremony.hash.clone(),Type::TEXT).bind(verdict.to_owned(),Type::TEXT).bind(factor,Type::BYTEA).bind(grant_hash,Type::TEXT))
-  },|rows|{let mut value:Value=json_row(rows,"management result row")?;if value["status"]=="issued"{value["pending"]=serde_json::json!(pending);if !pending{value["token"]=serde_json::json!(token);}}Ok(value)}).await
+    exec.run_user_proof_command_contract(
+        actor,
+        OperationId(*uuid::Uuid::new_v4().as_bytes()),
+        &crate::sql::POSSESSION_L134,
+        &[
+            (&session.user(), Type::INT8),
+            (&claims, Type::TEXT),
+            (&ceremony.hash, Type::TEXT),
+        ],
+        |rows| {
+            let value: Value = json_row(rows, "management snapshot row")?;
+            if value["status"] != "ready" {
+                return Ok(
+                    ProvenContract::new(&crate::sql::ECHO_TEXT).bind(value.to_string(), Type::TEXT)
+                );
+            }
+            let (verdict, factor) = match rp.management_verify(&value, &ceremony.hash, raw) {
+                ManagementResult::Malformed => ("malformed", None),
+                ManagementResult::Rejected => ("invalid", None),
+                ManagementResult::Accepted(id) => ("accepted", Some(id)),
+            };
+            Ok(ProvenContract::new(&crate::sql::POSSESSION_L139)
+                .bind(session.user(), Type::INT8)
+                .bind(claims.clone(), Type::TEXT)
+                .bind(ceremony.hash.clone(), Type::TEXT)
+                .bind(verdict.to_owned(), Type::TEXT)
+                .bind(factor, Type::BYTEA)
+                .bind(grant_hash, Type::TEXT))
+        },
+        |rows| {
+            let mut value: Value = json_row(rows, "management result row")?;
+            if value["status"] == "issued" {
+                value["pending"] = serde_json::json!(pending);
+                if !pending {
+                    value["token"] = serde_json::json!(token);
+                }
+            }
+            Ok(value)
+        },
+    )
+    .await
 }

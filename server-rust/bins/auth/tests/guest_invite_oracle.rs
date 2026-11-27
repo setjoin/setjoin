@@ -2253,6 +2253,7 @@ async fn reducers_absent(ctx: &Ctx) -> Result<(), Err> {
     let fx = seed(ctx, "valid").await?;
     let server = native_server(ctx).await?;
     let probe = setjoin_pg::ScopedExecutor::from_dsn(&ctx.db.dsn, 1).unwrap();
+    let probe = setjoin_pg::AuthDb::from_executors(probe.clone(), probe);
     ctx.c.batch_execute(HIDE_REDUCERS).await?;
     let outcome = async {
         let ready = setjoin_identity::guest_invite::readiness(&probe).await;
@@ -2303,7 +2304,8 @@ async fn without_bypassrls(ctx: &Ctx) -> Result<(), Err> {
     };
     let fx = seed(ctx, "valid").await?;
     let worker = setjoin_pg::ScopedExecutor::from_dsn(&app, 2).unwrap();
-    let ready = setjoin_identity::guest_invite::readiness(&worker).await;
+    let worker_db = setjoin_pg::AuthDb::from_executors(worker.clone(), worker.clone());
+    let ready = setjoin_identity::guest_invite::readiness(&worker_db).await;
     let server = auth_server(
         Arc::new(load(ctx, false, false).await?.with_guest_worker(worker)),
         false,

@@ -106,18 +106,24 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                     return problem(503, "service unavailable", None, &c, id);
                 }
                 let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), random);
+                let Some(factory) =
+                    crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+                else {
+                    return problem(503, "service unavailable", None, &c, id);
+                };
+                let client_ip = c.identity.client_ip.to_string();
+                let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &client_ip).await
+                else {
+                    return problem(500, "database error", None, &c, id);
+                };
                 if crate::inventory::path_score("/api/admin/sharing/audit", r.uri().path())
                     .is_some()
                 {
                     let path = "/admin/sharing/audit";
-                    let scope = match setjoin_drive::authority(&worker, auth.context(), false).await
-                    {
-                        Ok(Some(a)) => a,
-                        Ok(None) | Err(_) => {
-                            setjoin_drive::denied(&worker, auth.context(), path, false, random)
-                                .await;
-                            return problem(403, "Forbidden", None, &c, id);
-                        }
+                    let Some(proof) = sharing_admin_proof(&factory, &auth, &client_ip, false).await
+                    else {
+                        setjoin_drive::denied(&factory, &user_principal, path, false, random).await;
+                        return problem(403, "Forbidden", None, &c, id);
                     };
                     let value = |key: &str| query(&r, key);
                     let user = value("user_id").and_then(|s| s.parse::<i64>().ok());
@@ -129,7 +135,7 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                         .map(|s| go_atoi(&s))
                         .unwrap_or(0)
                         .clamp(0, 1_000_000);
-                    return match setjoin_drive::audit(&worker, &scope, user, limit, offset).await {
+                    return match setjoin_drive::audit(&factory, &proof, user, limit, offset).await {
                         Ok(v) => {
                             crate::jmap::reply::response(v.to_string() + "\n", c.identity.proto, id)
                         }
@@ -143,14 +149,11 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                         .strip_prefix("/api")
                         .unwrap()
                         .to_owned();
-                    let scope = match setjoin_drive::authority(&worker, auth.context(), false).await
-                    {
-                        Ok(Some(a)) => a,
-                        Ok(None) | Err(_) => {
-                            setjoin_drive::denied(&worker, auth.context(), &path, false, random)
-                                .await;
-                            return problem(403, "Forbidden", None, &c, id);
-                        }
+                    let Some(proof) = sharing_admin_proof(&factory, &auth, &client_ip, false).await
+                    else {
+                        setjoin_drive::denied(&factory, &user_principal, &path, false, random)
+                            .await;
+                        return problem(403, "Forbidden", None, &c, id);
                     };
                     let value = String::from_utf8_lossy(&crate::inventory::unescape(
                         r.uri().path().rsplit('/').next().unwrap_or(""),
@@ -159,7 +162,7 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                     let Ok(target) = value.parse::<i64>() else {
                         return problem(400, "invalid user id", Some(&path), &c, id);
                     };
-                    return match setjoin_drive::oversight(&worker, &scope, target).await {
+                    return match setjoin_drive::oversight(&factory, &proof, target).await {
                         Ok(Some(v)) => {
                             crate::jmap::reply::response(v.to_string() + "\n", c.identity.proto, id)
                         }
@@ -178,24 +181,20 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                         .strip_prefix("/api")
                         .unwrap()
                         .to_owned();
-                    let scope = match setjoin_drive::authority(&worker, auth.context(), true).await
-                    {
-                        Ok(Some(a)) => a,
-                        Ok(None) | Err(_) => {
-                            setjoin_drive::denied(&worker, auth.context(), &path, true, random)
-                                .await;
-                            return problem(403, "Forbidden", None, &c, id);
-                        }
+                    let Some(proof) = sharing_admin_proof(&factory, &auth, &client_ip, true).await
+                    else {
+                        setjoin_drive::denied(&factory, &user_principal, &path, true, random).await;
+                        return problem(403, "Forbidden", None, &c, id);
                     };
-                    if setjoin_drive::reason_required(&exec).await
+                    if setjoin_drive::reason_required(&factory, &proof).await
                         && r.headers()
                             .get("x-audit-reason")
                             .is_none_or(|v| v.as_bytes().is_empty())
                     {
                         setjoin_drive::missing_reason(
-                            &exec,
-                            auth.context(),
-                            &c.identity.client_ip.to_string(),
+                            &factory,
+                            &user_principal,
+                            &client_ip,
                             random,
                         )
                         .await;
@@ -208,7 +207,7 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                     let Ok(target) = value.parse::<i64>() else {
                         return problem(400, "invalid id", Some(&path), &c, id);
                     };
-                    return match setjoin_drive::delete_default(&worker, &scope, target, random)
+                    return match setjoin_drive::delete_default(&factory, &proof, target, random)
                         .await
                     {
                         setjoin_pg::CommandOutcome::Committed(_) => empty(204, &c, id),
@@ -225,26 +224,23 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                 {
                     let path = "/admin/sharing/defaults";
                     let manage = r.method() == hyper::Method::POST;
-                    let scope = match setjoin_drive::authority(&worker, auth.context(), manage)
-                        .await
-                    {
-                        Ok(Some(a)) => a,
-                        Ok(None) | Err(_) => {
-                            setjoin_drive::denied(&worker, auth.context(), path, manage, random)
-                                .await;
-                            return problem(403, "Forbidden", None, &c, id);
-                        }
+                    let Some(proof) =
+                        sharing_admin_proof(&factory, &auth, &client_ip, manage).await
+                    else {
+                        setjoin_drive::denied(&factory, &user_principal, path, manage, random)
+                            .await;
+                        return problem(403, "Forbidden", None, &c, id);
                     };
                     if manage {
-                        if setjoin_drive::reason_required(&exec).await
+                        if setjoin_drive::reason_required(&factory, &proof).await
                             && r.headers()
                                 .get("x-audit-reason")
                                 .is_none_or(|v| v.as_bytes().is_empty())
                         {
                             setjoin_drive::missing_reason(
-                                &exec,
-                                auth.context(),
-                                &c.identity.client_ip.to_string(),
+                                &factory,
+                                &user_principal,
+                                &client_ip,
                                 random,
                             )
                             .await;
@@ -271,8 +267,8 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                             Err(_) => return problem(400, "invalid JSON", Some(path), &c, id),
                         };
                         let result = setjoin_drive::create_default(
-                            &worker,
-                            &scope,
+                            &factory,
+                            &proof,
                             body["ownerScope"].as_str().unwrap_or(""),
                             body["ownerRef"].as_i64().unwrap_or(0),
                             body["audience"].as_str().unwrap_or(""),
@@ -297,13 +293,16 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                             }
                         };
                     }
-                    return match setjoin_drive::list_defaults(&worker, &scope).await {
+                    return match setjoin_drive::list_defaults(&factory, &proof).await {
                         Ok(v) => {
                             crate::jmap::reply::response(v.to_string() + "\n", c.identity.proto, id)
                         }
                         Err(_) => problem(500, "database error", Some(path), &c, id),
                     };
                 }
+                let Some(worker_pool) = worker.try_worker_pool() else {
+                    return problem(503, "service unavailable", None, &c, id);
+                };
                 if r.method() == hyper::Method::PUT {
                     let bytes = match r.body_mut().collect().await {
                         Ok(b) => b.to_bytes(),
@@ -321,14 +320,14 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                     let level = body["level"].as_str().unwrap_or("");
                     if audience == "everyone" && audience_ref == 0 {
                         audience_ref =
-                            match setjoin_drive::actor_domain(&worker, auth.context()).await {
+                            match sharing_actor_domain(&worker_pool, &user_principal).await {
                                 Ok(Some(domain)) => domain,
                                 _ => return problem(500, "database error", None, &c, id),
                             };
                     }
-                    return match setjoin_drive::set_default(
-                        &worker,
-                        auth.context(),
+                    return match sharing_set_default(
+                        &worker_pool,
+                        &user_principal,
                         audience,
                         audience_ref,
                         level,
@@ -369,14 +368,14 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                         );
                     };
                     let outcome = if is_default {
-                        setjoin_drive::clear_default(&worker, auth.context(), grantee, random).await
+                        sharing_clear_default(&worker_pool, &user_principal, grantee, random).await
                     } else {
                         let mailbox =
-                            match setjoin_drive::primary_mailbox(&worker, auth.context()).await {
+                            match sharing_primary_mailbox(&worker_pool, &user_principal).await {
                                 Ok(Some(mailbox)) => mailbox,
                                 _ => return problem(500, "mailbox not found", None, &c, id),
                             };
-                        setjoin_drive::revoke(&worker, auth.context(), mailbox, grantee, random)
+                        sharing_revoke(&worker_pool, &user_principal, mailbox, grantee, random)
                             .await
                     };
                     return match outcome {
@@ -426,14 +425,14 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                             id,
                         );
                     }
-                    let mailbox =
-                        match setjoin_drive::primary_mailbox(&worker, auth.context()).await {
-                            Ok(Some(mailbox)) => mailbox,
-                            _ => return problem(500, "mailbox not found", None, &c, id),
-                        };
-                    return match setjoin_drive::grant(
-                        &worker,
-                        auth.context(),
+                    let mailbox = match sharing_primary_mailbox(&worker_pool, &user_principal).await
+                    {
+                        Ok(Some(mailbox)) => mailbox,
+                        _ => return problem(500, "mailbox not found", None, &c, id),
+                    };
+                    return match sharing_grant(
+                        &worker_pool,
+                        &user_principal,
                         mailbox,
                         email,
                         permission,
@@ -448,7 +447,7 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                         }
                     };
                 }
-                match setjoin_drive::overview(&worker, auth.context()).await {
+                match sharing_overview(&factory, &worker_pool, &user_principal).await {
                     Ok(v) => {
                         crate::jmap::reply::response(v.to_string() + "\n", c.identity.proto, id)
                     }
@@ -466,6 +465,292 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
         })
     }
 }
+async fn sharing_worker_read_json(
+    worker: &setjoin_pg::WorkerPool,
+    contract: &'static setjoin_pg::SqlContract,
+    values: &[&(dyn setjoin_pg::ToSql + Sync)],
+) -> Result<Value, setjoin_pg::StatementFailure> {
+    let mut tx = worker.begin_repeatable_read_only().await?;
+    let rows = tx.query_iterated_contract(contract, values).await?;
+    let _ = tx.commit().await;
+    setjoin_drive::decode_json_rows(&rows)
+}
+
+async fn sharing_worker_write<T, P>(
+    worker: &setjoin_pg::WorkerPool,
+    command_name: &'static str,
+    contract: &'static setjoin_pg::SqlContract,
+    values: &[&(dyn setjoin_pg::ToSql + Sync)],
+    operation: [u8; 16],
+    project: P,
+) -> setjoin_pg::CommandOutcome<T, setjoin_pg::StatementFailure>
+where
+    P: FnOnce(&[setjoin_pg::Row]) -> Result<T, setjoin_pg::StatementFailure>,
+{
+    let op = setjoin_contracts::ids::OperationId(operation);
+    let mut tx = match worker.begin_read_write().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e))
+        }
+    };
+    let body: Result<T, setjoin_pg::StatementFailure> = async {
+        let rows = tx.query_contract(contract, values).await?;
+        let value = project(&rows)?;
+        tx.record_receipt(
+            op,
+            setjoin_pg::ReceiptCommand {
+                family: "F14",
+                command: command_name,
+            },
+        )
+        .await?;
+        Ok(value)
+    }
+    .await;
+    match body {
+        Ok(value) => match tx.commit().await {
+            Ok(()) => setjoin_pg::CommandOutcome::Committed(value),
+            Err(e) => {
+                if let Some(code) = e.sqlstate.as_deref() {
+                    if setjoin_pg::commit_failure_observation(Some(code))
+                        == setjoin_contracts::command::CommitObservation::RolledBack
+                    {
+                        return setjoin_pg::CommandOutcome::RolledBack(
+                            setjoin_pg::Rejection::CommitRefused(code.to_owned()),
+                        );
+                    }
+                }
+                setjoin_pg::CommandOutcome::Unknown { operation: op }
+            }
+        },
+        Err(f) => {
+            let _ = tx.rollback().await;
+            setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(f))
+        }
+    }
+}
+
+async fn sharing_primary_mailbox(
+    worker: &setjoin_pg::WorkerPool,
+    user: &setjoin_authz::principals::UserPrincipal,
+) -> Result<Option<i64>, setjoin_pg::StatementFailure> {
+    let actor = user.user().get();
+    let mut tx = worker.begin_repeatable_read_only().await?;
+    let rows = tx
+        .query_contract(&setjoin_drive::sql::PRIMARY_MAILBOX, &[&actor])
+        .await?;
+    let _ = tx.commit().await;
+    Ok(rows.first().and_then(|r| r.try_get(0).ok()))
+}
+
+async fn sharing_actor_domain(
+    worker: &setjoin_pg::WorkerPool,
+    user: &setjoin_authz::principals::UserPrincipal,
+) -> Result<Option<i64>, setjoin_pg::StatementFailure> {
+    let actor = user.user().get();
+    let mut tx = worker.begin_repeatable_read_only().await?;
+    let rows = tx
+        .query_contract(&setjoin_drive::sql::ACTOR_DOMAIN, &[&actor])
+        .await?;
+    let _ = tx.commit().await;
+    Ok(rows.first().and_then(|r| r.try_get(0).ok()))
+}
+
+async fn sharing_grant(
+    worker: &setjoin_pg::WorkerPool,
+    user: &setjoin_authz::principals::UserPrincipal,
+    mailbox: i64,
+    email: &str,
+    permission: &str,
+    operation: [u8; 16],
+) -> setjoin_pg::CommandOutcome<Value, setjoin_pg::StatementFailure> {
+    if mailbox <= 0 {
+        return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(
+            setjoin_pg::StatementFailure {
+                sqlstate: Some("BZ114".into()),
+                message: "mailbox not found".into(),
+                hint: None,
+            },
+        ));
+    }
+    let actor = user.user().get();
+    sharing_worker_write(
+        worker,
+        "mailbox_delegate_grant",
+        &setjoin_drive::sql::DELEGATE_GRANT,
+        &[&actor, &mailbox, &email, &permission],
+        operation,
+        |rows| {
+            if rows.is_empty() {
+                return Err(setjoin_pg::StatementFailure {
+                    sqlstate: Some("42501".into()),
+                    message: "authority changed".into(),
+                    hint: None,
+                });
+            }
+            Ok(Value::Null)
+        },
+    )
+    .await
+}
+
+async fn sharing_revoke(
+    worker: &setjoin_pg::WorkerPool,
+    user: &setjoin_authz::principals::UserPrincipal,
+    mailbox: i64,
+    grantee: i64,
+    operation: [u8; 16],
+) -> setjoin_pg::CommandOutcome<Value, setjoin_pg::StatementFailure> {
+    if mailbox <= 0 {
+        return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(
+            setjoin_pg::StatementFailure {
+                sqlstate: Some("BZ114".into()),
+                message: "mailbox not found".into(),
+                hint: None,
+            },
+        ));
+    }
+    let actor = user.user().get();
+    sharing_worker_write(
+        worker,
+        "mailbox_delegate_revoke",
+        &setjoin_drive::sql::DELEGATE_REVOKE,
+        &[&actor, &mailbox, &grantee],
+        operation,
+        |rows| {
+            if rows.is_empty() {
+                return Err(setjoin_pg::StatementFailure {
+                    sqlstate: Some("42501".into()),
+                    message: "authority changed".into(),
+                    hint: None,
+                });
+            }
+            Ok(Value::Null)
+        },
+    )
+    .await
+}
+
+async fn sharing_set_default(
+    worker: &setjoin_pg::WorkerPool,
+    user: &setjoin_authz::principals::UserPrincipal,
+    audience: &str,
+    audience_ref: i64,
+    level: &str,
+    operation: [u8; 16],
+) -> setjoin_pg::CommandOutcome<Value, setjoin_pg::StatementFailure> {
+    let actor = user.user().get();
+    sharing_worker_write(
+        worker,
+        "sharing_default_set",
+        &setjoin_drive::sql::USER_SET_DEFAULT,
+        &[&actor, &audience, &audience_ref, &level],
+        operation,
+        |rows| {
+            let id = rows
+                .first()
+                .and_then(|row| row.try_get::<_, i64>(0).ok())
+                .ok_or_else(|| setjoin_pg::StatementFailure {
+                    sqlstate: Some("42501".into()),
+                    message: "authority changed".into(),
+                    hint: None,
+                })?;
+            Ok(json!({ "id": id }))
+        },
+    )
+    .await
+}
+
+async fn sharing_clear_default(
+    worker: &setjoin_pg::WorkerPool,
+    user: &setjoin_authz::principals::UserPrincipal,
+    id: i64,
+    operation: [u8; 16],
+) -> setjoin_pg::CommandOutcome<Value, setjoin_pg::StatementFailure> {
+    let actor = user.user().get();
+    sharing_worker_write(
+        worker,
+        "sharing_default_clear",
+        &setjoin_drive::sql::USER_CLEAR_DEFAULT,
+        &[&actor, &id],
+        operation,
+        |rows| {
+            if rows.is_empty() {
+                return Err(setjoin_pg::StatementFailure {
+                    sqlstate: Some("42501".into()),
+                    message: "authority changed".into(),
+                    hint: None,
+                });
+            }
+            Ok(Value::Null)
+        },
+    )
+    .await
+}
+
+async fn sharing_overview(
+    factory: &setjoin_authz::principals::TxFactory,
+    worker: &setjoin_pg::WorkerPool,
+    user: &setjoin_authz::principals::UserPrincipal,
+) -> Result<Value, setjoin_pg::StatementFailure> {
+    let uid = user.user().get();
+    let delegates =
+        sharing_worker_read_json(worker, &setjoin_drive::sql::OVERVIEW_DELEGATES, &[&uid]).await?;
+    let grants = sharing_worker_read_json(
+        worker,
+        &setjoin_drive::sql::OVERVIEW_CALENDAR_GRANTS,
+        &[&uid],
+    )
+    .await?;
+    let defaults =
+        sharing_worker_read_json(worker, &setjoin_drive::sql::OVERVIEW_DEFAULTS, &[&uid]).await?;
+    let enabled = factory
+        .run_public_read_contract(&setjoin_drive::sql::SHARING_DEFAULTS_ENABLED, &[])
+        .await?
+        .first()
+        .is_some_and(|r| r.try_get::<_, bool>(0).unwrap_or(false));
+    let rows = defaults
+        .as_array()
+        .ok_or_else(|| setjoin_pg::StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "invalid sharing defaults JSON".into(),
+        })?;
+    let (own, inherited): (Vec<_>, Vec<_>) = rows
+        .iter()
+        .cloned()
+        .partition(|r| r["ownerScope"] == "user");
+    Ok(json!({
+        "delegates": delegates,
+        "calendarGrants": grants,
+        "myDefaults": own,
+        "inheritedDefaults": inherited,
+        "defaultsEnabled": enabled
+    }))
+}
+
+async fn sharing_admin_proof(
+    factory: &setjoin_authz::principals::TxFactory,
+    auth: &setjoin_authz::Authorized,
+    client_ip: &str,
+    manage: bool,
+) -> Option<setjoin_authz::principals::AdminPermissionProof> {
+    if !auth.context().signed_admin() {
+        return None;
+    }
+    let required: &[&str] = if manage {
+        &["sharing.manage"]
+    } else {
+        &["sharing.manage", "sharing.read"]
+    };
+    factory
+        .mint_admin_from_authorized(auth, client_ip)
+        .await
+        .ok()
+        .and_then(|admin| admin.require_any_permission(required).ok())
+}
+
 fn empty(status: u16, c: &RequestContext, id: String) -> Response<Body> {
     let mut r = crate::jmap::reply::response(String::new(), c.identity.proto, id);
     *r.status_mut() = hyper::StatusCode::from_u16(status).unwrap();

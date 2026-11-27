@@ -14,8 +14,11 @@ use setjoin_admin_identity::idv2 as db;
 use setjoin_admin_identity::idv2_ops as ops;
 use setjoin_admin_identity::idv2_transitions as tr;
 use setjoin_admin_identity::idv2_writes as wr;
-use setjoin_authz::{AuthContext, Authorized};
-use setjoin_pg::{CommandOutcome, ScopedExecutor, Type};
+use setjoin_authz::{
+    principals::{AdminPermissionProof, TxFactory},
+    AuthContext, Authorized,
+};
+use setjoin_pg::{CommandOutcome, ScopedExecutor};
 
 pub(super) use tr::Op;
 
@@ -29,7 +32,9 @@ pub(super) enum Kind {
 }
 
 pub(super) struct Call<'a> {
+    pub factory: &'a TxFactory,
     pub worker: &'a ScopedExecutor,
+    pub admin: &'a AdminPermissionProof,
     pub auth: &'a Authorized,
     pub actor: &'a AuthContext,
     pub scope: i64,
@@ -70,7 +75,15 @@ async fn list(r: Request<Body>, call: &Call<'_>) -> Response<Body> {
         Ok(opts) => opts,
         Err(e) => return refusal(e, call.go_path, c, id),
     };
-    match db::transitions(call.worker, call.actor.user_id(), &opts, call.now).await {
+    match db::transitions(
+        call.factory,
+        call.admin,
+        call.actor.user_id(),
+        &opts,
+        call.now,
+    )
+    .await
+    {
         Ok(body) => raw_json(
             setjoin_admin_identity::go_escape(&body),
             r.headers().get("if-none-match"),
@@ -124,12 +137,12 @@ async fn read(r: &Request<Body>, call: &Call<'_>) -> Response<Body> {
     let Some(transition) = uuid(&segment(call.path, 6)) else {
         return bare(400, "invalid transition id", c, id);
     };
-    match tr::reachable(call.worker, call.actor.user_id(), &transition).await {
+    match tr::reachable(call.factory, call.admin, call.actor.user_id(), &transition).await {
         Err(e) => return bare(500, &e.detail, c, id),
         Ok(false) => return bare(404, "identity transition not found", c, id),
         Ok(true) => {}
     }
-    let raw = match tr::read(call.worker, call.actor.user_id(), &transition).await {
+    let raw = match tr::read(call.factory, call.admin, call.actor.user_id(), &transition).await {
         Ok(raw) => raw,
         Err(f) => return read_failure(f, "identity transition read failed", call),
     };
@@ -153,7 +166,7 @@ async fn report(r: &Request<Body>, call: &Call<'_>) -> Response<Body> {
     let Some(transition) = db::parse_uuid(&segment(call.path, 6)) else {
         return bare(400, "invalid transition id", c, id);
     };
-    let raw = match tr::report(call.worker, call.actor.user_id(), &transition).await {
+    let raw = match tr::report(call.factory, call.admin, call.actor.user_id(), &transition).await {
         Ok(Some(raw)) => raw,
         Ok(None) => return bare(404, "identity transition not found", c, id),
         Err(e) => return bare(500, &e.detail, c, id),
@@ -342,38 +355,37 @@ async fn authorized(
         Op::Execute => "execute",
         _ => "rollback",
     };
-    let payload = format!("{digest}:{elevation}:{approval:?}:{key}:{reason}");
+    let actor_id = call.actor.user_id();
     let done = if matches!(op, Op::Execute | Op::Rollback) {
-        tr::run(
+        crate::mailboxes::worker_write_contract_family(
             call.worker,
-            call.actor,
-            op,
-            transition,
+            call.admin,
+            setjoin_admin_identity::FAMILY,
+            op.name(),
+            op.contract(),
             &[
-                (&digest, Type::TEXT),
-                (&elevation, Type::TEXT),
-                (&approval, Type::INT8),
-                (&reason, Type::TEXT),
-                (&key, Type::TEXT),
+                &actor_id,
+                &transition,
+                &digest,
+                &elevation,
+                &approval,
+                &reason,
+                &key,
             ],
-            &payload,
             call.operation,
+            wr::parse_verdict,
         )
         .await
     } else {
-        tr::run(
+        crate::mailboxes::worker_write_contract_family(
             call.worker,
-            call.actor,
-            op,
-            transition,
-            &[
-                (&digest, Type::TEXT),
-                (&elevation, Type::TEXT),
-                (&reason, Type::TEXT),
-                (&key, Type::TEXT),
-            ],
-            &payload,
+            call.admin,
+            setjoin_admin_identity::FAMILY,
+            op.name(),
+            op.contract(),
+            &[&actor_id, &transition, &digest, &elevation, &reason, &key],
             call.operation,
+            wr::parse_verdict,
         )
         .await
     };
@@ -453,38 +465,31 @@ async fn generation(
         Op::RollbackPreview => ("rollback-preview", 200),
         _ => ("retry", 202),
     };
-    let payload = format!("{expected}:{effect:?}:{key}:{reason}");
+    let actor_id = call.actor.user_id();
     let done = match &effect {
         Some(effect) => {
-            tr::run(
+            crate::mailboxes::worker_write_contract_family(
                 call.worker,
-                call.actor,
-                op,
-                transition,
-                &[
-                    (&expected, Type::INT8),
-                    (effect, Type::TEXT),
-                    (&reason, Type::TEXT),
-                    (&key, Type::TEXT),
-                ],
-                &payload,
+                call.admin,
+                setjoin_admin_identity::FAMILY,
+                op.name(),
+                op.contract(),
+                &[&actor_id, &transition, &expected, effect, &reason, &key],
                 call.operation,
+                wr::parse_verdict,
             )
             .await
         }
         None => {
-            tr::run(
+            crate::mailboxes::worker_write_contract_family(
                 call.worker,
-                call.actor,
-                op,
-                transition,
-                &[
-                    (&expected, Type::INT8),
-                    (&reason, Type::TEXT),
-                    (&key, Type::TEXT),
-                ],
-                &payload,
+                call.admin,
+                setjoin_admin_identity::FAMILY,
+                op.name(),
+                op.contract(),
+                &[&actor_id, &transition, &expected, &reason, &key],
                 call.operation,
+                wr::parse_verdict,
             )
             .await
         }
@@ -518,14 +523,16 @@ async fn issue(r: &mut Request<Body>, transition: &str, call: &Call<'_>) -> Resp
         Ok(k) => k,
         Err(e) => return e,
     };
-    let done = tr::run(
+    let actor_id = call.actor.user_id();
+    let done = crate::mailboxes::worker_write_contract_family(
         call.worker,
-        call.actor,
-        Op::ChallengeIssue,
-        transition,
-        &[(&digest, Type::TEXT), (&key, Type::TEXT)],
-        &format!("{digest}:{key}"),
+        call.admin,
+        setjoin_admin_identity::FAMILY,
+        Op::ChallengeIssue.name(),
+        Op::ChallengeIssue.contract(),
+        &[&actor_id, &transition, &digest, &key],
         call.operation,
+        wr::parse_verdict,
     )
     .await;
     outcome(
@@ -589,23 +596,27 @@ async fn complete(r: &mut Request<Body>, transition: &str, call: &Call<'_>) -> R
             call,
         );
     };
+    let actor_id = call.actor.user_id();
     let acr = call.auth.acr().to_owned();
-    let done = tr::run(
+    let done = crate::mailboxes::worker_write_contract_family(
         call.worker,
-        call.actor,
-        Op::ChallengeComplete,
-        transition,
+        call.admin,
+        setjoin_admin_identity::FAMILY,
+        Op::ChallengeComplete.name(),
+        Op::ChallengeComplete.contract(),
         &[
-            (&challenge, Type::TEXT),
-            (&digest, Type::TEXT),
-            (&session, Type::BYTEA),
-            (&factor, Type::BYTEA),
-            (&amr, Type::TEXT_ARRAY),
-            (&acr, Type::TEXT),
-            (&key, Type::TEXT),
+            &actor_id,
+            &transition,
+            &challenge,
+            &digest,
+            &session,
+            &factor,
+            &amr,
+            &acr,
+            &key,
         ],
-        &format!("{challenge}:{digest}:{key}"),
         call.operation,
+        wr::parse_verdict,
     )
     .await;
     outcome(
@@ -662,7 +673,14 @@ async fn preview(r: &mut Request<Body>, call: &Call<'_>) -> Response<Body> {
             Some(n) => Some(n),
             None => {
                 // Go checks reach (404) before it parses the target link.
-                return match tr::person_reachable(call.worker, call.actor.user_id(), user).await {
+                return match tr::person_reachable(
+                    call.factory,
+                    call.admin,
+                    call.actor.user_id(),
+                    user,
+                )
+                .await
+                {
                     Err(e) => fail(500, &e.detail, call),
                     Ok(false) => fail(404, "identity user not found", call),
                     Ok(true) => fail(400, "invalid targetLinkId", call),
@@ -670,16 +688,35 @@ async fn preview(r: &mut Request<Body>, call: &Call<'_>) -> Response<Body> {
             }
         }
     };
-    let done = tr::preview(
-        call.worker,
-        call.actor,
-        user,
-        target,
-        &reason,
-        &key,
-        call.operation,
-    )
-    .await;
+    let actor_id = call.actor.user_id();
+    let done = match target {
+        Some(target_link) => {
+            crate::mailboxes::worker_write_contract_family(
+                call.worker,
+                call.admin,
+                setjoin_admin_identity::FAMILY,
+                "idv2.transition.preview",
+                &setjoin_admin_identity::sql::IDV2_TRANSITION_REBIND_PREVIEW,
+                &[&actor_id, &user, &target_link, &reason, &key],
+                call.operation,
+                wr::parse_verdict,
+            )
+            .await
+        }
+        None => {
+            crate::mailboxes::worker_write_contract_family(
+                call.worker,
+                call.admin,
+                setjoin_admin_identity::FAMILY,
+                "idv2.transition.preview",
+                &setjoin_admin_identity::sql::IDV2_TRANSITION_PREVIEW,
+                &[&actor_id, &user, &reason, &key],
+                call.operation,
+                wr::parse_verdict,
+            )
+            .await
+        }
+    };
     match done {
         CommandOutcome::Committed(v) if v.status == 404 => {
             fail(404, "identity user not found", call)

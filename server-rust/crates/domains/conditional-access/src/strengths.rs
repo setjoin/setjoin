@@ -1,20 +1,20 @@
-//! Conditional access (F03) slice `remaining`: authentication strengths. Reads repeat Go's
-//! query; writes call `ca_auth_strength_set`, which commits data, audit and the notify together.
-use super::cmd::{counted, one_i64, run};
+//! Conditional access (F03) slice `remaining`: authentication strengths. Reads run via
+//! `AdminReadTx`; writes call `rust_ca_auth_strength_set` via `AdminWriteTx`
+//! (`ReducerWritesCoreAudit`), committing data, audit and the notify together.
+use super::cmd::{one_i64, run_audited};
 use super::policies::compact;
-use super::{done, invalid, nano, s};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use super::{done, invalid, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 
 /// `GET .../auth-strengths-list`: built-ins first, then by name.
-pub async fn list(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let sql = format!(
-        "SELECT id, slug, name, description, requirement::text, min_acr, builtin, {}, {} \
-         FROM auth_strengths ORDER BY builtin DESC, name ASC",
-        nano("created_at"),
-        nano("updated_at")
-    );
-    let rows = exec.read(&sql, &[]).await?;
+pub async fn list(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::STRENGTHS_LIST, &[])
+        .await?;
     let bad = |_| invalid();
     let mut out = Vec::new();
     for r in &rows {
@@ -42,20 +42,20 @@ pub struct Strength<'a> {
     pub min_acr: &'a str,
 }
 
-/// Create (`id` 0) or update: `ca_auth_strength_set(id, slug, name, combinations, min_acr,
-/// false, actor, ip)`.
+/// Create (`id` 0) or update: `rust_ca_auth_strength_set`.
 pub async fn save(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     ip: &str,
     id: i64,
     strength: &Strength<'_>,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
     let combinations = strength.combinations.map(compact);
-    run(
-        exec,
-        actor,
+    let delete = false;
+    run_audited(
+        factory,
+        admin,
         if id == 0 {
             "ca_auth_strength_create"
         } else {
@@ -66,39 +66,48 @@ pub async fn save(
             "{id}:{ip}:{}:{}:{combinations:?}:{}",
             strength.slug, strength.name, strength.min_acr
         ),
-        "SELECT ca_auth_strength_set($4,$5,$6,$7::text::jsonb,$8,false,$2,$9::text::inet) \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
+        &sql::STRENGTH_SET,
         &[
-            (&id, Type::INT8),
-            (&strength.slug, Type::TEXT),
-            (&strength.name, Type::TEXT),
-            (&combinations, Type::TEXT),
-            (&strength.min_acr, Type::TEXT),
-            (&ip, Type::TEXT),
+            &id,
+            &strength.slug,
+            &strength.name,
+            &combinations,
+            &strength.min_acr,
+            &delete,
+            &ip,
         ],
         one_i64,
     )
     .await
 }
 
-/// `DELETE .../auth-strengths/{id}`: `ca_auth_strength_set(id, NULL, NULL, NULL, NULL, true, ..)`.
+/// `DELETE .../auth-strengths/{id}`: `rust_ca_auth_strength_set(..., delete = true)`.
 pub async fn delete(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     ip: &str,
     id: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    run(
-        exec,
-        actor,
+    let none_text: Option<&str> = None;
+    let delete = true;
+    run_audited(
+        factory,
+        admin,
         "ca_auth_strength_delete",
         operation,
         &format!("{id}:{ip}"),
-        "SELECT count(*)::bigint FROM (SELECT ca_auth_strength_set($4,NULL,NULL,NULL,NULL,true,$2,$5::text::inet) \
-         WHERE $1::bigint >= 0 AND $3::text <> '') w",
-        &[(&id, Type::INT8), (&ip, Type::TEXT)],
-        counted,
+        &sql::STRENGTH_SET,
+        &[
+            &id, &none_text, &none_text, &none_text, &none_text, &delete, &ip,
+        ],
+        |rows| {
+            if rows.len() == 1 {
+                Ok(())
+            } else {
+                Err(invalid())
+            }
+        },
     )
     .await
 }

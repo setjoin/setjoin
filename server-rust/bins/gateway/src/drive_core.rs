@@ -82,11 +82,19 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 return problem(503, "service unavailable", None, &c, id);
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
-            let flag=exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.drive'),false)",&[]).await;
-            match flag {
-                Ok(rows) if rows[0].get::<_, bool>(0) => {}
-                Ok(_) | Err(_) => return problem(404, "not found", None, &c, id),
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return problem(503, "service unavailable", None, &c, id);
+            };
+            match setjoin_drive::feature_enabled(&factory, "feature.drive").await {
+                Ok(true) => {}
+                Ok(false) | Err(_) => return problem(404, "not found", None, &c, id),
             }
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return problem(500, "database error", None, &c, id);
+            };
             let path = go_utf8(&crate::inventory::unescape(r.uri().path()))
                 .strip_prefix("/api")
                 .unwrap()
@@ -97,8 +105,8 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                     return problem(400, "invalid version id", Some(&path), &c, id);
                 };
                 let mut p = match setjoin_drive::core::preview_query(
-                    &exec,
-                    auth.context(),
+                    &factory,
+                    &user_principal,
                     version,
                     operation,
                 )
@@ -112,10 +120,10 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                     }
                     out => return result(out, 200, true, &path, &c, id),
                 };
-                p["manifest"]=if p["status"]=="ready" {match setjoin_drive::core::preview_manifest(&exec,auth.context(),version).await{Ok(v)=>v,Err(e)=>return rejected(&setjoin_pg::Rejection::Statement(e),Some(&path),&c,id)}}else{json!([])};
+                p["manifest"]=if p["status"]=="ready" {match setjoin_drive::core::preview_manifest(&factory,&user_principal,version).await{Ok(v)=>v,Err(e)=>return rejected(&setjoin_pg::Rejection::Statement(e),Some(&path),&c,id)}}else{json!([])};
                 if p["status"]=="none" {
                     let Some(request)=crate::jmap::random() else{return problem(500,"database error",None,&c,id)};
-                    match setjoin_drive::core::write(&exec,auth.context(),"drive_preview_request","SELECT to_jsonb(drive_preview_request($2,$4))::text WHERE $1::bigint>=0 AND $3::text IS NOT NULL",&[(&version,setjoin_pg::Type::INT8)],request).await {
+                    match setjoin_drive::core::preview_request(&factory,&user_principal,version,request).await {
                         setjoin_pg::CommandOutcome::Committed(v)=>p["status"]=v,out=>return result(out,200,true,&path,&c,id)
                     }
                 }
@@ -139,7 +147,7 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 if p["classification"]!="regular" || p["auditReads"]==true {
                     let Some(audit)=crate::jmap::random() else{return problem(500,"database error",None,&c,id)};
                     let space=p["spaceId"].as_i64().unwrap();
-                    match setjoin_drive::core::write(&exec,auth.context(),"drive_rust_preview_audit","SELECT 'null'::text FROM drive_rust_preview_audit($2,$4,$5,true) WHERE $1::bigint>=0 AND $3::text IS NOT NULL",&[(&space,setjoin_pg::Type::INT8),(&version,setjoin_pg::Type::INT8)],audit).await {setjoin_pg::CommandOutcome::Committed(_)=>{},out=>return result(out,200,false,&path,&c,id)}
+                    match setjoin_drive::core::preview_audit(&factory,&user_principal,space,version,audit).await {setjoin_pg::CommandOutcome::Committed(_)=>{},out=>return result(out,200,false,&path,&c,id)}
                 }
                 return preview_response(&r, &p, store, &c, id);
             }
@@ -171,8 +179,8 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                         return problem(500, "upload failed", None, &c, id);
                     };
                     match setjoin_drive::core::upload_authority(
-                        &exec,
-                        auth.context(),
+                        &factory,
+                        &user_principal,
                         space,
                         target,
                         epoch,
@@ -214,8 +222,8 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                     let from = temporary.clone();
                     let promoted = store.clone();
                     let out = setjoin_drive::core::commit_chunk(
-                        &exec,
-                        auth.context(),
+                        &factory,
+                        &user_principal,
                         space,
                         target,
                         epoch,
@@ -241,8 +249,8 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                     return result(out, 201, false, &path, &c, id);
                 }
                 return match setjoin_drive::core::head_chunk(
-                    &exec,
-                    auth.context(),
+                    &factory,
+                    &user_principal,
                     space,
                     sha,
                     target,
@@ -263,7 +271,8 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                     return problem(400, "invalid node id", Some(&path), &c, id);
                 };
                 return result(
-                    setjoin_drive::core::destroy_node(&exec, auth.context(), node, operation).await,
+                    setjoin_drive::core::destroy_node(&factory, &user_principal, node, operation)
+                        .await,
                     204,
                     false,
                     &path,
@@ -272,14 +281,15 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 );
             }
             if path.ends_with("/restore") {
-                if let Err(reply) = name_rate(&exec, auth.context(), &path, &c, &id).await {
+                if let Err(reply) = name_rate(&factory, &user_principal, &path, &c, &id).await {
                     return reply;
                 }
                 let Some(node) = segment(&r,3).and_then(|s|s.parse::<i64>().ok()) else {
                     return problem(400, "invalid node id", Some(&path), &c, id);
                 };
                 return result(
-                    setjoin_drive::core::restore_node(&exec, auth.context(), node, operation).await,
+                    setjoin_drive::core::restore_node(&factory, &user_principal, node, operation)
+                        .await,
                     204,
                     false,
                     &path,
@@ -292,7 +302,8 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                     return problem(400, "invalid node id", Some(&path), &c, id);
                 };
                 return result(
-                    setjoin_drive::core::trash_node(&exec, auth.context(), node, operation).await,
+                    setjoin_drive::core::trash_node(&factory, &user_principal, node, operation)
+                        .await,
                     204,
                     false,
                     &path,
@@ -309,7 +320,7 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                     Err(_) => return problem(400, "invalid JSON", Some(&path), &c, id),
                 };
                 if fields.get("newName").is_some() || fields.get("newParentId").is_some() {
-                    if let Err(reply) = name_rate(&exec, auth.context(), &path, &c, &id).await {
+                    if let Err(reply) = name_rate(&factory, &user_principal, &path, &c, &id).await {
                         return reply;
                     }
                 }
@@ -324,8 +335,8 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 };
                 return result(
                     setjoin_drive::core::patch_node(
-                        &exec,
-                        auth.context(),
+                        &factory,
+                        &user_principal,
                         node,
                         &fields,
                         operation,
@@ -359,8 +370,8 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 };
                 return result(
                     setjoin_drive::core::visibility_snapshot(
-                        &exec,
-                        auth.context(),
+                        &factory,
+                        &user_principal,
                         space,
                         after,
                         epoch,
@@ -396,8 +407,8 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 };
                 return result(
                     setjoin_drive::core::access_invalidations(
-                        &exec,
-                        auth.context(),
+                        &factory,
+                        &user_principal,
                         space,
                         cursor.as_deref(),
                         max,
@@ -419,8 +430,8 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                     return problem(400, "since is required", Some(&path), &c, id);
                 };
                 return match setjoin_drive::core::changes(
-                    &exec,
-                    auth.context(),
+                    &factory,
+                    &user_principal,
                     space,
                     since,
                     operation,
@@ -460,12 +471,17 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                         Ok(v) => v,
                         Err(_) => return problem(400, "invalid JSON", Some(&path), &c, id),
                     };
-                    if let Err(reply) = name_rate(&exec, auth.context(), &path, &c, &id).await {
+                    if let Err(reply) = name_rate(&factory, &user_principal, &path, &c, &id).await {
                         return reply;
                     }
                     return result(
-                        setjoin_drive::core::create_node(&exec, auth.context(), &body, operation)
-                            .await,
+                        setjoin_drive::core::create_node(
+                            &factory,
+                            &user_principal,
+                            &body,
+                            operation,
+                        )
+                        .await,
                         201,
                         true,
                         &path,
@@ -496,7 +512,8 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                     _ => return typed_problem(422, "invalid id in ids list", "invalid-arguments", Some("BZ141"), Some(&path), &c, id),
                 };
                 return result(
-                    setjoin_drive::core::nodes_meta(&exec, auth.context(), &ids, operation).await,
+                    setjoin_drive::core::nodes_meta(&factory, &user_principal, &ids, operation)
+                        .await,
                     200,
                     true,
                     &path,
@@ -517,8 +534,8 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 };
                 let deleted = query(&r, "deleted").as_deref() == Some("1");
                 return match setjoin_drive::core::tree(
-                    &exec,
-                    auth.context(),
+                    &factory,
+                    &user_principal,
                     space,
                     parent,
                     deleted,
@@ -539,11 +556,11 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 let Some(user) = segment(&r,5).and_then(|s|s.parse::<i64>().ok()) else {
                     return problem(400, "invalid user id", Some(&path), &c, id);
                 };
-                match optional_folder(&r) {Ok(Some(folder))=>return result(setjoin_drive::core::folder_revoke(&exec,auth.context(),space,folder,user,operation).await,204,false,&path,&c,id),Err(())=>return problem(400,"invalid folder",Some(&path),&c,id),_=>{}}
+                match optional_folder(&r) {Ok(Some(folder))=>return result(setjoin_drive::core::folder_revoke(&factory,&user_principal,space,folder,user,operation).await,204,false,&path,&c,id),Err(())=>return problem(400,"invalid folder",Some(&path),&c,id),_=>{}}
                 return result(
                     setjoin_drive::core::revoke_member(
-                        &exec,
-                        auth.context(),
+                        &factory,
+                        &user_principal,
                         space,
                         user,
                         operation,
@@ -566,11 +583,11 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                         Ok(v) if v["userId"].as_i64().is_some_and(|v| v > 0) => v,
                         _ => return problem(400, "invalid JSON", Some(&path), &c, id),
                     };
-                    match optional_folder(&r) {Ok(Some(folder))=>return result(setjoin_drive::core::folder_grant(&exec,auth.context(),target,folder,fields["userId"].as_i64().unwrap(),fields["role"].as_str().unwrap_or(""),operation).await,200,true,&path,&c,id),Err(())=>return problem(400,"invalid folder",Some(&path),&c,id),_=>{}}
+                    match optional_folder(&r) {Ok(Some(folder))=>return result(setjoin_drive::core::folder_grant(&factory,&user_principal,target,folder,fields["userId"].as_i64().unwrap(),fields["role"].as_str().unwrap_or(""),operation).await,200,true,&path,&c,id),Err(())=>return problem(400,"invalid folder",Some(&path),&c,id),_=>{}}
                     return result(
                         setjoin_drive::core::grant_member(
-                            &exec,
-                            auth.context(),
+                            &factory,
+                            &user_principal,
                             target,
                             fields["userId"].as_i64().unwrap(),
                             fields["role"].as_str().unwrap_or(""),
@@ -584,8 +601,13 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                         id,
                     );
                 }
-                return match setjoin_drive::core::members(&exec, auth.context(), target, operation)
-                    .await
+                return match setjoin_drive::core::members(
+                    &factory,
+                    &user_principal,
+                    target,
+                    operation,
+                )
+                .await
                 {
                     setjoin_pg::CommandOutcome::Committed(v)
                         if v.as_array().is_some_and(|v| v.is_empty()) =>
@@ -606,11 +628,11 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 };
                 if !fields.get("classification").is_some() && ["exportPolicy","retentionDays","wormMode","vaultQuotaMb"].iter().any(|k|fields.get(*k).is_some()) {
                     if ["retentionDays","vaultQuotaMb"].iter().any(|k|fields.get(*k).is_some_and(|v|!v.is_null()&&v.as_i64().is_none())) || fields.get("wormMode").is_some_and(|v|!v.is_null()&&!v.is_string()) {return problem(400,"no recognized patch field",Some(&path),&c,id)}
-                    return result(setjoin_drive::core::patch_policy(&exec,auth.context(),target,&fields,operation).await,204,false,&path,&c,id)
+                    return result(setjoin_drive::core::patch_policy(&factory,&user_principal,target,&fields,operation).await,204,false,&path,&c,id)
                 }
                 if fields.get("classification").is_none() && fields.get("quotaBytes").is_some() {
                     let quota=&fields["quotaBytes"];if !quota.is_null()&&quota.as_i64().is_none(){return problem(400,"no recognized patch field",Some(&path),&c,id)}
-                    return result(setjoin_drive::core::patch_quota(&exec,auth.context(),target,quota.as_i64(),operation).await,204,false,&path,&c,id)
+                    return result(setjoin_drive::core::patch_quota(&factory,&user_principal,target,quota.as_i64(),operation).await,204,false,&path,&c,id)
                 }
                 if !fields
                     .get("classification")
@@ -620,8 +642,8 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 };
                 return result(
                     setjoin_drive::core::patch_classification(
-                        &exec,
-                        auth.context(),
+                        &factory,
+                        &user_principal,
                         target,
                         fields["classification"].as_str().unwrap_or(""),
                         operation,
@@ -652,7 +674,7 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                     Err(_) => return problem(400, "invalid JSON", Some(&path), &c, id),
                 };
                 return result(
-                    setjoin_drive::core::create_space(&exec, auth.context(), &body, operation)
+                    setjoin_drive::core::create_space(&factory, &user_principal, &body, operation)
                         .await,
                     201,
                     true,
@@ -662,12 +684,18 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 );
             }
             if query(&r,"admin").as_deref()==Some("1") {
-                let permission=setjoin_drive::core::write(&exec,auth.context(),"drive_admin_read_permission","SELECT to_jsonb(drive_has_admin_perm($2,'drive.view'))::text WHERE $1::bigint>=0 AND $3::text IS NOT NULL",&[],operation).await;
+                let permission=setjoin_drive::core::admin_read_permission(&factory,&user_principal,operation).await;
                 match permission {setjoin_pg::CommandOutcome::Committed(v) if v==true=>{},setjoin_pg::CommandOutcome::Committed(_)=>return typed_problem(403,"drive.view required","forbidden",None,Some(&path),&c,id),out=>return result(out,200,true,&path,&c,id)}
-                return match setjoin_drive::core::admin_spaces(&worker,auth.context()).await{Ok(v)=>result(setjoin_pg::CommandOutcome::Committed(v),200,true,&path,&c,id),Err(_)=>problem(500,"database error",None,&c,id)};
+                let Ok(admin) = factory.mint_admin_from_authorized(&auth, &client_ip).await else {
+                    return typed_problem(403,"drive.view required","forbidden",None,Some(&path),&c,id);
+                };
+                let Ok(proof) = admin.require_permission("drive.view") else {
+                    return typed_problem(403,"drive.view required","forbidden",None,Some(&path),&c,id);
+                };
+                return match setjoin_drive::core::admin_spaces(&factory,&proof).await{Ok(v)=>result(setjoin_pg::CommandOutcome::Committed(v),200,true,&path,&c,id),Err(_)=>problem(500,"database error",None,&c,id)};
             }
             result(
-                setjoin_drive::core::list_spaces(&exec, auth.context(), operation).await,
+                setjoin_drive::core::list_spaces(&factory, &user_principal, operation).await,
                 200,
                 true,
                 &path,
@@ -913,8 +941,8 @@ fn nonnegative_query(r: &Request<Body>, key: &str) -> Result<Option<i64>, ()> {
 }
 
 async fn name_rate(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &setjoin_authz::principals::TxFactory,
+    user: &setjoin_authz::principals::UserPrincipal,
     path: &str,
     c: &RequestContext,
     id: &str,
@@ -922,7 +950,7 @@ async fn name_rate(
     let Some(operation) = crate::jmap::random() else {
         return Err(problem(500, "request failed", Some(path), c, id.into()));
     };
-    match setjoin_drive::core::allow_name_mutation(exec, actor, operation).await {
+    match setjoin_drive::core::allow_name_mutation(factory, user, operation).await {
         setjoin_pg::CommandOutcome::Committed(v) if v == true => Ok(()),
         setjoin_pg::CommandOutcome::Committed(_) => {
             let mut r = typed_problem(

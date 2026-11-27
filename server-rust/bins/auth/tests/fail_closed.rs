@@ -282,10 +282,11 @@ async fn three(
     session: &setjoin_identity::session::Session,
     user: &setjoin_identity::totp::CompletionUser,
 ) -> Vec<Risk> {
+    let auth_db = setjoin_pg::AuthDb::from_executors(e.exec.clone(), e.exec.clone());
     vec![
-        setjoin_identity::login::risk(&e.exec, proof).await,
-        session.risk(&e.exec).await,
-        user.risk(&e.exec).await,
+        setjoin_identity::login::risk(&auth_db, proof).await,
+        session.risk(&auth_db).await,
+        user.risk(&auth_db).await,
     ]
 }
 
@@ -315,8 +316,11 @@ async fn risk_lookup_errors_fail_closed_in_every_issuer() {
         let legacy = setjoin_authz::legacy_jwt::LegacyKeys::new(e.secret.as_bytes(), &["authserver-hmac-1"], None)?;
         let t = token(&e.secret, json!({"uid":a.user,"email":email,"jti":"failclosed-risk-domain-jti"}));
         let session = setjoin_identity::session::Session::verify(&t, None, &legacy, "mailserver").ok_or("HS256 session did not verify")?;
-        let proof = setjoin_identity::login::verify(&e.exec, &email, "Password1!", setjoin_config_secret::CryptoProfile::Standard).await.map_err(sf)?.ok_or("no password proof")?;
-        let user = setjoin_identity::totp::CompletionUser::load(&e.exec, &session).await.map_err(sf)?.ok_or("no completion user")?;
+        let worker_dsn = std::env::var("DB_WORKER_DSN").unwrap_or_else(|_| e.db.dsn.clone());
+        let worker_exec = setjoin_pg::ScopedExecutor::from_dsn(&worker_dsn, 2).unwrap();
+        let auth_db = setjoin_pg::AuthDb::from_executors(e.exec.clone(), worker_exec);
+        let proof = setjoin_identity::login::verify(&auth_db, &email, "Password1!", setjoin_config_secret::CryptoProfile::Standard).await.map_err(sf)?.ok_or("no password proof")?;
+        let user = setjoin_identity::totp::CompletionUser::load(&auth_db, &session).await.map_err(sf)?.ok_or("no completion user")?;
         e.c.execute("INSERT INTO user_risk(user_id,score,level,signals) VALUES($1,55,'medium','[\"geo\"]'::jsonb)", &[&a.user]).await?;
         let risky = three(&e, &proof, &session, &user).await;
         let mut malformed = Vec::new();
@@ -391,7 +395,10 @@ async fn unreadable_login_hash_matches_absent() {
         let login = |who: &str| {
             anonymous_from(&ip, "/auth/login", json!({"email":who,"password":password}))
         };
-        let exec = &e.exec;
+        let worker_dsn = std::env::var("DB_WORKER_DSN").unwrap_or_else(|_| e.db.dsn.clone());
+        let worker_exec = setjoin_pg::ScopedExecutor::from_dsn(&worker_dsn, 2).unwrap();
+        let exec = setjoin_pg::AuthDb::from_executors(e.exec.clone(), worker_exec);
+        let exec = &exec;
         let address = email.as_str();
         let time_verify = |unreadable: bool| async move {
             // Use the fastest of three reads to limit the effect of DB and scheduler stalls.
@@ -472,9 +479,17 @@ async fn scim_revoke_query_error_is_500() {
         )
     };
     let absent = send(&s, request().unwrap()).await.unwrap();
-    let guard = revoke::table(&e.db.dsn, &e.c, &e.exec, "users")
-        .await
-        .unwrap();
+    let guard = revoke::revoke(
+        &e.db.dsn,
+        &e.c,
+        &e.exec,
+        "users",
+        "REVOKE SELECT ON users FROM setjoin_app, setjoin_worker",
+        "GRANT SELECT ON users TO setjoin_app, setjoin_worker",
+        "SELECT 1 FROM users LIMIT 1",
+    )
+    .await
+    .unwrap();
     let faulted = async { send(&s, request()?).await }.await;
     let faulted = settle(faulted, guard.restore(&e.c).await).unwrap();
     assert_eq!(absent.status, 200);

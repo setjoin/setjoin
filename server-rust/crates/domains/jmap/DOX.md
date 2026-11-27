@@ -312,3 +312,7 @@ the owning mailbox only to pick the command scope. `record_unsubscribe` writes t
 and is cast by PostgreSQL (pgx hands Go's string to an int8 parameter), so any error reads as 404.
 
 Security (#476/#470/#478/#469, owner-approved 2026-11-05): `undo_send` and `jmap_email_purge` are mailbox-scoped (reducers `message_lifecycle.sql`, `jmap_email.sql`); the `/jmap/download` ownership check precedes the blob metadata read (a foreign and an unknown hash both answer 404); the Mailbox/set system-tag precheck is mailbox-scoped; `attachments.zip` renames `.`/`..` entries to `attachment`, refuses more than 200 attachments (413) and stops at 1 GiB. Tests `secfix6.rs`, mutants in `scripts/test-secfix6-mutants.py`.
+
+## Wave 1.8c cutover (#546c)
+
+All database statements live as typed `SqlContract` entries in `src/sql.rs` (enforced by `check-rust-sql-contracts.sh`). Handlers execute through `TxFactory` and `MailboxPrincipal` (`ReadCapability` / `MutateCapability` / `SubmitCapability` / `OwnerCapability`): `EMAIL_GET` and recovery receipt-context reads use `SqlScope::MailboxAuditedRead` via `run_mailbox_audited_read_contract(&ReadCapability, ...)` (statically preventing general mutations under read capability), `record_unsubscribe` calls the owning `rust_jmap_unsubscribe_record` reducer (with fail-closed `app.current_user_id` GUC binding), and draft-size preprocessing in `worker_submission_create` acquires `#481` `users -> mailboxes` prelocks before locking draft `messages` rows.

@@ -1,24 +1,26 @@
 //! Static typed SQL contract catalog for `setjoin-blobs` (F16).
-use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlContract, SqlScope, Type};
+use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
 
 pub const ABORT_UPLOAD: SqlContract = SqlContract {
     id: "blobs.abort_upload",
     domain: "blobs",
-    sql: "SELECT mail_recovery_upload_abort($2,$4::text::uuid)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT],
+    sql: "SELECT mail_recovery_upload_abort($1,$2::text::uuid)::text",
+    params: &[Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::MailboxReadWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const FORK_CONSENT: SqlContract = SqlContract {
     id: "blobs.fork_consent",
     domain: "blobs",
-    sql: "SELECT mail_recovery_fork_consent($2,$4::text::uuid,$5::text::uuid)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",
-    params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT, Type::TEXT],
+    sql: "SELECT mail_recovery_fork_consent($1,$2::text::uuid,$3::text::uuid)::text",
+    params: &[Type::INT8, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::MailboxReadWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const UPLOAD_ITEM: SqlContract = SqlContract {
@@ -32,8 +34,9 @@ pub const UPLOAD_ITEM: SqlContract = SqlContract {
         ColumnSpec::named("declared_size", Type::INT8),
         ColumnSpec::unnamed(Type::BOOL),
     ],
-    scope: SqlScope::MailboxReadOnly,
-    rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    scope: SqlScope::WorkerBypass,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CHUNK_AT: SqlContract = SqlContract {
@@ -46,18 +49,17 @@ pub const CHUNK_AT: SqlContract = SqlContract {
         ColumnSpec::unnamed(Type::TEXT),
         ColumnSpec::named("object_key", Type::TEXT),
     ],
-    scope: SqlScope::MailboxReadOnly,
-    rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    scope: SqlScope::WorkerBypass,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const RECORD_CHUNK: SqlContract = SqlContract {
     id: "blobs.record_chunk",
     domain: "blobs",
-    sql: "SELECT mail_recovery_upload_chunk_record($2,$4::text::uuid,$5,$6,$7,$8,$9)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",
+    sql: "SELECT mail_recovery_upload_chunk_record($1,$2::text::uuid,$3,$4,$5,$6,$7)::text",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::TEXT,
         Type::TEXT,
         Type::INT8,
@@ -66,8 +68,9 @@ pub const RECORD_CHUNK: SqlContract = SqlContract {
         Type::TEXT,
     ],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::MailboxReadWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const USER_INCIDENTS: SqlContract = SqlContract {
@@ -78,6 +81,7 @@ pub const USER_INCIDENTS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const BLOB_OWNED: SqlContract = SqlContract {
@@ -101,8 +105,9 @@ pub const BLOB_OWNED: SqlContract = SqlContract {
              AND admin_assignment_active(sa.eligible,sa.activated_until))))",
     params: &[Type::TEXT, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::BOOL)],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ITEM_FOR_COMMIT: SqlContract = SqlContract {
@@ -117,8 +122,9 @@ pub const ITEM_FOR_COMMIT: SqlContract = SqlContract {
         ColumnSpec::named("status", Type::TEXT),
         ColumnSpec::unnamed(Type::TEXT),
     ],
-    scope: SqlScope::MailboxReadOnly,
-    rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    scope: SqlScope::WorkerBypass,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ITEM_CHUNKS: SqlContract = SqlContract {
@@ -132,35 +138,28 @@ pub const ITEM_CHUNKS: SqlContract = SqlContract {
         ColumnSpec::unnamed(Type::TEXT),
         ColumnSpec::named("object_key", Type::TEXT),
     ],
-    scope: SqlScope::MailboxReadOnly,
-    rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    scope: SqlScope::WorkerBypass,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VERIFY_ITEM: SqlContract = SqlContract {
     id: "blobs.verify_item",
     domain: "blobs",
-    sql: "SELECT mail_recovery_upload_item_verify($2,$4::text::uuid,$5,$6)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",
-    params: &[
-        Type::INT8,
-        Type::INT8,
-        Type::TEXT,
-        Type::TEXT,
-        Type::TEXT,
-        Type::TEXT,
-    ],
+    sql: "SELECT mail_recovery_upload_item_verify($1,$2::text::uuid,$3,$4)::text",
+    params: &[Type::INT8, Type::TEXT, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::MailboxReadWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ACCOUNT_UPLOAD: SqlContract = SqlContract {
     id: "blobs.account_upload",
     domain: "blobs",
-    sql: "SELECT blob_upload_account($2,$4,$5,$6,$7,$8,$9)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",
+    sql: "SELECT blob_upload_account($1,$2,$3,$4,$5,$6,$7)::text",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::TEXT,
         Type::TEXT,
         Type::INT8,
@@ -169,8 +168,9 @@ pub const ACCOUNT_UPLOAD: SqlContract = SqlContract {
         Type::INT8,
     ],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::MailboxReadWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ATTACHMENT_METADATA: SqlContract = SqlContract {
@@ -182,18 +182,17 @@ pub const ATTACHMENT_METADATA: SqlContract = SqlContract {
         ColumnSpec::named("size_bytes", Type::INT8),
         ColumnSpec::unnamed(Type::TEXT),
     ],
-    scope: SqlScope::MailboxReadOnly,
-    rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    scope: SqlScope::WorkerBypass,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const BEGIN_UPLOAD: SqlContract = SqlContract {
     id: "blobs.begin_upload",
     domain: "blobs",
-    sql: "SELECT mail_recovery_upload_begin($2,$4::text::uuid,$5::text::uuid,$6,$7::text::uuid,$8,$9,$10::text::jsonb,$11::text::jsonb,$12::text::timestamptz,$13::text::uuid)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",
+    sql: "SELECT mail_recovery_upload_begin($1,$2::text::uuid,$3::text::uuid,$4,$5::text::uuid,$6,$7,$8::text::jsonb,$9::text::jsonb,$10::text::timestamptz,$11::text::uuid)::text",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::TEXT,
         Type::TEXT,
         Type::INT8,
@@ -206,8 +205,9 @@ pub const BEGIN_UPLOAD: SqlContract = SqlContract {
         Type::TEXT,
     ],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::MailboxReadWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const FINALIZE_ITEM: SqlContract = SqlContract {
@@ -221,8 +221,9 @@ pub const FINALIZE_ITEM: SqlContract = SqlContract {
         ColumnSpec::named("eligibility", Type::TEXT),
         ColumnSpec::named("status", Type::TEXT),
     ],
-    scope: SqlScope::MailboxReadOnly,
-    rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    scope: SqlScope::WorkerBypass,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const REPLAY_FINALIZE: SqlContract = SqlContract {
@@ -231,18 +232,17 @@ pub const REPLAY_FINALIZE: SqlContract = SqlContract {
     sql: "SELECT jsonb_build_object('id',id,'status',status,'replayed',true)::text FROM (SELECT a.id,a.status FROM mail_recovery_quarantine_artifacts a JOIN mail_recovery_upload_sessions s ON s.id=a.session_id WHERE s.id=$1::text::uuid AND s.uploading_user_id=$2 UNION ALL SELECT l.quarantine_id,CASE WHEN s.status='deduplicated' THEN 'deduplicated' ELSE l.outcome END FROM mail_recovery_upload_sessions s JOIN mail_recovery_ledger l ON l.artifact_identity=s.artifact_identity WHERE s.id=$1::text::uuid AND s.uploading_user_id=$2 AND s.status='deduplicated') replay LIMIT 1",
     params: &[Type::TEXT, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::MailboxReadOnly,
-    rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    scope: SqlScope::WorkerBypass,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const QUARANTINE: SqlContract = SqlContract {
     id: "blobs.quarantine",
     domain: "blobs",
-    sql: "SELECT mail_recovery_artifact_quarantine($2,$4::text::uuid,$5::text::uuid,$6::text::jsonb,$7,$8)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",
+    sql: "SELECT mail_recovery_artifact_quarantine($1,$2::text::uuid,$3::text::uuid,$4::text::jsonb,$5,$6)::text",
     params: &[
         Type::INT8,
-        Type::INT8,
-        Type::TEXT,
         Type::TEXT,
         Type::TEXT,
         Type::TEXT,
@@ -250,8 +250,9 @@ pub const QUARANTINE: SqlContract = SqlContract {
         Type::TEXT,
     ],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::MailboxReadWrite,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SQL_CONTRACTS: &[SqlContract] = &[

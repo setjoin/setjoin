@@ -196,7 +196,7 @@ impl AuthServer {
         else {
             return Ok(None);
         };
-        let enabled = match login::enabled(&self.exec, "feature.token_binding").await {
+        let enabled = match login::enabled(&self.auth_db, "feature.token_binding").await {
             Ok(v) => v,
             Err(_) => return Err(Self::failure(500, "internal error", path)),
         };

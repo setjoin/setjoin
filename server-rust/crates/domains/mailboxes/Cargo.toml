@@ -11,6 +11,7 @@ setjoin-authz = { path = "../../authz" }
 setjoin-contracts = { path = "../../contracts" }
 setjoin-db = { path = "../../db" }
 setjoin-pg = { path = "../../pg" }
+setjoin-sql-catalog = { path = "../../sql-catalog" }
 base64 = "=0.22.1"
 ring = "=0.17.14"
 serde_json = "=1.0.145"

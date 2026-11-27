@@ -1,7 +1,7 @@
 //! The content byte plane. Authorization completes before a lazy storage stream.
 use super::*;
 use crate::recovery_worker::S3Store;
-use setjoin_authz::AuthContext;
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
 pub(super) fn matches(r: &Request<Body>) -> bool {
     matches!(r.method().as_str(), "GET" | "HEAD")
         && [
@@ -11,11 +11,12 @@ pub(super) fn matches(r: &Request<Body>) -> bool {
         .iter()
         .any(|p| crate::inventory::path_score(p, r.uri().path()).is_some())
 }
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn serve(
     r: Request<Body>,
     path: &str,
-    exec: ScopedExecutor,
-    actor: AuthContext,
+    factory: TxFactory,
+    user: UserPrincipal,
     store: Option<Arc<S3Store>>,
     operation: [u8; 16],
     c: RequestContext,
@@ -33,8 +34,8 @@ pub(super) async fn serve(
         ));
         let hash = format!("{:x}", sha2::Sha256::digest(token.as_bytes()));
         let outcome = setjoin_drive::part_b::simple_write(
-            &exec,
-            &actor,
+            &factory,
+            &user,
             "consume_export",
             0,
             &json!({"tokenHash":hash}),
@@ -56,9 +57,9 @@ pub(super) async fn serve(
         }
     };
     let metadata = if consuming {
-        setjoin_drive::part_b::content_metadata(&exec, &actor, version).await
+        setjoin_drive::part_b::content_metadata(&factory, &user, version).await
     } else {
-        setjoin_drive::part_b::content(&exec, &actor, version).await
+        setjoin_drive::part_b::content(&factory, &user, version).await
     };
     let vm = match metadata {
         Ok(Some(v)) => v,
@@ -98,8 +99,8 @@ pub(super) async fn serve(
     }
     if !consuming && vm["auditReads"] == true {
         let outcome = setjoin_drive::part_b::audit_view(
-            &exec,
-            &actor,
+            &factory,
+            &user,
             vm["spaceId"].as_i64().unwrap_or(0),
             version,
             operation,
@@ -124,7 +125,7 @@ pub(super) async fn serve(
             }),
     );
     if consuming {
-        let name = setjoin_drive::part_b::export_name(&exec, &actor, version).await;
+        let name = setjoin_drive::part_b::export_name(&factory, &user, version).await;
         response.headers_mut().insert(
             "content-disposition",
             format!(

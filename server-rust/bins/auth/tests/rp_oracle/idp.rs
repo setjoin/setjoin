@@ -108,8 +108,10 @@ impl State {
         let mut fields = setjoin_identity::issuance::query(&String::from_utf8_lossy(&raw));
         let reply = match path.as_str() {
             "/.well-known/openid-configuration" => {
-                let mut doc=json!({"issuer":ISSUER,"authorization_endpoint":format!("{ISSUER}/authorize"),"token_endpoint":format!("{ISSUER}/token"),"jwks_uri":format!("{ISSUER}/keys"),"response_types_supported":["code"],"subject_types_supported":["public"],"id_token_signing_alg_values_supported":["RS256"],"token_endpoint_auth_methods_supported":["client_secret_basic"],"code_challenge_methods_supported":["S256"]});
-                for (k,v) in self.discovery.lock().unwrap().as_object().unwrap(){doc[k]=v.clone();}
+                let mut doc = json!({"issuer":ISSUER,"authorization_endpoint":format!("{ISSUER}/authorize"),"token_endpoint":format!("{ISSUER}/token"),"jwks_uri":format!("{ISSUER}/keys"),"response_types_supported":["code"],"subject_types_supported":["public"],"id_token_signing_alg_values_supported":["RS256"],"token_endpoint_auth_methods_supported":["client_secret_basic"],"code_challenge_methods_supported":["S256"]});
+                for (k, v) in self.discovery.lock().unwrap().as_object().unwrap() {
+                    doc[k] = v.clone();
+                }
                 doc
             }
             "/keys" => serde_json::from_str(&self.key.jwks()).unwrap(),
@@ -141,7 +143,10 @@ impl State {
                             signature[0] ^= 1;
                             token = format!("{prefix}.{}", B64.encode(signature));
                         }
-                        let access=match extra["_oracle_pad"].as_u64(){Some(n)=>"a".repeat(n as usize),None=>"upstream-access".into()};
+                        let access = match extra["_oracle_pad"].as_u64() {
+                            Some(n) => "a".repeat(n as usize),
+                            None => "upstream-access".into(),
+                        };
                         json!({"access_token":access,"token_type":"Bearer","expires_in":300,"id_token":token})
                     }
                     _ => json!({"error":"invalid_grant"}),

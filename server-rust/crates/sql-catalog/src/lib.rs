@@ -15,6 +15,12 @@ pub enum SqlScope {
     /// Mailbox-scoped `BEGIN READ ONLY` transaction under `setjoin_app`
     /// (`app.current_mailbox_id` + `app.current_user_id` set).
     MailboxReadOnly,
+    /// Mailbox-scoped `BEGIN READ WRITE` audited-read transaction strictly
+    /// admitted under [`ReadCapability`] on `setjoin_app` (e.g., `jmap_email_get`
+    /// + `mailbox_audit_log`, `continuity_recovery_receipt_context`).
+    /// Statically verified by `scripts/check-rust-sql-contracts.py` to forbid
+    /// general mutations.
+    MailboxAuditedRead,
     /// Mailbox-scoped `BEGIN READ WRITE` transaction under `setjoin_app`
     /// (`app.current_mailbox_id` + `app.current_user_id` set).
     MailboxReadWrite,
@@ -49,10 +55,16 @@ impl SqlScope {
         matches!(self, Self::WorkerBypass)
     }
 
+    /// Whether this scope runs on the privileged `AdminWorkerPool` (`setjoin_worker`).
+    pub const fn is_admin(self) -> bool {
+        matches!(self, Self::AdminRead | Self::AdminWrite)
+    }
+
     /// Stable machine-readable scope label for diagnostics and JSON reports.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::MailboxReadOnly => "MailboxReadOnly",
+            Self::MailboxAuditedRead => "MailboxAuditedRead",
             Self::MailboxReadWrite => "MailboxReadWrite",
             Self::UserScoped => "UserScoped",
             Self::AdminRead => "AdminRead",
@@ -100,6 +112,24 @@ pub enum RlsCheck {
     PrepareExplainAndRlsDenyProbe,
 }
 
+/// Core-audit posture for a [`SqlContract`] (#546a).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SqlAuditPosture {
+    /// Standard contract: read-only, tenant-scoped, or admin write audited
+    /// explicitly via `AdminWriteTx::record_audit` / `AuditEvent`.
+    #[default]
+    Standard,
+    /// Admin write reducer whose PL/pgSQL body atomically invokes
+    /// `audit_write(p_actor, ..., 'core')` (setting PostgreSQL's
+    /// transaction-local `app.core_audit_written = '1'` proof).
+    ///
+    /// Statically verified by `scripts/check-rust-sql-contracts.py` to appear
+    /// ONLY inside `crates/domains/*/src/sql.rs`, to execute a single
+    /// top-level `SELECT [public.]<fn>(...)`, and to target a reducer whose
+    /// `'core'` `audit_write` is never wrapped inside `EXCEPTION WHEN OTHERS`.
+    ReducerWritesCoreAudit,
+}
+
 /// Static compile-time SQL contract verified against disposable PostgreSQL 17.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SqlContract {
@@ -117,6 +147,8 @@ pub struct SqlContract {
     pub scope: SqlScope,
     /// Required PostgreSQL verification level.
     pub rls_check: RlsCheck,
+    /// Declared core-audit posture (defaults to [`SqlAuditPosture::Standard`]).
+    pub audit: SqlAuditPosture,
 }
 
 /// Zero-proc-macro compile-time helper expanding to the canonical UTC RFC 3339
@@ -194,8 +226,11 @@ mod tests {
             columns: &[ColumnSpec::named("id", Type::INT8)],
             scope: SqlScope::MailboxReadOnly,
             rls_check: RlsCheck::PrepareAndExplain,
+            audit: SqlAuditPosture::Standard,
         };
         assert_eq!(C.id, "test.sample");
+        assert_eq!(C.audit, SqlAuditPosture::Standard);
+        assert_eq!(SqlAuditPosture::default(), SqlAuditPosture::Standard);
         assert!(C.scope.is_read_only());
         assert!(!C.scope.is_worker_bypass());
         assert!(!SqlScope::MailboxReadWrite.is_read_only());

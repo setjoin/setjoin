@@ -1,31 +1,16 @@
-//! Slice `settings-c` (#308): the seven self-service session and account-security routes of Go's
-//! `SessionsHandler`, `DevicesHandler.ListDevices`, `LoginHistoryHandler.ListLoginHistory`,
-//! `SecureAccountHandler` and `SecurityScoreHandler`.
-//!
-//! Reads render Go's structs (declaration order) and maps (sorted keys). Writes are Go's whole
-//! transaction as one reducer call keyed by the verified user (`rust_session_revoke_one`,
-//! `rust_sessions_revoke_all`, `rust_secure_account_self`): each composes the existing
-//! `revoke_user_sessions` / `secure_account` reducers, so denylist rows, audit and notifications
-//! are Go's. Device and login-event reads run under the user GUC like Go's `RunUserScoped`.
-use super::{command, deadline, done, envelope, invalid, s, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, Row, ScopedExecutor, StatementFailure, Type};
+//! Slice `settings-c` (#308): self-service session and account-security routes.
+use super::{command, deadline, done, invalid, s, user_envelope};
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, Row, SqlContract, StatementFailure};
 
-/// `GET /user/sessions`: live oauth refresh families and web sessions of the caller. A row whose
-/// scan fails is skipped in Go; no selected column can be NULL, so none is. `jti` marks the
-/// presenting web session `current`.
 pub async fn sessions_list(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     jti: &str,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    let rows = exec
-        .read_scoped(
-            &scope(actor),
-            crate::sql::SESSIONS_LIST.sql,
-            &[(&user, Type::INT8), (&jti, Type::TEXT)],
-        )
+    let uid = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &crate::sql::SESSIONS_LIST, &[&uid, &jti])
         .await?;
     let render = |r: &Row| -> Option<String> {
         Some(format!(
@@ -44,16 +29,10 @@ pub async fn sessions_list(
     Ok(done(format!("{{\"sessions\":[{}]}}", items.join(","))))
 }
 
-/// `GET /user/devices`. Go answers `{"devices":[]}` for ANY query error and skips a row whose
-/// scan fails (none can: every projected column is non-null).
-pub async fn devices_list(exec: &ScopedExecutor, actor: &AuthContext) -> String {
-    let user = actor.user_id();
-    let rows = exec
-        .read_scoped(
-            &scope(actor),
-            crate::sql::DEVICES_LIST.sql,
-            &[(&user, Type::INT8)],
-        )
+pub async fn devices_list(factory: &TxFactory, user: &UserPrincipal) -> String {
+    let uid = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &crate::sql::DEVICES_LIST, &[&uid])
         .await
         .unwrap_or_default();
     let render = |r: &Row| -> Option<String> {
@@ -71,29 +50,20 @@ pub async fn devices_list(exec: &ScopedExecutor, actor: &AuthContext) -> String 
     done(format!("{{\"devices\":[{}]}}", items.join(",")))
 }
 
-/// `GET /user/login-history`: `limit`/`offset` are already Go's `ParseLimitOffset` result.
-/// `outcome == ""` lists everything, `"success"` successes, anything else failures.
 pub async fn login_history(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     jti: &str,
     outcome: &str,
     limit: i64,
     offset: i64,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    let auth = scope(actor);
-    let rows = exec
-        .read_scoped(
-            &auth,
-            crate::sql::LOGIN_HISTORY.sql,
-            &[
-                (&user, Type::INT8),
-                (&limit, Type::INT8),
-                (&offset, Type::INT8),
-                (&jti, Type::TEXT),
-                (&outcome, Type::TEXT),
-            ],
+    let uid = user.user().get();
+    let rows = factory
+        .run_user_read_contract(
+            user,
+            &crate::sql::LOGIN_HISTORY,
+            &[&uid, &limit, &offset, &jti, &outcome],
         )
         .await?;
     let mut total = 0_i64;
@@ -129,12 +99,8 @@ pub async fn login_history(
             items.push(text);
         }
     }
-    let row = exec
-        .read_scoped(
-            &auth,
-            crate::sql::LOGIN_HISTORY_SUMMARY.sql,
-            &[(&user, Type::INT8)],
-        )
+    let row = factory
+        .run_user_read_contract(user, &crate::sql::LOGIN_HISTORY_SUMMARY, &[&uid])
         .await?
         .into_iter()
         .next()
@@ -149,30 +115,25 @@ pub async fn login_history(
 }
 
 async fn one_value<T>(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    sql: &str,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    contract: &'static SqlContract,
     get: impl Fn(&Row) -> Option<T>,
 ) -> Option<T> {
-    let user = actor.user_id();
-    let rows = exec
-        .read_scoped(&scope(actor), sql, &[(&user, Type::INT8)])
+    let uid = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, contract, &[&uid])
         .await
         .ok()?;
     rows.first().and_then(get)
 }
 
-/// `GET /user/security-score`: a 50 baseline plus four checks. Go treats a failed read as
-/// "check not met"; the same happens here.
-pub async fn security_score(exec: &ScopedExecutor, actor: &AuthContext) -> String {
+pub async fn security_score(factory: &TxFactory, user: &UserPrincipal) -> String {
     let mut score = 50;
     let mut checks: Vec<String> = vec![];
-    let totp = one_value(
-        exec,
-        actor,
-        crate::sql::SECURITY_SCORE_TOTP.sql,
-        |r| r.try_get::<_, bool>(0).ok(),
-    )
+    let totp = one_value(factory, user, &crate::sql::SECURITY_SCORE_TOTP, |r| {
+        r.try_get::<_, bool>(0).ok()
+    })
     .await
     .unwrap_or(false);
     if totp {
@@ -182,9 +143,9 @@ pub async fn security_score(exec: &ScopedExecutor, actor: &AuthContext) -> Strin
         checks.push("{\"action\":\"Enable two-factor authentication\",\"name\":\"TOTP enabled\",\"pass\":false,\"points\":0}".into());
     }
     let backup = one_value(
-        exec,
-        actor,
-        crate::sql::SECURITY_SCORE_BACKUP_CODES.sql,
+        factory,
+        user,
+        &crate::sql::SECURITY_SCORE_BACKUP_CODES,
         |r| r.try_get::<_, i32>(0).ok(),
     )
     .await
@@ -198,9 +159,9 @@ pub async fn security_score(exec: &ScopedExecutor, actor: &AuthContext) -> Strin
         checks.push("{\"action\":\"Generate backup codes\",\"name\":\"Backup codes\",\"pass\":false,\"points\":0}".into());
     }
     let fails = one_value(
-        exec,
-        actor,
-        crate::sql::SECURITY_SCORE_FAILED_LOGINS.sql,
+        factory,
+        user,
+        &crate::sql::SECURITY_SCORE_FAILED_LOGINS,
         |r| r.try_get::<_, i64>(0).ok(),
     )
     .await
@@ -212,9 +173,9 @@ pub async fn security_score(exec: &ScopedExecutor, actor: &AuthContext) -> Strin
         checks.push(format!("{{\"name\":\"No recent failed logins\",\"pass\":false,\"points\":0,\"recent_fails\":{fails}}}"));
     }
     let devices = one_value(
-        exec,
-        actor,
-        crate::sql::SECURITY_SCORE_DEVICE_COUNT.sql,
+        factory,
+        user,
+        &crate::sql::SECURITY_SCORE_DEVICE_COUNT,
         |r| r.try_get::<_, i64>(0).ok(),
     )
     .await
@@ -232,80 +193,78 @@ pub async fn security_score(exec: &ScopedExecutor, actor: &AuthContext) -> Strin
     ))
 }
 
-/// What `DELETE /user/sessions/{id}` found.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Revoked {
     Revoked,
     NotFound,
 }
 
-/// Go's `Revoke`: the web session arm, then the oauth family (or lone token) arm, in one
-/// transaction.
 pub async fn session_revoke(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     id: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<Revoked, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("session.revoke"),
-        &envelope(&auth, operation, &format!("session.revoke:{id}")),
-        &auth,
-        deadline(),
-        crate::sql::SESSION_REVOKE_ONE.sql,
-        &[(&id, Type::TEXT)],
-        |rows| match rows
-            .first()
-            .and_then(|r| r.try_get::<_, String>(0).ok())
-            .as_deref()
-        {
-            Some("revoked") => Ok(Revoked::Revoked),
-            Some("not_found") => Ok(Revoked::NotFound),
-            _ => Err(invalid()),
-        },
-    )
-    .await
+    let uid = user.user().get();
+    let env = user_envelope(user, operation, &format!("session.revoke:{id}"));
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::SESSION_REVOKE_ONE,
+            &[&uid, &id],
+            Some(command("session.revoke")),
+            |rows| match rows
+                .first()
+                .and_then(|r| r.try_get::<_, String>(0).ok())
+                .as_deref()
+            {
+                Some("revoked") => Ok(Revoked::Revoked),
+                Some("not_found") => Ok(Revoked::NotFound),
+                _ => Err(invalid()),
+            },
+        )
+        .await
 }
 
-/// Go's `RevokeAll`.
 pub async fn sessions_revoke_all(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("sessions.revoke_all"),
-        &envelope(&auth, operation, "sessions.revoke_all"),
-        &auth,
-        deadline(),
-        crate::sql::SESSIONS_REVOKE_ALL.sql,
-        &[],
-        |rows| rows.first().map(|_| ()).ok_or_else(invalid),
-    )
-    .await
+    let uid = user.user().get();
+    let env = user_envelope(user, operation, "sessions.revoke_all");
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::SESSIONS_REVOKE_ALL,
+            &[&uid],
+            Some(command("sessions.revoke_all")),
+            |rows| rows.first().map(|_| ()).ok_or_else(invalid),
+        )
+        .await
 }
 
-/// Go's `Secure` ("This wasn't me"): `ip` is the resolved client address.
 pub async fn secure_account(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     ip: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("account.secure"),
-        &envelope(&auth, operation, &format!("account.secure:{ip}")),
-        &auth,
-        deadline(),
-        crate::sql::SECURE_ACCOUNT_SELF.sql,
-        &[(&ip, Type::TEXT)],
-        |rows| rows.first().map(|_| ()).ok_or_else(invalid),
-    )
-    .await
+    let uid = user.user().get();
+    let env = user_envelope(user, operation, &format!("account.secure:{ip}"));
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::SECURE_ACCOUNT_SELF,
+            &[&uid, &ip],
+            Some(command("account.secure")),
+            |rows| rows.first().map(|_| ()).ok_or_else(invalid),
+        )
+        .await
 }

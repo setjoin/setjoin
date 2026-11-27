@@ -17,7 +17,7 @@ pub(super) fn listed(var: &str, name: &str) -> bool {
 /// it. `RUST_WORKERS_ON=ldap-sync` requires `GO_WORKERS_OFF=ldap-sync` first, so
 /// two copies never sync one directory.
 pub(super) fn ldap_runtime(
-) -> Result<Option<Arc<setjoin_directory_sync::ldap::runtime::LdapRuntime>>, String> {
+) -> Result<Option<Arc<crate::directory_sync_workers::LdapRuntime>>, String> {
     let Some(request) = std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()) else {
         if listed("RUST_WORKERS_ON", "ldap-sync") {
             return Err("DB_DSN is required for ldap-sync".into());
@@ -28,7 +28,7 @@ pub(super) fn ldap_runtime(
     let db = WorkerDatabase::from_dsns(&request, worker.as_deref())
         .map_err(|e| format!("DB_WORKER_DSN: {e}"))?;
     Ok(Some(Arc::new(
-        setjoin_directory_sync::ldap::runtime::LdapRuntime::from_env(db),
+        crate::directory_sync_workers::LdapRuntime::from_env(db),
     )))
 }
 
@@ -52,11 +52,11 @@ pub(super) fn webhook_codec() -> setjoin_platform::webhook_secret::SecretCodec {
 /// `ad-sync` worker share it. The resolved boot YAML/env pins Go's enable
 /// value. Disabled handlers still exist and answer their native auth/config
 /// outcomes; only shared-effect workers require the enable value to be true.
-pub(super) fn ad_runtime() -> Result<Option<Arc<setjoin_directory_sync::ad::AdRuntime>>, String> {
+pub(super) fn ad_runtime() -> Result<Option<Arc<crate::directory_sync_workers::AdRuntime>>, String> {
     let wanted = ["ad-sync", "ad-toggle-observer"]
         .iter()
         .any(|name| listed("RUST_WORKERS_ON", name));
-    if !setjoin_directory_sync::ad::runtime::enabled_from_env() {
+    if !crate::directory_sync_workers::ad_runtime::enabled_from_env() {
         if wanted {
             return Err("ad-sync and ad-toggle-observer need AD_SYNC_ENABLED=true in the resolved startup configuration".into());
         }
@@ -71,7 +71,7 @@ pub(super) fn ad_runtime() -> Result<Option<Arc<setjoin_directory_sync::ad::AdRu
     let db = WorkerDatabase::from_dsns(&request, worker.as_deref())
         .map_err(|e| format!("DB_WORKER_DSN: {e}"))?;
     Ok(Some(Arc::new(
-        setjoin_directory_sync::ad::AdRuntime::from_env(db),
+        crate::directory_sync_workers::AdRuntime::from_env(db),
     )))
 }
 
@@ -81,7 +81,7 @@ pub(super) struct IdentityWorkers {
     pub(super) direct: Option<String>,
     pub(super) trigger: Arc<tokio::sync::Notify>,
     /// The catalog source manager when `identity-source-runtime` is Rust's.
-    pub(super) runtime: Option<Arc<setjoin_directory_sync::catalog::IdentitySourceRuntime>>,
+    pub(super) runtime: Option<Arc<crate::directory_sync_workers::IdentitySourceRuntime>>,
 }
 
 /// Go's `DecodeIdentitySourceRuntime`, owned by the identity-admin family.
@@ -90,7 +90,7 @@ pub(super) fn decode_source(
     key: &str,
     kind: &str,
     envelope: &[u8],
-) -> Result<setjoin_directory_sync::catalog::SourceConfig, String> {
+) -> Result<crate::directory_sync_workers::SourceConfig, String> {
     setjoin_admin_identity::idv2_source::decode_runtime(codec, key, kind, envelope)
         .map(crate::directory_sync::source_config)
 }
@@ -99,7 +99,7 @@ pub(super) fn decode_source(
 /// Go's copy off (`GO_WORKERS_OFF`), on the worker credential (`DB_WORKER_DSN`,
 /// falling back to `DB_DSN`).
 pub(super) fn identity_source_runtime(
-) -> Result<Option<Arc<setjoin_directory_sync::catalog::IdentitySourceRuntime>>, String> {
+) -> Result<Option<Arc<crate::directory_sync_workers::IdentitySourceRuntime>>, String> {
     if !listed("RUST_WORKERS_ON", "identity-source-runtime") {
         return Ok(None);
     }
@@ -111,7 +111,7 @@ pub(super) fn identity_source_runtime(
     let db = WorkerDatabase::from_dsns(&request, worker.as_deref())
         .map_err(|e| format!("DB_WORKER_DSN: {e}"))?;
     Ok(Some(Arc::new(
-        setjoin_directory_sync::catalog::IdentitySourceRuntime::from_env(db, decode_source),
+        crate::directory_sync_workers::IdentitySourceRuntime::from_env(db, decode_source),
     )))
 }
 

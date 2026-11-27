@@ -36,7 +36,11 @@ pub enum Outcome<'a> {
     Unknown { operation: [u8; 16] },
 }
 
-pub(super) fn seen_call(mailbox: i64, message: i64, outcome: Outcome<'_>) -> (&'static str, String) {
+pub(super) fn seen_call(
+    mailbox: i64,
+    message: i64,
+    outcome: Outcome<'_>,
+) -> (&'static str, String) {
     match outcome {
         Outcome::Updated {
             old_state,
@@ -265,17 +269,17 @@ pub(super) fn collect_created_ids(
         }) = serde_json::from_str(call.args.get())
         {
             for (key, creation) in created {
-                created_ids.insert(
-                    key,
-                    creation.and_then(|entry| entry.id).unwrap_or_default(),
-                );
+                created_ids.insert(key, creation.and_then(|entry| entry.id).unwrap_or_default());
             }
         }
     }
     created_ids
 }
 
-pub(super) fn http_batch_response(session_state: &str, calls: &[super::ws_request::Call]) -> String {
+pub(super) fn http_batch_response(
+    session_state: &str,
+    calls: &[super::ws_request::Call],
+) -> String {
     let mut out = format!(
         "{{\"sessionState\":{},\"methodResponses\":[",
         crate::problem::go_string(session_state)

@@ -1,8 +1,10 @@
 # Mailboxes and migration (F05, #292)
 
-`setjoin-mailboxes` depends only on foundation crates (`authz`, `contracts`, `db`, `pg`).
-The gateway translates HTTP (`bins/gateway/src/mailboxes.rs`); PL/pgSQL reducers keep
-business authority. The actor and mailbox come from the sealed auth context; path ids name
+`setjoin-mailboxes` depends only on foundation crates (`authz`, `contracts`, `db`, `pg`, `sql-catalog`).
+The gateway translates HTTP (`bins/gateway/src/mailboxes.rs`, `mailbox_io.rs`, `exchange.rs`, `migration.rs`);
+PL/pgSQL reducers keep business authority. All SQL statements live in `src/sql.rs` (`SQL_CONTRACTS`) with
+zero `format!` SQL; database calls run through `TxFactory` with sealed `AdminPermissionProof`/`UserPrincipal`
+handles (`system_config` writes use `rust_system_config_upsert`/`rust_system_config_delete`). Path ids name
 targets and never grant authority.
 
 ## Slice map

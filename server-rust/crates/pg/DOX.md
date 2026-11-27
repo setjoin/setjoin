@@ -428,11 +428,11 @@ composition-root binaries (`bins/gateway`, `bins/auth`); `WorkerPool` and
 `WorkerTx` (`worker-pool` feature) are enabled only on composition-root
 binaries. `scripts/check-rust-family-isolation.py` enforces both `cargo
 metadata` feature rules (including renamed `setjoin-pg` dependency forwarding)
-and domain source bans (`setjoin_pg::mint`, `capability::mint`, `::mint`,
-`AppPool`, `WorkerPool`, `WorkerTx`, `deadpool_postgres`) while freezing
-pre-Wave-1.2 legacy entrypoints
-(`WorkerDatabase`, `ScopedExecutor::{from_dsn,new}`, `from_authenticated_session`,
-`from_authenticated_user`) to a shrinking Wave 1.8 allowlist.
+and hard bans across all `crates/domains/*/{src,tests}` on `setjoin_pg::mint`,
+`capability::mint`, `::mint`, `AppPool`, `AdminWorkerPool`, `PreAuthReadTx`,
+`WorkerPool`, `WorkerTx`, `WorkerDatabase`, `ScopedExecutor`,
+`from_authenticated_session`, `from_authenticated_user`, and
+`deadpool_postgres` (`WAVE_1_8_LEGACY_ALLOWLIST == {}` as of Phase `546e`).
 
 ### 1-RTT vs 2-RTT decoder boundary & pipeline truth table
 
@@ -496,3 +496,59 @@ with a coalesced `watch` dirty-epoch watermark so slow/overflowing subscribers
 never block other channels, never lose `ResyncRequired`, and never surface stale
 pre-watermark notifications; `UNLISTEN` errors transition cleanly to reconnect,
 and root `CancellationToken` cancellation tears down cleanly without `Drop::abort`.
+
+### Wave 1.8 Phase `546a` foundation seams (#546)
+
+- **Unforgeable `ReducerWritesCoreAudit` proof:** `audit_write.sql` sets transaction-local
+  `app.core_audit_written = '1'` strictly after a successful `'core'` insert.
+  `AdminWriteTx<Unaudited>::execute_audited_reducer_contract` binds `$1` (`p_actor`) from
+  `self.principal.actor` (R2), resets `app.core_audit_written`, executes the
+  `SqlAuditPosture::ReducerWritesCoreAudit` contract, and checks
+  `current_setting('app.core_audit_written', true) = '1'`: returning
+  `AdminReducerOutcome::Audited` (`AdminWriteTx<Audited>`, zero double-audit) iff `'1'`,
+  or rollback-only `AdminReducerOutcome::NoOp` (`AdminRollbackOnlyTx`, no `.commit()`).
+- **Encapsulated `AdminWorkerPool` & `PreAuthReadTx` (`mint` feature):** minted from
+  `WorkerPool::admin_pool()` at binary composition roots without exposing `WorkerTx` or
+  `worker-pool` to `setjoin-authz` or domain crates; serves cross-tenant `AdminReadTx`,
+  `AdminSensitiveRead`, `AdminWriteTx`, and `BEGIN READ ONLY` `SqlScope::AuthPreScope`
+  pre-auth credential proofs.
+- **Effect/lock safety & iterated reads:** `AppPool::run_{mailbox,user}_effect_write`
+  enforces `SET LOCAL idle_in_transaction_session_timeout = 8000`, `<= 5s` peripheral body
+  timeout, bounded concurrency semaphore, preamble advisory lock, and same-tx receipt
+  insert (`lookup_{mailbox,user}_command`). `MailboxTx<ReadWrite>::prelock_mailbox_hierarchy`
+  enforces `#481` `users FOR KEY SHARE -> mailboxes FOR UPDATE`. All `ReadOnly` handles
+  expose `query_iterated_contract` preserving frozen-Go `Rows.Err` parity.
+- **Wave 1.8 Phase `546d` dual-pool `AuthDb` (`auth_db.rs`):** contract-gated facade for
+  `setjoin-identity` routing `SqlScope::UserScoped` statements onto `AppPool` (`setjoin_app`,
+  `NOBYPASSRLS`) with `SET LOCAL app.current_user_id`, `SqlScope::AuthPreScope` reads inside
+  `BEGIN READ ONLY` on the private worker read seam (`setjoin_worker`, `BYPASSRLS`), and
+  `SqlScope::WorkerBypass` statements onto private `WorkerPool` (`setjoin_worker`), with
+  constructors gated behind `#[cfg(feature = "mint")]` so domain crates cannot mint credentials
+  or obtain `WorkerTx`.
+- **Wave 1.8 Phase `546e` contract lock-in & 187-table live `FORCE RLS` matrix:**
+  - `ScopedExecutor` and `WorkerDatabase` are hard-banned across `crates/domains/*/{src,tests}` (`WAVE_1_8_LEGACY_ALLOWLIST == {}`).
+  - Narrow `ScopedExecutor` infrastructure seams retained strictly outside domain crates:
+    internal pool-carrier inside `AuthDb`, `setjoin-authz` (`PolicyGate`, `basic`, `kerberos`,
+    `signing_keys`, `policy::Engine`, `DeviceResolver` with private `with_worker` for unauthenticated
+    device proofs), `setjoin-threat` (`Gate`), protocol listener auth plumbing
+    (`crates/protocols/{imap,smtp,ldap}`), composition-root `/ready` & startup probes,
+    JMAP v1 receipted-command dispatch (`bins/gateway/src/jmap/family/seam` writes), and
+    integration test harnesses. All user-facing scoped reads/writes in `bins/auth` (`ca`, `saml`,
+    `totp` using `AppPool` for user reads and `AdminWorkerPool` backed by `DB_WORKER_DSN` for
+    pre-auth reads) and `bins/gateway` (`federation_typing`, `jmap/{imip,presence,sse,account,http,push,smime_*,family/seam}`
+    using `AppPool` for tenant reads and `WorkerPool::run_read_only_pipelined` / `run_user_write`
+    (pre-commit decode) for cross-user worker reads/writes) route strictly through role-accurate
+    capability pools.
+  - `V289__wave18e_close_legacy_open_rls_policies.sql` drops all 4 legacy open `TO PUBLIC`
+    (`USING (true)` / `WITH CHECK (true)`) policies on `devices`, `user_devices`, and
+    `session_revocations` and enforces strict `app.current_user_id` `TO setjoin_app` scoping.
+  - `crates/pg/tests/rls_full_matrix.rs` reads `config/table-ownership-manifest.json`, asserts
+    `0` pending RLS tables, `0` legacy cross-domain writes, and `open_pols.is_empty()` across all
+    187 scoped tables (66 `mailbox_scoped` + 121 `user_scoped`) with exact 1:1 coverage, refuses
+    non-test databases unless explicitly opted in, serializes concurrent runs via
+    `pg_advisory_lock`, and proves under live `setjoin_app` (`NOSUPERUSER NOBYPASSRLS`) with
+    strictly divergent tenant IDs (`user_id != mailbox_id`): cross-tenant
+    `SELECT`/`INSERT`/`UPDATE`/`DELETE` denial (plus intentional V134:63 org-visible authenticated
+    `SELECT` / owner-only writes on `meetings`), swapped-GUC enforcement, fresh-connection
+    truly-unset (`NULL`) and empty (`''`) GUC fail-closed behavior, and 14 own-scope + 20
+    cross-scope `INSERT ... ON CONFLICT DO NOTHING / DO UPDATE` anti-oracle probes (`ARCH-018:51`).

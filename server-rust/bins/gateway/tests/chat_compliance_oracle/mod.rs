@@ -238,7 +238,7 @@ pub async fn run(action: &str, label: &str, mutant: &str) -> Result<(), BoxError
  if mutant.starts_with("commit-"){
   if recording{return Err("COMMIT tests require native replay".into());}
   let cut=if mutant=="commit-after"{common::commit::CommitCut::AfterCommit}else{common::commit::CommitCut::BeforeCommit};
-  let request=matches!(action,"create"|"update"|"delete"|"hold"|"release");
+  let request=matches!(action,"create"|"update"|"delete");
   let (dsn,task)=common::commit::commit_cut_proxy(if request{&request_dsn}else{&worker_dsn},cut).await;
   if request{request_dsn=dsn;}else{worker_dsn=dsn;}commit_wire=Some(qualification::Wire{task});
  }
@@ -334,7 +334,10 @@ let body=if action=="search"{r#"{"caseId":970001,"terms":"oracle","channelIds":[
         .await?;
     // Enabling the feature records the audit-chain start floor; a disposable database starts without it.
     owner
-        .execute("DELETE FROM system_config WHERE key='chat.compliance_enabled_at'", &[])
+        .execute(
+            "DELETE FROM system_config WHERE key='chat.compliance_enabled_at'",
+            &[],
+        )
         .await?;
     fixture::remove(&owner, &a).await?;
     result

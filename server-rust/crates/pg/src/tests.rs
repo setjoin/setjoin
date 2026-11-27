@@ -496,7 +496,7 @@ fn rejection_log_summary_carries_sqlstate_not_postgres_text() {
 #[test]
 fn contract_param_zip_and_scope_checks_enforce_exact_arity_and_scope() {
     use crate::capability::{check_contract_scope, zip_contract_params};
-    use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlContract, SqlScope};
+    use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope};
 
     static RO_CONTRACT: SqlContract = SqlContract {
         id: "test.ro",
@@ -506,6 +506,7 @@ fn contract_param_zip_and_scope_checks_enforce_exact_arity_and_scope() {
         columns: &[ColumnSpec::unnamed(Type::INT8)],
         scope: SqlScope::MailboxReadOnly,
         rls_check: RlsCheck::PrepareAndExplain,
+        audit: SqlAuditPosture::Standard,
     };
     static WORKER_CONTRACT: SqlContract = SqlContract {
         id: "test.worker",
@@ -515,6 +516,7 @@ fn contract_param_zip_and_scope_checks_enforce_exact_arity_and_scope() {
         columns: &[ColumnSpec::unnamed(Type::INT4)],
         scope: SqlScope::WorkerBypass,
         rls_check: RlsCheck::PrepareAndExplain,
+        audit: SqlAuditPosture::Standard,
     };
 
     // Exact arity passes; short or extra values are refused locally before wire I/O.
@@ -548,16 +550,120 @@ fn contract_param_zip_and_scope_checks_enforce_exact_arity_and_scope() {
         "MailboxTx<ReadWrite>::execute_contract"
     )
     .is_err());
-    assert!(check_contract_scope(
-        &RO_CONTRACT,
-        &[SqlScope::UserScoped],
-        "UserTx<ReadOnly>"
-    )
-    .is_err());
+    assert!(
+        check_contract_scope(&RO_CONTRACT, &[SqlScope::UserScoped], "UserTx<ReadOnly>").is_err()
+    );
     assert!(check_contract_scope(
         &RO_CONTRACT,
         &[SqlScope::AdminRead],
         "AdminReadTx<Standard>"
     )
     .is_err());
+}
+
+#[test]
+fn begin_sql_with_idle_timeout_appends_local_guc() {
+    use crate::pipeline::build_begin_sql_with_idle_timeout;
+    let sql = build_begin_sql_with_idle_timeout(
+        "BEGIN READ WRITE",
+        Duration::from_millis(5000),
+        Some(8_000),
+        PlanCacheHint::Auto,
+    );
+    assert_eq!(
+        sql,
+        "BEGIN READ WRITE; SET LOCAL statement_timeout = 5000; \
+         SET LOCAL idle_in_transaction_session_timeout = 8000"
+    );
+    let custom = build_begin_sql_with_idle_timeout(
+        "BEGIN READ WRITE",
+        Duration::from_millis(2500),
+        Some(8_000),
+        PlanCacheHint::ForceCustomPlan,
+    );
+    assert_eq!(
+        custom,
+        "BEGIN READ WRITE; SET LOCAL statement_timeout = 2500; \
+         SET LOCAL idle_in_transaction_session_timeout = 8000; \
+         SET LOCAL plan_cache_mode = force_custom_plan"
+    );
+}
+
+#[test]
+fn try_app_pool_shares_effect_semaphore_budget() {
+    use std::sync::Arc;
+    let exec = crate::ScopedExecutor::from_dsn("postgres://mail@127.0.0.1:1/nonexistent", 2)
+        .expect("lazy pool creation must not connect eagerly");
+    let pool_a = exec.try_app_pool().expect("fast pool yields AppPool");
+    let pool_b = exec
+        .clone()
+        .try_app_pool()
+        .expect("cloned executor yields AppPool");
+    assert!(
+        Arc::ptr_eq(pool_a.effect_sem(), pool_b.effect_sem()),
+        "all derived AppPools from one ScopedExecutor must share one effect_sem"
+    );
+    let before = pool_b.effect_sem().available_permits();
+    let _permit = pool_a.effect_sem().try_acquire().expect("permit available");
+    assert_eq!(pool_b.effect_sem().available_permits(), before - 1);
+}
+
+#[tokio::test]
+async fn run_mailbox_audited_read_contract_rejects_mailbox_read_write() {
+    use setjoin_contracts::{
+        authority::{AuthorityKey, ResourceScope},
+        command::CommandEnvelope,
+        ids::{ActorId, Digest, Generation, MailboxId, OperationId},
+    };
+    use setjoin_sql_catalog::{RlsCheck, SqlAuditPosture, SqlContract, SqlScope};
+
+    static RW_CONTRACT: SqlContract = SqlContract {
+        id: "test.rw_rejected_by_audited_read",
+        domain: "test",
+        sql: "UPDATE messages SET is_read = TRUE WHERE mailbox_id = $1",
+        params: &[Type::INT8],
+        columns: &[],
+        scope: SqlScope::MailboxReadWrite,
+        rls_check: RlsCheck::PrepareAndExplain,
+        audit: SqlAuditPosture::Standard,
+    };
+
+    let exec = crate::ScopedExecutor::from_dsn("postgres://mail@127.0.0.1:1/nonexistent", 1)
+        .expect("lazy pool");
+    let pool = exec.try_app_pool().expect("AppPool");
+    let actor = ActorId::new(10).unwrap();
+    let mb = MailboxId::new(20).unwrap();
+    let verified = crate::mint::mailbox(actor, mb, Generation(1));
+    let env = CommandEnvelope {
+        operation: OperationId([1; 16]),
+        authority: AuthorityKey {
+            actor,
+            scope: ResourceScope::Mailbox(mb),
+            generation: Generation(1),
+        },
+        binding: setjoin_db::lifecycle::accepted_contract(),
+        payload_digest: Digest([2; 32]),
+        command: (),
+    };
+    let mailbox_id = 20_i64;
+    let out = pool
+        .run_mailbox_audited_read_contract_pipelined(
+            &env,
+            &verified,
+            std::time::Instant::now() + Duration::from_secs(5),
+            &RW_CONTRACT,
+            &[&mailbox_id],
+            None,
+            |_| Ok(()),
+        )
+        .await;
+    match out {
+        crate::CommandOutcome::RolledBack(crate::Rejection::Statement(f)) => {
+            assert!(
+                f.message.contains("contract scope mismatch"),
+                "unexpected failure message: {f:?}"
+            );
+        }
+        other => panic!("expected RolledBack(Statement(scope mismatch)), got {other:?}"),
+    }
 }

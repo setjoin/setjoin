@@ -69,8 +69,23 @@ pub(crate) async fn serve(
             )
         }
     }
-    let actor = auth.context();
-    let thread = match setjoin_chat::members::thread(exec, actor, message).await {
+    let Some(factory) = crate::policy_composition::tx_factory_from_executors(exec, None) else {
+        return typed_problem(
+            503,
+            "service-unavailable",
+            "Service Unavailable",
+            "AI assist is not configured.",
+            path,
+            language,
+            c,
+            id,
+        );
+    };
+    let client_ip = c.identity.client_ip.to_string();
+    let Ok(user) = factory.mint_user_from_authorized(auth, &client_ip).await else {
+        return crate::chat::problem(500, "internal error", path, c, id);
+    };
+    let thread = match setjoin_chat::members::thread(&factory, &user, message).await {
         Ok(thread) => thread,
         Err(ref error) => return crate::chat_channels::failure(error, path, c, id, language),
     };
@@ -99,7 +114,7 @@ pub(crate) async fn serve(
     let Some((body, channel)) = found else {
         return crate::chat::problem(404, "message not found", path, c, id);
     };
-    let config = match logic::load_config(exec).await {
+    let config = match logic::load_config(&factory).await {
         Ok(config) => config,
         Err(_) => {
             return typed_problem(
@@ -124,7 +139,7 @@ pub(crate) async fn serve(
                 go_json_string(&locale)
             );
             match setjoin_chat::members::translate_egress(
-                exec, actor, channel, message, &after, nonce,
+                &factory, &user, channel, message, &after, nonce,
             )
             .await
             {

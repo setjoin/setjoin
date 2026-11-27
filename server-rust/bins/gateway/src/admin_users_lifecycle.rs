@@ -12,7 +12,11 @@ use crate::admin_identity_input as input;
 use crate::{Body, BoxFuture, Intercept, RequestContext};
 use hyper::{Method, Request, Response};
 use setjoin_admin_identity::lifecycle as db;
-use setjoin_authz::{token::KeySource, AuthContext};
+use setjoin_authz::{
+    principals::{AdminPermissionProof, TxFactory},
+    token::KeySource,
+    AuthContext,
+};
 use setjoin_pg::{CommandOutcome, Rejection, ScopedExecutor};
 use std::sync::Arc;
 
@@ -150,7 +154,9 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
         );
         let dispatcher = self.dispatcher.clone();
         Box::pin(async move {
-            let what = action(r.method(), r.uri().path()).expect("matched route");
+            let Some(what) = action(r.method(), r.uri().path()) else {
+                return bare(404, "not found", &c, "");
+            };
             let verdict =
                 crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
@@ -162,6 +168,20 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let admin_principal = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
+            };
             let path = r.uri().path().to_owned();
             let go_path = segment_path(&path);
             let required: &[&str] = match what {
@@ -173,34 +193,57 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                 Action::Password | Action::Secure => &db::USERS_PASSWORD_RESET,
                 Action::SignIns => &setjoin_admin_identity::SIGN_IN,
             };
-            let authority = match setjoin_admin_identity::authority(&exec, actor).await {
-                Ok(authority) if authority.allows_any(required) => authority,
-                _ => {
-                    let _ = setjoin_admin_identity::console_denied(
-                        &exec,
-                        actor,
-                        &go_path,
-                        &required.join("|"),
-                        operation,
-                    )
-                    .await;
-                    return bare(403, "Forbidden", &c, &id);
-                }
-            };
-            if authority.refused_for_scope(required) {
-                let detail = format!(
-                    "{} (domain-scoped principal; org-wide-only surface, domain={})",
-                    required.join("|"),
-                    authority.domain_scope()
-                );
+            let Some(admin_principal) = admin_principal else {
                 let _ = setjoin_admin_identity::console_denied(
-                    &exec, actor, &go_path, &detail, operation,
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
+            if !admin_principal.allows_any(required) {
+                let _ = setjoin_admin_identity::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
                 )
                 .await;
                 return bare(403, "Forbidden", &c, &id);
             }
-            let scope = authority.domain_scope();
-            let ip = c.identity.client_ip.to_string();
+            let scope = admin_principal.enforced_domain_scope().unwrap_or(0);
+            if admin_principal.refused_for_scope(required) {
+                let detail = format!(
+                    "{} (domain-scoped principal; org-wide-only surface, domain={})",
+                    required.join("|"),
+                    scope
+                );
+                let _ = setjoin_admin_identity::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &detail,
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            }
+            let Ok(admin_proof) = admin_principal.require_any_permission(required) else {
+                let _ = setjoin_admin_identity::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
+            let actor_id = actor.user_id();
             let reply =
                 |body: String| crate::jmap::reply::response(body, c.identity.proto, id.clone());
             let full = |status: u16, detail: &str| problem(status, detail, &go_path, &c, &id);
@@ -230,7 +273,8 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
             };
             // A refusal decided by a reducer, a protection denial, or the database failing.
             let failed = |error: Rejection<setjoin_pg::StatementFailure>, target: i64| {
-                let (exec, c, id, go_path, ip) = (&exec, &c, &id, &go_path, &ip);
+                let (factory, user_principal, c, id, go_path, ip) =
+                    (&factory, &user_principal, &c, &id, &go_path, &ip);
                 async move {
                     if let Some(p) = db::problem_of(&error) {
                         return problem(p.status, &p.detail, go_path, c, id);
@@ -255,7 +299,12 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                         _ => return database(),
                     };
                     setjoin_admin_identity::roles::protection_denied(
-                        exec, actor, target, class, ip, operation,
+                        factory,
+                        user_principal,
+                        target,
+                        class,
+                        ip,
+                        operation,
                     )
                     .await;
                     reducer(status, class, &e.message, remediation, go_path, c, id)
@@ -269,8 +318,9 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                         return full(400, "invalid JSON");
                     };
                     create(
-                        &exec,
+                        &factory,
                         &worker,
+                        &admin_proof,
                         actor,
                         scope,
                         req,
@@ -283,12 +333,25 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                     )
                     .await
                 }
-                Action::Import => import(&exec, actor, scope, &mut r, &reply, &full, &c).await,
+                Action::Import => {
+                    import(
+                        &factory,
+                        &worker,
+                        &admin_proof,
+                        actor,
+                        scope,
+                        &mut r,
+                        &reply,
+                        &full,
+                        &c,
+                    )
+                    .await
+                }
                 Action::Update => {
                     let Some(target) = number(4) else {
                         return full(400, "invalid user id");
                     };
-                    match db::is_guest(&exec, target).await {
+                    match db::is_guest(&factory, &admin_proof, target).await {
                         Err(_) => return database(),
                         Ok(true) => return full(409, GUEST_REFUSED),
                         Ok(false) => {}
@@ -296,7 +359,7 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                     let Ok(req) = input::first::<input::UserUpdate>(&mut r, 1 << 20).await else {
                         return full(400, "invalid JSON");
                     };
-                    match db::can_manage(&exec, actor.user_id(), target).await {
+                    match db::can_manage(&factory, &admin_proof, actor_id, target).await {
                         Err(_) => return database(),
                         Ok(false) => return full(404, "admin user not found"),
                         Ok(true) => {}
@@ -307,15 +370,22 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                         return full(400, "no fields to update");
                     }
                     let disabling = req.enabled == Some(false);
-                    match db::update(
+                    match crate::mailboxes::worker_write_contract_family(
                         &worker,
-                        actor,
-                        target,
-                        scope,
-                        name.as_deref(),
-                        req.enabled,
-                        req.is_local_admin,
+                        &admin_proof,
+                        setjoin_admin_identity::FAMILY,
+                        "user.update",
+                        &setjoin_admin_identity::sql::USER_UPDATE,
+                        &[
+                            &actor_id,
+                            &target,
+                            &scope,
+                            &name,
+                            &req.enabled,
+                            &req.is_local_admin,
+                        ],
                         operation,
+                        db::parse_mut_verdict,
                     )
                     .await
                     {
@@ -353,12 +423,12 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                     let Some(target) = number(4) else {
                         return full(400, "invalid user id");
                     };
-                    match db::is_guest(&exec, target).await {
+                    match db::is_guest(&factory, &admin_proof, target).await {
                         Err(_) => return database(),
                         Ok(true) => return full(409, GUEST_REFUSED),
                         Ok(false) => {}
                     }
-                    match db::lifecycle_enabled(&worker).await {
+                    match db::lifecycle_enabled(&factory, &admin_proof).await {
                         Err(_) => return database(),
                         Ok(true) => {
                             return full(
@@ -368,7 +438,18 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                         }
                         Ok(false) => {}
                     }
-                    match db::delete(&worker, actor, target, scope, operation).await {
+                    match crate::mailboxes::worker_write_contract_family(
+                        &worker,
+                        &admin_proof,
+                        setjoin_admin_identity::FAMILY,
+                        "user.delete",
+                        &setjoin_admin_identity::sql::USER_DELETE,
+                        &[&actor_id, &target, &scope],
+                        operation,
+                        db::parse_mut_verdict,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(queued) => {
                             if !queued {
                                 let event = crate::webhook::CloudEvent::new(
@@ -392,31 +473,33 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                     else {
                         return full(400, "invalid JSON");
                     };
-                    match db::can_manage(&exec, actor.user_id(), target).await {
+                    match db::can_manage(&factory, &admin_proof, actor_id, target).await {
                         Err(_) => return database(),
                         Ok(false) => return full(404, "user not found"),
                         Ok(true) => {}
                     }
-                    let email = match db::reset_email(&exec, scope, target).await {
+                    let email = match db::reset_email(&factory, &admin_proof, scope, target).await {
                         Ok(Some(email)) => email,
                         Ok(None) => return full(404, "user not found"),
                         Err(_) => return database(),
                     };
                     // Classified only after the privacy-preserving reach checks above.
-                    match db::is_guest(&exec, target).await {
+                    match db::is_guest(&factory, &admin_proof, target).await {
                         Err(_) => return database(),
                         Ok(true) => return full(409, GUEST_REFUSED),
                         Ok(false) => {}
                     }
-                    if let Err(message) = admin_password(&exec, &req.password, &email).await {
+                    if let Err(message) =
+                        admin_password(&factory, &admin_proof, &req.password, &email).await
+                    {
                         return full(400, message);
                     }
                     let Some(hashed) = hash(req.password).await else {
                         return full(500, "password hashing failed");
                     };
                     match db::reset_password(
-                        &exec,
-                        actor,
+                        &factory,
+                        &admin_proof,
                         target,
                         scope,
                         &hashed,
@@ -434,17 +517,17 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                     let Some(target) = number(4) else {
                         return plain(400, "bad id");
                     };
-                    match db::in_scope(&exec, scope, target).await {
+                    match db::in_scope(&factory, &admin_proof, scope, target).await {
                         Ok(true) => {}
                         _ => return plain(404, "not found"),
                     }
                     if what == Action::SignIns {
-                        return match db::sign_ins(&exec, target, scope).await {
+                        return match db::sign_ins(&factory, &admin_proof, target, scope).await {
                             Ok(body) => reply(body),
                             Err(_) => plain(500, "database error"),
                         };
                     }
-                    match db::secure(&exec, actor, target, scope, &ip, operation).await {
+                    match db::secure(&factory, &admin_proof, target, scope, &ip, operation).await {
                         CommandOutcome::Committed(()) => reply("{\"status\":\"secured\"}\n".into()),
                         CommandOutcome::RolledBack(_) => plain(500, "database error"),
                         CommandOutcome::Unknown { operation } => unknown(operation),
@@ -458,8 +541,9 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                         return plain(400, "invalid app password id");
                     };
                     match db::revoke_app_password(
-                        &exec,
-                        actor,
+                        &factory,
+                        &admin_proof,
+                        actor.email(),
                         user,
                         app_password,
                         scope,
@@ -481,13 +565,14 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
 
 /// Go's `validateAdminPassword`: policy, then the common-password list.
 async fn admin_password(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     password: &str,
     email: &str,
 ) -> Result<(), &'static str> {
-    let policy = db::load_policy(exec).await;
+    let policy = db::load_policy(factory, admin).await;
     db::validate_password(password, &policy, email)?;
-    if db::is_common_password(exec, password).await {
+    if db::is_common_password(factory, admin, password).await {
         return Err(db::COMMON_PASSWORD);
     }
     Ok(())
@@ -495,8 +580,9 @@ async fn admin_password(
 
 #[allow(clippy::too_many_arguments)]
 async fn create(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
     worker: &ScopedExecutor,
+    admin: &AdminPermissionProof,
     actor: &AuthContext,
     scope: i64,
     req: input::UserCreate,
@@ -522,15 +608,15 @@ async fn create(
     if let Err(message) = db::validate_display_name(&display_name) {
         return full(400, message);
     }
-    if let Err(message) = admin_password(exec, &req.password, &canonical).await {
+    if let Err(message) = admin_password(factory, admin, &req.password, &canonical).await {
         return full(400, message);
     }
     let Some(hashed) = hash(req.password.clone()).await else {
         return full(500, "password hashing failed");
     };
     match db::create(
-        worker,
-        actor,
+        factory,
+        admin,
         &req.email,
         &canonical,
         &display_name,
@@ -552,9 +638,7 @@ async fn create(
             }
             // Go starts the welcome email from a goroutine and answers without it.
             let worker = worker.clone();
-            tokio::spawn(
-                async move { setjoin_directory_sync::scim::send_welcome(&worker, user).await },
-            );
+            tokio::spawn(async move { crate::scim::send_welcome(&worker, user).await });
             created(201, format!("{{\"id\":{user}}}\n"))
         }
         CommandOutcome::RolledBack(e) => match db::problem_of(&e) {
@@ -601,8 +685,11 @@ async fn csv_file(r: &mut Request<Body>) -> Result<Option<Vec<u8>>, ()> {
     Ok(file)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn import(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    worker: &ScopedExecutor,
+    admin: &AdminPermissionProof,
     actor: &AuthContext,
     scope: i64,
     r: &mut Request<Body>,
@@ -631,7 +718,7 @@ async fn import(
         }
     }
     let grant_domain = (scope > 0).then_some(scope);
-    let policy = db::load_policy(exec).await;
+    let policy = db::load_policy(factory, admin).await;
     let mut created = 0u64;
     let mut failed: Vec<String> = Vec::new();
     let mut row = 1u64;
@@ -643,6 +730,7 @@ async fn import(
             quote(message)
         ));
     };
+    let actor_id = actor.user_id();
     loop {
         let record = match reader.read() {
             Record::Eof => break,
@@ -676,7 +764,7 @@ async fn import(
             fail(&mut failed, row, &email, message);
             continue;
         }
-        if db::is_common_password(exec, &password).await {
+        if db::is_common_password(factory, admin, &password).await {
             fail(&mut failed, row, &email, db::COMMON_PASSWORD);
             continue;
         }
@@ -696,8 +784,9 @@ async fn import(
         };
         let department = positive("department_id");
         if let Some(department) = department {
-            if actor.user_id() > 0 {
-                match db::department_in_scope(exec, actor.user_id(), department, grant_domain).await
+            if actor_id > 0 {
+                match db::department_in_scope(factory, admin, actor_id, department, grant_domain)
+                    .await
                 {
                     Err(_) => {
                         fail(&mut failed, row, &email, "department scope check failed");
@@ -721,7 +810,7 @@ async fn import(
             fail(&mut failed, row, &email, "password hashing failed");
             continue;
         };
-        let Some(domain) = db::local_domain(exec, &email).await else {
+        let Some(domain) = db::local_domain(factory, admin, &email).await else {
             fail(
                 &mut failed,
                 row,
@@ -746,16 +835,23 @@ async fn import(
             fail(&mut failed, row, &email, "database error");
             continue;
         };
-        match db::import_row(
-            exec,
-            actor,
-            &canonical,
-            &display_name,
-            &hashed,
-            is_local_admin,
-            department,
-            quota,
+        match crate::mailboxes::worker_write_contract_family(
+            worker,
+            admin,
+            setjoin_admin_identity::FAMILY,
+            "user.import.row",
+            &setjoin_admin_identity::sql::USER_IMPORT_ROW,
+            &[
+                &canonical,
+                &display_name,
+                &hashed,
+                &is_local_admin,
+                &department,
+                &quota,
+                &actor_id,
+            ],
             operation,
+            db::parse_import_row,
         )
         .await
         {

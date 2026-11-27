@@ -26,6 +26,7 @@ SELECT plan(15);
 -- mailbox 90000+). A is the subject; B is the foreign tenant. ───────────────
 SELECT mk_account('rlsA') AS mba \gset
 SELECT mk_account('rlsB') AS mbb \gset
+SELECT get_tag_id('Inbox', :mbb) AS inbox_b \gset
 
 -- ── Messages (as the superuser, BEFORE SET ROLE): A ×2, B ×1. received_at =
 -- now() (2026-06) hits the seeded messages_2026_06 partition. ───────────────
@@ -129,7 +130,7 @@ SELECT lives_ok(
 SELECT throws_ok(
   format($$ INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
             VALUES (771004, %s, %s, '<a4@rls.test>', 'forge B', 'x@ext.com', 10, 'thr-a4', 'raw-a4', now(), FALSE) $$,
-         :mbb, get_tag_id('Inbox', :mbb)),
+         :mbb, :inbox_b),
   '42501',
   NULL,
   'messages WITH CHECK / GUC=A: INSERT owned by B is REJECTED (WITH CHECK)');

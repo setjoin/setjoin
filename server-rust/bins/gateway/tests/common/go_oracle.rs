@@ -214,27 +214,27 @@ async fn start_configured(
     let keep = std::env::var("GOFREE_ORACLE_KEEP_WORKERS").unwrap_or_default();
     let keep: Vec<&str> = keep.split(',').filter(|name| !name.is_empty()).collect();
     let workers = include_str!("../../data/worker_launch_inventory.golden")
-    .lines()
-    .filter_map(|line| {
-        let mut fields = line.split('|');
-        let kind = fields.next()?;
-        let name = fields.next()?;
-        (matches!(kind, "named" | "managed" | "cron-task")
-            && !(approval_notify && name == "approval-notify")
-            && !(drive_watch && name == "drive-watch")
-            && !keep.contains(&name)
-            && !matches!(
-                name,
-                "http-h2c"
-                    | "db-listener"
-                    | "config-reload"
-                    | "session-denylist-refresh"
-                    | "auth-chain-reload"
-            ))
-        .then_some(name)
-    })
-    .collect::<Vec<_>>()
-    .join(",");
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split('|');
+            let kind = fields.next()?;
+            let name = fields.next()?;
+            (matches!(kind, "named" | "managed" | "cron-task")
+                && !(approval_notify && name == "approval-notify")
+                && !(drive_watch && name == "drive-watch")
+                && !keep.contains(&name)
+                && !matches!(
+                    name,
+                    "http-h2c"
+                        | "db-listener"
+                        | "config-reload"
+                        | "session-denylist-refresh"
+                        | "auth-chain-reload"
+                ))
+            .then_some(name)
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     let mut command = Command::new("docker");
     command
         .args([

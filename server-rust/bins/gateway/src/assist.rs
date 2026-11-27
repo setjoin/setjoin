@@ -224,7 +224,20 @@ impl<K: KeySource + 'static> Intercept for AssistRoute<K> {
             if let Err(why) = logic::validate(&request) {
                 return invalid(&c, id, why.detail());
             }
-            let config = match logic::load_config(&exec).await {
+            let Some(factory) = crate::policy_composition::tx_factory_from_executors(&exec, None)
+            else {
+                return typed_problem(
+                    503,
+                    "service-unavailable",
+                    "Service Unavailable",
+                    "AI assist is temporarily unavailable.",
+                    &instance,
+                    &language,
+                    &c,
+                    id,
+                );
+            };
+            let config = match logic::load_config(&factory).await {
                 Ok(config) => config,
                 Err(logic::ConfigError::NotConfigured) => {
                     return typed_problem(

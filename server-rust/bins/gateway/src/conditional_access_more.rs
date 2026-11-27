@@ -8,7 +8,7 @@ use crate::{Body, RequestContext};
 use hyper::{Method, Request, Response};
 use serde::de::{MapAccess, Visitor};
 use serde_json::value::RawValue;
-use setjoin_authz::AuthContext;
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
 use setjoin_conditional_access as ca;
 use setjoin_conditional_access::policies::{project, project_rejection, Projected};
 use setjoin_pg::{CommandOutcome, ScopedExecutor};
@@ -51,7 +51,8 @@ impl More {
         use More::*;
         matches!(
             self,
-            Simulate | LocationList
+            Simulate
+                | LocationList
                 | StrengthList
                 | Principals
                 | BreakGlassGet
@@ -149,7 +150,8 @@ pub(crate) fn action(method: &Method, path: &str) -> Option<More> {
 pub(crate) struct Ctx<'a> {
     pub exec: &'a ScopedExecutor,
     pub worker: &'a ScopedExecutor,
-    pub actor: &'a AuthContext,
+    pub factory: &'a TxFactory,
+    pub admin: &'a AdminPermissionProof,
     pub c: &'a RequestContext,
     pub id: &'a str,
     pub operation: [u8; 16],
@@ -467,7 +469,7 @@ fn atoi(text: &str) -> i64 {
 
 pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Response<Body> {
     use More::*;
-    let (exec, actor, ip, operation) = (x.exec, x.actor, x.ip, x.operation);
+    let (factory, admin, ip, operation) = (x.factory, x.admin, x.ip, x.operation);
     let seg = |index: usize| crate::mail_security::segment(x.path, index);
     let path_id = |index: usize| seg(index).parse::<i64>().ok();
     // Owner-approved security fix 2026-11-05 (#467, #510): organization-wide CA objects (named
@@ -492,10 +494,10 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
         }
     }
     match what {
-        Simulate => simulate(r,x).await,
+        Simulate => simulate(r, x).await,
         LocationList => {
             let include = query(r.uri(), "include_deleted").as_deref() == Some("1");
-            match ca::locations::list(exec, include).await {
+            match ca::locations::list(factory, admin, include).await {
                 Ok(body) => x.json(body, 200),
                 Err(_) => x.database(),
             }
@@ -524,7 +526,7 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
                 countries: countries.as_deref(),
                 trusted: body.trusted,
             };
-            match ca::locations::save(exec, actor, ip, id, &location, operation).await {
+            match ca::locations::save(factory, admin, ip, id, &location, operation).await {
                 CommandOutcome::Committed(id) => x.json(ca::done(format!("{{\"id\":{id}}}")), 200),
                 CommandOutcome::RolledBack(e) => x.failed(project_rejection(&e)),
                 CommandOutcome::Unknown { operation } => x.unknown(operation),
@@ -534,7 +536,7 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
             let Some(id) = path_id(5) else {
                 return x.bare(400, "invalid location ID");
             };
-            match ca::locations::soft_delete(exec, actor, ip, id, operation).await {
+            match ca::locations::soft_delete(factory, admin, ip, id, operation).await {
                 CommandOutcome::Committed(()) => x.no_content(),
                 CommandOutcome::RolledBack(e) => x.failed(project_rejection(&e)),
                 CommandOutcome::Unknown { operation } => x.unknown(operation),
@@ -544,13 +546,13 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
             let Some(id) = path_id(5) else {
                 return x.bare(400, "invalid location ID");
             };
-            match ca::locations::restore(exec, actor, ip, id, operation).await {
+            match ca::locations::restore(factory, admin, ip, id, operation).await {
                 CommandOutcome::Committed(id) => x.json(ca::done(format!("{{\"id\":{id}}}")), 200),
                 CommandOutcome::RolledBack(e) => x.failed(project_rejection(&e)),
                 CommandOutcome::Unknown { operation } => x.unknown(operation),
             }
         }
-        StrengthList => match ca::strengths::list(exec).await {
+        StrengthList => match ca::strengths::list(factory, admin).await {
             Ok(body) => x.json(body, 200),
             Err(_) => x.database(),
         },
@@ -581,7 +583,7 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
                 combinations: body.combinations.as_deref().map(RawValue::get),
                 min_acr: &body.min_acr,
             };
-            match ca::strengths::save(exec, actor, ip, id, &strength, operation).await {
+            match ca::strengths::save(factory, admin, ip, id, &strength, operation).await {
                 CommandOutcome::Committed(id) => x.json(ca::done(format!("{{\"id\":{id}}}")), 200),
                 CommandOutcome::RolledBack(e) => x.failed(project_rejection(&e)),
                 CommandOutcome::Unknown { operation } => x.unknown(operation),
@@ -591,7 +593,7 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
             let Some(id) = path_id(5) else {
                 return x.bare(400, "invalid strength ID");
             };
-            match ca::strengths::delete(exec, actor, ip, id, operation).await {
+            match ca::strengths::delete(factory, admin, ip, id, operation).await {
                 CommandOutcome::Committed(()) => x.no_content(),
                 CommandOutcome::RolledBack(e) => x.failed(project_rejection(&e)),
                 CommandOutcome::Unknown { operation } => x.unknown(operation),
@@ -604,12 +606,12 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
             let groups = query(r.uri(), "groups")
                 .map(|t| parse_ids(&t))
                 .unwrap_or_default();
-            match ca::console::principals(exec, &users, &groups).await {
+            match ca::console::principals(factory, admin, &users, &groups).await {
                 Ok(body) => x.json(body, 200),
                 Err(_) => x.database(),
             }
         }
-        BreakGlassGet => match ca::console::break_glass(exec).await {
+        BreakGlassGet => match ca::console::break_glass(factory, admin).await {
             Ok(body) => x.json(body, 200),
             Err(_) => x.database(),
         },
@@ -620,7 +622,7 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
             if ids.0.is_empty() {
                 return x.bare(400, "at least one user ID required");
             }
-            match ca::console::set_break_glass(exec, actor, ip, &ids.0, operation).await {
+            match ca::console::set_break_glass(factory, admin, ip, &ids.0, operation).await {
                 CommandOutcome::Committed(()) => x.no_content(),
                 CommandOutcome::RolledBack(e) => x.failed(project_rejection(&e)),
                 CommandOutcome::Unknown { operation } => x.unknown(operation),
@@ -643,7 +645,7 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
                     return refused;
                 }
             } else if let Some(user) = user {
-                match ca::policies::user_in_reach(exec, actor, user).await {
+                match ca::policies::user_in_reach(factory, admin, user).await {
                     Ok(true) => {}
                     Ok(false) => {
                         return x.bare(403, "target user is outside your administrative scope")
@@ -652,7 +654,8 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
                 }
             }
             match ca::console::signin_log(
-                exec,
+                factory,
+                admin,
                 (!corr.is_empty()).then_some(corr.as_str()),
                 user,
                 limit,
@@ -667,14 +670,14 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
             let Some(target) = path_id(5) else {
                 return x.bare(400, "invalid user id");
             };
-            match ca::console::can_reach(exec, actor.user_id(), target).await {
+            match ca::console::can_reach(factory, admin, target).await {
                 Err(_) => return x.database(),
                 Ok(false) => {
                     return x.bare(403, "target user is outside your administrative scope");
                 }
                 Ok(true) => {}
             }
-            match ca::console::revoke_sessions(exec, actor, target, operation).await {
+            match ca::console::revoke_sessions(factory, admin, target, operation).await {
                 CommandOutcome::Committed(id) => {
                     x.json(ca::done(format!("{{\"revocation_id\":{id}}}")), 200)
                 }
@@ -682,11 +685,11 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
                 CommandOutcome::Unknown { operation } => x.unknown(operation),
             }
         }
-        SessionsLog => match ca::console::sessions_log(x.worker, actor).await {
+        SessionsLog => match ca::console::sessions_log(factory, admin).await {
             Ok(body) => x.json(body, 200),
             Err(_) => x.database(),
         },
-        TemplatesList => match ca::console::templates(exec).await {
+        TemplatesList => match ca::console::templates(factory, admin).await {
             Ok(body) => x.json(body, 200),
             Err(_) => x.database(),
         },
@@ -698,11 +701,13 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
             if let Some(refused) = org_wide_only(x, false).await {
                 return refused;
             }
-            match ca::console::instantiate(exec, actor, &slug, operation).await {
-                CommandOutcome::Committed(id) => match ca::console::instantiated(exec, id).await {
-                    Ok(body) => x.raw(body, 201),
-                    Err(_) => x.bare(500, "policy created but read failed"),
-                },
+            match ca::console::instantiate(factory, admin, &slug, operation).await {
+                CommandOutcome::Committed(id) => {
+                    match ca::console::instantiated(factory, admin, id).await {
+                        Ok(body) => x.raw(body, 201),
+                        Err(_) => x.bare(500, "policy created but read failed"),
+                    }
+                }
                 CommandOutcome::RolledBack(e) => x.failed(project_rejection(&e)),
                 CommandOutcome::Unknown { operation } => x.unknown(operation),
             }
@@ -720,7 +725,7 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
                 "30d" => 30 * 86400,
                 _ => return x.bare(400, "since must be one of: 24h, 7d, 30d"),
             };
-            match ca::console::why(exec, &user, &corr, seconds).await {
+            match ca::console::why(factory, admin, &user, &corr, seconds).await {
                 Ok(ca::console::Why::NotFound) => x.json(ca::done("{\"found\":false}".into()), 404),
                 Ok(ca::console::Why::Found(body)) => x.json(body, 200),
                 Err(_) => x.database(),
@@ -735,12 +740,12 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
                 .unwrap_or("7d".into());
             let list = query(r.uri(), "list").filter(|l| !l.is_empty());
             // Owner-approved security fix 2026-11-05 (#467): only a policy in the caller's reach.
-            match ca::policies::gate(exec, actor, Some(policy), None, None, true).await {
+            match ca::policies::gate(factory, admin, Some(policy), None, None, true).await {
                 Ok(ca::policies::Gate::Allowed) => {}
                 Ok(_) => return x.failed(ca::policies::not_found()),
                 Err(_) => return x.database(),
             }
-            match ca::console::impact(exec, actor, policy, &window, list.as_deref()).await {
+            match ca::console::impact(factory, admin, policy, &window, list.as_deref()).await {
                 Ok(body) => x.raw(body, 200),
                 Err(e) => {
                     // 22023 (bad window or list) is a 400 whose detail is the generic text.
@@ -752,11 +757,11 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
                 }
             }
         }
-        Coverage => match ca::console::coverage(exec).await {
+        Coverage => match ca::console::coverage(factory, admin).await {
             Ok(body) => x.raw(body, 200),
             Err(_) => x.database(),
         },
-        Doctor => match ca::console::doctor(exec).await {
+        Doctor => match ca::console::doctor(factory, admin).await {
             Ok(body) => x.raw(body, 200),
             Err(_) => x.database(),
         },
@@ -764,7 +769,7 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
             if let Some(refused) = org_wide_only(x, true).await {
                 return refused;
             }
-            match ca::exchange::export(exec).await {
+            match ca::exchange::export(factory, admin).await {
                 Ok(body) => x.json(body, 200),
                 Err(_) => x.database(),
             }
@@ -779,7 +784,7 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
             let mode = query(r.uri(), "mode")
                 .filter(|m| !m.is_empty())
                 .unwrap_or("merge".into());
-            match ca::console::import(exec, actor, document.0.get(), &mode, operation).await {
+            match ca::console::import(factory, admin, document.0.get(), &mode, operation).await {
                 CommandOutcome::Committed(body) => x.raw(body, 200),
                 CommandOutcome::RolledBack(e) => x.failed(project_rejection(&e)),
                 CommandOutcome::Unknown { operation } => x.unknown(operation),
@@ -801,7 +806,7 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
                     actions: p.actions.map(|a| a.get().to_owned()),
                 })
                 .collect();
-            match ca::exchange::diff(exec, &policies).await {
+            match ca::exchange::diff(factory, admin, &policies).await {
                 Ok(body) => x.json(body, 200),
                 Err(_) => x.database(),
             }
@@ -814,7 +819,7 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
                 },
                 None => 100,
             };
-            match ca::risk::list(x.worker, limit).await {
+            match ca::risk::list(factory, admin, limit).await {
                 Ok(body) => x.json(body, 200),
                 Err(_) => x.database(),
             }
@@ -823,7 +828,7 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
             let Some(user) = path_id(4) else {
                 return x.bare(400, "invalid user id");
             };
-            match ca::risk::reset(x.worker, actor, ip, user, operation).await {
+            match ca::risk::reset(factory, admin, ip, user, operation).await {
                 CommandOutcome::Committed(true) => x.no_content(),
                 CommandOutcome::Committed(false) => x.bare(404, "user_risk not found"),
                 CommandOutcome::RolledBack(_) => x.database(),
@@ -835,67 +840,147 @@ pub(crate) async fn serve(what: More, r: &mut Request<Body>, x: &Ctx<'_>) -> Res
 
 #[derive(Default)]
 struct SimulateBody {
-    from_signin:Option<i64>, user_id:Option<i64>, is_guest:Option<bool>,
-    ip:String,client_type:String,protocol:String,country:String,device_fp:String,
-    auth_method:String,device_trust:String,user_agent:String,
+    from_signin: Option<i64>,
+    user_id: Option<i64>,
+    is_guest: Option<bool>,
+    ip: String,
+    client_type: String,
+    protocol: String,
+    country: String,
+    device_fp: String,
+    auth_method: String,
+    device_trust: String,
+    user_agent: String,
 }
 impl<'de> serde::Deserialize<'de> for SimulateBody {
-    fn deserialize<D:serde::Deserializer<'de>>(d:D)->Result<Self,D::Error>{
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         struct Fields;
-        impl<'de> Visitor<'de> for Fields{
-            type Value=SimulateBody;
-            fn expecting(&self,f:&mut fmt::Formatter<'_>)->fmt::Result{f.write_str("a JSON object")}
-            fn visit_unit<E:serde::de::Error>(self)->Result<Self::Value,E>{Ok(SimulateBody::default())}
-            fn visit_map<M:MapAccess<'de>>(self,mut map:M)->Result<Self::Value,M::Error>{
-                let mut b=SimulateBody::default();
-                while let Some(key)=map.next_key::<String>()?{
-                    macro_rules! text{($field:ident)=>{if let Some(v)=map.next_value::<Option<String>>()?{b.$field=v;}}}
-                    match crate::guests_input::fold(&key).as_str(){
-                        "from_signin"=>b.from_signin=map.next_value()?,"user_id"=>b.user_id=map.next_value()?,"is_guest"=>b.is_guest=map.next_value()?,
-                        "ip"=>text!(ip),"client_type"=>text!(client_type),"protocol"=>text!(protocol),"country"=>text!(country),"device_fp"=>text!(device_fp),
-                        "auth_method"=>text!(auth_method),"device_trust"=>text!(device_trust),"user_agent"=>text!(user_agent),
-                        _=>{let _:serde::de::IgnoredAny=map.next_value()?;}
-                    }
-                }Ok(b)
+        impl<'de> Visitor<'de> for Fields {
+            type Value = SimulateBody;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a JSON object")
             }
-        }d.deserialize_any(Fields)
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(SimulateBody::default())
+            }
+            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+                let mut b = SimulateBody::default();
+                while let Some(key) = map.next_key::<String>()? {
+                    macro_rules! text {
+                        ($field:ident) => {
+                            if let Some(v) = map.next_value::<Option<String>>()? {
+                                b.$field = v;
+                            }
+                        };
+                    }
+                    match crate::guests_input::fold(&key).as_str() {
+                        "from_signin" => b.from_signin = map.next_value()?,
+                        "user_id" => b.user_id = map.next_value()?,
+                        "is_guest" => b.is_guest = map.next_value()?,
+                        "ip" => text!(ip),
+                        "client_type" => text!(client_type),
+                        "protocol" => text!(protocol),
+                        "country" => text!(country),
+                        "device_fp" => text!(device_fp),
+                        "auth_method" => text!(auth_method),
+                        "device_trust" => text!(device_trust),
+                        "user_agent" => text!(user_agent),
+                        _ => {
+                            let _: serde::de::IgnoredAny = map.next_value()?;
+                        }
+                    }
+                }
+                Ok(b)
+            }
+        }
+        d.deserialize_any(Fields)
     }
 }
-async fn simulate(r:&mut Request<Body>,x:&Ctx<'_>)->Response<Body>{
-    use ca::policy::{eval::{Context,Snapshot,simulate_json},store};
+async fn simulate(r: &mut Request<Body>, x: &Ctx<'_>) -> Response<Body> {
+    use ca::policy::{
+        eval::{simulate_json, Context, Snapshot},
+        store,
+    };
     use setjoin_pg::Type;
-    let Ok(b)=first::<SimulateBody>(r,1<<16).await else{return x.bare(400,"invalid JSON");};
-    let mut c=Context::default();
-    if let Some(id)=b.from_signin{
+    let Ok(b) = first::<SimulateBody>(r, 1 << 16).await else {
+        return x.bare(400, "invalid JSON");
+    };
+    let mut c = Context::default();
+    if let Some(id) = b.from_signin {
         let rows=x.exec.read("SELECT user_id,host(source_ip),protocol,client_type,country FROM ca_signin_log WHERE id=$1",&[(&id,Type::INT8)]).await;
-        let Ok(rows)=rows else{return x.bare(400,"from_signin: row not found or invalid");};
-        let Some(row)=rows.first()else{return x.bare(400,"from_signin: row not found or invalid");};
-        c.user_id=row.get::<_,Option<i64>>(0).unwrap_or(0);
-        c.source_ip=row.get::<_,Option<String>>(1).unwrap_or_default();
-        c.protocol=row.get::<_,Option<String>>(2).unwrap_or_default();
-        c.client_type=row.get::<_,Option<String>>(3).unwrap_or_default();
-        c.country=row.get::<_,Option<String>>(4).unwrap_or_default();
+        let Ok(rows) = rows else {
+            return x.bare(400, "from_signin: row not found or invalid");
+        };
+        let Some(row) = rows.first() else {
+            return x.bare(400, "from_signin: row not found or invalid");
+        };
+        c.user_id = row.get::<_, Option<i64>>(0).unwrap_or(0);
+        c.source_ip = row.get::<_, Option<String>>(1).unwrap_or_default();
+        c.protocol = row.get::<_, Option<String>>(2).unwrap_or_default();
+        c.client_type = row.get::<_, Option<String>>(3).unwrap_or_default();
+        c.country = row.get::<_, Option<String>>(4).unwrap_or_default();
     }
-    if let Some(user)=b.user_id{c.user_id=user;}
-    if c.user_id!=0{
+    if let Some(user) = b.user_id {
+        c.user_id = user;
+    }
+    if c.user_id != 0 {
         // The frozen simulator drops membership lookup errors, unlike live eval.
-        (c.group_ids,c.role_group_ids)=store::resolve_scope(x.exec,c.user_id).await.unwrap_or_default();
-        let Ok(rows)=x.exec.read("SELECT is_guest_account($1)",&[(&c.user_id,Type::INT8)]).await else{return x.database();};
-        c.is_guest=rows[0].get(0);
-    }else{c.is_guest=b.is_guest.unwrap_or(false);}
-    for (target,value) in [(&mut c.source_ip,b.ip),(&mut c.client_type,b.client_type),(&mut c.protocol,b.protocol),(&mut c.country,b.country),(&mut c.device_fp,b.device_fp),(&mut c.auth_method,b.auth_method),(&mut c.user_agent,b.user_agent)]{if !value.is_empty(){*target=value;}}
-    c.trust_tier=if b.device_trust.is_empty(){store::resolve_trust(x.exec,&c).await}else{b.device_trust};
-    let Ok(geo)=store::resolve_geo(x.exec,&c.country).await else{return x.database();};c.geo_tier=geo;
-    c.score_band=if matches!(c.geo_tier.as_str(),"high"|"critical"){"medium"}else{"low"}.into();
-    let Ok(snapshot)=Snapshot::load(x.exec).await else{return x.database();};
-    x.json(simulate_json(&snapshot,&c),200)
+        (c.group_ids, c.role_group_ids) = store::resolve_scope(x.worker, c.user_id)
+            .await
+            .unwrap_or_default();
+        let Ok(rows) = x
+            .worker
+            .read("SELECT is_guest_account($1)", &[(&c.user_id, Type::INT8)])
+            .await
+        else {
+            return x.database();
+        };
+        c.is_guest = rows
+            .first()
+            .and_then(|r| r.try_get(0).ok())
+            .unwrap_or(false);
+    } else {
+        c.is_guest = b.is_guest.unwrap_or(false);
+    }
+    for (target, value) in [
+        (&mut c.source_ip, b.ip),
+        (&mut c.client_type, b.client_type),
+        (&mut c.protocol, b.protocol),
+        (&mut c.country, b.country),
+        (&mut c.device_fp, b.device_fp),
+        (&mut c.auth_method, b.auth_method),
+        (&mut c.user_agent, b.user_agent),
+    ] {
+        if !value.is_empty() {
+            *target = value;
+        }
+    }
+    c.trust_tier = if b.device_trust.is_empty() {
+        store::resolve_trust(x.worker, &c).await
+    } else {
+        b.device_trust
+    };
+    let Ok(geo) = store::resolve_geo(x.worker, &c.country).await else {
+        return x.database();
+    };
+    c.geo_tier = geo;
+    c.score_band = if matches!(c.geo_tier.as_str(), "high" | "critical") {
+        "medium"
+    } else {
+        "low"
+    }
+    .into();
+    let Ok(snapshot) = Snapshot::load(x.worker).await else {
+        return x.database();
+    };
+    x.json(simulate_json(&snapshot, &c), 200)
 }
 
 /// Owner-approved security fix 2026-11-05 (#467): the bulk policy routes (export, diff,
 /// import, template instantiate) read or create organization-wide policies, so a
 /// domain-scoped admin needs an organization-wide `access.policy_*` grant for them.
 async fn org_wide_only(x: &Ctx<'_>, read: bool) -> Option<Response<Body>> {
-    match ca::policies::org_wide(x.exec, x.actor, read).await {
+    match ca::policies::org_wide(x.factory, x.admin, read).await {
         Ok(true) => None,
         Ok(false) => Some(x.bare(403, "organization-wide access.policy grant required")),
         Err(_) => Some(x.database()),

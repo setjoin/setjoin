@@ -100,7 +100,8 @@ pub(super) fn expected_for(baseline: &std::path::Path, actual: &Value) -> Result
     let mut regenerated_now = false;
     if std::env::var("SECFIX8_WRITE_SECURITY").as_deref() == Ok("1")
         && relative.contains(&only)
-        && (golden::compare(&base, actual).is_err() || entries.iter().any(|e| e["baseline"] == relative))
+        && (golden::compare(&base, actual).is_err()
+            || entries.iter().any(|e| e["baseline"] == relative))
     {
         REGENERATED.store(true, std::sync::atomic::Ordering::SeqCst);
         regenerated_now = true;
@@ -119,23 +120,33 @@ pub(super) fn expected_for(baseline: &std::path::Path, actual: &Value) -> Result
     assert_eq!(entry["reviewed"], true);
     let reason = entry["reason"].as_str().unwrap();
     assert!(
-        ["owner-approved security fix 2026-11-06 (#530)", "owner-approved security fix 2026-11-05 (#547)", "owner-approved functional fix 2026-11-09 (#548)"]
-            .iter()
-            .any(|accepted| reason.contains(accepted)),
+        [
+            "owner-approved security fix 2026-11-06 (#530)",
+            "owner-approved security fix 2026-11-05 (#547)",
+            "owner-approved functional fix 2026-11-09 (#548)"
+        ]
+        .iter()
+        .any(|accepted| reason.contains(accepted)),
         "{relative}: the reason must cite the owner decision and its ticket"
     );
     // An UNREVIEWED placeholder is tolerated only for an entry this very call regenerated (the run
     // fails at close); anywhere else it must fail, with or without the write flag.
-    assert!(!reason.contains("UNREVIEWED") || regenerated_now, "{relative}: UNREVIEWED divergence entry");
+    assert!(
+        !reason.contains("UNREVIEWED") || regenerated_now,
+        "{relative}: UNREVIEWED divergence entry"
+    );
     assert_eq!(entry["sha256"], hash, "{relative}: the Go capture changed");
-    Ok(serde_json::from_slice(&std::fs::read(family.join(entry["expectation"].as_str().unwrap()))?)?)
+    Ok(serde_json::from_slice(&std::fs::read(
+        family.join(entry["expectation"].as_str().unwrap()),
+    )?)?)
 }
 
 /// The reviewed expectation for a baseline without ever writing (status-mutant runs compare with it).
 pub(super) fn pinned_for(baseline: &std::path::Path) -> Result<Value, Err> {
     let family = corpus();
     let relative = baseline.strip_prefix(&family)?.to_str().unwrap().to_owned();
-    let entries: Vec<Value> = serde_json::from_slice(&std::fs::read(family.join("divergences.json"))?)?;
+    let entries: Vec<Value> =
+        serde_json::from_slice(&std::fs::read(family.join("divergences.json"))?)?;
     let file = match entries.iter().find(|e| e["baseline"] == relative) {
         Some(e) => family.join(e["expectation"].as_str().unwrap()),
         None => baseline.to_path_buf(),
@@ -145,7 +156,8 @@ pub(super) fn pinned_for(baseline: &std::path::Path) -> Result<Value, Err> {
 
 /// `SECFIX8_WRITE_SECURITY=1` rewrites expectations instead of asserting them, so a run that did
 /// so must never pass: the environment's `close` fails it ("review and rerun").
-pub(super) static REGENERATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub(super) static REGENERATED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 pub(super) fn regeneration_guard() {
     if REGENERATED.load(std::sync::atomic::Ordering::SeqCst) && !std::thread::panicking() {
         panic!("expectations regenerated (SECFIX8_WRITE_SECURITY): review the diff and rerun without it");

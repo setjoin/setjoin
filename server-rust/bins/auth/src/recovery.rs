@@ -59,7 +59,7 @@ impl AuthServer {
             return Self::recovery_json(400, json!({"error":"email is required"}));
         }
         let decoy = json!({"method":"totp","message":GENERIC});
-        let principal = match recovery::Principal::resolve(&self.exec, email).await {
+        let principal = match recovery::Principal::resolve(&self.auth_db, email).await {
             Ok(Some(principal)) => principal,
             Ok(None) => {
                 Self::recovery_floor(start).await;
@@ -72,7 +72,7 @@ impl AuthServer {
             }
         };
         if principal
-            .budget_refused(self.recovery_worker.as_ref(), &self.exec, &ip)
+            .budget_refused(self.recovery_worker.as_ref(), &self.auth_db, &ip)
             .await
         {
             Self::recovery_floor(start).await;
@@ -80,12 +80,12 @@ impl AuthServer {
         }
         let mut response = json!({"method":principal.method(),"message":GENERIC});
         if principal.method() == "push" && !self.config.vapid_private_key.is_empty() {
-            match principal.challenge(&self.exec).await {
+            match principal.challenge(&self.auth_db).await {
                 setjoin_pg::CommandOutcome::Committed(
                     setjoin_identity::push::Generated::Created(challenge),
                 ) => {
                     response["nonce"] = json!(challenge.nonce());
-                    self.native_push.enqueue(self.exec.clone(), challenge);
+                    self.native_push.enqueue(self.auth_db.clone(), challenge);
                 }
                 _ => {
                     Self::recovery_floor(start).await;
@@ -123,9 +123,14 @@ impl AuthServer {
                 json!({"error":"too many requests, please wait and try again"}),
             );
         }
-        let Some(fields) = Limited::new(req.into_body(), body_cap()).collect().await.ok().and_then(|v| {
-            ingress::fields(&v.to_bytes(), &["email", "code", "nonce", "answer"]).ok()
-        }) else {
+        let Some(fields) = Limited::new(req.into_body(), body_cap())
+            .collect()
+            .await
+            .ok()
+            .and_then(|v| {
+                ingress::fields(&v.to_bytes(), &["email", "code", "nonce", "answer"]).ok()
+            })
+        else {
             return Self::recovery_json(400, json!({"error":"invalid JSON"}));
         };
         let get = |key| fields.get(key).map_or("", String::as_str);
@@ -133,7 +138,7 @@ impl AuthServer {
             return Self::recovery_json(400, json!({"error":"email is required"}));
         }
         let invalid = || Self::recovery_json(401, json!({"error":"invalid verification code"}));
-        let principal = match recovery::Principal::resolve(&self.exec, get("email")).await {
+        let principal = match recovery::Principal::resolve(&self.auth_db, get("email")).await {
             Ok(Some(principal)) => principal,
             Ok(None) => {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -146,7 +151,7 @@ impl AuthServer {
             }
         };
         if principal
-            .budget_refused(self.recovery_worker.as_ref(), &self.exec, &ip)
+            .budget_refused(self.recovery_worker.as_ref(), &self.auth_db, &ip)
             .await
         {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -157,7 +162,7 @@ impl AuthServer {
                 .verify_push(self.recovery_worker.as_ref(), get("nonce"), get("answer"))
                 .await
         } else if !get("code").is_empty() {
-            principal.verify_totp(&self.exec, get("code")).await
+            principal.verify_totp(&self.auth_db, get("code")).await
         } else {
             CommandOutcome::Committed(recovery::Verification::Invalid)
         };

@@ -148,8 +148,8 @@ impl Assertion {
     /// cross-tenant identity reducers; candidate identity never comes from HTTP.
     pub async fn resolve(
         &self,
-        exec: &ScopedExecutor,
-        worker: &ScopedExecutor,
+        exec: &AuthDb,
+        worker: &AuthDb,
     ) -> Result<Lookup<'_>, StatementFailure> {
         let feature = crate::login::enabled(exec, "feature.identity_model_v2")
             .await
@@ -160,8 +160,8 @@ impl Assertion {
         let mut fence = None;
         if feature {
             let rows = worker
-                .read(
-                    "SELECT identity_auth_resolve($3,$1,$2)::text",
+                .read_contract(
+                    &crate::sql::RP_ACCOUNT_L164,
                     &[
                         (&self.issuer, Type::TEXT),
                         (&self.subject, Type::TEXT),
@@ -191,12 +191,12 @@ impl Assertion {
         if !serve {
             // Credential lookup is the authentication boundary, as password lookup.
             let exact = if self.kind == "saml" {
-                "SELECT id FROM users WHERE saml_name_id=$1 AND saml_idp_entity_id=$2 AND enabled"
+                &crate::sql::RP_ACCOUNT_L194
             } else {
-                "SELECT id FROM users WHERE oidc_subject=$1 AND oidc_issuer=$2 AND enabled"
+                &crate::sql::RP_ACCOUNT_L196
             };
             let rows = exec
-                .read(
+                .read_contract(
                     exact,
                     &[(&self.subject, Type::TEXT), (&self.issuer, Type::TEXT)],
                 )
@@ -214,8 +214,8 @@ impl Assertion {
             if user.is_none() && (self.kind == "oidc" || crate::mutants::on("saml-link-by-email")) {
                 let address = setjoin_authz::address::canonical(&self.email);
                 let rows = exec
-                    .read(
-                        "SELECT u.id FROM users u WHERE u.enabled AND (lower(u.email)=lower($1) OR lower(u.ad_upn)=lower($1) OR EXISTS(SELECT 1 FROM aliases a JOIN mailboxes mb ON mb.id=a.mailbox_id WHERE mb.user_id=u.id AND lower(a.email)=lower($1))) AND identity_address_claim_count(lower($1))=1 AND NOT identity_address_quarantined(lower($1)) LIMIT 1",
+                    .read_contract(
+                        &crate::sql::RP_ACCOUNT_L218,
                         &[(&address.as_str(), Type::TEXT)],
                     )
                     .await
@@ -236,8 +236,8 @@ impl Assertion {
                 let linkgen = optional_number(&evidence, "linkGeneration");
                 let norm = optional_number(&evidence, "userId");
                 let _ = worker
-                    .protocol_statement(
-                        "SELECT identity_auth_shadow_observe($9,$1,$2,$3,$4,$5,$6,$7,$8)",
+                    .protocol_statement_contract(
+                        &crate::sql::RP_ACCOUNT_L240,
                         &[
                             (&self.issuer, Type::TEXT),
                             (&self.subject, Type::TEXT),
@@ -254,7 +254,7 @@ impl Assertion {
             }
             if let Some(id) = user.filter(|_| address_hit) {
                 let guest = exec
-                    .read("SELECT is_guest_account($1)", &[(&id, Type::INT8)])
+                    .read_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&id, Type::INT8)])
                     .await
                     .map_err(|_| failed("account type resolution failed"))?
                     .first()
@@ -274,12 +274,14 @@ impl Assertion {
                 feature,
             }));
         };
-        let rows=exec.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())) FROM users u WHERE u.id=$1 AND u.enabled",&[(&user,Type::INT8)]).await?;
+        let rows = exec
+            .read_contract(&crate::sql::RP_ACCOUNT_L277, &[(&user, Type::INT8)])
+            .await?;
         let r = rows
             .first()
             .ok_or_else(|| failed("normalized identity resolution unavailable"))?;
         let guest = exec
-            .read("SELECT is_guest_account($1)", &[(&user, Type::INT8)])
+            .read_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&user, Type::INT8)])
             .await
             .map_err(|_| failed("account type resolution failed"))?
             .first()
@@ -314,8 +316,8 @@ fn number(v: &Value, k: &str) -> Result<i64, StatementFailure> {
 impl Assertion {
     pub async fn settle(
         &self,
-        exec: &ScopedExecutor,
-        worker: &ScopedExecutor,
+        exec: &AuthDb,
+        worker: &AuthDb,
         provider: &dyn Federated,
         resolution: &Resolution,
         allow_super: bool,
@@ -323,8 +325,8 @@ impl Assertion {
         let normalized = resolution.feature;
         let key = provider.key();
         let bind = worker
-            .protocol_statement(
-                "SELECT identity_source_provider_bind($3,$1,$2)",
+            .protocol_statement_contract(
+                &crate::sql::RP_ACCOUNT_L327,
                 &[
                     (&self.issuer, Type::TEXT),
                     (&key, Type::TEXT),
@@ -349,7 +351,29 @@ impl Assertion {
             .map_err(|_| failed("SSO entitlement reconciliation failed"))?;
         let user = resolution.user.user;
         let operation = setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes());
-        let outcome=worker.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"rp-settle"}).run_user_command(setjoin_contracts::ids::ActorId::new(user).map_err(|_|failed("SSO entitlement transaction unavailable"))?,operation,"SELECT rust_identity_rp_settle($1,$2,$3,$4::text::jsonb,$5::text::jsonb,$6,$7)::text",&[(&user,Type::INT8),(&email,Type::TEXT),(&key,Type::TEXT),(&groups,Type::TEXT),(&mappings,Type::TEXT),(&allow_super,Type::BOOL),(&normalized,Type::BOOL)],json_row).await;
+        let outcome = worker
+            .clone()
+            .with_user_receipt(setjoin_pg::ReceiptCommand {
+                family: "F21",
+                command: "rp-settle",
+            })
+            .run_user_command_contract(
+                setjoin_contracts::ids::ActorId::new(user)
+                    .map_err(|_| failed("SSO entitlement transaction unavailable"))?,
+                operation,
+                &crate::sql::RP_ACCOUNT_L352,
+                &[
+                    (&user, Type::INT8),
+                    (&email, Type::TEXT),
+                    (&key, Type::TEXT),
+                    (&groups, Type::TEXT),
+                    (&mappings, Type::TEXT),
+                    (&allow_super, Type::BOOL),
+                    (&normalized, Type::BOOL),
+                ],
+                json_row,
+            )
+            .await;
         match outcome {
             setjoin_pg::CommandOutcome::Committed(v) if v["status"] == "settled" => {}
             setjoin_pg::CommandOutcome::Committed(v) => {
@@ -368,7 +392,10 @@ impl Assertion {
             }
             _ => return Err(failed("SSO entitlement transaction unavailable")),
         }
-        let rows=exec.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())) FROM users u WHERE u.id=$1 AND u.enabled",&[(&user,Type::INT8)]).await.map_err(|_|failed("SSO authorization state unavailable"))?;
+        let rows = exec
+            .read_contract(&crate::sql::RP_ACCOUNT_L277, &[(&user, Type::INT8)])
+            .await
+            .map_err(|_| failed("SSO authorization state unavailable"))?;
         let r = rows
             .first()
             .ok_or_else(|| failed("SSO authorization state unavailable"))?;
@@ -425,7 +452,7 @@ pub fn normalized_email(raw: &str) -> Option<String> {
 impl Resolution {
     pub async fn mint(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         refresh: &str,
         expiry: i64,
         family: &str,
@@ -439,14 +466,14 @@ impl Resolution {
                 family: "F21",
                 command: "rp-mint",
             })
-            .run_user_command(
+            .run_user_command_contract(
                 setjoin_contracts::ids::ActorId::new(user).expect("resolved user"),
                 setjoin_contracts::ids::OperationId(
                     *uuid::Uuid::parse_str(family)
                         .expect("generated family")
                         .as_bytes(),
                 ),
-                "SELECT rust_identity_rp_mint($1,$2::text::jsonb,$3,$4,$5::text::uuid)::text",
+                &crate::sql::RP_ACCOUNT_L449,
                 &[
                     (&user, Type::INT8),
                     (&fence, Type::TEXT),
@@ -463,8 +490,8 @@ impl Resolution {
 impl Missing<'_> {
     pub async fn create(
         self,
-        exec: &ScopedExecutor,
-        worker: &ScopedExecutor,
+        exec: &AuthDb,
+        worker: &AuthDb,
     ) -> Result<Resolution, StatementFailure> {
         let a = self.assertion;
         let email = normalized_email(&a.email).ok_or_else(|| failed("user creation failed"))?;
@@ -480,8 +507,8 @@ impl Missing<'_> {
             self.normalized || (self.feature && !crate::mutants::on("rp-jit-shadow-orphan"));
         let (user, fence) = if through_link {
             let rows = worker
-                .protocol_query(
-                    "SELECT identity_auth_jit($5,$1,$2,$3,$4)::text",
+                .protocol_query_contract(
+                    &crate::sql::RP_ACCOUNT_L484,
                     &[
                         (&a.issuer, Type::TEXT),
                         (&a.subject, Type::TEXT),
@@ -512,17 +539,38 @@ impl Missing<'_> {
             };
             (user, fence)
         } else {
-            let rows=exec.protocol_query("INSERT INTO users(username,email,display_name,domain_id,sync_source,enabled,oidc_subject,oidc_issuer,saml_name_id,saml_idp_entity_id) SELECT $1,$2,$1,id,'sso',true,CASE WHEN $6='oidc' THEN NULLIF($3,'') END,CASE WHEN $6='oidc' THEN NULLIF($4,'') END,CASE WHEN $6='saml' THEN NULLIF($3,'') END,CASE WHEN $6='saml' THEN NULLIF($4,'') END FROM domains WHERE name=$5 AND is_local ON CONFLICT DO NOTHING RETURNING id",&[(&local,Type::TEXT),(&email,Type::TEXT),(&a.subject,Type::TEXT),(&a.issuer,Type::TEXT),(&domain,Type::TEXT),(&a.kind,Type::TEXT)]).await.map_err(|_|failed("user creation failed"))?;
+            let rows = exec
+                .protocol_query_contract(
+                    &crate::sql::RP_ACCOUNT_L515,
+                    &[
+                        (&local, Type::TEXT),
+                        (&email, Type::TEXT),
+                        (&a.subject, Type::TEXT),
+                        (&a.issuer, Type::TEXT),
+                        (&domain, Type::TEXT),
+                        (&a.kind, Type::TEXT),
+                    ],
+                )
+                .await
+                .map_err(|_| failed("user creation failed"))?;
             let user = rows
                 .first()
                 .ok_or_else(|| failed("user creation failed"))?
                 .try_get::<_, i64>(0)
                 .map_err(|_| failed("user creation failed"))?;
-            // Go's separate best-effort legacy mailbox statement.
-            let _=exec.protocol_statement("INSERT INTO mailboxes(user_id,domain_id,email,display_name,type,is_primary) SELECT u.id,u.domain_id,u.email,u.display_name,'personal',true FROM users u WHERE u.id=$1 ON CONFLICT DO NOTHING",&[(&user,Type::INT8)]).await;
+            // Go's separate best-effort legacy mailbox statement via owning mailboxes reducer.
+            let _ = exec
+                .protocol_statement_contract(
+                    &crate::sql::RP_MAILBOX_ENSURE_PRIMARY,
+                    &[(&user, Type::INT8)],
+                )
+                .await;
             (user, None)
         };
-        let rows=exec.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())) FROM users u WHERE u.id=$1 AND u.enabled",&[(&user,Type::INT8)]).await.map_err(|_|failed("user creation failed"))?;
+        let rows = exec
+            .read_contract(&crate::sql::RP_ACCOUNT_L277, &[(&user, Type::INT8)])
+            .await
+            .map_err(|_| failed("user creation failed"))?;
         let r = rows.first().ok_or_else(|| failed("user creation failed"))?;
         Ok(Resolution {
             user: crate::totp::CompletionUser {
@@ -543,7 +591,7 @@ impl Resolution {
     /// and Go's independent best-effort tail; no credential publishes in callbacks.
     pub async fn mint_normalized<P, PF, F, FF>(
         &self,
-        worker: &ScopedExecutor,
+        worker: &AuthDb,
         prepare: P,
         tail: F,
     ) -> setjoin_pg::CommandOutcome<Value, StatementFailure>
@@ -563,26 +611,56 @@ impl Resolution {
         let operation = uuid::Uuid::new_v4();
         let family = operation.to_string();
         let fence = f.to_string();
-        worker.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"rp-mint"}).run_user_async_proof_command_with_tail(
-            setjoin_contracts::ids::ActorId::new(user).expect("resolved principal"),setjoin_contracts::ids::OperationId(*operation.as_bytes()),
-            "SELECT identity_auth_mint_fence($1,$2,$3,$4,$5)",&[(&user,Type::INT8),(&source,Type::INT8),(&source_gen,Type::INT8),(&link,Type::INT8),(&link_gen,Type::INT8)],
-            |_|async move{
-                let (refresh,expiry)=match prepare(family.clone()).await{Ok(v)=>v,Err(v)=>return Ok(setjoin_pg::ProvenStatement::new("SELECT $1::text").bind(v.to_string(),Type::TEXT))};
-                Ok(setjoin_pg::ProvenStatement::new("SELECT rust_identity_rp_mint($1,$2::text::jsonb,$3,$4,$5::text::uuid)::text").bind(user,Type::INT8).bind(fence,Type::TEXT).bind(Sha256::digest(refresh.as_bytes()).to_vec(),Type::BYTEA).bind(expiry,Type::INT8).bind(family,Type::TEXT))
-            },json_row,tail).await
+        worker
+            .clone()
+            .with_user_receipt(setjoin_pg::ReceiptCommand {
+                family: "F21",
+                command: "rp-mint",
+            })
+            .run_user_async_proof_command_contract_with_tail(
+                setjoin_contracts::ids::ActorId::new(user).expect("resolved principal"),
+                setjoin_contracts::ids::OperationId(*operation.as_bytes()),
+                &crate::sql::RP_ACCOUNT_L568,
+                &[
+                    (&user, Type::INT8),
+                    (&source, Type::INT8),
+                    (&source_gen, Type::INT8),
+                    (&link, Type::INT8),
+                    (&link_gen, Type::INT8),
+                ],
+                |_| async move {
+                    let (refresh, expiry) = match prepare(family.clone()).await {
+                        Ok(v) => v,
+                        Err(v) => {
+                            return Ok(setjoin_pg::ProvenContract::new(&crate::sql::ECHO_TEXT)
+                                .bind(v.to_string(), Type::TEXT))
+                        }
+                    };
+                    Ok(
+                        setjoin_pg::ProvenContract::new(&crate::sql::RP_ACCOUNT_L449)
+                            .bind(user, Type::INT8)
+                            .bind(fence, Type::TEXT)
+                            .bind(Sha256::digest(refresh.as_bytes()).to_vec(), Type::BYTEA)
+                            .bind(expiry, Type::INT8)
+                            .bind(family, Type::TEXT),
+                    )
+                },
+                json_row,
+                tail,
+            )
+            .await
     }
 }
 
 impl Resolution {
-    pub async fn guest_scope(&self, exec: &ScopedExecutor) -> Result<bool, StatementFailure> {
-        Ok(exec
-            .read(
-                "SELECT is_guest_account($1)",
-                &[(&self.user.user, Type::INT8)],
-            )
-            .await?
-            .first()
-            .and_then(|r| r.try_get(0).ok())
-            .ok_or_else(|| failed("guest scope unavailable"))?)
+    pub async fn guest_scope(&self, exec: &AuthDb) -> Result<bool, StatementFailure> {
+        exec.read_contract(
+            &crate::sql::IS_GUEST_ACCOUNT,
+            &[(&self.user.user, Type::INT8)],
+        )
+        .await?
+        .first()
+        .and_then(|r| r.try_get(0).ok())
+        .ok_or_else(|| failed("guest scope unavailable"))
     }
 }

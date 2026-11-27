@@ -96,7 +96,7 @@ async fn parse(r: &mut Request<Body>) -> Result<Form, ()> {
 
 pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Response<Body> {
     if what == Action::BrandingGet {
-        return e.reply(branding::get(e.exec).await, 200);
+        return e.reply(branding::get(e.factory, e.admin).await, 200);
     }
     let query_failed = query_error(r.uri());
     let query_name = crate::admin_identity_input::query(r.uri(), "name");
@@ -110,7 +110,7 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
         .or_else(|| form.names.first().cloned())
         .unwrap_or_default();
     if !name.is_empty() {
-        let _ = branding::set(e.exec, e.actor, "brand_name", &name, e.operation).await;
+        let _ = branding::set(e.factory, e.user, e.admin, "brand_name", &name, e.operation).await;
     }
     if let Some((bytes, kind)) = form.logo {
         let kind = if kind.is_empty() {
@@ -129,8 +129,9 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
             return e.bare(503, "service unavailable");
         };
         let _ = branding::set(
-            e.exec,
-            e.actor,
+            e.factory,
+            e.user,
+            e.admin,
             "brand_logo_url",
             "/blob/branding/logo",
             next,

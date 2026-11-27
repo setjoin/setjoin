@@ -1,6 +1,6 @@
 //! `mailserver/internal/assist` and `shared/assist`: the AI-assist envelope,
 //! provider configuration and the OpenAI-compatible completion call.
-use setjoin_pg::{ScopedExecutor, Type};
+use setjoin_authz::principals::TxFactory;
 use std::time::Duration;
 
 /// `sharedassist.MaxRequestBytes`.
@@ -109,12 +109,9 @@ pub enum ConfigError {
     Unavailable,
 }
 
-async fn get(exec: &ScopedExecutor, key: &str) -> Result<String, ConfigError> {
-    let rows = exec
-        .read(
-            "SELECT get_system_config($1) #>> '{}'",
-            &[(&key, Type::TEXT)],
-        )
+async fn get(factory: &TxFactory, key: &str) -> Result<String, ConfigError> {
+    let rows = factory
+        .run_public_read_contract(&crate::sql::ASSIST_GET_CONFIG, &[&key])
         .await
         .map_err(|_| ConfigError::Unavailable)?;
     let value = rows
@@ -122,11 +119,8 @@ async fn get(exec: &ScopedExecutor, key: &str) -> Result<String, ConfigError> {
         .and_then(|r| r.get::<_, Option<String>>(0))
         .unwrap_or_default();
     if setjoin_config_secret::is_config_secret_envelope(value.as_bytes()) {
-        let rows = exec
-            .read(
-                "SELECT get_system_config('identity.deployment_id') #>> '{}'",
-                &[],
-            )
+        let rows = factory
+            .run_public_read_contract(&crate::sql::ASSIST_DEPLOYMENT_ID, &[])
             .await
             .map_err(|_| ConfigError::Unavailable)?;
         let deployment = rows
@@ -152,8 +146,8 @@ async fn get(exec: &ScopedExecutor, key: &str) -> Result<String, ConfigError> {
 
 /// `LoadConfig`: three `system_config` keys, URL validated as absolute
 /// HTTP(S) with a host.
-pub async fn load_config(exec: &ScopedExecutor) -> Result<Config, ConfigError> {
-    let url = get(exec, "assist.provider_url").await?;
+pub async fn load_config(factory: &TxFactory) -> Result<Config, ConfigError> {
+    let url = get(factory, "assist.provider_url").await?;
     if url.is_empty() {
         return Err(ConfigError::NotConfigured);
     }
@@ -165,11 +159,11 @@ pub async fn load_config(exec: &ScopedExecutor) -> Result<Config, ConfigError> {
     }) {
         return Err(ConfigError::Unavailable);
     }
-    let model = get(exec, "assist.model").await?;
+    let model = get(factory, "assist.model").await?;
     if model.is_empty() {
         return Err(ConfigError::NotConfigured);
     }
-    let api_key = get(exec, "assist.api_key").await?;
+    let api_key = get(factory, "assist.api_key").await?;
     Ok(Config {
         base_url: url,
         model,

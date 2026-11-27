@@ -214,15 +214,27 @@ impl SubscriptionSync {
             ("ok", String::new())
         };
         if let Err(e) = self
-            .apply(sub.id, sub.calendar, &json, status, &message, &etag, &last_modified)
+            .apply(
+                sub.id,
+                sub.calendar,
+                &json,
+                status,
+                &message,
+                &etag,
+                &last_modified,
+            )
             .await
         {
             eprintln!(
                 "calendarsync: refresh reducer failed subscription_id={} error={e}",
                 sub.id
             );
-            self.record_status(sub.id, "error", "sync failed \u{2014} will retry next cycle")
-                .await;
+            self.record_status(
+                sub.id,
+                "error",
+                "sync failed \u{2014} will retry next cycle",
+            )
+            .await;
         }
     }
 
@@ -251,7 +263,16 @@ impl SubscriptionSync {
         let c = self.db.connect_session().await.map_err(|e| e.to_string())?;
         c.query("BEGIN", &[]).await?;
         let result = self
-            .apply_in_tx(&c, id, calendar, json, status, message, &etag, &last_modified)
+            .apply_in_tx(
+                &c,
+                id,
+                calendar,
+                json,
+                status,
+                message,
+                &etag,
+                &last_modified,
+            )
             .await;
         match result {
             Ok(()) => c.query("COMMIT", &[]).await.map(|_| ()),
@@ -276,7 +297,11 @@ impl SubscriptionSync {
     ) -> Result<(), String> {
         c.query(
             "SELECT calendar_subscription_refresh($1, $2, $3::jsonb)",
-            &[(&id, Type::INT8), (&calendar, Type::INT8), (&json, Type::TEXT)],
+            &[
+                (&id, Type::INT8),
+                (&calendar, Type::INT8),
+                (&json, Type::TEXT),
+            ],
         )
         .await?;
         c.query(
@@ -303,7 +328,11 @@ impl SubscriptionSync {
                 "UPDATE calendar_subscriptions
                     SET last_status = $2, last_error = NULLIF($3, '')
                   WHERE id = $1",
-                &[(&id, Type::INT8), (&status, Type::TEXT), (&message, Type::TEXT)],
+                &[
+                    (&id, Type::INT8),
+                    (&status, Type::TEXT),
+                    (&message, Type::TEXT),
+                ],
             )
             .await
         }
@@ -323,7 +352,12 @@ impl SubscriptionSync {
     }
 
     /// Go's `fetch`: conditional GET on hop 0, up to five re-validated redirects.
-    async fn fetch(&self, raw: &str, etag: &str, last_modified: &str) -> Result<Fetched, FetchError> {
+    async fn fetch(
+        &self,
+        raw: &str,
+        etag: &str,
+        last_modified: &str,
+    ) -> Result<Fetched, FetchError> {
         let mut current = normalize_webcal(raw);
         for hop in 0..=MAX_REDIRECTS {
             let url = reqwest::Url::parse(&current).map_err(|_| FetchError::CouldNotReach)?;
@@ -343,7 +377,10 @@ impl SubscriptionSync {
                     request = request.header("If-Modified-Since", last_modified);
                 }
             }
-            let mut response = request.send().await.map_err(|_| FetchError::CouldNotReach)?;
+            let mut response = request
+                .send()
+                .await
+                .map_err(|_| FetchError::CouldNotReach)?;
             let status = response.status().as_u16();
             match status {
                 304 => return Ok(Fetched::NotModified),
@@ -356,9 +393,13 @@ impl SubscriptionSync {
                     if location.is_empty() {
                         return Err(FetchError::CouldNotReach);
                     }
-                    let location = String::from_utf8(location).map_err(|_| FetchError::CouldNotReach)?;
-                    let base = reqwest::Url::parse(&current).map_err(|_| FetchError::CouldNotReach)?;
-                    let next = base.join(&location).map_err(|_| FetchError::CouldNotReach)?;
+                    let location =
+                        String::from_utf8(location).map_err(|_| FetchError::CouldNotReach)?;
+                    let base =
+                        reqwest::Url::parse(&current).map_err(|_| FetchError::CouldNotReach)?;
+                    let next = base
+                        .join(&location)
+                        .map_err(|_| FetchError::CouldNotReach)?;
                     let next = normalize_webcal(next.as_str());
                     // The redirect target is the feed operator's choice: reject it
                     // before it is ever dialled.

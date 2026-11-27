@@ -400,13 +400,17 @@ jobs:
           } >> "$GITHUB_ENV"
       - name: Load test schema (the DB-backed guards run against it)
         run: bash scripts/load-test-schema.sh
-      - name: Provision setjoin_app credential for DB-backed guards
+      - name: Provision setjoin_app and setjoin_worker credentials for DB-backed guards
         run: |
           set -euo pipefail
           APP_PW="$(openssl rand -hex 24)"
+          WORKER_PW="$(openssl rand -hex 24)"
           echo "::add-mask::$APP_PW"
+          echo "::add-mask::$WORKER_PW"
           psql "$TEST_DB_DSN" -X -q -v ON_ERROR_STOP=1 -c "ALTER ROLE setjoin_app LOGIN PASSWORD '$APP_PW'"
+          psql "$TEST_DB_DSN" -X -q -v ON_ERROR_STOP=1 -c "ALTER ROLE setjoin_worker LOGIN PASSWORD '$WORKER_PW'"
           echo "DB_APP_DSN=postgres://setjoin_app:${APP_PW}@127.0.0.1:${LANE_PG_PORT}/${DB_NAME}?sslmode=disable" >> "$GITHUB_ENV"
+          echo "DB_WORKER_DSN=postgres://setjoin_worker:${WORKER_PW}@127.0.0.1:${LANE_PG_PORT}/${DB_NAME}?sslmode=disable" >> "$GITHUB_ENV"
       - name: Run every guard (self-test first)
         # check-server-rust.sh runs its static stage only (family isolation, cargo-deny, policy tests): the
         # workspace, roots and adequacy stages belong to the build, roots and shard jobs of this lane.

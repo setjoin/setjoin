@@ -1,6 +1,6 @@
 //! Detached Chat preview protocol. Message IDs originate in committed sends.
 use crate::recovery_worker::{ObjectStore, S3Store};
-use setjoin_authz::AuthContext;
+use setjoin_authz::principals::UserPrincipal;
 use setjoin_chat::members::{self, FetchedPreview};
 use setjoin_pg::{CommandOutcome, ScopedExecutor};
 use std::{
@@ -35,11 +35,11 @@ impl Unfurl {
     /// Called only with the result of this verified actor's committed send.
     /// Every successful send consumes the Go per-sender 30/minute budget,
     /// including sends without a URL or with enrichment disabled.
-    pub fn trigger(self: &Arc<Self>, actor: &AuthContext, sent: &str, body: &str) {
+    pub fn trigger(self: &Arc<Self>, user: &UserPrincipal, sent: &str, body: &str) {
         let now = Instant::now();
         {
             let mut windows = self.admission.lock().expect("unfurl admission");
-            let (start, count) = windows.entry(actor.user_id()).or_insert((now, 0));
+            let (start, count) = windows.entry(user.user().get()).or_insert((now, 0));
             if now.duration_since(*start) >= Duration::from_secs(60) {
                 *start = now;
                 *count = 0;
@@ -71,22 +71,31 @@ impl Unfurl {
         else {
             return;
         };
-        let (work, actor, url) = (self.clone(), actor.clone(), url.to_owned());
+        let (work, user, url) = (self.clone(), user.clone(), url.to_owned());
         tokio::spawn(async move {
-            if work.exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='chat.unfurl'),false)",&[]).await.is_ok_and(|rows|rows[0].get::<_,bool>(0)) {
-                work.process(&actor,message,&url).await;
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&work.exec, None)
+            else {
+                return;
+            };
+            if members::unfurl_enabled(&factory).await.unwrap_or(false) {
+                work.process(&user, message, &url).await;
             }
         });
     }
-    pub async fn process(&self, actor: &AuthContext, message: i64, url: &str) {
+    pub async fn process(&self, user: &UserPrincipal, message: i64, url: &str) {
         use sha2::{Digest, Sha256};
+        let Some(factory) = crate::policy_composition::tx_factory_from_executors(&self.exec, None)
+        else {
+            return;
+        };
         let hash = format!("{:x}", Sha256::digest(url.as_bytes()));
-        let Ok(cache) = members::unfurl_lookup(&self.exec, actor, &hash).await else {
+        let Ok(cache) = members::unfurl_lookup(&factory, user, &hash).await else {
             return;
         };
         if let Some(cache) = cache.filter(|cache| !cache.is_null()) {
             if cache["status"] == "ok" {
-                self.apply(actor, message, &hash).await;
+                self.apply(&factory, user, message, &hash).await;
             }
             return;
         }
@@ -94,7 +103,7 @@ impl Unfurl {
             return;
         };
         if !matches!(
-            members::unfurl_claim(&self.exec, actor, &hash, url, operation).await,
+            members::unfurl_claim(&factory, user, &hash, url, operation).await,
             CommandOutcome::Committed(serde_json::Value::Bool(true))
         ) {
             return;
@@ -109,7 +118,7 @@ impl Unfurl {
                 let image = if image_url.is_empty() {
                     None
                 } else {
-                    tokio::time::timeout_at(deadline, self.fetch_image(actor, &image_url))
+                    tokio::time::timeout_at(deadline, self.fetch_image(&factory, user, &image_url))
                         .await
                         .ok()
                         .and_then(Result::ok)
@@ -132,16 +141,22 @@ impl Unfurl {
             return;
         };
         if matches!(
-            members::unfurl_write(&self.exec, actor, &hash, &preview, operation).await,
+            members::unfurl_write(&factory, user, &hash, &preview, operation).await,
             CommandOutcome::Committed(_)
         ) && preview.ok
         {
-            self.apply(actor, message, &hash).await;
+            self.apply(&factory, user, message, &hash).await;
         }
     }
-    async fn apply(&self, actor: &AuthContext, message: i64, hash: &str) {
+    async fn apply(
+        &self,
+        factory: &setjoin_authz::principals::TxFactory,
+        user: &UserPrincipal,
+        message: i64,
+        hash: &str,
+    ) {
         if let Some(operation) = crate::jmap::random() {
-            let _ = members::unfurl_apply(&self.exec, actor, message, hash, operation).await;
+            let _ = members::unfurl_apply(factory, user, message, hash, operation).await;
         }
     }
     async fn fetch_text(&self, url: &str) -> Result<(String, String, String), ()> {
@@ -277,7 +292,12 @@ impl Unfurl {
         }
         unreachable!()
     }
-    async fn fetch_image(&self, actor: &AuthContext, url: &str) -> Result<String, ()> {
+    async fn fetch_image(
+        &self,
+        factory: &setjoin_authz::principals::TxFactory,
+        user: &UserPrincipal,
+        url: &str,
+    ) -> Result<String, ()> {
         if !valid_fetch_url(url) {
             return Err(());
         }
@@ -300,8 +320,8 @@ impl Unfurl {
             .map_err(|_| ())?;
         let operation = crate::jmap::random().ok_or(())?;
         match members::unfurl_blob(
-            &self.exec,
-            actor,
+            factory,
+            user,
             &hash,
             &self.store.blob_reference(&hash),
             bytes.len() as i64,

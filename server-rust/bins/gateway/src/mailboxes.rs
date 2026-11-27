@@ -554,6 +554,94 @@ pub(crate) fn unknown_outcome(
     response
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn worker_write_contract<T, P>(
+    worker: &ScopedExecutor,
+    proof: &setjoin_authz::principals::AdminPermissionProof,
+    command_name: &'static str,
+    contract: &'static setjoin_pg::SqlContract,
+    values: &[&(dyn setjoin_pg::ToSql + Sync)],
+    operation: [u8; 16],
+    project: P,
+) -> CommandOutcome<T, StatementFailure>
+where
+    P: FnOnce(&[setjoin_pg::Row]) -> Result<T, StatementFailure>,
+{
+    worker_write_contract_family(
+        worker,
+        proof,
+        setjoin_mailboxes::FAMILY,
+        command_name,
+        contract,
+        values,
+        operation,
+        project,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn worker_write_contract_family<T, P>(
+    worker: &ScopedExecutor,
+    _proof: &setjoin_authz::principals::AdminPermissionProof,
+    family: &'static str,
+    command_name: &'static str,
+    contract: &'static setjoin_pg::SqlContract,
+    values: &[&(dyn setjoin_pg::ToSql + Sync)],
+    operation: [u8; 16],
+    project: P,
+) -> CommandOutcome<T, StatementFailure>
+where
+    P: FnOnce(&[setjoin_pg::Row]) -> Result<T, StatementFailure>,
+{
+    let op = setjoin_contracts::ids::OperationId(operation);
+    let Some(pool) = worker.try_worker_pool() else {
+        return CommandOutcome::RolledBack(Rejection::Unavailable);
+    };
+    let mut tx = match pool.begin_read_write().await {
+        Ok(tx) => tx,
+        Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
+    };
+    let op_hex = setjoin_pg::operation_hex(op);
+    let body: Result<T, StatementFailure> = async {
+        let rows = tx.query_contract(contract, values).await?;
+        let value = project(&rows)?;
+        tx.execute(
+            "INSERT INTO public.rust_operation_receipts(operation_id, family, command) \
+             VALUES ($1::text::uuid, $2, $3)",
+            &[
+                (&op_hex, setjoin_pg::Type::TEXT),
+                (&family, setjoin_pg::Type::TEXT),
+                (&command_name, setjoin_pg::Type::TEXT),
+            ],
+        )
+        .await?;
+        Ok(value)
+    }
+    .await;
+    match body {
+        Ok(value) => match tx.commit().await {
+            Ok(()) => CommandOutcome::Committed(value),
+            Err(e) => {
+                if let Some(code) = e.sqlstate.as_deref() {
+                    if setjoin_pg::commit_failure_observation(Some(code))
+                        == setjoin_contracts::command::CommitObservation::RolledBack
+                    {
+                        return CommandOutcome::RolledBack(Rejection::CommitRefused(
+                            code.to_owned(),
+                        ));
+                    }
+                }
+                CommandOutcome::Unknown { operation: op }
+            }
+        },
+        Err(e) => {
+            let _ = tx.rollback().await;
+            CommandOutcome::RolledBack(Rejection::Body(e))
+        }
+    }
+}
+
 impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
     fn requires_session(&self, _req: &Request<Body>) -> bool {
         true
@@ -584,10 +672,19 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return bare(503, "service unavailable", &c, "");
+            };
             let Some(operation) = crate::jmap::random() else {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return bare(500, "database error", &c, &id);
+            };
             let actor = auth.context();
             let path = r.uri().path().to_owned();
             let go_path = segment_path(&path);
@@ -603,14 +700,22 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                 | Action::PurgeCancel => &setjoin_mailboxes::USERS_DELETE,
                 _ => &setjoin_mailboxes::USERS_CREATE,
             };
-            let Some(authority) = setjoin_mailboxes::authority(&exec, actor)
-                .await
-                .ok()
-                .filter(|authority| authority.allows_any(required))
-            else {
+            let admin_and_proof = if actor.signed_admin() {
+                factory
+                    .mint_admin_from_authorized(&auth, &client_ip)
+                    .await
+                    .ok()
+                    .and_then(|admin| {
+                        let proof = admin.require_any_permission(required).ok()?;
+                        Some((admin, proof))
+                    })
+            } else {
+                None
+            };
+            let Some((admin, proof)) = admin_and_proof else {
                 let _ = setjoin_mailboxes::console_denied(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user,
                     &go_path,
                     &required.join("|"),
                     operation,
@@ -618,7 +723,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                 .await;
                 return bare(403, "Forbidden", &c, &id);
             };
-            let scope = authority.domain_scope();
+            let scope = admin.enforced_domain_scope().unwrap_or(0);
             let head = r.method() == Method::HEAD;
             let lang = language(&r);
             let reply = |body: String| {
@@ -665,7 +770,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                 if scope == 0 {
                     return Ok(());
                 }
-                match db::domain_of(&exec, mailbox).await {
+                match db::domain_of(&factory, &proof, mailbox).await {
                     Ok(None) => Err(full(404, "mailbox not found")),
                     Ok(Some(d)) if d != scope => {
                         Err(full(403, "access denied: mailbox not in domain scope"))
@@ -686,15 +791,15 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                     }
                     offset = offset.clamp(0, 1_000_000);
                     let q = query(r.uri(), "q").unwrap_or_default();
-                    let user = query(r.uri(), "user_id").unwrap_or_default();
-                    let filter = if !user.is_empty() {
-                        db::Filter::User(atoi(&user))
+                    let user_q = query(r.uri(), "user_id").unwrap_or_default();
+                    let filter = if !user_q.is_empty() {
+                        db::Filter::User(atoi(&user_q))
                     } else if !q.is_empty() {
                         db::Filter::Search(&q)
                     } else {
                         db::Filter::None
                     };
-                    match db::list(&exec, scope, filter, limit, offset).await {
+                    match db::list(&factory, &user, scope, filter, limit, offset).await {
                         Ok(body) => reply(body),
                         Err(_) => database(),
                     }
@@ -703,7 +808,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                     let Ok(mailbox) = target(4).parse::<i64>() else {
                         return full(400, "invalid mailbox id");
                     };
-                    match db::get(&exec, scope, mailbox).await {
+                    match db::get(&factory, &proof, scope, mailbox).await {
                         Ok(Some(body)) => reply(body),
                         Ok(None) => full(404, "mailbox not found"),
                         Err(_) => database(),
@@ -736,7 +841,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                             "mailbox type must be personal; groups, shared, and resource mailboxes are created via their own endpoints",
                         );
                     }
-                    match db::is_guest(&exec, body.user_id).await {
+                    match db::is_guest(&factory, &proof, body.user_id).await {
                         Err(_) => return database(),
                         Ok(true) => {
                             return full(
@@ -746,7 +851,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                         }
                         Ok(false) => {}
                     }
-                    let domain = match db::user_domain(&exec, body.user_id).await {
+                    let domain = match db::user_domain(&factory, &proof, body.user_id).await {
                         Ok(Some(d)) => d,
                         _ => return full(400, "user not found"),
                     };
@@ -754,15 +859,14 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                         return full(403, "user is not in your domain scope");
                     }
                     let quota = body.quota_bytes.filter(|q| *q > 0);
-                    match db::create(
-                        &exec,
-                        actor,
-                        body.user_id,
-                        &email,
-                        &display,
-                        quota,
-                        scope,
+                    match worker_write_contract(
+                        &worker,
+                        &proof,
+                        "mailbox.create",
+                        &setjoin_mailboxes::sql::MAILBOX_CREATE,
+                        &[&body.user_id, &email, &display, &quota, &scope],
                         operation,
+                        db::parse_created_id,
                     )
                     .await
                     {
@@ -796,7 +900,26 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                         deleted_purge_days: deleted,
                         spam_purge_days: spam,
                     };
-                    match db::update(&exec, actor, mailbox, scope, &patch, operation).await {
+                    match worker_write_contract(
+                        &worker,
+                        &proof,
+                        "mailbox.update",
+                        &setjoin_mailboxes::sql::MAILBOX_UPDATE,
+                        &[
+                            &mailbox,
+                            &scope,
+                            &patch.display_name,
+                            &patch.quota_bytes,
+                            &patch.enabled,
+                            &patch.litigation_hold,
+                            &patch.deleted_purge_days,
+                            &patch.spam_purge_days,
+                        ],
+                        operation,
+                        db::parse_updated,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(true) => status_only(204),
                         CommandOutcome::Committed(false) => full(404, "mailbox not found"),
                         CommandOutcome::RolledBack(_) => database(),
@@ -809,7 +932,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                     let Ok(mailbox) = target(4).parse::<i64>() else {
                         return full(400, "invalid mailbox id");
                     };
-                    match db::lifecycle_enabled(&worker).await {
+                    match db::lifecycle_enabled(&factory).await {
                         Err(_) => return database(),
                         Ok(true) => {
                             return full(
@@ -820,7 +943,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                         Ok(false) => {}
                     }
                     if scope > 0 {
-                        match db::domain_of(&exec, mailbox).await {
+                        match db::domain_of(&factory, &proof, mailbox).await {
                             Err(_) => return database(),
                             Ok(None) => return full(404, "mailbox not found"),
                             Ok(Some(d)) if d != scope => {
@@ -829,7 +952,17 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                             Ok(Some(_)) => {}
                         }
                     }
-                    match db::delete(&worker, actor, mailbox, scope, operation).await {
+                    match worker_write_contract(
+                        &worker,
+                        &proof,
+                        "mailbox.delete",
+                        &setjoin_mailboxes::sql::MAILBOX_DELETE,
+                        &[&mailbox, &scope],
+                        operation,
+                        setjoin_mailboxes::first_bool,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(true) => status_only(204),
                         CommandOutcome::Committed(false) => {
                             full(403, "access denied: mailbox not in domain scope")
@@ -848,7 +981,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                     if let Err(response) = in_scope(mailbox).await {
                         return response;
                     }
-                    match db::folders(&exec, mailbox).await {
+                    match db::folders(&factory, &proof, mailbox).await {
                         Ok(body) => reply(body),
                         Err(_) => database(),
                     }
@@ -867,14 +1000,14 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                     if body.name.is_empty() {
                         return full(400, "name required");
                     }
-                    match db::folder_create(
-                        &exec,
-                        actor,
-                        mailbox,
-                        scope,
-                        body.parent_id,
-                        &body.name,
+                    match worker_write_contract(
+                        &worker,
+                        &proof,
+                        "folder.create",
+                        &setjoin_mailboxes::sql::FOLDER_CREATE,
+                        &[&mailbox, &scope, &body.parent_id, &body.name],
                         operation,
+                        db::folder_create_verdict,
                     )
                     .await
                     {
@@ -900,12 +1033,27 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                         if body.name.is_empty() {
                             return full(400, "name required");
                         }
-                        db::folder_update(
-                            &exec, actor, mailbox, scope, folder, &body.name, operation,
+                        worker_write_contract(
+                            &worker,
+                            &proof,
+                            "folder.update",
+                            &setjoin_mailboxes::sql::FOLDER_UPDATE,
+                            &[&mailbox, &scope, &folder, &body.name],
+                            operation,
+                            db::folder_mut_verdict,
                         )
                         .await
                     } else {
-                        db::folder_delete(&exec, actor, mailbox, scope, folder, operation).await
+                        worker_write_contract(
+                            &worker,
+                            &proof,
+                            "folder.delete",
+                            &setjoin_mailboxes::sql::FOLDER_DELETE,
+                            &[&mailbox, &scope, &folder],
+                            operation,
+                            db::folder_mut_verdict,
+                        )
+                        .await
                     };
                     match outcome {
                         CommandOutcome::Committed(()) => status_only(204),
@@ -997,34 +1145,29 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                             let Some(mailbox) = positive(4) else {
                                 return bad(BAD_ID);
                             };
-                            match setjoin_mailboxes::lifecycle::preview(
-                                &worker,
-                                actor.user_id(),
-                                mailbox,
-                            )
-                            .await
+                            match setjoin_mailboxes::lifecycle::preview(&factory, &proof, mailbox)
+                                .await
                             {
                                 Ok(body) => raw(body),
                                 Err(e) => classified(&e, "mailbox lifecycle preview failed"),
                             }
                         }
                         Action::Retained => {
-                            match setjoin_mailboxes::lifecycle::retained(
-                                &worker,
-                                actor.user_id(),
-                                scope,
-                            )
-                            .await
+                            match setjoin_mailboxes::lifecycle::retained(&factory, &proof, scope)
+                                .await
                             {
                                 Ok(body) => raw(body),
                                 Err(e) => classified(&e, "retained mailbox list failed"),
                             }
                         }
-                        Action::Parity => match setjoin_mailboxes::lifecycle::parity(&worker).await
-                        {
-                            Ok(body) => raw(body),
-                            Err(_) => bare(500, "mailbox lifecycle parity report failed", &c, &id),
-                        },
+                        Action::Parity => {
+                            match setjoin_mailboxes::lifecycle::parity(&factory, &proof).await {
+                                Ok(body) => raw(body),
+                                Err(_) => {
+                                    bare(500, "mailbox lifecycle parity report failed", &c, &id)
+                                }
+                            }
+                        }
                         Action::Transition => {
                             let Some(mailbox) = positive(4) else {
                                 return bad(BAD_ID);
@@ -1105,7 +1248,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                                 delivery: nonempty(&body.delivery),
                             };
                             match setjoin_mailboxes::lifecycle::transition(
-                                &worker, actor, &request, operation,
+                                &factory, &proof, &request, operation,
                             )
                             .await
                             {
@@ -1164,7 +1307,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                                 approver,
                             };
                             match setjoin_mailboxes::lifecycle::purge_schedule(
-                                &worker, actor, &request, operation,
+                                &factory, &proof, &request, operation,
                             )
                             .await
                             {
@@ -1202,8 +1345,8 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                                 return bad("invalid purge approval decision");
                             }
                             match setjoin_mailboxes::lifecycle::purge_approval(
-                                &worker,
-                                actor,
+                                &factory,
+                                &user,
                                 request_id,
                                 &body.decision,
                                 &body.comment,
@@ -1243,13 +1386,13 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                             );
                             let outcome = if what == Action::PurgeExecute {
                                 setjoin_mailboxes::lifecycle::purge_execute(
-                                    &worker, actor, &purge, &key, &digest, operation,
+                                    &factory, &proof, &purge, &key, &digest, operation,
                                 )
                                 .await
                             } else {
                                 setjoin_mailboxes::lifecycle::purge_cancel(
-                                    &worker,
-                                    actor,
+                                    &factory,
+                                    &proof,
                                     &purge,
                                     &key,
                                     &digest,
@@ -1413,10 +1556,7 @@ mod tests {
             canonical_email("Staff: Jane <jane@example.test>;"),
             Ok("jane@example.test".into())
         );
-        assert_eq!(
-            canonical_email("Staff: ;"),
-            Err("invalid email format")
-        );
+        assert_eq!(canonical_email("Staff: ;"), Err("invalid email format"));
         assert_eq!(
             canonical_email("user@ example.test"),
             Ok("user@example.test".into())

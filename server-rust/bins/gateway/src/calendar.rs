@@ -444,10 +444,17 @@ impl<K: KeySource + 'static> Intercept for CalendarRoute<K> {
                 path: decode(path.strip_prefix("/api").unwrap_or(&path)),
                 language: crate::chat_channels::problem_language(r.headers()),
             };
+            let Some(tx) = crate::policy_composition::tx_factory_from_executors(
+                &this.exec,
+                Some(&this.worker),
+            ) else {
+                return out.bare(500, "database unavailable");
+            };
+            let client_ip = c.identity.client_ip.to_string();
             match what {
                 Action::PageList | Action::PagePut | Action::PageDelete => {
                     let auth = auth.expect("authenticated");
-                    match setjoin_calendar::booking_enabled(&this.exec).await {
+                    match setjoin_calendar::booking_enabled(&tx).await {
                         Ok(true) => {}
                         Ok(false) | Err(_) => return out.bare(404, "not found"),
                     }
@@ -455,13 +462,20 @@ impl<K: KeySource + 'static> Intercept for CalendarRoute<K> {
                     if actor.mailbox_id() == 0 {
                         return out.bare(404, "mailbox not found");
                     }
+                    let Ok(mb) = tx
+                        .mint_primary_mailbox_from_authorized(&auth, &client_ip)
+                        .await
+                    else {
+                        return out.bare(500, "database error");
+                    };
+                    let Ok(cal) = mb.require_manage_calendar() else {
+                        return out.bare(403, "Forbidden");
+                    };
                     match what {
-                        Action::PageList => {
-                            match setjoin_calendar::page_list(&this.exec, actor).await {
-                                Ok(text) => out.ok(text),
-                                Err(_) => out.bare(500, "database error"),
-                            }
-                        }
+                        Action::PageList => match setjoin_calendar::page_list(&tx, &cal).await {
+                            Ok(text) => out.ok(text),
+                            Err(_) => out.bare(500, "database error"),
+                        },
                         Action::PagePut => {
                             let Ok(raw) = first_value(&mut r, 16 << 10).await else {
                                 return out.bare(400, "invalid JSON");
@@ -469,9 +483,7 @@ impl<K: KeySource + 'static> Intercept for CalendarRoute<K> {
                             let Ok(page) = String::from_utf8(raw) else {
                                 return out.problem(500, "request failed");
                             };
-                            match setjoin_calendar::page_upsert(&this.exec, actor, &page, operation)
-                                .await
-                            {
+                            match setjoin_calendar::page_upsert(&tx, &cal, &page, operation).await {
                                 CommandOutcome::Committed(text) => out.ok(text),
                                 CommandOutcome::RolledBack(e) => out.rolled_back(&e, false),
                                 CommandOutcome::Unknown { operation } => {
@@ -483,9 +495,7 @@ impl<K: KeySource + 'static> Intercept for CalendarRoute<K> {
                             let Ok(page) = query_get(r.uri().query(), "id").parse::<i64>() else {
                                 return out.bare(400, "id is required");
                             };
-                            match setjoin_calendar::page_delete(&this.exec, actor, page, operation)
-                                .await
-                            {
+                            match setjoin_calendar::page_delete(&tx, &cal, page, operation).await {
                                 CommandOutcome::Committed(text) => out.ok(text),
                                 CommandOutcome::RolledBack(e) => out.rolled_back(&e, false),
                                 CommandOutcome::Unknown { operation } => {
@@ -496,15 +506,18 @@ impl<K: KeySource + 'static> Intercept for CalendarRoute<K> {
                     }
                 }
                 Action::Meta | Action::Slots | Action::Book | Action::Confirm | Action::Cancel => {
-                    this.public(what, r, &c, &out, &path).await
+                    this.public(&tx, what, r, &c, &out, &path).await
                 }
                 Action::FreeBusy => {
-                    this.free_busy(r, &c, &out, auth.expect("authenticated"))
+                    this.free_busy(&tx, r, &c, &out, auth.expect("authenticated"))
                         .await
                 }
                 Action::SubscriptionList => {
                     let auth = auth.expect("authenticated");
-                    match setjoin_calendar::subscriptions(&this.exec, auth.context()).await {
+                    let Ok(user) = tx.mint_user_from_authorized(&auth, &client_ip).await else {
+                        return out.bare(500, "database error");
+                    };
+                    match setjoin_calendar::subscriptions(&tx, &user).await {
                         Ok(rows) => out.json(200, render_subscriptions(&rows)),
                         Err(_) => out.bare(500, "database error"),
                     }
@@ -515,14 +528,10 @@ impl<K: KeySource + 'static> Intercept for CalendarRoute<K> {
                     let Ok(subscription) = decode(segment).parse::<i64>() else {
                         return out.bare(400, "invalid id");
                     };
-                    match setjoin_calendar::unsubscribe(
-                        &this.exec,
-                        auth.context(),
-                        subscription,
-                        operation,
-                    )
-                    .await
-                    {
+                    let Ok(user) = tx.mint_user_from_authorized(&auth, &client_ip).await else {
+                        return out.bare(500, "database error");
+                    };
+                    match setjoin_calendar::unsubscribe(&tx, &user, subscription, operation).await {
                         CommandOutcome::Committed(true) => {
                             let mut response = out.ok(String::new());
                             *response.status_mut() = hyper::StatusCode::NO_CONTENT;
@@ -538,7 +547,7 @@ impl<K: KeySource + 'static> Intercept for CalendarRoute<K> {
                 }
                 Action::SubscriptionCreate => {
                     let auth = auth.expect("authenticated");
-                    this.subscribe(r, &out, auth.context(), operation).await
+                    this.subscribe(&tx, r, &c, &out, &auth, operation).await
                 }
             }
         })
@@ -570,13 +579,15 @@ fn render_subscriptions(rows: &[setjoin_calendar::Subscription]) -> String {
 impl<K: KeySource + 'static> CalendarRoute<K> {
     async fn public(
         &self,
+        tx: &setjoin_authz::principals::TxFactory,
         what: Action,
         mut r: Request<Body>,
         c: &RequestContext,
         out: &Out<'_>,
         path: &str,
     ) -> Response<Body> {
-        match setjoin_calendar::booking_enabled(&self.exec).await {
+        use setjoin_pg::Type;
+        match setjoin_calendar::booking_enabled(tx).await {
             Ok(true) => {}
             Ok(false) | Err(_) => return out.bare(404, "not found"),
         }
@@ -588,7 +599,15 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
             (other, _) => other,
         };
         match what {
-            Action::Meta => match setjoin_calendar::public_get(&self.worker, &slug).await {
+            Action::Meta => match self
+                .worker
+                .read(
+                    setjoin_calendar::sql::BOOKING_PUBLIC_GET.sql,
+                    &[(&slug, Type::TEXT)],
+                )
+                .await
+                .and_then(|rows| setjoin_calendar::decode_public_get(&rows))
+            {
                 Ok(Some(text)) => out.ok(text),
                 Ok(None) => out.bare(404, "not found"),
                 Err(f) => out.reducer(&f, true),
@@ -599,7 +618,15 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
                 if from.is_empty() || to.is_empty() {
                     return out.problem(400, "from and to are required");
                 }
-                match setjoin_calendar::slots(&self.worker, &slug, &from, &to).await {
+                match self
+                    .worker
+                    .read(
+                        setjoin_calendar::sql::BOOKING_SLOTS.sql,
+                        &[(&slug, Type::TEXT), (&from, Type::TEXT), (&to, Type::TEXT)],
+                    )
+                    .await
+                    .and_then(|rows| setjoin_calendar::decode_text0(&rows))
+                {
                     Ok(text) => out.ok(text),
                     Err(f) => out.reducer(&f, true),
                 }
@@ -634,17 +661,23 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
                     }
                 };
                 let ip = c.identity.client_ip.to_string();
-                match setjoin_calendar::create(
-                    &self.worker,
-                    &slug,
-                    &body.start,
-                    &body.email,
-                    &body.name,
-                    &answers,
-                    &hash,
-                    Some(&ip),
-                )
-                .await
+                let ip_opt = Some(ip.as_str());
+                match self
+                    .worker
+                    .read(
+                        setjoin_calendar::sql::BOOKING_CREATE.sql,
+                        &[
+                            (&slug, Type::TEXT),
+                            (&body.start, Type::TEXT),
+                            (&body.email, Type::TEXT),
+                            (&body.name, Type::TEXT),
+                            (&answers, Type::TEXT),
+                            (&hash, Type::TEXT),
+                            (&ip_opt, Type::TEXT),
+                        ],
+                    )
+                    .await
+                    .and_then(|rows| setjoin_calendar::decode_text0(&rows))
                 {
                     Ok(text) => {
                         let created: serde_json::Value =
@@ -676,12 +709,15 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
                 let Some((cancel_token, cancel_hash)) = crate::booking_mail::token() else {
                     return out.problem(500, "request failed");
                 };
-                match setjoin_calendar::confirm(
-                    &self.worker,
-                    &crate::booking_mail::sha256_hex(&body.token),
-                    &cancel_hash,
-                )
-                .await
+                let verify_hash = crate::booking_mail::sha256_hex(&body.token);
+                match self
+                    .worker
+                    .read(
+                        setjoin_calendar::sql::BOOKING_CONFIRM.sql,
+                        &[(&verify_hash, Type::TEXT), (&cancel_hash, Type::TEXT)],
+                    )
+                    .await
+                    .and_then(|rows| setjoin_calendar::decode_text0(&rows))
                 {
                     Ok(text) => {
                         // Invite and owner heads-up leave detached from the request.
@@ -723,11 +759,15 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
                     Err(BodyError::TooLarge) => return out.bare(413, "request body too large"),
                     Err(BodyError::Invalid) => return out.bare(400, "invalid JSON"),
                 };
-                match setjoin_calendar::cancel(
-                    &self.worker,
-                    &crate::booking_mail::sha256_hex(&body.token),
-                )
-                .await
+                let cancel_hash = crate::booking_mail::sha256_hex(&body.token);
+                match self
+                    .worker
+                    .read(
+                        setjoin_calendar::sql::BOOKING_CANCEL.sql,
+                        &[(&cancel_hash, Type::TEXT)],
+                    )
+                    .await
+                    .and_then(|rows| setjoin_calendar::decode_text0(&rows))
                 {
                     Ok(text) => out.ok(text),
                     Err(f) => out.reducer(&f, true),
@@ -738,6 +778,7 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
 
     async fn free_busy(
         &self,
+        tx: &setjoin_authz::principals::TxFactory,
         mut r: Request<Body>,
         c: &RequestContext,
         out: &Out<'_>,
@@ -745,13 +786,17 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
     ) -> Response<Body> {
         // Go mounts the route only while CalDAV is on and gates it by the
         // calendar entitlement.
-        match setjoin_calendar::caldav_enabled(&self.exec).await {
+        match setjoin_calendar::caldav_enabled(tx).await {
             Ok(true) => {}
             _ => return crate::surface::unregistered(&r, c.identity.proto),
         }
+        let client_ip = c.identity.client_ip.to_string();
+        let Ok(user) = tx.mint_user_from_authorized(&auth, &client_ip).await else {
+            return out.bare(500, "database error");
+        };
         let entitled = tokio::time::timeout(
             setjoin_authz::precheck_timeout(),
-            setjoin_calendar::entitled(&self.exec, auth.context()),
+            setjoin_calendar::entitled(tx, &user),
         )
         .await;
         if !matches!(entitled, Ok(Ok(true))) {
@@ -810,6 +855,15 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
         if auth.context().mailbox_id() == 0 {
             return error(403, "no primary mailbox for caller");
         }
+        let Ok(mb) = tx
+            .mint_primary_mailbox_from_authorized(&auth, &client_ip)
+            .await
+        else {
+            return error(500, "free/busy query failed");
+        };
+        let Ok(cal) = mb.require_manage_calendar() else {
+            return error(403, "no primary mailbox for caller");
+        };
         let (Ok(from), Ok(to)) = (
             crate::guests_input::timestamp(&body.start),
             crate::guests_input::timestamp(&body.end),
@@ -818,11 +872,10 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
         };
         let mut ids = users;
         ids.extend(rooms.iter().copied());
-        let text =
-            match setjoin_calendar::free_busy(&self.exec, auth.context(), &ids, &from, &to).await {
-                Ok(text) => text,
-                Err(_) => return error(500, "free/busy query failed"),
-            };
+        let text = match setjoin_calendar::free_busy(tx, &cal, &ids, &from, &to).await {
+            Ok(text) => text,
+            Err(_) => return error(500, "free/busy query failed"),
+        };
         let Ok(serde_json::Value::Array(results)) =
             serde_json::from_str::<serde_json::Value>(&text)
         else {
@@ -838,7 +891,7 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
                 Some(serde_json::Value::String(s)) => Ok(s.clone()),
                 _ => Err(()),
             };
-            let (Ok(entity), Ok(mut email), Ok(mut kind)) =
+            let (Ok(entity), Ok(email), Ok(mut kind)) =
                 (text("entity_id"), text("email"), text("type"))
             else {
                 return error(500, "failed to parse free/busy data");
@@ -883,11 +936,6 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
                 }
                 _ => return error(500, "failed to parse free/busy data"),
             };
-            if let Some(found) = setjoin_calendar::entity_email(&self.exec, &entity).await {
-                if !found.is_empty() {
-                    email = found;
-                }
-            }
             if rooms.iter().any(|rid| rid.to_string() == entity) {
                 kind = "room".into();
             }
@@ -906,13 +954,19 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
 
     async fn subscribe(
         &self,
+        tx: &setjoin_authz::principals::TxFactory,
         mut r: Request<Body>,
+        c: &RequestContext,
         out: &Out<'_>,
-        actor: &setjoin_authz::AuthContext,
+        auth: &setjoin_authz::Authorized,
         operation: [u8; 16],
     ) -> Response<Body> {
+        let client_ip = c.identity.client_ip.to_string();
+        let Ok(user) = tx.mint_user_from_authorized(auth, &client_ip).await else {
+            return out.bare(503, "unable to verify calendar subscription budget");
+        };
         // `perUserResourceCap`: runs before the handler reads the body.
-        match setjoin_calendar::subscription_count(&self.exec, actor).await {
+        match setjoin_calendar::subscription_count(tx, &user).await {
             Err(_) => return out.bare(503, "unable to verify calendar subscription budget"),
             Ok(n) if n >= setjoin_calendar::MAX_SUBSCRIPTIONS_PER_USER => {
                 return out.bare(
@@ -951,10 +1005,19 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
         } else {
             name
         };
-        if actor.mailbox_id() == 0 {
+        if auth.context().mailbox_id() == 0 {
             return out.bare(404, "mailbox not found");
         }
-        match setjoin_calendar::subscribe(&self.exec, actor, &name, &feed, operation).await {
+        let Ok(mb) = tx
+            .mint_primary_mailbox_from_authorized(auth, &client_ip)
+            .await
+        else {
+            return out.bare(500, "database error");
+        };
+        let Ok(cal) = mb.require_manage_calendar() else {
+            return out.bare(403, "Forbidden");
+        };
+        match setjoin_calendar::subscribe(tx, &cal, &name, &feed, operation).await {
             CommandOutcome::Committed((subscription, calendar)) => {
                 if let Some(kick) = &self.kick {
                     kick.kick(subscription, calendar, feed.clone());

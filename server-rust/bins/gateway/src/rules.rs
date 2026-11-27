@@ -4,14 +4,18 @@ use hyper::{Method, Request, Response};
 use setjoin_authz::token::KeySource;
 use setjoin_pg::ScopedExecutor;
 use std::sync::Arc;
+
 pub struct RulesRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
     pub worker: ScopedExecutor,
     pub keys: Arc<K>,
     pub issuer: String,
 }
+
 impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         let method = if *r.method() == Method::HEAD {
             "GET"
@@ -71,8 +75,22 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                 return crate::mailboxes::bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), op);
+            let Some(tx) = crate::policy_composition::tx_factory_from_executors(&e, Some(&w))
+            else {
+                return crate::mailboxes::bare(500, "database unavailable", &c, &id);
+            };
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user) = tx.mint_user_from_authorized(&auth, &client_ip).await else {
+                return crate::mailboxes::bare(500, "database error", &c, &id);
+            };
             if external_path.as_str() == "/api/settings/rule-templates" {
-                return match setjoin_rules::templates::list(&e, auth.context()).await {
+                return match setjoin_rules::templates::list(
+                    &tx,
+                    &user,
+                    auth.context().signed_admin(),
+                )
+                .await
+                {
                     Ok(body) => reply(body, 200, &c, &id),
                     Err(_) => crate::mailboxes::bare(500, "database error", &c, &id),
                 };
@@ -85,20 +103,22 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                 } else {
                     &setjoin_rules::authority::PIPELINE
                 };
-                let authority = match setjoin_rules::authority::resolve(&e, auth.context()).await {
-                    Ok(v) => v,
-                    // Owner-approved security fix 2026-11-05 (#484): a failed authority
-                    // lookup drops the signed grants (fail closed) instead of keeping them.
-                    Err(_) => setjoin_rules::authority::lookup_failed(auth.context()),
-                };
+                let authority =
+                    match setjoin_rules::authority::resolve(&tx, &user, auth.context()).await {
+                        Ok(v) => v,
+                        // Owner-approved security fix 2026-11-05 (#484): a failed authority
+                        // lookup drops the signed grants (fail closed) instead of keeping them.
+                        Err(_) => setjoin_rules::authority::lookup_failed(auth.context()),
+                    };
                 let path = external_path
                     .as_str()
                     .strip_prefix("/api")
                     .unwrap_or(external_path.as_str());
                 if !authority.allows(required) {
                     setjoin_rules::authority::denied(
-                        &e,
-                        auth.context(),
+                        &tx,
+                        &user,
+                        auth.context().email(),
                         path,
                         &required.join("|"),
                         op,
@@ -111,8 +131,9 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                     .filter(|_| external_path.as_str().starts_with("/api/admin/rules"))
                 {
                     setjoin_rules::authority::denied(
-                        &e,
-                        auth.context(),
+                        &tx,
+                        &user,
+                        auth.context().email(),
                         path,
                         &format!(
                             "org-wide-only surface (domain-scoped principal; domain={domain})"
@@ -137,11 +158,7 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                             return crate::mailboxes::bare(400, "invalid JSON", &c, &id);
                         };
                         return match setjoin_rules::templates::set_visibility(
-                            &e,
-                            auth.context(),
-                            target,
-                            &body,
-                            op,
+                            &tx, &user, target, &body, op,
                         )
                         .await
                         {
@@ -154,7 +171,7 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                             _ => crate::mailboxes::bare(500, "database error", &c, &id),
                         };
                     }
-                    return match setjoin_rules::templates::visibility(&e, target).await {
+                    return match setjoin_rules::templates::visibility(&tx, &user, target).await {
                         Ok(body) => reply(body, 200, &c, &id),
                         Err(_) => crate::mailboxes::bare(500, "database error", &c, &id),
                     };
@@ -167,7 +184,7 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                     let Some(target) = numeric_target(&r) else {
                         return crate::mailboxes::bare(400, "invalid template id", &c, &id);
                     };
-                    return match setjoin_rules::templates::resolve(&e, target).await {
+                    return match setjoin_rules::templates::resolve(&tx, &user, target).await {
                         Ok(Some(body)) => reply(body, 200, &c, &id),
                         _ => crate::mailboxes::bare(404, "template not found", &c, &id),
                     };
@@ -179,13 +196,7 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                         return crate::mailboxes::bare(400, "invalid template id", &c, &id);
                     };
                     if *r.method() == Method::DELETE {
-                        return match setjoin_rules::templates::delete(
-                            &e,
-                            auth.context(),
-                            target,
-                            op,
-                        )
-                        .await
+                        return match setjoin_rules::templates::delete(&tx, &user, target, op).await
                         {
                             setjoin_pg::CommandOutcome::Committed(v) if v == "true" => {
                                 reply(String::new(), 204, &c, &id)
@@ -208,14 +219,8 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                         else {
                             return crate::mailboxes::bare(400, "invalid JSON", &c, &id);
                         };
-                        return match setjoin_rules::templates::update(
-                            &e,
-                            auth.context(),
-                            target,
-                            &body,
-                            op,
-                        )
-                        .await
+                        return match setjoin_rules::templates::update(&tx, &user, target, &body, op)
+                            .await
                         {
                             setjoin_pg::CommandOutcome::Committed(v) if v == "true" => {
                                 reply(String::new(), 204, &c, &id)
@@ -229,7 +234,7 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                             _ => crate::mailboxes::bare(500, "database error", &c, &id),
                         };
                     }
-                    return match setjoin_rules::templates::get(&e, target).await {
+                    return match setjoin_rules::templates::get(&tx, &user, target).await {
                         Ok(Some(body)) => reply(body, 200, &c, &id),
                         _ => crate::mailboxes::bare(404, "template not found", &c, &id),
                     };
@@ -241,9 +246,7 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                         else {
                             return crate::mailboxes::bare(400, "invalid JSON", &c, &id);
                         };
-                        return match setjoin_rules::templates::create(&e, auth.context(), &body, op)
-                            .await
-                        {
+                        return match setjoin_rules::templates::create(&tx, &user, &body, op).await {
                             setjoin_pg::CommandOutcome::Committed(v) => {
                                 reply(format!("{{\"id\":{v}}}\n"), 201, &c, &id)
                             }
@@ -253,11 +256,27 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                             _ => crate::mailboxes::bare(500, "database error", &c, &id),
                         };
                     }
-                    return match setjoin_rules::templates::list(&e, auth.context()).await {
+                    return match setjoin_rules::templates::list(
+                        &tx,
+                        &user,
+                        auth.context().signed_admin(),
+                    )
+                    .await
+                    {
                         Ok(body) => reply(body, 200, &c, &id),
                         Err(_) => crate::mailboxes::bare(500, "database error", &c, &id),
                     };
                 }
+                let matched_perm = authority
+                    .first_matching(required)
+                    .unwrap_or("mail.pipeline");
+                let Ok(admin_principal) = tx.mint_admin_from_authorized(&auth, &client_ip).await
+                else {
+                    return crate::mailboxes::bare(403, "Forbidden", &c, &id);
+                };
+                let Ok(proof) = admin_principal.require_permission(matched_perm) else {
+                    return crate::mailboxes::bare(403, "Forbidden", &c, &id);
+                };
                 if *r.method() == Method::POST && external_path.as_str() == "/api/admin/rules" {
                     if let Some(value) =
                         crate::admin_identity_input::query(r.uri(), "from_template")
@@ -266,7 +285,9 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                         let Some(target) = value.parse::<i64>().ok() else {
                             return crate::mailboxes::bare(400, "invalid template id", &c, &id);
                         };
-                        let template = match setjoin_rules::templates::load(&w, target).await {
+                        let template = match setjoin_rules::templates::load(&tx, &proof, target)
+                            .await
+                        {
                             Ok(Some(t)) => t,
                             _ => return crate::mailboxes::bare(404, "template not found", &c, &id),
                         };
@@ -278,8 +299,9 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                             return crate::mailboxes::bare(400, "invalid parameters JSON", &c, &id);
                         };
                         return match setjoin_rules::templates::instantiate(
-                            &w,
-                            auth.context(),
+                            &tx,
+                            &proof,
+                            auth.context().mailbox_id(),
                             &template,
                             &params.unwrap_or_default(),
                             op,
@@ -314,7 +336,7 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                         body.run_on = "server".into()
                     }
                     if let Some(mb) = body.mailbox_id {
-                        if !setjoin_rules::mailbox_exists(&w, mb).await {
+                        if !setjoin_rules::mailbox_exists(&tx, &proof, mb).await {
                             return crate::mailboxes::bare(400, "mailbox not found", &c, &id);
                         }
                     } else if !body.transport {
@@ -325,7 +347,7 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                             &id,
                         );
                     }
-                    return match setjoin_rules::admin_create(&w, auth.context(), &body, op).await {
+                    return match setjoin_rules::admin_create(&tx, &proof, &body, op).await {
                         setjoin_pg::CommandOutcome::Committed(v) => {
                             reply(format!("{{\"id\":{v}}}\n"), 201, &c, &id)
                         }
@@ -340,15 +362,13 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                         return crate::mailboxes::bare(400, "invalid rule id", &c, &id);
                     };
                     if *r.method() == Method::POST && external_path.as_str().ends_with("/test") {
-                        return match setjoin_rules::admin_test(&w, target).await {
+                        return match setjoin_rules::admin_test(&tx, &proof, target).await {
                             Ok(false) => crate::mailboxes::bare(404, "rule not found", &c, &id),
                             _ => crate::mailboxes::bare(500, "database error", &c, &id),
                         };
                     }
                     if *r.method() == Method::DELETE {
-                        return match setjoin_rules::admin_delete(&w, auth.context(), target, op)
-                            .await
-                        {
+                        return match setjoin_rules::admin_delete(&tx, &proof, target, op).await {
                             setjoin_pg::CommandOutcome::Committed(v) if v == "true" => {
                                 reply(String::new(), 204, &c, &id)
                             }
@@ -367,14 +387,8 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                         else {
                             return crate::mailboxes::bare(400, "invalid JSON", &c, &id);
                         };
-                        return match setjoin_rules::admin_update(
-                            &w,
-                            auth.context(),
-                            target,
-                            &body,
-                            op,
-                        )
-                        .await
+                        return match setjoin_rules::admin_update(&tx, &proof, target, &body, op)
+                            .await
                         {
                             setjoin_pg::CommandOutcome::Committed(v) if v == "true" => {
                                 reply(String::new(), 204, &c, &id)
@@ -388,7 +402,7 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                             _ => crate::mailboxes::bare(500, "database error", &c, &id),
                         };
                     }
-                    return match setjoin_rules::admin_get(&w, target).await {
+                    return match setjoin_rules::admin_get(&tx, &proof, target).await {
                         Ok(Some(body)) => reply(body, 200, &c, &id),
                         Ok(None) => crate::mailboxes::bare(404, "rule not found", &c, &id),
                         Err(_) => crate::mailboxes::bare(500, "database error", &c, &id),
@@ -397,7 +411,7 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                 let mailbox = crate::admin_identity_input::query(r.uri(), "mailboxId")
                     .filter(|v| !v.is_empty())
                     .map(|v| crate::admin_identity_input::atoi(&v));
-                return match setjoin_rules::admin_list(&w, mailbox).await {
+                return match setjoin_rules::admin_list(&tx, &proof, mailbox).await {
                     Ok(body) => reply(body, 200, &c, &id),
                     Err(_) => crate::mailboxes::bare(500, "database error", &c, &id),
                 };
@@ -408,7 +422,7 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                     .starts_with("/api/settings/rules/apply/")
             {
                 let target = segment(&r, 5);
-                return match setjoin_rules::apply_status(&e, auth.context(), &target).await {
+                return match setjoin_rules::apply_status(&tx, &user, &target).await {
                     Ok(Some(body)) => reply(body, 200, &c, &id),
                     _ => typed(&r, &c, &id, 404, "not-found", "apply job not found", None),
                 };
@@ -454,14 +468,44 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                         None,
                     );
                 }
-                match setjoin_rules::active_sweeps(&e,auth.context()).await {
-                    Ok(n) if n>=3=>return typed(&r,&c,&id,429,"rate-limited","this mailbox already has the maximum number of rule sweeps in progress; wait for one to finish",Some("Too many active rule sweeps")),
-                    Err(_)=>return typed(&r,&c,&id,500,"internal-error","database error",None),_=>{}
-                }
-                return match setjoin_rules::apply(&e, auth.context(), target, &body.window, op)
+                let Ok(mb) = tx
+                    .mint_primary_mailbox_from_authorized(&auth, &client_ip)
                     .await
+                else {
+                    return typed(&r, &c, &id, 500, "internal-error", "database error", None);
+                };
+                let (Ok(read_cap), Ok(mutate_cap)) = (mb.require_read(), mb.require_mutate())
+                else {
+                    return typed(&r, &c, &id, 403, "forbidden", "forbidden", None);
+                };
+                match setjoin_rules::active_sweeps(&tx, &read_cap).await {
+                    Ok(n) if n >= 3 => {
+                        return typed(
+                            &r,
+                            &c,
+                            &id,
+                            429,
+                            "rate-limited",
+                            "this mailbox already has the maximum number of rule sweeps in progress; wait for one to finish",
+                            Some("Too many active rule sweeps"),
+                        )
+                    }
+                    Err(_) => {
+                        return typed(&r, &c, &id, 500, "internal-error", "database error", None)
+                    }
+                    _ => {}
+                }
+                return match setjoin_rules::apply(&tx, &mutate_cap, target, &body.window, op).await
                 {
-                    setjoin_pg::CommandOutcome::Committed(v) if v == "cap" => typed(&r,&c,&id,429,"rate-limited","this mailbox already has the maximum number of rule sweeps in progress; wait for one to finish",Some("Too many active rule sweeps")),
+                    setjoin_pg::CommandOutcome::Committed(v) if v == "cap" => typed(
+                        &r,
+                        &c,
+                        &id,
+                        429,
+                        "rate-limited",
+                        "this mailbox already has the maximum number of rule sweeps in progress; wait for one to finish",
+                        Some("Too many active rule sweeps"),
+                    ),
                     setjoin_pg::CommandOutcome::Committed(v) => reply(
                         format!(
                             "{{\"actionId\":{},\"status\":\"queued\"}}\n",
@@ -502,7 +546,16 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                 let Some(target) = numeric_target(&r) else {
                     return crate::mailboxes::bare(400, "invalid rule id", &c, &id);
                 };
-                return match setjoin_rules::personal_delete(&e, auth.context(), target, op).await {
+                let Ok(mb) = tx
+                    .mint_primary_mailbox_from_authorized(&auth, &client_ip)
+                    .await
+                else {
+                    return crate::mailboxes::bare(500, "database error", &c, &id);
+                };
+                let Ok(mutate_cap) = mb.require_mutate() else {
+                    return crate::mailboxes::bare(403, "Forbidden", &c, &id);
+                };
+                return match setjoin_rules::personal_delete(&tx, &mutate_cap, target, op).await {
                     setjoin_pg::CommandOutcome::Committed(v) if v == "true" => {
                         reply(String::new(), 204, &c, &id)
                     }
@@ -532,11 +585,21 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                 if let Err(detail) = setjoin_rules::input::validate(&mut body, creating) {
                     return crate::mailboxes::bare(400, &detail, &c, &id);
                 }
+                if creating && auth.context().mailbox_id() == 0 {
+                    return crate::mailboxes::bare(500, "mailbox not found", &c, &id);
+                }
+                let Ok(mb) = tx
+                    .mint_primary_mailbox_from_authorized(&auth, &client_ip)
+                    .await
+                else {
+                    return crate::mailboxes::bare(500, "database error", &c, &id);
+                };
+                let (Ok(read_cap), Ok(mutate_cap)) = (mb.require_read(), mb.require_mutate())
+                else {
+                    return crate::mailboxes::bare(403, "Forbidden", &c, &id);
+                };
                 if creating {
-                    if auth.context().mailbox_id() == 0 {
-                        return crate::mailboxes::bare(500, "mailbox not found", &c, &id);
-                    }
-                    match setjoin_rules::personal_count(&e, auth.context()).await {
+                    match setjoin_rules::personal_count(&tx, &read_cap).await {
                         Ok(n) if n >= 100 => {
                             return crate::mailboxes::bare(
                                 400,
@@ -550,9 +613,9 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                     }
                 }
                 let outcome = if creating {
-                    setjoin_rules::personal_create(&e, auth.context(), &body, op).await
+                    setjoin_rules::personal_create(&tx, &mutate_cap, &body, op).await
                 } else {
-                    setjoin_rules::personal_update(&e, auth.context(), target, &body, op).await
+                    setjoin_rules::personal_update(&tx, &mutate_cap, target, &body, op).await
                 };
                 return match outcome {
                     setjoin_pg::CommandOutcome::Committed(v) if creating && v == "cap" => {
@@ -573,7 +636,7 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                     _ => crate::mailboxes::bare(500, "database error", &c, &id),
                 };
             }
-            match setjoin_rules::personal_list(&e, auth.context()).await {
+            match setjoin_rules::personal_list(&tx, &user).await {
                 Ok(body) => crate::jmap::reply::response(body, c.identity.proto, id),
                 Err(_) => crate::mailboxes::bare(500, "database error", &c, &id),
             }

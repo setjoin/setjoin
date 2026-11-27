@@ -371,14 +371,20 @@ impl Delivery {
             &[(&to, Type::TEXT)],
         ).await;
         if let Ok(rows) = users {
-            if let Some(user) = rows.first().and_then(|row| row.get::<_, Option<i64>>(0)) {
+            if let Some(user) = rows
+                .first()
+                .and_then(|row| row.try_get::<_, Option<i64>>(0).ok().flatten())
+            {
                 let mut listed = false;
                 for (kind, symbol) in [("blocked", "USER_BLOCKED"), ("safe", "USER_SAFE")] {
                     let entries = conn.query(
                         "SELECT EXISTS(SELECT 1 FROM user_sender_list WHERE user_id=$1 AND sender=$2 AND list_type=$3)",
                         &[(&user, Type::INT8), (&sender, Type::TEXT), (&kind, Type::TEXT)],
                     ).await;
-                    if entries.ok().is_some_and(|rows| rows[0].get::<_, bool>(0)) {
+                    if entries.ok().is_some_and(|rows| {
+                        rows.first()
+                            .is_some_and(|r| r.try_get::<_, bool>(0).unwrap_or(false))
+                    }) {
                         listed = true;
                         let score = params["p_spam_score"].as_f64().unwrap_or(0.0);
                         params["p_spam_score"] = json!(if kind == "blocked" {
@@ -458,7 +464,14 @@ impl Delivery {
         } else {
             conn.query_detailed("SELECT message_id,subject_user_id,subject_mailbox_id,publication_enrolled,'delivered'::text FROM smtp_inbound_deliver($1::jsonb,$2,$3)",&[(&params,Type::TEXT),(&from,Type::TEXT),(&to,Type::TEXT)]).await.map_err(Failure::Database)?
         };
-        match rows[0].get::<_, String>(4).as_str() {
+        let Some(row) = rows.first() else {
+            let _ = conn.batch("ROLLBACK").await;
+            return Err(Failure::Other);
+        };
+        let outcome = row
+            .try_get::<_, String>(4)
+            .unwrap_or_else(|_| "deferred".to_owned());
+        match outcome.as_str() {
             "rejected" => {
                 conn.batch("ROLLBACK").await?;
                 return Err(Failure::GroupRejected);
@@ -471,18 +484,32 @@ impl Delivery {
         }
         // Never acknowledge a lost commit. Connection drop rolls back pre-commit errors.
         conn.batch("COMMIT").await?;
-        let row = &rows[0];
-        if row.get::<_, Option<i64>>(0).is_some() && !row.get::<_, bool>(3) {
+        let delivered_id = row.try_get::<_, Option<i64>>(0).unwrap_or(None);
+        let enrolled = row.try_get::<_, bool>(3).unwrap_or(false);
+        if delivered_id.is_some() && !enrolled {
             if let (Some(events), Some(user), Some(mailbox)) = (
                 &self.events,
-                row.get::<_, Option<i64>>(1),
-                row.get::<_, Option<i64>>(2),
+                row.try_get::<_, Option<i64>>(1).unwrap_or(None),
+                row.try_get::<_, Option<i64>>(2).unwrap_or(None),
             ) {
                 events.received(user, mailbox, from, to).await;
             }
         }
-        if row.get::<_,Option<i64>>(0).is_some() {
-            crate::inbound::imip::process(&self.inbound,&conn, body_message, crate::inbound::imip::Transport {envelope:from,from:&sender,spf:self.spf=="pass",dkim:&dkim,recipients:&self.recipients,to}).await;
+        if delivered_id.is_some() {
+            crate::inbound::imip::process(
+                &self.inbound,
+                &conn,
+                body_message,
+                crate::inbound::imip::Transport {
+                    envelope: from,
+                    from: &sender,
+                    spf: self.spf == "pass",
+                    dkim: &dkim,
+                    recipients: &self.recipients,
+                    to,
+                },
+            )
+            .await;
         }
         Ok(Accepted::Normal)
     }
