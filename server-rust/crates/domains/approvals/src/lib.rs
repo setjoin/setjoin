@@ -1,5 +1,7 @@
 //! Approvals family (F10). Reducers own business authority.
 #![forbid(unsafe_code)]
+pub mod sql;
+pub use sql::SQL_CONTRACTS;
 use serde::Serialize;
 use setjoin_authz::AuthContext;
 use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
@@ -79,16 +81,6 @@ fn invalid() -> StatementFailure {
         message: "invalid approval result".into(),
     }
 }
-const COLS: &str = r#"id,consumer_type,subject,status,requester_user_id,approver_kind,approver_ref,
- to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
- to_char(expires_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
- to_char(decided_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),decided_by_user_id,decision_comment,
- (CASE WHEN consumer_type='drive.access' THEN COALESCE((SELECT jsonb_build_object(
- 'nodeId',d.node_id::text,'spaceId',d.space_id::text,'requestedCapabilities',to_jsonb(d.requested_capabilities),
- 'requestedPropagation',d.requested_propagation,'requestedExpiresAt',d.requested_expires_at,'requestedMaxUses',d.requested_max_uses,
- 'emergency',d.emergency,'reason',d.reason,'expectedEpoch',d.expected_epoch::text,'grantId',CASE WHEN d.grant_id IS NULL THEN NULL ELSE d.grant_id::text END)
- FROM drive_access_request_details d WHERE d.request_id=approval_requests.id),'{}'::jsonb) ELSE payload END)::text"#;
-
 /// Same-statement requester/active approver fence remains effective on owner pools.
 pub async fn my_approvals(
     exec: &ScopedExecutor,
@@ -96,8 +88,12 @@ pub async fn my_approvals(
 ) -> Result<String, StatementFailure> {
     let auth = scope(actor);
     let uid = actor.user_id();
-    let pending=exec.read_scoped(&auth,&format!("SELECT {COLS} FROM approval_requests WHERE status='pending' AND requester_user_id IS DISTINCT FROM $1 AND (requester_user_id=$1 OR (approver_kind='user' AND approver_ref=$1) OR (approver_kind='role_group' AND EXISTS(SELECT 1 FROM public.admin_role_assignments ara WHERE ara.role_group_id=approval_requests.approver_ref AND ara.user_id=$1 AND (ara.expires_at IS NULL OR ara.expires_at>now()) AND public.admin_assignment_active(ara.eligible,ara.activated_until)))) ORDER BY created_at"),&[(&uid,Type::INT8)]).await?;
-    let mine=exec.read_scoped(&auth,&format!("SELECT {COLS} FROM approval_requests WHERE requester_user_id=$1 ORDER BY created_at DESC"),&[(&uid,Type::INT8)]).await?;
+    let pending = exec
+        .read_scoped(&auth, sql::MY_APPROVALS_PENDING.sql, &[(&uid, Type::INT8)])
+        .await?;
+    let mine = exec
+        .read_scoped(&auth, sql::MY_APPROVALS_MINE.sql, &[(&uid, Type::INT8)])
+        .await?;
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Lists {
@@ -169,7 +165,7 @@ pub async fn cancel_request(
         &envelope,
         &auth,
         std::time::Instant::now() + std::time::Duration::from_secs(30),
-        "SELECT approval_request_cancel($4,$2) WHERE $1::bigint>=0 AND $3::text<>''",
+        sql::CANCEL_REQUEST.sql,
         &[(&request, Type::INT8)],
         |rows| {
             rows.first()
@@ -188,7 +184,13 @@ pub async fn visible_consumer(
     request: i64,
 ) -> Result<Option<String>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read_scoped(&scope(actor),"SELECT consumer_type FROM approval_requests r WHERE r.id=$1 AND (r.requester_user_id=$2 OR (r.approver_kind='user' AND r.approver_ref=$2) OR (r.approver_kind='role_group' AND EXISTS(SELECT 1 FROM public.admin_role_assignments a WHERE a.user_id=$2 AND a.role_group_id=r.approver_ref AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until))) OR EXISTS(SELECT 1 FROM public.admin_role_assignments a JOIN public.admin_role_groups g ON g.id=a.role_group_id WHERE a.user_id=$2 AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until) AND (g.permissions && ARRAY['approvals.view','approvals.manage']::text[])))",&[(&request,Type::INT8),(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read_scoped(
+            &scope(actor),
+            sql::VISIBLE_CONSUMER.sql,
+            &[(&request, Type::INT8), (&user, Type::INT8)],
+        )
+        .await?;
     Ok(rows.first().map(|r| r.get(0)))
 }
 
@@ -201,14 +203,17 @@ pub async fn decide_consumer(
     comment: Option<&str>,
     operation: [u8; 16],
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    let (command,sql)=match consumer {
-     "hr.leave"|"hr.expense"=>("hr_approval_decide","SELECT hr_approval_decide($4,$2,$5,$6) WHERE $1::bigint>=0 AND $3::text<>''"),
-     "rbac.jit_activation"=>("rbac_approval_decide","SELECT rbac_approval_decide($4,$2,$5,$6) WHERE $1::bigint>=0 AND $3::text<>''"),
-     "drive.export"=>("drive_export_approval_decide","SELECT drive_export_approval_decide($4,$2,$5,$6) WHERE $1::bigint>=0 AND $3::text<>''"),
-     "drive.share"=>("drive_share_approval_decide","SELECT drive_share_approval_decide($4,$2,$5,$6) WHERE $1::bigint>=0 AND $3::text<>''"),
-     "mail.external_send"=>("mail_external_approval_decide","SELECT mail_external_approval_decide($4,$2,$5,$6) WHERE $1::bigint>=0 AND $3::text<>''"),
-     "mail.group_moderation"=>("group_moderation_approval_decide","SELECT group_moderation_approval_decide($4,$2,$5,$6) WHERE $1::bigint>=0 AND $3::text<>''"),
-     _=>return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Body(invalid())),
+    let (command, sql) = match consumer {
+        "hr.leave" | "hr.expense" => ("hr_approval_decide", sql::DECIDE_HR.sql),
+        "rbac.jit_activation" => ("rbac_approval_decide", sql::DECIDE_RBAC.sql),
+        "drive.export" => ("drive_export_approval_decide", sql::DECIDE_DRIVE_EXPORT.sql),
+        "drive.share" => ("drive_share_approval_decide", sql::DECIDE_DRIVE_SHARE.sql),
+        "mail.external_send" => ("mail_external_approval_decide", sql::DECIDE_MAIL_EXTERNAL.sql),
+        "mail.group_moderation" => (
+            "group_moderation_approval_decide",
+            sql::DECIDE_GROUP_MODERATION.sql,
+        ),
+        _ => return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Body(invalid())),
     };
     use setjoin_contracts::{
         command::CommandEnvelope,
@@ -283,7 +288,9 @@ pub async fn admin_authority(
         ));
     }
     let user = actor.user_id();
-    let rows=exec.read("SELECT COALESCE(bool_or('approvals.manage'=ANY(g.permissions)),false), COALESCE(bool_or(g.permissions && ARRAY['approvals.view','approvals.manage']::text[]),false), MIN(COALESCE(a.domain_override,g.domain_scope)) FROM public.admin_role_assignments a JOIN public.admin_role_groups g ON g.id=a.role_group_id WHERE a.user_id=$1 AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until)",&[(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read(sql::ADMIN_AUTHORITY.sql, &[(&user, Type::INT8)])
+        .await?;
     let row = rows.first().ok_or_else(invalid)?;
     Ok(AdminAuthority {
         manage: row.get(0),
@@ -323,7 +330,13 @@ pub async fn policies(
     consumer: &str,
 ) -> Result<String, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read_scoped(&scope(actor),"SELECT id,consumer_type,name,enabled,priority,conditions::text,requires_approval,approver_spec::text,created_at::text,updated_at::text FROM approval_policies WHERE ($1::text='' OR consumer_type=$1) AND EXISTS(SELECT 1 FROM public.admin_role_assignments a JOIN public.admin_role_groups g ON g.id=a.role_group_id WHERE a.user_id=$2 AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until) AND g.permissions && ARRAY['approvals.view','approvals.manage']::text[]) ORDER BY consumer_type,priority",&[(&consumer,Type::TEXT),(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read_scoped(
+            &scope(actor),
+            sql::POLICIES_LIST.sql,
+            &[(&consumer, Type::TEXT), (&user, Type::INT8)],
+        )
+        .await?;
     let mut policies = vec![];
     for r in rows {
         policies.push(Policy {
@@ -372,7 +385,7 @@ pub async fn console_denied(
         command: (),
     };
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F10",command:"console.denied"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",&[(&before,Type::TEXT),(&path,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
+ sql::CONSOLE_DENIED.sql,&[(&before,Type::TEXT),(&path,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
 }
 
 pub async fn create_policy(
@@ -395,7 +408,7 @@ pub async fn create_policy(
         command: (),
     };
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F10",command:"rust_approval_policy_create"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT rust_approval_policy_create($2,$4::text::jsonb) WHERE $1::bigint>=0 AND $3::text<>''",&[(&body,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
+ sql::POLICY_CREATE.sql,&[(&body,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
 }
 
 /// Preserve Go's independent, best-effort post-commit policy audit.
@@ -423,7 +436,7 @@ pub async fn audit_policy_created(
         command: (),
     };
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F10",command:"approval_policy_create_audit"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT audit_write($2,'approval_policy_create','approval_policy',$4,NULL,$5::text::jsonb,NULLIF($6,'')::inet,'','core') WHERE $1::bigint>=0 AND $3::text<>''",&[(&id,Type::INT8),(&after,Type::TEXT),(&ip,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
+ sql::AUDIT_POLICY_CREATED.sql,&[(&id,Type::INT8),(&after,Type::TEXT),(&ip,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
 }
 
 /// A static canonical policy command, with no caller-controlled SQL identifiers.
@@ -434,7 +447,7 @@ pub async fn update_policy(
     body: &str,
     operation: [u8; 16],
 ) -> setjoin_pg::CommandOutcome<i64, StatementFailure> {
-    policy_command(exec,actor,"rust_approval_policy_update","SELECT rust_approval_policy_update($2,$4,$5::text::jsonb) WHERE $1::bigint>=0 AND $3::text<>''",id,body,operation).await
+    policy_command(exec,actor,"rust_approval_policy_update",sql::POLICY_UPDATE.sql,id,body,operation).await
 }
 async fn policy_command(
     exec: &ScopedExecutor,
@@ -500,7 +513,7 @@ pub async fn audit_policy_change(
         command: (),
     };
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F10",command:"approval_policy_audit"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
-    "SELECT audit_write($2,$4,'approval_policy',$5,NULL,$6::text::jsonb,NULLIF($7,'')::inet,'','core') WHERE $1::bigint>=0 AND $3::text<>''",&[(&action,Type::TEXT),(&id,Type::INT8),(&after,Type::TEXT),(&ip,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
+    sql::AUDIT_POLICY_CHANGE.sql,&[(&action,Type::TEXT),(&id,Type::INT8),(&after,Type::TEXT),(&ip,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
 }
 
 pub async fn delete_policy(
@@ -509,7 +522,7 @@ pub async fn delete_policy(
     id: i64,
     operation: [u8; 16],
 ) -> setjoin_pg::CommandOutcome<i64, StatementFailure> {
-    policy_command(exec,actor,"rust_approval_policy_delete","SELECT rust_approval_policy_delete($2,$4) WHERE $1::bigint>=0 AND $3::text<>'' AND $5::text=''",id,"",operation).await
+    policy_command(exec,actor,"rust_approval_policy_delete",sql::POLICY_DELETE.sql,id,"",operation).await
 }
 
 pub async fn reorder_policies(
@@ -518,7 +531,7 @@ pub async fn reorder_policies(
     body: &str,
     operation: [u8; 16],
 ) -> setjoin_pg::CommandOutcome<i64, StatementFailure> {
-    policy_command(exec,actor,"rust_approval_policy_reorder","SELECT rust_approval_policy_reorder($2,$5::text::jsonb) WHERE $1::bigint>=0 AND $3::text<>'' AND $4::bigint=0",0,body,operation).await
+    policy_command(exec,actor,"rust_approval_policy_reorder",sql::POLICY_REORDER.sql,0,body,operation).await
 }
 
 #[derive(Serialize)]
@@ -550,7 +563,18 @@ pub async fn audit_requests(
 ) -> Result<String, StatementFailure> {
     let user = actor.user_id();
     let domain = domain.unwrap_or(0);
-    let rows=exec.read_scoped(&scope(actor),"SELECT id,consumer_type,requester_user_id,subject,status,approver_kind,approver_ref,decided_by_user_id,decided_at::text,decision_comment,created_at::text,expires_at::text FROM approval_requests WHERE ($2::bigint<=0 OR domain_id=$2) AND EXISTS(SELECT 1 FROM public.admin_role_assignments a JOIN public.admin_role_groups g ON g.id=a.role_group_id WHERE a.user_id=$1 AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until) AND g.permissions && ARRAY['approvals.view','approvals.manage']::text[]) ORDER BY created_at DESC LIMIT $3 OFFSET $4",&[(&user,Type::INT8),(&domain,Type::INT8),(&limit,Type::INT8),(&offset,Type::INT8)]).await?;
+    let rows = exec
+        .read_scoped(
+            &scope(actor),
+            sql::AUDIT_REQUESTS.sql,
+            &[
+                (&user, Type::INT8),
+                (&domain, Type::INT8),
+                (&limit, Type::INT8),
+                (&offset, Type::INT8),
+            ],
+        )
+        .await?;
     let items = rows
         .iter()
         .map(|r| AuditItem {
@@ -580,10 +604,7 @@ pub async fn hr_enabled(exec: &ScopedExecutor, kind: &str) -> Result<bool, State
         _ => return Ok(false),
     };
     let rows = exec
-        .read(
-            "SELECT enabled FROM feature_toggles WHERE key=$1",
-            &[(&key, Type::TEXT)],
-        )
+        .read(sql::HR_ENABLED.sql, &[(&key, Type::TEXT)])
         .await?;
     Ok(rows.first().is_some_and(|r| r.get(0)))
 }
@@ -616,7 +637,7 @@ pub async fn submit_hr(
         &envelope,
         &auth,
         std::time::Instant::now() + std::time::Duration::from_secs(30),
-        "SELECT hr_request_create($2,$4,$5::text::jsonb) WHERE $1::bigint>=0 AND $3::text<>''",
+        sql::SUBMIT_HR.sql,
         &[(&kind, Type::TEXT), (&form, Type::TEXT)],
         |rows| {
             rows.first()
@@ -670,7 +691,7 @@ pub async fn decide_drive_access(
         command: (),
     };
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F10",command:"drive_access_approval_decide"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT (drive_access_approval_decide($4,$2,$5,$6,COALESCE($7::text[],d.requested_capabilities),COALESCE($8,d.requested_propagation),COALESCE($9::text::timestamptz,d.requested_expires_at),COALESCE($10::bigint::integer,d.requested_max_uses),$11))->>'status' FROM drive_access_request_details d WHERE d.request_id=$4 AND EXISTS(SELECT 1 FROM approval_requests r WHERE r.id=d.request_id AND (r.requester_user_id=$2 OR (r.approver_kind='user' AND r.approver_ref=$2) OR (r.approver_kind='role_group' AND EXISTS(SELECT 1 FROM public.admin_role_assignments a WHERE a.user_id=$2 AND a.role_group_id=r.approver_ref AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until))) OR EXISTS(SELECT 1 FROM public.admin_role_assignments a JOIN public.admin_role_groups g ON g.id=a.role_group_id WHERE a.user_id=$2 AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until) AND g.permissions && ARRAY['approvals.view','approvals.manage']::text[]))) AND $1::bigint>=0 AND $3::text<>''",
+ sql::DECIDE_DRIVE_ACCESS.sql,
  &[(&request,Type::INT8),(&decision,Type::TEXT),(&comment,Type::TEXT),(&body.capabilities,Type::TEXT_ARRAY),(&body.propagation,Type::TEXT),(&body.expires_at,Type::TEXT),(&body.max_uses,Type::INT8),(&body.expected_epoch,Type::INT8)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
 }
 

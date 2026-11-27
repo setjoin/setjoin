@@ -13,7 +13,9 @@ pub async fn calendars(
     exec: &ScopedExecutor,
     user: i64,
 ) -> Result<Vec<Calendar>, StatementFailure> {
-    let rows = exec.read("SELECT c.id,c.mailbox_id,c.name,c.timezone FROM calendars c JOIN mailboxes mb ON mb.id=c.mailbox_id WHERE mb.user_id=$1 ORDER BY c.name", &[(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read(crate::sql::DAV_CALENDARS.sql, &[(&user, Type::INT8)])
+        .await?;
     Ok(rows
         .iter()
         .map(|r| Calendar {
@@ -30,7 +32,12 @@ pub async fn calendar(
     id: i64,
     user: i64,
 ) -> Result<Option<Calendar>, StatementFailure> {
-    let rows=exec.read("SELECT c.id,c.mailbox_id,c.name,c.timezone FROM calendars c JOIN mailboxes mb ON mb.id=c.mailbox_id WHERE c.id=$1 AND mb.user_id=$2",&[(&id,Type::INT8),(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read(
+            crate::sql::DAV_CALENDAR.sql,
+            &[(&id, Type::INT8), (&user, Type::INT8)],
+        )
+        .await?;
     Ok(rows.first().map(|r| Calendar {
         id: r.get(0),
         mailbox: r.get(1),
@@ -46,7 +53,12 @@ pub async fn event(
     uid: &str,
     user: i64,
 ) -> Result<Option<String>, StatementFailure> {
-    let rows = exec.read("SELECT to_jsonb(ce)::text FROM calendar_events ce JOIN calendars c ON c.id=ce.calendar_id JOIN mailboxes mb ON mb.id=c.mailbox_id WHERE ce.calendar_id=$1 AND ce.uid=$2 AND mb.user_id=$3 AND ce.recurrence_override IS NULL", &[(&calendar,Type::INT8),(&uid,Type::TEXT),(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read(
+            crate::sql::DAV_EVENT.sql,
+            &[(&calendar, Type::INT8), (&uid, Type::TEXT), (&user, Type::INT8)],
+        )
+        .await?;
     Ok(rows.first().map(|r| r.get(0)))
 }
 
@@ -56,9 +68,7 @@ pub async fn event(
 pub async fn timezone_catalog(
     exec: &ScopedExecutor,
 ) -> Result<Vec<(i64, String, String)>, StatementFailure> {
-    let rows = exec
-        .read("SELECT calendar_id,tzid,standard::text FROM vt_timezone", &[])
-        .await?;
+    let rows = exec.read(crate::sql::DAV_TIMEZONE_CATALOG.sql, &[]).await?;
     Ok(rows
         .iter()
         .filter_map(|r| Some((r.try_get(0).ok()?, r.try_get(1).ok()?, r.try_get(2).ok()?)))
@@ -72,7 +82,12 @@ pub async fn owned_timezone(
     user: i64,
     tzid: &str,
 ) -> Result<Option<String>, StatementFailure> {
-    let rows=exec.read("SELECT v.standard::text FROM vt_timezone v JOIN calendars c ON c.id=v.calendar_id JOIN mailboxes mb ON mb.id=c.mailbox_id WHERE v.calendar_id=$1 AND v.tzid=$2 AND mb.user_id=$3",&[(&calendar,Type::INT8),(&tzid,Type::TEXT),(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read(
+            crate::sql::DAV_OWNED_TIMEZONE.sql,
+            &[(&calendar, Type::INT8), (&tzid, Type::TEXT), (&user, Type::INT8)],
+        )
+        .await?;
     Ok(rows.first().and_then(|r| r.get(0)))
 }
 
@@ -83,7 +98,12 @@ pub async fn overrides(
     uid: &str,
     user: i64,
 ) -> Result<Vec<String>, StatementFailure> {
-    let rows = exec.read("SELECT to_jsonb(ce)::text FROM calendar_events ce JOIN calendars c ON c.id=ce.calendar_id JOIN mailboxes mb ON mb.id=c.mailbox_id WHERE ce.calendar_id=$1 AND ce.uid=$2 AND mb.user_id=$3 AND ce.recurrence_override IS NOT NULL ORDER BY ce.recurrence_override", &[(&calendar,Type::INT8),(&uid,Type::TEXT),(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read(
+            crate::sql::DAV_OVERRIDES.sql,
+            &[(&calendar, Type::INT8), (&uid, Type::TEXT), (&user, Type::INT8)],
+        )
+        .await?;
     Ok(rows.iter().map(|r| r.get(0)).collect())
 }
 
@@ -97,7 +117,18 @@ pub async fn events(
     before: &str,
     limit: Option<i64>,
 ) -> Result<Vec<String>, StatementFailure> {
-    let rows=exec.read("SELECT to_jsonb(ce)::text FROM calendar_events ce JOIN calendars c ON c.id=ce.calendar_id JOIN mailboxes mb ON mb.id=c.mailbox_id WHERE ce.calendar_id=$1 AND mb.user_id=$2 AND ce.recurrence_override IS NULL AND (NULLIF($3,'') IS NULL OR ce.end_at>NULLIF($3,'')::timestamptz) AND (NULLIF($4,'') IS NULL OR ce.start_at<NULLIF($4,'')::timestamptz) ORDER BY ce.start_at LIMIT $5", &[(&calendar,Type::INT8),(&user,Type::INT8),(&after,Type::TEXT),(&before,Type::TEXT),(&limit,Type::INT8)]).await?;
+    let rows = exec
+        .read(
+            crate::sql::DAV_EVENTS.sql,
+            &[
+                (&calendar, Type::INT8),
+                (&user, Type::INT8),
+                (&after, Type::TEXT),
+                (&before, Type::TEXT),
+                (&limit, Type::INT8),
+            ],
+        )
+        .await?;
     Ok(rows.iter().map(|r| r.get(0)).collect())
 }
 
@@ -114,7 +145,18 @@ pub async fn sync(
         MailboxId::new(mailbox).expect("owned mailbox"),
         Generation(1),
     );
-    let rows=exec.read_scoped(&scope,"SELECT caldav_changes($1,'CalendarEvent',$2,$3)::text WHERE EXISTS(SELECT 1 FROM calendars c JOIN mailboxes mb ON mb.id=c.mailbox_id WHERE c.id=$2 AND c.mailbox_id=$1 AND mb.user_id=$4)", &[(&mailbox,Type::INT8),(&calendar,Type::INT8),(&since,Type::TEXT),(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read_scoped(
+            &scope,
+            crate::sql::DAV_SYNC.sql,
+            &[
+                (&mailbox, Type::INT8),
+                (&calendar, Type::INT8),
+                (&since, Type::TEXT),
+                (&user, Type::INT8),
+            ],
+        )
+        .await?;
     Ok(rows.first().map(|r| r.get(0)))
 }
 
@@ -126,7 +168,17 @@ pub async fn free_busy(
     start: &str,
     end: &str,
 ) -> Result<(), StatementFailure> {
-    exec.read("SELECT calendar_free_busy($1,ARRAY[c.mailbox_id],$4::text::timestamptz,$5::text::timestamptz)::text FROM calendars c JOIN mailboxes mb ON mb.id=c.mailbox_id WHERE c.id=$2 AND mb.user_id=$3", &[(&caller_mailbox,Type::INT8),(&calendar,Type::INT8),(&user,Type::INT8),(&start,Type::TEXT),(&end,Type::TEXT)]).await?;
+    exec.read(
+        crate::sql::DAV_FREE_BUSY.sql,
+        &[
+            (&caller_mailbox, Type::INT8),
+            (&calendar, Type::INT8),
+            (&user, Type::INT8),
+            (&start, Type::TEXT),
+            (&end, Type::TEXT),
+        ],
+    )
+    .await?;
     Ok(())
 }
 
@@ -142,7 +194,7 @@ pub async fn create(
     use setjoin_contracts::ids::{ActorId, OperationId};
     let user = actor.user_id();
     let email = actor.email();
-    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F17",command:"caldav-put-create"}).run_user_command(ActorId::new(user).expect("verified actor"),OperationId(operation),"SELECT jmap_calendar_event_set_create(c.mailbox_id,$1,$3,$4::text::jsonb)::text FROM calendars c JOIN mailboxes mb ON mb.id=c.mailbox_id WHERE c.id=$2 AND mb.user_id=$1", &[(&user,Type::INT8),(&calendar,Type::INT8),(&email,Type::TEXT),(&payload,Type::TEXT)],|rows|Ok(rows.first().map(|r|r.get(0)).unwrap_or_else(||"{}".into()))).await
+    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F17",command:"caldav-put-create"}).run_user_command(ActorId::new(user).expect("verified actor"),OperationId(operation),crate::sql::DAV_CREATE.sql, &[(&user,Type::INT8),(&calendar,Type::INT8),(&email,Type::TEXT),(&payload,Type::TEXT)],|rows|Ok(rows.first().map(|r|r.get(0)).unwrap_or_else(||"{}".into()))).await
 }
 
 pub async fn event_etag(
@@ -150,7 +202,12 @@ pub async fn event_etag(
     id: i64,
     user: i64,
 ) -> Result<String, StatementFailure> {
-    let rows=exec.read("SELECT ce.etag FROM calendar_events ce JOIN calendars c ON c.id=ce.calendar_id JOIN mailboxes mb ON mb.id=c.mailbox_id WHERE ce.id=$1 AND mb.user_id=$2", &[(&id,Type::INT8),(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read(
+            crate::sql::DAV_EVENT_ETAG.sql,
+            &[(&id, Type::INT8), (&user, Type::INT8)],
+        )
+        .await?;
     Ok(rows.first().map(|r| r.get(0)).unwrap_or_default())
 }
 
@@ -164,7 +221,7 @@ pub async fn update(
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     use setjoin_contracts::ids::{ActorId, OperationId};
     let user = actor.user_id();
-    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F17",command:"caldav-put-update"}).run_user_command(ActorId::new(user).expect("verified actor"),OperationId(operation),"SELECT jmap_calendar_event_set_update(c.mailbox_id,$4::text::jsonb)::text FROM calendar_events ce JOIN calendars c ON c.id=ce.calendar_id JOIN mailboxes mb ON mb.id=c.mailbox_id WHERE c.id=$2 AND ce.id=$3 AND mb.user_id=$1 AND ce.recurrence_override IS NULL", &[(&user,Type::INT8),(&calendar,Type::INT8),(&event,Type::INT8),(&payload,Type::TEXT)],|rows|Ok(rows.first().map(|r|r.get(0)).unwrap_or_else(||"{}".into()))).await
+    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F17",command:"caldav-put-update"}).run_user_command(ActorId::new(user).expect("verified actor"),OperationId(operation),crate::sql::DAV_UPDATE.sql, &[(&user,Type::INT8),(&calendar,Type::INT8),(&event,Type::INT8),(&payload,Type::TEXT)],|rows|Ok(rows.first().map(|r|r.get(0)).unwrap_or_else(||"{}".into()))).await
 }
 
 pub async fn occurrence(
@@ -178,7 +235,7 @@ pub async fn occurrence(
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     use setjoin_contracts::ids::{ActorId, OperationId};
     let user = actor.user_id();
-    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F17",command:"caldav-put-occurrence"}).run_user_command(ActorId::new(user).expect("verified actor"),OperationId(operation),"SELECT jmap_calendar_event_set_occurrence(c.mailbox_id,ce.id,$4::text::timestamptz,'this',$5::text::jsonb)::text FROM calendar_events ce JOIN calendars c ON c.id=ce.calendar_id JOIN mailboxes mb ON mb.id=c.mailbox_id WHERE c.id=$2 AND ce.id=$3 AND mb.user_id=$1 AND ce.recurrence_override IS NULL", &[(&user,Type::INT8),(&calendar,Type::INT8),(&event,Type::INT8),(&instant,Type::TEXT),(&patch,Type::TEXT)],|rows|Ok(rows.first().map(|r|r.get(0)).unwrap_or_else(||"{}".into()))).await
+    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F17",command:"caldav-put-occurrence"}).run_user_command(ActorId::new(user).expect("verified actor"),OperationId(operation),crate::sql::DAV_OCCURRENCE.sql, &[(&user,Type::INT8),(&calendar,Type::INT8),(&event,Type::INT8),(&instant,Type::TEXT),(&patch,Type::TEXT)],|rows|Ok(rows.first().map(|r|r.get(0)).unwrap_or_else(||"{}".into()))).await
 }
 
 pub async fn destroy(
@@ -190,7 +247,7 @@ pub async fn destroy(
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     use setjoin_contracts::ids::{ActorId, OperationId};
     let user = actor.user_id();
-    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F17",command:"caldav-delete"}).run_user_command(ActorId::new(user).expect("verified actor"),OperationId(operation),"SELECT jmap_calendar_event_set_destroy(c.mailbox_id,ARRAY[ce.id])::text FROM calendar_events ce JOIN calendars c ON c.id=ce.calendar_id JOIN mailboxes mb ON mb.id=c.mailbox_id WHERE c.id=$2 AND ce.id=$3 AND mb.user_id=$1 AND ce.recurrence_override IS NULL", &[(&user,Type::INT8),(&calendar,Type::INT8),(&event,Type::INT8)],|rows|Ok(rows.first().map(|r|r.get(0)).unwrap_or_else(||"{}".into()))).await
+    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F17",command:"caldav-delete"}).run_user_command(ActorId::new(user).expect("verified actor"),OperationId(operation),crate::sql::DAV_DESTROY.sql, &[(&user,Type::INT8),(&calendar,Type::INT8),(&event,Type::INT8)],|rows|Ok(rows.first().map(|r|r.get(0)).unwrap_or_else(||"{}".into()))).await
 }
 
 /// Go RequireApp's independent, best-effort routine denial audit.
@@ -199,7 +256,11 @@ pub async fn blocked_audit(
     user: i64,
     ip: &str,
 ) -> Result<(), StatementFailure> {
-    exec.read("SELECT audit_write($1,'app_blocked','app',NULL,NULL,NULL,$2::text::inet,'calendar','routine')", &[(&user,Type::INT8),(&ip,Type::TEXT)]).await?;
+    exec.read(
+        crate::sql::DAV_BLOCKED_AUDIT.sql,
+        &[(&user, Type::INT8), (&ip, Type::TEXT)],
+    )
+    .await?;
     Ok(())
 }
 
@@ -240,7 +301,7 @@ pub async fn lookup_operation(
     // run_user_command takes the same actor/operation advisory lock as the
     // publisher, then reads its durable receipt without adding a new receipt.
     match exec.run_user_command(ActorId::new(user).map_err(|_|invalid())?,operation,
-        "SELECT EXISTS(SELECT 1 FROM rust_operation_receipts WHERE operation_id=substr(encode(digest($2::text || ':' || $1::text,'sha256'),'hex'),1,32)::uuid AND family='F17' AND command=$3) WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=$1 AND u.enabled AND identity_transition_admission_allowed(u.id))",
+        crate::sql::DAV_LOOKUP_OPERATION.sql,
         &[(&user,Type::INT8),(&op,Type::TEXT),(&command,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await {
         setjoin_pg::CommandOutcome::Committed(found)=>Ok(found),_=>Err(invalid()),
     }

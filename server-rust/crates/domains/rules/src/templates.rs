@@ -23,7 +23,6 @@ pub(super) fn raw(text: &str) -> String {
     }
     out
 }
-const COLUMNS:&str="id,name,description,category,conditions::text,actions::text,parameters::text,is_system,sort_order";
 fn item(r: &Row, detail: bool) -> Result<String, StatementFailure> {
     let enabled = if detail {
         format!(
@@ -38,10 +37,12 @@ fn item(r: &Row, detail: bool) -> Result<String, StatementFailure> {
 }
 pub async fn list(exec: &ScopedExecutor, a: &AuthContext) -> Result<String, StatementFailure> {
     let rows = if a.signed_admin() {
-        exec.read_iterated(&format!("SELECT {COLUMNS} FROM rule_templates WHERE enabled=TRUE ORDER BY category,sort_order"),&[]).await?
+        exec.read_iterated(crate::sql::TEMPLATE_LIST_ADMIN.sql, &[])
+            .await?
     } else {
         let user = a.user_id();
-        exec.read_iterated(&format!("SELECT {COLUMNS} FROM rule_templates t WHERE t.enabled=TRUE AND NOT EXISTS(SELECT 1 FROM rule_template_visibility v WHERE v.template_id=t.id AND v.user_id=$1 AND v.hidden=TRUE) ORDER BY t.category,t.sort_order"),&[(&user,Type::INT8)]).await?
+        exec.read_iterated(crate::sql::TEMPLATE_LIST_USER.sql, &[(&user, Type::INT8)])
+            .await?
     };
     Ok(done(format!(
         "[{}]",
@@ -54,10 +55,7 @@ pub async fn list(exec: &ScopedExecutor, a: &AuthContext) -> Result<String, Stat
 
 pub async fn get(exec: &ScopedExecutor, id: i64) -> Result<Option<String>, StatementFailure> {
     let rows = exec
-        .read(
-            &format!("SELECT {COLUMNS},enabled FROM rule_templates WHERE id=$1"),
-            &[(&id, Type::INT8)],
-        )
+        .read(crate::sql::TEMPLATE_GET.sql, &[(&id, Type::INT8)])
         .await?;
     rows.first().map(|r| item(r, true).map(done)).transpose()
 }
@@ -69,7 +67,9 @@ pub struct Resolved {
     pub parameters: String,
 }
 pub async fn load(exec: &ScopedExecutor, id: i64) -> Result<Option<Resolved>, StatementFailure> {
-    let rows=exec.read("SELECT name,category,conditions::text,actions::text,parameters::text FROM rule_templates WHERE id=$1 AND enabled=TRUE",&[(&id,Type::INT8)]).await?;
+    let rows = exec
+        .read(crate::sql::TEMPLATE_LOAD.sql, &[(&id, Type::INT8)])
+        .await?;
     let Some(r) = rows.first() else {
         return Ok(None);
     };
@@ -91,7 +91,23 @@ pub async fn create(
     op: [u8; 16],
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     let sort = t.sort.unwrap_or(0);
-    super::write(exec,a,op,"template.create","INSERT INTO rule_templates(name,description,category,conditions,actions,parameters,sort_order) SELECT $4,$5,$6,$7::text::jsonb,$8::text::jsonb,$9::text::jsonb,$10::bigint::int WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id::text",&[(&t.name,Type::TEXT),(&t.description,Type::TEXT),(&t.category,Type::TEXT),(&t.conditions.0,Type::TEXT),(&t.actions.0,Type::TEXT),(&t.parameters.0,Type::TEXT),(&sort,Type::INT8)]).await
+    super::write(
+        exec,
+        a,
+        op,
+        "template.create",
+        crate::sql::TEMPLATE_CREATE.sql,
+        &[
+            (&t.name, Type::TEXT),
+            (&t.description, Type::TEXT),
+            (&t.category, Type::TEXT),
+            (&t.conditions.0, Type::TEXT),
+            (&t.actions.0, Type::TEXT),
+            (&t.parameters.0, Type::TEXT),
+            (&sort, Type::INT8),
+        ],
+    )
+    .await
 }
 pub async fn update(
     exec: &ScopedExecutor,
@@ -100,7 +116,25 @@ pub async fn update(
     t: &super::input::Template,
     op: [u8; 16],
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    super::write(exec,a,op,"template.update","WITH changed AS(UPDATE rule_templates SET name=COALESCE(NULLIF($5,''),name),description=COALESCE($6,description),category=COALESCE(NULLIF($7,''),category),conditions=COALESCE($8::text::jsonb,conditions),actions=COALESCE($9::text::jsonb,actions),parameters=COALESCE($10::text::jsonb,parameters),enabled=COALESCE($11,enabled),sort_order=COALESCE($12::bigint::int,sort_order),updated_at=now() WHERE id=$4 AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8),(&t.name,Type::TEXT),(&t.description,Type::TEXT),(&t.category,Type::TEXT),(&t.conditions.0,Type::TEXT),(&t.actions.0,Type::TEXT),(&t.parameters.0,Type::TEXT),(&t.enabled,Type::BOOL),(&t.sort,Type::INT8)]).await
+    super::write(
+        exec,
+        a,
+        op,
+        "template.update",
+        crate::sql::TEMPLATE_UPDATE.sql,
+        &[
+            (&id, Type::INT8),
+            (&t.name, Type::TEXT),
+            (&t.description, Type::TEXT),
+            (&t.category, Type::TEXT),
+            (&t.conditions.0, Type::TEXT),
+            (&t.actions.0, Type::TEXT),
+            (&t.parameters.0, Type::TEXT),
+            (&t.enabled, Type::BOOL),
+            (&t.sort, Type::INT8),
+        ],
+    )
+    .await
 }
 pub async fn delete(
     exec: &ScopedExecutor,
@@ -108,12 +142,20 @@ pub async fn delete(
     id: i64,
     op: [u8; 16],
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    super::write(exec,a,op,"template.delete","WITH changed AS(DELETE FROM rule_templates WHERE id=$4 AND NOT is_system AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8)]).await
+    super::write(
+        exec,
+        a,
+        op,
+        "template.delete",
+        crate::sql::TEMPLATE_DELETE.sql,
+        &[(&id, Type::INT8)],
+    )
+    .await
 }
 pub async fn visibility(exec: &ScopedExecutor, id: i64) -> Result<String, StatementFailure> {
     let rows = exec
         .read_iterated(
-            "SELECT user_id,hidden FROM rule_template_visibility WHERE template_id=$1",
+            crate::sql::TEMPLATE_VISIBILITY_LIST.sql,
             &[(&id, Type::INT8)],
         )
         .await?;
@@ -139,9 +181,9 @@ pub async fn set_visibility(
     op: [u8; 16],
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     let sql = if t.hidden {
-        "INSERT INTO rule_template_visibility(template_id,user_id,hidden) SELECT $4,$5,TRUE WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' ON CONFLICT(template_id,COALESCE(user_id,-1)) DO UPDATE SET hidden=TRUE RETURNING 'true'::text"
+        crate::sql::TEMPLATE_VISIBILITY_HIDE.sql
     } else {
-        "WITH changed AS(DELETE FROM rule_template_visibility WHERE template_id=$4 AND user_id IS NOT DISTINCT FROM $5 AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING template_id) SELECT 'true'::text"
+        crate::sql::TEMPLATE_VISIBILITY_SHOW.sql
     };
     super::write(
         exec,
@@ -168,5 +210,17 @@ pub async fn instantiate(
         conditions = conditions.replace(&needle, &encoded);
         actions = actions.replace(&needle, &encoded);
     }
-    super::write(exec,a,op,"admin.from-template","SELECT rule_config_template_create($2,NULLIF($1,0),$4,$5::text::jsonb,$6::text::jsonb)::text WHERE $3::text<>''",&[(&t.name,Type::TEXT),(&conditions,Type::TEXT),(&actions,Type::TEXT)]).await
+    super::write(
+        exec,
+        a,
+        op,
+        "admin.from-template",
+        crate::sql::TEMPLATE_INSTANTIATE.sql,
+        &[
+            (&t.name, Type::TEXT),
+            (&conditions, Type::TEXT),
+            (&actions, Type::TEXT),
+        ],
+    )
+    .await
 }

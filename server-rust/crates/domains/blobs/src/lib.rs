@@ -1,6 +1,9 @@
 //! Blob and recovery-upload family contracts.
 #![forbid(unsafe_code)]
 
+pub mod sql;
+pub use sql::SQL_CONTRACTS;
+
 use setjoin_contracts::{
     command::CommandEnvelope,
     ids::{Digest, OperationId},
@@ -67,7 +70,7 @@ pub async fn abort_upload(
         command: (),
     };
     setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_upload_abort"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
-        "SELECT mail_recovery_upload_abort($2,$4::text::uuid)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",
+        sql::ABORT_UPLOAD.sql,
         &[(&session,Type::TEXT)], |rows| {
             let invalid = ||StatementFailure{hint: None,sqlstate:None,message:"invalid recovery abort result".into()};
             let raw: String = rows.first().ok_or_else(invalid)?.try_get(0).map_err(|_|invalid())?;
@@ -95,7 +98,7 @@ pub async fn fork_consent(
         command: (),
     };
     setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_fork_consent"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
-        "SELECT mail_recovery_fork_consent($2,$4::text::uuid,$5::text::uuid)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",
+        sql::FORK_CONSENT.sql,
         &[(&artifact,Type::TEXT),(&device,Type::TEXT)],|rows| {
             rows.first().and_then(|row|row.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid fork consent result".into()})
         }).await
@@ -116,7 +119,7 @@ pub async fn upload_item(
     item: &str,
 ) -> Result<Option<UploadItem>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read("SELECT s.incident_id::text,i.next_offset,i.declared_size,(s.status='uploading' AND i.status='uploading' AND s.expires_at>clock_timestamp()) FROM mail_recovery_upload_sessions s JOIN mail_recovery_upload_items i ON i.session_id=s.id WHERE s.id=$1::text::uuid AND s.uploading_user_id=$2 AND i.item_id=$3",
+    let rows=exec.read(sql::UPLOAD_ITEM.sql,
         &[(&session,Type::TEXT),(&user,Type::INT8),(&item,Type::TEXT)]).await?;
     Ok(rows.first().map(|row| UploadItem {
         incident: row.get(0),
@@ -140,7 +143,7 @@ pub async fn chunk_at(
     start: i64,
 ) -> Result<Option<ExistingChunk>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read("SELECT c.size_bytes,encode(c.sha256,'hex'),c.object_key FROM mail_recovery_upload_chunks c JOIN mail_recovery_upload_sessions s ON s.id=c.session_id WHERE c.session_id=$1::text::uuid AND s.uploading_user_id=$2 AND c.item_id=$3 AND c.start_offset=$4",
+    let rows=exec.read(sql::CHUNK_AT.sql,
         &[(&session,Type::TEXT),(&user,Type::INT8),(&item,Type::TEXT),(&start,Type::INT8)]).await?;
     Ok(rows.first().map(|row| ExistingChunk {
         size: row.get(0),
@@ -180,7 +183,7 @@ pub async fn record_chunk(
         command: (),
     };
     setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_upload_chunk_record"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
-        "SELECT mail_recovery_upload_chunk_record($2,$4::text::uuid,$5,$6,$7,$8,$9)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",
+        sql::RECORD_CHUNK.sql,
         &[(&chunk.session,Type::TEXT),(&chunk.item,Type::TEXT),(&chunk.start,Type::INT8),(&chunk.size,Type::INT4),(&chunk.digest,Type::TEXT),(&chunk.key,Type::TEXT)],|rows| {
             rows.first().and_then(|row|row.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid chunk record result".into()})
         }).await
@@ -226,7 +229,7 @@ pub async fn user_incidents(
     let user_id = actor.user_id();
     let rows = exec
         .read(
-            "SELECT mail_recovery_user_incident_list($1)::text",
+            sql::USER_INCIDENTS.sql,
             &[(&user_id, setjoin_pg::Type::INT8)],
         )
         .await?;
@@ -252,22 +255,7 @@ pub async fn blob_owned(
     let user = actor.user_id();
     let rows = exec
         .read(
-            "SELECT EXISTS (SELECT 1 FROM message_attachments ma \
-         JOIN messages m ON m.id=ma.message_id AND m.received_at=ma.received_at \
-         JOIN mailboxes mb ON mb.id=m.mailbox_id \
-         WHERE ma.blob_sha256=$1 AND mb.user_id=$2) \
-         OR EXISTS (SELECT 1 FROM hr_expense_receipts her \
-         JOIN approval_requests ar ON ar.id=her.approval_request_id \
-         WHERE her.blob_sha256=$1 AND (ar.requester_user_id=$2 \
-         OR (ar.approver_kind='user' AND ar.approver_ref=$2) \
-         OR (ar.approver_kind='role_group' AND EXISTS(SELECT 1 FROM admin_role_assignments ara \
-             WHERE ara.role_group_id=ar.approver_ref AND ara.user_id=$2 \
-             AND (ara.expires_at IS NULL OR ara.expires_at>now()) \
-             AND admin_assignment_active(ara.eligible,ara.activated_until))) \
-         OR EXISTS(SELECT 1 FROM admin_role_assignments sa \
-             WHERE sa.role_group_id=1 AND sa.user_id=$2 \
-             AND (sa.expires_at IS NULL OR sa.expires_at>now()) \
-             AND admin_assignment_active(sa.eligible,sa.activated_until))))",
+            sql::BLOB_OWNED.sql,
             &[
                 (&hash, setjoin_pg::Type::TEXT),
                 (&user, setjoin_pg::Type::INT8),
@@ -299,7 +287,7 @@ pub async fn item_for_commit(
     item: &str,
 ) -> Result<Option<ItemCommit>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read("SELECT encode(i.sha256,'hex'),i.declared_size,i.role,i.status,COALESCE(i.object_ref,'') FROM mail_recovery_upload_sessions s JOIN mail_recovery_upload_items i ON i.session_id=s.id WHERE s.id=$1::text::uuid AND s.uploading_user_id=$2 AND i.item_id=$3 AND s.status IN ('uploading','quarantined')",
+    let rows=exec.read(sql::ITEM_FOR_COMMIT.sql,
         &[(&session,Type::TEXT),(&user,Type::INT8),(&item,Type::TEXT)]).await?;
     Ok(rows.first().map(|row| ItemCommit {
         digest: row.get(0),
@@ -324,7 +312,7 @@ pub async fn item_chunks(
     item: &str,
 ) -> Result<Vec<QuarantineChunk>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read("SELECT c.start_offset,c.size_bytes,encode(c.sha256,'hex'),c.object_key FROM mail_recovery_upload_chunks c JOIN mail_recovery_upload_sessions s ON s.id=c.session_id WHERE c.session_id=$1::text::uuid AND s.uploading_user_id=$2 AND c.item_id=$3 ORDER BY c.start_offset",
+    let rows=exec.read(sql::ITEM_CHUNKS.sql,
         &[(&session,Type::TEXT),(&user,Type::INT8),(&item,Type::TEXT)]).await?;
     Ok(rows
         .iter()
@@ -355,7 +343,7 @@ pub async fn verify_item(
         ),
         command: (),
     };
-    setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_upload_item_verify"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),"SELECT mail_recovery_upload_item_verify($2,$4::text::uuid,$5,$6)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",&[(&session,Type::TEXT),(&item,Type::TEXT),(&object_ref,Type::TEXT)],|rows|rows.first().and_then(|row|row.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid item verification result".into()})).await
+    setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_upload_item_verify"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),sql::VERIFY_ITEM.sql,&[(&session,Type::TEXT),(&item,Type::TEXT),(&object_ref,Type::TEXT)],|rows|rows.first().and_then(|row|row.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid item verification result".into()})).await
 }
 
 /// The frozen PUT transaction: admission, caller charge and reclamation arming.
@@ -388,7 +376,7 @@ pub async fn account_upload(
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
     setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"blob_upload_account"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
-        "SELECT blob_upload_account($2,$4,$5,$6,$7,$8,$9)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",
+        sql::ACCOUNT_UPLOAD.sql,
         &[(&hash,Type::TEXT),(&reference,Type::TEXT),(&size,Type::INT8),(&content_type,Type::TEXT),(&grace,Type::INT4),(&quota,Type::INT8)],
         |rows| rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid blob accounting result".into()})).await
 }
@@ -403,7 +391,7 @@ pub async fn attachment_metadata(
     delegated: i64,
 ) -> Result<Option<(i64, String)>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read("SELECT b.size_bytes,COALESCE(b.content_type,'application/octet-stream') FROM blobs b WHERE b.sha256=$1 AND b.size_bytes BETWEEN 0 AND 8589934592 AND EXISTS(SELECT 1 FROM message_attachments ma JOIN messages m ON m.id=ma.message_id JOIN mailboxes mb ON mb.id=m.mailbox_id WHERE ma.blob_sha256=b.sha256 AND (mb.user_id=$2 OR mb.id=$3))",&[(&hash,Type::TEXT),(&user,Type::INT8),(&delegated,Type::INT8)]).await?;
+    let rows=exec.read(sql::ATTACHMENT_METADATA.sql,&[(&hash,Type::TEXT),(&user,Type::INT8),(&delegated,Type::INT8)]).await?;
     Ok(rows.first().map(|r| (r.get(0), r.get(1))))
 }
 
@@ -444,7 +432,7 @@ pub async fn begin_upload(
     // the family need not link the driver's chrono adapter.
     let consented = offer.consented;
     setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_upload_begin"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT mail_recovery_upload_begin($2,$4::text::uuid,$5::text::uuid,$6,$7::text::uuid,$8,$9,$10::text::jsonb,$11::text::jsonb,$12::text::timestamptz,$13::text::uuid)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",
+ sql::BEGIN_UPLOAD.sql,
  &[(&offer.session,Type::TEXT),(&offer.incident,Type::TEXT),(&offer.mailbox,Type::INT8),(&offer.device,Type::TEXT),(&offer.artifact,Type::TEXT),(&offer.eligibility,Type::TEXT),(&offer.receipt,Type::TEXT),(&offer.inventory,Type::TEXT),(&consented,Type::TEXT),(&offer.idempotency,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid recovery begin result".into()})).await
 }
 
@@ -460,7 +448,7 @@ pub async fn finalize_item(
     session: &str,
 ) -> Result<Option<FinalizeItem>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read("SELECT i.object_ref,i.declared_size,s.eligibility,s.status FROM mail_recovery_upload_sessions s JOIN mail_recovery_upload_items i ON i.session_id=s.id AND i.role='raw' WHERE s.id=$1::text::uuid AND s.uploading_user_id=$2",&[(&session,Type::TEXT),(&user,Type::INT8)]).await?;
+    let rows=exec.read(sql::FINALIZE_ITEM.sql,&[(&session,Type::TEXT),(&user,Type::INT8)]).await?;
     Ok(rows.first().map(|r| FinalizeItem {
         reference: r.get(0),
         size: r.get(1),
@@ -474,7 +462,7 @@ pub async fn replay_finalize(
     session: &str,
 ) -> Result<Option<String>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read("SELECT jsonb_build_object('id',id,'status',status,'replayed',true)::text FROM (SELECT a.id,a.status FROM mail_recovery_quarantine_artifacts a JOIN mail_recovery_upload_sessions s ON s.id=a.session_id WHERE s.id=$1::text::uuid AND s.uploading_user_id=$2 UNION ALL SELECT l.quarantine_id,CASE WHEN s.status='deduplicated' THEN 'deduplicated' ELSE l.outcome END FROM mail_recovery_upload_sessions s JOIN mail_recovery_ledger l ON l.artifact_identity=s.artifact_identity WHERE s.id=$1::text::uuid AND s.uploading_user_id=$2 AND s.status='deduplicated') replay LIMIT 1",&[(&session,Type::TEXT),(&user,Type::INT8)]).await?;
+    let rows=exec.read(sql::REPLAY_FINALIZE.sql,&[(&session,Type::TEXT),(&user,Type::INT8)]).await?;
     Ok(rows.first().map(|r| r.get(0)))
 }
 pub struct Quarantine<'a> {
@@ -504,5 +492,5 @@ pub async fn quarantine(
         ),
         command: (),
     };
-    setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_artifact_quarantine"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),"SELECT mail_recovery_artifact_quarantine($2,$4::text::uuid,$5::text::uuid,$6::text::jsonb,$7,$8)::text WHERE $1::bigint IS NOT NULL AND $3::text IS NOT NULL",&[(&offer.session,Type::TEXT),(&offer.artifact,Type::TEXT),(&offer.parsed,Type::TEXT),(&offer.malware,Type::TEXT),(&offer.rejection,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid recovery quarantine result".into()})).await
+    setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_artifact_quarantine"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),sql::QUARANTINE.sql,&[(&offer.session,Type::TEXT),(&offer.artifact,Type::TEXT),(&offer.parsed,Type::TEXT),(&offer.malware,Type::TEXT),(&offer.rejection,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid recovery quarantine result".into()})).await
 }

@@ -409,6 +409,18 @@ with private fields, sealed marker traits, `#[must_use]`, and zero
   `record_audit(&AuditEvent)` runs `audit_write(..., 'core')` in the same tx.
 - `WorkerTx`: constructible only from `WorkerPool` (`worker-pool` feature).
 
+### Typed `SqlContract` execution helpers (#541)
+
+All capability transaction handles (`MailboxTx`, `UserTx`, `AdminReadTx`,
+`AdminSensitiveRead`, `AdminWriteTx`, and `WorkerTx`) expose `query_contract`
+(and read-write handles also expose `execute_contract`) accepting
+`&'static SqlContract` from `setjoin-sql-catalog`. Read-only handles
+(`MailboxTx<ReadOnly>`, `UserTx<ReadOnly>`, `AdminReadTx<Standard>`,
+`AdminSensitiveRead`) expose no `execute_contract` method (proven by
+`compile_fail` doctest). Every call validates contract `SqlScope` compatibility
+and exact parameter arity locally before executing via unnamed
+`query_typed_raw` (PgBouncer-safe, zero `TYPEINFO_QUERY`).
+
 ### Cargo feature gating & static isolation
 
 `setjoin_pg::mint` (`mint` feature) is enabled only on `setjoin-authz` and
