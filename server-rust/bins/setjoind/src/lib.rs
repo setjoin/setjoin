@@ -191,39 +191,49 @@ pub fn run_cli() -> ExitCode {
         }
     };
 
+    // Atomically capture + FD_CLOEXEC all inherited systemd descriptors BEFORE
+    // building the Tokio runtime or running boot/schema checks, so FD 3+ is
+    // never Tokio's own epoll/eventfd and any refusal closes every descriptor
+    // with zero `accept()` calls.
+    let captured = match setjoin_gateway::activation::capture_from_env() {
+        Ok(captured) => captured,
+        Err(err) => {
+            eprintln!("setjoind: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Err(err) = captured.validate_for_subsystems(subsystems) {
+        drop(captured);
+        eprintln!("setjoind: {err}");
+        return ExitCode::FAILURE;
+    }
+
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
     {
         Ok(runtime) => runtime,
         Err(error) => {
+            drop(captured);
             eprintln!("setjoind: {error}");
             return ExitCode::FAILURE;
         }
     };
 
-    // Atomically capture + FD_CLOEXEC all inherited systemd descriptors BEFORE
-    // running boot/schema checks, so any refusal drops `activated` and closes
-    // every descriptor with zero `accept()` calls.
-    let activated = match runtime.block_on(async { setjoin_gateway::activation::take_from_env() }) {
-        Ok(activated) => activated,
-        Err(err) => {
-            eprintln!("setjoind: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
-    if let Err(err) = activated.validate_for_subsystems(subsystems) {
-        drop(activated);
-        eprintln!("setjoind: {err}");
-        return ExitCode::FAILURE;
-    }
-
     // Strict pre-bind schema check (`actual == expected`) BEFORE any listener binds.
     let boot_posture = match runtime.block_on(setjoin_boot::run_for_subsystems(subsystems, true)) {
         Ok(posture) => Arc::new(posture),
         Err(refusal) => {
-            drop(activated);
+            drop(captured);
             return ExitCode::from(refusal.exit_code);
+        }
+    };
+
+    let activated = match runtime.block_on(async { captured.into_activated() }) {
+        Ok(activated) => activated,
+        Err(err) => {
+            eprintln!("setjoind: {err}");
+            return ExitCode::FAILURE;
         }
     };
 

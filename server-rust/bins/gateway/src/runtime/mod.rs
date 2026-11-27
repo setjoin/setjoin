@@ -179,6 +179,15 @@ pub fn run_legacy_cli() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // Capture + FD_CLOEXEC inherited systemd descriptors BEFORE building the
+    // Tokio runtime so FD 3+ is never Tokio's own epoll/eventfd descriptor.
+    let captured = match crate::activation::capture_from_env() {
+        Ok(captured) => captured,
+        Err(err) => {
+            eprintln!("setjoin-gateway: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -191,9 +200,12 @@ pub fn run_legacy_cli() -> ExitCode {
     };
     let boot_posture = match runtime.block_on(setjoin_boot::run()) {
         Ok(posture) => Arc::new(posture),
-        Err(refusal) => return ExitCode::from(refusal.exit_code),
+        Err(refusal) => {
+            drop(captured);
+            return ExitCode::from(refusal.exit_code);
+        }
     };
-    let activated = match runtime.block_on(async { crate::activation::take_from_env() }) {
+    let activated = match runtime.block_on(async { captured.into_activated() }) {
         Ok(activated) => activated,
         Err(err) => {
             eprintln!("setjoin-gateway: {err}");
