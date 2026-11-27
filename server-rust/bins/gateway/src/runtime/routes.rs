@@ -33,6 +33,7 @@ pub struct RouteDeps {
     /// (`JWT_SECRET`, `SM2_PRIVATE_KEY_FILE`). Must be `false` on non-`auth`
     /// `setjoind` nodes even when `AUTHSERVER_URL` is unset (#543).
     pub allow_private_keys: bool,
+    pub boot_posture: Arc<setjoin_boot::BootPosture>,
 }
 
 /// Build the HTTP route table and shared edge rate limiter.
@@ -501,7 +502,8 @@ async fn build_with_keys<K: KeySource + 'static>(
             .with_overrides(setjoin_platform::features::Overrides::from_env(&|name| {
                 std::env::var(name).ok()
             }))
-            .with_livekit(crate::meet_livekit::LiveKit::from_env());
+            .with_livekit(crate::meet_livekit::LiveKit::from_env())
+            .with_boot_posture(deps.boot_posture.clone());
     if let Some(alerts) = &health_alerts {
         platform = platform.with_health_alerts(alerts.clone());
     }
@@ -945,6 +947,7 @@ async fn build_with_keys<K: KeySource + 'static>(
                 let livekit = crate::meet_livekit::LiveKit::from_env();
                 let gate =
                     setjoin_static::health::HealthGate::new(surface_config.probes_configured)
+                        .with_boot_posture(deps.boot_posture.clone())
                         .with_probes(Arc::new(move || {
                             let livekit = livekit.clone();
                             Box::pin(

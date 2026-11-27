@@ -18,6 +18,9 @@ worker-pool = []
 setjoin-contracts = { path = "../contracts" }
 setjoin-db = { path = "../db" }
 setjoin-sql-catalog = { path = "../sql-catalog" }
+setjoin-schema = { path = "../schema" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.145"
 tokio-postgres = "0.7.18"
 deadpool = { version = "0.13.1", default-features = false, features = ["managed", "rt_tokio_1"] }
 deadpool-postgres = "0.14.2"

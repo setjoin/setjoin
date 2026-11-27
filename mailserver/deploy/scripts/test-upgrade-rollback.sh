@@ -36,6 +36,9 @@ printf 'new setjoin-auth\n' >"$tmp/new/setjoin-auth"
 printf 'new webmail\n' >"$tmp/new/webmail/index.html"
 cat >"$tmp/new/mailctl" <<'MOCK'
 #!/usr/bin/env bash
+if [ "$1" = "schema" ] && [ "$2" = "preflight" ]; then
+  exit 0
+fi
 printf '%s\n' "$*" > "$UPGRADE_TEST_MIGRATION"
 exit 1
 MOCK
@@ -614,3 +617,151 @@ grep -qx 'DB_WORKER_DSN=postgres://setjoin_worker:rotatedpw@127.0.0.1:5432/mails
   exit 1
 }
 echo 'Release N shim refusal + Release N+1 setjoind cutover/refresh/rollback: PASS'
+
+# ── E. Wave 1.9 (#547) fail-closed RLS preflight gates & env propagation ─────
+# D1. Pre-stop preflight refusal aborts BEFORE stopping services or swapping binaries.
+d1="$real_tmp/prestop-refuse"
+mkdir -p "$d1/bin" "$d1/install" "$d1/new" "$d1/config" "$d1/units"
+cp "$tmp/bin/systemctl" "$tmp/bin/chown" "$d1/bin/"
+printf 'old server\n' >"$d1/install/setjoin-server"
+printf 'old mailctl\n' >"$d1/install/mailctl"
+printf 'new server\n' >"$d1/new/setjoin-server"
+cat >"$d1/new/mailctl" <<'MOCK'
+#!/usr/bin/env bash
+if [ "$1" = "schema" ] && [ "$2" = "preflight" ]; then
+  echo "mock pre-stop preflight failure" >&2
+  exit 1
+fi
+exit 0
+MOCK
+chmod 755 "$d1/new/mailctl" "$d1/new/setjoin-server"
+printf 'DB_DSN="postgres://setjoin_app:pw@127.0.0.1:5432/mailserver"\n' >"$d1/config/config.env"
+if PATH="$d1/bin:$PATH" INSTALL_DIR="$d1/install" SETJOIN_CONFIG_DIR="$d1/config" \
+  SYSTEMD_DIR="$d1/units" UPGRADE_TEST_LOG="$d1/systemctl.log" \
+  bash "$UPGRADE_SCRIPT" "$d1/new/setjoin-server" "$d1/new/mailctl" >"$d1/out" 2>&1; then
+  echo 'pre-stop preflight failure was reported as success' >&2
+  exit 1
+fi
+[ ! -s "$d1/systemctl.log" ] || {
+  echo 'pre-stop preflight failure still stopped services!' >&2
+  cat "$d1/systemctl.log" >&2
+  exit 1
+}
+[ "$(cat "$d1/install/setjoin-server")" = 'old server' ] || {
+  echo 'pre-stop preflight failure swapped setjoin-server binary!' >&2
+  exit 1
+}
+
+# D2. Quoted env propagation (DB_DSN from config.env, DB_WORKER_DSN from
+#     db-credentials.env; never falls back to config.env when db-credentials.env
+#     exists) + legacy pre-DEPLOY-004 fallback when db-credentials.env is absent.
+d2="$real_tmp/quoted-env"
+mkdir -p "$d2/bin" "$d2/install" "$d2/new" "$d2/config/db-credentials.d" "$d2/units"
+cp "$tmp/bin/systemctl" "$tmp/bin/chown" "$d2/bin/"
+printf 'old server\n' >"$d2/install/setjoin-server"
+printf 'new server\n' >"$d2/new/setjoin-server"
+cat >"$d2/new/mailctl" <<'MOCK'
+#!/usr/bin/env bash
+printf 'ARGS=%s\nDB_DSN=%s\nDB_WORKER_DSN=%s\nDB_OWNER_DSN=%s\n' \
+  "$*" "${DB_DSN:-}" "${DB_WORKER_DSN:-}" "${DB_OWNER_DSN:-}" >"$PREFLIGHT_CAPTURE"
+exit 1
+MOCK
+chmod 755 "$d2/new/mailctl" "$d2/new/setjoin-server"
+cat >"$d2/config/config.env" <<'ENV'
+DB_DSN="postgres://setjoin_app:quoted_app_pw@127.0.0.1:5432/mailserver"
+DB_WORKER_DSN="postgres://wrong_fallback:bad@127.0.0.1:5432/mailserver"
+ENV
+cat >"$d2/config/db-credentials.d/db-credentials.env" <<'ENV'
+DB_WORKER_DSN='postgres://setjoin_worker:quoted_worker_pw@127.0.0.1:5432/mailserver'
+DB_OWNER_DSN="postgres://setjoin_owner:quoted_owner_pw@127.0.0.1:5432/mailserver"
+ENV
+chgrp "$group" "$d2/config" "$d2/config/db-credentials.d" "$d2/config/db-credentials.d/db-credentials.env"
+chmod 755 "$d2/config"
+chmod 750 "$d2/config/db-credentials.d"
+chmod 600 "$d2/config/db-credentials.d/db-credentials.env" "$d2/config/config.env"
+! PATH="$d2/bin:$PATH" INSTALL_DIR="$d2/install" SETJOIN_CONFIG_DIR="$d2/config" \
+  SYSTEMD_DIR="$d2/units" UPGRADE_TEST_LOG="$d2/systemctl.log" \
+  DB_CRED_WANT_OWNER="$owner" DB_CRED_WANT_GROUP="$group" DB_CRED_RUNTIME_GROUP="$group" \
+  PREFLIGHT_CAPTURE="$d2/capture-split.txt" \
+  bash "$UPGRADE_SCRIPT" "$d2/new/setjoin-server" "$d2/new/mailctl" >"$d2/out" 2>&1
+grep -qx 'ARGS=schema preflight' "$d2/capture-split.txt" || {
+  cat "$d2/capture-split.txt" >&2
+  echo 'mailctl argv leaked or differed from schema preflight' >&2
+  exit 1
+}
+grep -qx 'DB_DSN=postgres://setjoin_app:quoted_app_pw@127.0.0.1:5432/mailserver' "$d2/capture-split.txt"
+grep -qx 'DB_WORKER_DSN=postgres://setjoin_worker:quoted_worker_pw@127.0.0.1:5432/mailserver' "$d2/capture-split.txt"
+grep -qx 'DB_OWNER_DSN=postgres://setjoin_owner:quoted_owner_pw@127.0.0.1:5432/mailserver' "$d2/capture-split.txt"
+! grep -Fq 'quoted_app_pw' "$d2/out" && ! grep -Fq 'quoted_worker_pw' "$d2/out" || {
+  echo 'DSN passwords echoed to upgrade.sh output!' >&2
+  exit 1
+}
+
+# When db-credentials.env exists WITHOUT DB_WORKER_DSN, must NOT fall back to config.env.
+cat >"$d2/config/db-credentials.d/db-credentials.env" <<'ENV'
+DB_OWNER_DSN="postgres://setjoin_owner:quoted_owner_pw@127.0.0.1:5432/mailserver"
+ENV
+chmod 600 "$d2/config/db-credentials.d/db-credentials.env"
+! PATH="$d2/bin:$PATH" INSTALL_DIR="$d2/install" SETJOIN_CONFIG_DIR="$d2/config" \
+  SYSTEMD_DIR="$d2/units" UPGRADE_TEST_LOG="$d2/systemctl.log" \
+  DB_CRED_WANT_OWNER="$owner" DB_CRED_WANT_GROUP="$group" DB_CRED_RUNTIME_GROUP="$group" \
+  PREFLIGHT_CAPTURE="$d2/capture-nofallback.txt" \
+  bash "$UPGRADE_SCRIPT" "$d2/new/setjoin-server" "$d2/new/mailctl" >"$d2/out2" 2>&1
+grep -qx 'DB_WORKER_DSN=' "$d2/capture-nofallback.txt" || {
+  cat "$d2/capture-nofallback.txt" >&2
+  echo 'upgrade.sh fell back to config.env DB_WORKER_DSN even though db-credentials.env existed' >&2
+  exit 1
+}
+
+# Legacy pre-DEPLOY-004 host (db-credentials.env absent): falls back to config.env DB_WORKER_DSN.
+rm -f "$d2/config/db-credentials.d/db-credentials.env"
+! PATH="$d2/bin:$PATH" INSTALL_DIR="$d2/install" SETJOIN_CONFIG_DIR="$d2/config" \
+  SYSTEMD_DIR="$d2/units" UPGRADE_TEST_LOG="$d2/systemctl.log" \
+  PREFLIGHT_CAPTURE="$d2/capture-legacy.txt" \
+  bash "$UPGRADE_SCRIPT" "$d2/new/setjoin-server" "$d2/new/mailctl" >"$d2/out3" 2>&1
+grep -qx 'DB_WORKER_DSN=postgres://wrong_fallback:bad@127.0.0.1:5432/mailserver' "$d2/capture-legacy.txt" || {
+  cat "$d2/capture-legacy.txt" >&2
+  echo 'legacy pre-DEPLOY-004 fallback did not read DB_WORKER_DSN from config.env' >&2
+  exit 1
+}
+
+# D3. Post-apply preflight exit 2 (legacy Release N warning code) triggers rollback.
+d3="$real_tmp/postapply-exit2"
+mkdir -p "$d3/bin" "$d3/install" "$d3/new" "$d3/config" "$d3/units"
+cp "$tmp/bin/systemctl" "$tmp/bin/chown" "$d3/bin/"
+printf 'old server\n' >"$d3/install/setjoin-server"
+printf 'old mailctl\n' >"$d3/install/mailctl"
+printf 'new server\n' >"$d3/new/setjoin-server"
+cat >"$d3/new/mailctl" <<'MOCK'
+#!/usr/bin/env bash
+if [ "$1" = "schema" ] && [ "$2" = "preflight" ]; then
+  if [ -f "$POST_APPLY_MARKER" ]; then
+    exit 2
+  fi
+  exit 0
+fi
+if [ "$1" = "schema" ] && [ "$2" = "apply" ]; then
+  touch "$POST_APPLY_MARKER"
+  exit 0
+fi
+exit 0
+MOCK
+chmod 755 "$d3/new/mailctl" "$d3/new/setjoin-server"
+printf 'DB_DSN=postgres://setjoin_app:pw@127.0.0.1:5432/mailserver\n' >"$d3/config/config.env"
+if PATH="$d3/bin:$PATH" INSTALL_DIR="$d3/install" SETJOIN_CONFIG_DIR="$d3/config" \
+  SYSTEMD_DIR="$d3/units" UPGRADE_TEST_LOG="$d3/systemctl.log" \
+  POST_APPLY_MARKER="$d3/applied.flag" \
+  bash "$UPGRADE_SCRIPT" "$d3/new/setjoin-server" "$d3/new/mailctl" >"$d3/out" 2>&1; then
+  echo 'post-apply preflight exit 2 was treated as advisory instead of rolling back' >&2
+  exit 1
+fi
+[ "$(cat "$d3/install/setjoin-server")" = 'old server' ] || {
+  echo 'post-apply preflight exit 2 did not roll back setjoin-server' >&2
+  exit 1
+}
+grep -q 'native-RLS preflight FAILED (exit 2)' "$d3/out" || {
+  cat "$d3/out" >&2
+  echo 'expected post-apply exit 2 rollback message' >&2
+  exit 1
+}
+echo 'Wave 1.9 (#547) fail-closed preflight gates & env propagation: PASS'

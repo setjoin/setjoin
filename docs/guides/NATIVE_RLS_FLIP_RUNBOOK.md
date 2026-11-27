@@ -1,42 +1,88 @@
-# Native-RLS Flip Runbook
+# Native-RLS Runbook (Release N+1 Fail-Closed Baseline)
 
-Turning on database-enforced tenant isolation for your setjoin install. This is
-**opt-in** and **instantly reversible** — read this whole page before you touch
-anything, then do the rollback rehearsal (step 6) *before* the real flip.
+Database-enforced tenant isolation is **mandatory and fail-closed** in
+Release N+1 (`#547`). `setjoin-server` and `setjoin-auth` unconditionally
+refuse to start (exit `1`) before binding any listener whenever the runtime
+PostgreSQL role, PostgreSQL version, RLS table posture, or ARCH-018 scope
+helpers fail verification.
 
-> **Fresh installs are already flipped.** Since 2026-07-07 the single-node
-> installer (`mailserver/deploy/scripts/install.sh`) provisions the three-role
-> DSN shape by default: it generates `setjoin_app`/`setjoin_worker` passwords,
-> writes `DB_DSN`/`DB_DIRECT_DSN` (the app-role runtime DSNs) into
+> **Mandatory three-role DSN shape.** The single-node installer
+> (`mailserver/deploy/scripts/install.sh`) always provisions the three-role
+> DSN shape: it generates `setjoin_app`/`setjoin_worker` passwords, writes
+> `DB_DSN`/`DB_DIRECT_DSN` (the constrained `setjoin_app` runtime DSNs) into
 > `config.env`, and writes the privileged tiers — `DB_WORKER_DSN` (worker) and
-> `DB_OWNER_DSN`/`DB_DIRECT_OWNER_DSN` (the owner credential you gave it) —
-> into `/etc/setjoin/db-credentials.d/db-credentials.env` (0600 root:root)
-> (`--permissive-dsn` opts out). This runbook is for flipping an **existing**
-> pre-flip install — and its rollback step (§4.6) applies to fresh installs
-> too: point `DB_DSN`/`DB_DIRECT_DSN` in `config.env` back at the
-> `DB_OWNER_DSN` value from the credential file.
+> `DB_OWNER_DSN`/`DB_DIRECT_OWNER_DSN` (the owner credential) — into
+> `/etc/setjoin/db-credentials.d/db-credentials.env` (0600 root:root).
+> `--permissive-dsn` and `PERMISSIVE_DSN=1` are **retired and refused** in
+> Release N+1 (`#547`).
 
-## 1. What the flip is
+## 0. Automated Preflight & Provisioning (Release N+1 Fail-Closed)
 
-setjoin already isolates mailboxes in application code (every query is scoped
-by `mailbox_id`/`user_id`, checked in CI). The **flip** adds a second,
-database-enforced layer: PostgreSQL Row-Level Security (RLS) on the hot mail
-tables. After the flip, the database itself refuses to return another
-mailbox's rows even if some future code change forgets to scope a query.
+Starting in **Release N+1** (`#547`):
 
-- **Opt-in.** Nothing changes until you deliberately switch which database
-  role the gateway connects as.
-- **Instantly reversible.** Switching the connection string back is the entire
-  rollback — no migration to undo, no schema change to revert.
-- **Fails CLOSED, not open.** If you get the switch wrong, the symptom is
-  requests coming back *empty* (a permission/scope error), never someone
-  else's data. See the footgun table (§5) for exactly what that looks like.
+- **PostgreSQL version floor (CVE-2026-14666):** PostgreSQL must be **`>= 17.11`**
+  (on the 17.x branch) or **`>= 18.6`** (on 18.x+). PG `< 17.11` and `18.0–18.5`
+  are **refused fail-closed** across `mailctl`, `setjoin-updater`,
+  `setjoin-server`, `setjoin-auth`, `install.sh`, and `upgrade.sh`.
+- **Unconditional fail-closed startup (`FailClosedReleaseNPlus1`):**
+  - Zero production bypass flags exist. `setjoin-server` and `setjoin-auth`
+    refuse to start (exit `1`) on any violation: superuser or `BYPASSRLS`
+    runtime `DB_DSN`, direct or inherited (`pg_has_role(..., 'MEMBER')`)
+    ownership of any `FORCE ROW LEVEL SECURITY` table, shared `DB_DSN` /
+    `DB_WORKER_DSN` (or explicitly shared `DB_OWNER_DSN`), vulnerable PG
+    version, any policy table missing `ENABLE` or `FORCE ROW LEVEL SECURITY`,
+    incomplete/drifted canonical roles, or drifted ARCH-018 / non-extension
+    `SECURITY DEFINER` helpers.
+  - When all checks pass, `GET /health` reports `200 {"status":"ok"}` and
+    `GET /admin/health` appends the three redacted check rows
+    (`db_rls_posture`, `pg_version_cve_2026_14666`, `rls_scope_helpers`).
+- **Pre-stop upgrade gate:** `upgrade.sh` runs `mailctl schema preflight`
+  **before** stopping services, swapping binaries, or running migrations so
+  misconfigured hosts fail with zero downtime, and re-runs it post-migration
+  as defense-in-depth (rolling back on any non-zero exit).
+- **Automated CLI workflow:**
+  1. Inspect live posture (exit `0` clean, `1` failure — exit code `2` is retired):
+     ```bash
+     DB_DIRECT_OWNER_DSN=... DB_DSN=... DB_WORKER_DSN=... mailctl schema preflight [--json]
+     ```
+  2. Provision roles, grants, ARCH-018 scope-helper ownership, and atomically
+     write split DSN files (`config.env` preserving `setjoin:setjoin`,
+     `db-credentials.d/db-credentials.env` `0600 root:root`, timestamped `0600`
+     backup, and derived `auth.env` / `federation.env` / `smtp.env` sync after
+     live login probes):
+     ```bash
+     DB_DIRECT_OWNER_DSN=... mailctl schema provision-roles --write-dsns --yes
+     ```
+     Pass `--rotate-passwords` only when intentionally rotating passwords
+     (refused automatically if `/etc/setjoin-updater/*-dsn` exist on host so
+     updater credentials cannot drift out of sync).
+  3. Post-migration automation: both `mailctl schema apply` and
+     `setjoin-updater` `apply_migrations` automatically run the owner-safe
+     post-migration role/grant & ARCH-018 scope-helper pass (verify-only Pass 1
+     when running as non-superuser `setjoin_owner`, with zero `/etc/setjoin`
+     writes from the zero-capability updater sandbox).
+
+## 1. What native RLS enforces
+
+setjoin isolates mailboxes in application code (every query is scoped by
+`mailbox_id`/`user_id`, checked in CI) and backstops that isolation with
+database-enforced PostgreSQL Row-Level Security (RLS) on tenant-data tables.
+The database itself refuses to return another mailbox's rows even if some
+future code change forgets to scope a query.
+
+- **Mandatory baseline.** Starting in Release N+1 (`#547`), the constrained
+  `setjoin_app` / `setjoin_worker` / `setjoin_owner` split is required on
+  every installation; pointing `DB_DSN` back at a superuser or owner role is
+  refused at startup rather than silently disabling RLS.
+- **Fails CLOSED, not open.** If a query path omits transaction-scoped context,
+  requests return empty (or a permission/scope error), never another tenant's
+  data. See the footgun table (§5) for remediation steps.
 - **Topology assumption.** setjoin is deployed **one organization per
   install**. Within your one org, RLS is defense-in-depth on top of the
-  application-layer checks that already pass SOC2/ISO audits — it is not
-  filling a gap those checks leave open. (If you ever host more than one
-  organization on a single install, stop and talk to setjoin support first —
-  that model is explicitly out of scope for this runbook.)
+  application-layer checks that already pass SOC2/ISO audits. (If you ever
+  host more than one organization on a single install, stop and talk to
+  setjoin support first — that model is explicitly out of scope for this
+  runbook.)
 
 ## 2. The three-role model, in plain terms
 
@@ -123,29 +169,14 @@ Do not proceed unless every one of these is true:
    **refuses to start** if they don't hold — so a boot failure here is the
    gateway itself catching a misconfigured role, not a mystery.
 
-6. **Rehearse rollback FIRST, before you trust this in production.** Do this
-   in staging (or in prod during the same maintenance window, right after a
-   successful flip, while you still have eyes on it):
-   ```bash
-   # Roll back: point DB_DSN (and DB_DIRECT_DSN) back at the prior
-   # (owner/superuser) credential, restart the gateway. No migration, no
-   # schema change — done.
-   #
-   # Split layout (current installer) — BOTH files are involved:
-   #   /etc/setjoin/config.env holds DB_DSN/DB_DIRECT_DSN (the runtime DSNs
-   #   you are rolling back), while the owner credential they must be pointed
-   #   back at is DB_OWNER_DSN/DB_DIRECT_OWNER_DSN in
-   #   /etc/setjoin/db-credentials.d/db-credentials.env (0600 root:root —
-   #   read it as root). Copy that value into DB_DSN/DB_DIRECT_DSN in
-   #   config.env and restart.
-   # Pre-split layout (older installer): all DSNs live in config.env itself.
-   DB_DSN=<the owner DSN from db-credentials.env — or your pre-flip DSN>
-   DB_DIRECT_DSN=<the direct owner DSN from the same file>
-   systemctl restart setjoin-gateway
-   ```
-   Confirm the gateway comes back up and behaves exactly as it did
-   pre-flip. Once you've seen this work, you know the rollback path is real
-   and fast, not theoretical.
+6. **Verify fail-closed refusal and clean recovery.** In staging, verify
+   `mailctl schema preflight` exits `0` before upgrading to Release N+1.
+   Pointing `DB_DSN` at a superuser or owner credential is no longer a valid
+   rollback posture — `setjoin-server` and `setjoin-auth` refuse to start
+   (exit `1`) until `DB_DSN` uses `setjoin_app` and `DB_WORKER_DSN` uses
+   `setjoin_worker`. If a Release N+1 upgrade needs to be reverted to an older
+   binary, use the binary/release rollback procedure in `UPGRADE_RECOVERY.md`
+   instead of weakening database credentials.
 
 7. **Prove backup and full restore with the default operator credential
    resolver.** Current `mailctl schema`, `backup-db`, and full `restore`

@@ -1233,7 +1233,7 @@ async fn run(route: &str, case: &str, mutant: bool) -> Result<(), BoxError> {
             else{c.batch_execute(&format!("CREATE FUNCTION {schema}.fail(p_name text) RETURNS boolean LANGUAGE plpgsql AS $$ BEGIN IF p_name='Project' THEN RAISE EXCEPTION 'gofree-drive2-row-fault'; END IF; RETURN true; END; $$; CREATE VIEW {schema}.drive_spaces AS SELECT t.* FROM public.drive_spaces t WHERE {schema}.fail(t.name)")).await?;}
             worker_dsn=format!("{}{}options=-csearch_path%3D{}%2Cpublic",db.dsn,if db.dsn.contains('?'){"&"}else{"?"},schema);
         }
-        let oracle_db=Db{dsn:worker_dsn.clone(),direct:db.direct.clone(),app:app_dsn.clone()};
+        let oracle_db=Db{dsn:worker_dsn.clone(),direct:db.direct.clone(),app:app_dsn.clone(),worker:db.worker.clone()};
         let oracle=common::go_oracle::start_named(&oracle_db,endpoint,None,"gofree-drive2").await?;
         let recording=oracle.is_some();io.lock().unwrap().clear();
         let mut command_dsn=app_dsn.as_deref().unwrap_or(&db.dsn).to_owned();

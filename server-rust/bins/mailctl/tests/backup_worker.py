@@ -109,6 +109,12 @@ def observe(binary, dsn, recording, variant="worker", preserve=True):
                 "RUST_WORKERS_ON": "backup-engine",
                 "GO_WORKERS_OFF": "backup-engine",
             }
+            if not recording:
+                app_dsn = os.environ["DB_APP_DSN"]
+                env["DB_DSN"] = app_dsn
+                env["DB_DIRECT_DSN"] = app_dsn
+                env["DB_WORKER_DSN"] = os.environ.get("DB_WORKER_DSN", dsn)
+                env["DB_OWNER_DSN"] = dsn
             if not recording and os.environ.get("MAILCTL_WORKER_WITH_RECOVERY") == "1":
                 env["RUST_WORKERS_ON"] = "backup-engine,mail-recovery-cleanup"
                 env["GO_WORKERS_OFF"] = "backup-engine,mail-recovery-cleanup"

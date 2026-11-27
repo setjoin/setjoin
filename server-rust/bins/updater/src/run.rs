@@ -450,6 +450,31 @@ fn maintenance(s: &str) -> bool {
 fn bounded(e: &anyhow::Error) -> String {
     e.to_string().chars().take(512).collect()
 }
+
+/// Compact, strictly redacted (< 64 KiB) RLS preflight evidence for the
+/// updater journal: role usernames and counts only, zero passwords or raw DSNs.
+fn compact_rls_preflight_evidence(report: &setjoin_pg::rls_preflight::RlsPreflightReport) -> Value {
+    let warnings: Vec<String> = report
+        .warnings
+        .iter()
+        .take(8)
+        .map(|w| w.chars().take(240).collect())
+        .collect();
+    json!({
+        "server_version": report.server_version,
+        "server_version_num": report.server_version_num,
+        "pg_version_ok": report.pg_version_ok,
+        "owner_role": report.current_role.name,
+        "app_role": report.dsn_roles.as_ref().and_then(|d| d.app_role.as_deref()),
+        "worker_role": report.dsn_roles.as_ref().and_then(|d| d.worker_role.as_deref()),
+        "config_env_unreadable": report.dsn_roles.as_ref().is_some_and(|d| d.config_env_unreadable),
+        "all_roles_ok": report.all_roles_exist_with_expected_attrs(),
+        "scope_helpers_drifted_count": report.scope_helpers_drifted.len(),
+        "other_secdef_drifted_count": report.other_secdef_drifted.len(),
+        "warnings_count": report.warnings.len(),
+        "warnings": warnings,
+    })
+}
 async fn step(
     a: &mut Adapters,
     control: &Connection,
@@ -467,7 +492,28 @@ async fn step(
                 migration::registry(&a.owner, &m, root, "current", "preflight").await?
             };
             host::preflight().await?;
-            Ok(json!({"preflight":"passed","feature_registry":registry}))
+            let unit_dsn_roles = host::inspect_gateway_db_dsn_roles(Path::new(
+                "/etc/systemd/system/setjoin-gateway.service",
+            ));
+            let rls_report = setjoin_pg::rls_preflight::inspect_rls_posture_client(
+                &a.owner.client,
+                setjoin_pg::rls_preflight::PostureContext::OperatorOwner,
+                Some(unit_dsn_roles),
+            )
+            .await
+            .map_err(|err| anyhow!("RLS preflight failed: {err}"))?;
+            let rls_errors = rls_report.fail_closed_errors(true);
+            ensure!(
+                rls_errors.is_empty(),
+                "RLS preflight failed (Release N+1 fail-closed): {}",
+                rls_errors.join("; ")
+            );
+            let rls_evidence = compact_rls_preflight_evidence(&rls_report);
+            Ok(json!({
+                "preflight": "passed",
+                "feature_registry": registry,
+                "rls_preflight": rls_evidence
+            }))
         }
         "recovery_point" => {
             let identity = control

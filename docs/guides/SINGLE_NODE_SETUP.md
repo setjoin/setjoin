@@ -250,10 +250,12 @@ writes the **three-role DSN shape** into `config.env` (the default since
   (migrations / partition DDL only — `upgrade.sh` and re-runs of the installer
   use it; the running gateway never does).
 
-**Escape hatch:** `--permissive-dsn` (or `PERMISSIVE_DSN=1`) keeps the old
-single permissive DSN everywhere. **Rollback** (runbook §4.6): point `DB_DSN`
-and `DB_DIRECT_DSN` in `config.env` back at the `DB_OWNER_DSN` value and
-`systemctl restart setjoin setjoin-auth` — no migration to undo.
+**Fail-closed baseline (Release N+1 `#547`):** Single-DSN permissive mode is
+retired (`--permissive-dsn` and `PERMISSIVE_DSN=1` are refused by `install.sh`).
+Both `setjoin-server` and `setjoin-auth` unconditionally refuse to start if
+`DB_DSN` connects as a superuser/owner/BYPASSRLS role, if `DB_WORKER_DSN` is
+missing or shares a role with `DB_DSN`, or if PostgreSQL is older than `17.11`
+(or in `18.0–18.5`). Run `mailctl schema preflight` to inspect host readiness.
 
 ### 8. Write config + install the services
 

@@ -44,11 +44,16 @@ pub struct RuntimeOptions {
     /// concurrently inside the single `drain_timeout` window before `listen_hub`
     /// tears down (#543).
     pub extra_tasks: Vec<tokio::task::JoinHandle<()>>,
+    pub boot_posture: Arc<setjoin_boot::BootPosture>,
 }
 
 impl RuntimeOptions {
     /// Legacy `setjoin-server` defaults.
-    pub fn legacy(activated: Activated, sd_notify: SdNotify) -> Self {
+    pub fn legacy(
+        activated: Activated,
+        sd_notify: SdNotify,
+        boot_posture: Arc<setjoin_boot::BootPosture>,
+    ) -> Self {
         Self {
             subsystems: Subsystems::ALL,
             auth_authority: None,
@@ -62,6 +67,7 @@ impl RuntimeOptions {
             reload_auth_on_sighup: false,
             drain_timeout: DEFAULT_DRAIN_TIMEOUT,
             extra_tasks: Vec::new(),
+            boot_posture,
         }
     }
 }
@@ -154,9 +160,10 @@ pub fn run_legacy_cli() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    if let Err(refusal) = runtime.block_on(setjoin_boot::run()) {
-        return ExitCode::from(refusal.exit_code);
-    }
+    let boot_posture = match runtime.block_on(setjoin_boot::run()) {
+        Ok(posture) => Arc::new(posture),
+        Err(refusal) => return ExitCode::from(refusal.exit_code),
+    };
     let activated = match runtime.block_on(async { crate::activation::take_from_env() }) {
         Ok(activated) => activated,
         Err(err) => {
@@ -164,7 +171,7 @@ pub fn run_legacy_cli() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let options = RuntimeOptions::legacy(activated, sd_notify);
+    let options = RuntimeOptions::legacy(activated, sd_notify, boot_posture);
     match runtime.block_on(run_with_options(configuration, options)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
@@ -538,6 +545,7 @@ pub async fn run_with_options(
                 auth_authority: options.auth_authority.clone(),
                 listen_hub: options.listen_hub.clone(),
                 allow_private_keys: options.allow_private_keys,
+                boot_posture: options.boot_posture.clone(),
             },
         )
         .await?;

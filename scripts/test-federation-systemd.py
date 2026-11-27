@@ -120,6 +120,8 @@ def verify(binary):
         raise RuntimeError("requires root and a running systemd manager")
     run("systemctl", "show", "--property=Version", "--value")
     dsn = os.environ["TEST_DB_DSN"]
+    app_dsn = os.environ["DB_APP_DSN"]
+    worker_dsn = os.environ["DB_WORKER_DSN"]
     # This rehearsal is deliberately tied to FED2's assigned disposable DB.
     if not dsn.endswith("/gofree_e2e_fed2"):
         raise RuntimeError("TEST_DB_DSN must name the assigned gofree_e2e_fed2 database")
@@ -141,7 +143,8 @@ def verify(binary):
             (directory / file).chmod(0o644)  # Public oracle keys, never production identities.
         environment = directory / "runtime.env"
         environment.write_text(
-            f"DB_DSN={dsn}\nDB_DIRECT_DSN={dsn}\n"
+            f"DB_DSN={app_dsn}\nDB_DIRECT_DSN={app_dsn}\nDB_WORKER_DSN={worker_dsn}\n"
+            f"DB_OWNER_DSN={dsn}\n"
             "GATEWAY_RUST_AUTH_UPSTREAM=http://127.0.0.1:9\nGATEWAY_LISTEN=127.0.0.1:0\n"
             "WORM_MODE=\nGO_WORKERS_OFF=federation-service\nFEDERATION_LOCAL_DOMAIN=zulu.test\n"
             f"FEDERATION_CERT={directory}/zulu.crt\nFEDERATION_KEY={directory}/zulu.key\n"

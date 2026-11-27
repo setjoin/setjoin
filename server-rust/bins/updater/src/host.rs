@@ -3187,6 +3187,78 @@ pub(crate) fn check_worm_gateway_ready(
     }
     Ok(())
 }
+
+/// Derive redacted `DB_DSN` / `DB_WORKER_DSN` / `DB_OWNER_DSN` role usernames
+/// (never passwords or raw DSNs) from `setjoin-gateway.service`'s unit spec and
+/// root-readable `EnvironmentFile`s, gracefully degrading on `EACCES` when
+/// reading `0600 setjoin:setjoin` `config.env` under the zero-capability sandbox.
+pub(crate) fn inspect_gateway_db_dsn_roles(
+    unit_path: &Path,
+) -> setjoin_pg::rls_preflight::DsnRoleSummary {
+    let dropin_dirs = default_dropin_dirs(unit_path);
+    inspect_gateway_db_dsn_roles_in(unit_path, &dropin_dirs)
+}
+
+pub(crate) fn inspect_gateway_db_dsn_roles_in(
+    unit_path: &Path,
+    dropin_dirs: &[PathBuf],
+) -> setjoin_pg::rls_preflight::DsnRoleSummary {
+    let Ok(spec) = load_unit_env_spec_with_dirs(unit_path, dropin_dirs) else {
+        return setjoin_pg::rls_preflight::DsnRoleSummary::default();
+    };
+    let mut pairs = Vec::new();
+    let mut saw_eacces = false;
+
+    for (pattern, _optional) in &spec.env_files {
+        let raw = pattern.to_string_lossy();
+        let has_glob = raw.contains('*') || raw.contains('?') || raw.contains('[');
+        let paths = if has_glob {
+            expand_env_file_glob(pattern).unwrap_or_default()
+        } else {
+            vec![pattern.clone()]
+        };
+        for path in paths {
+            match std::fs::read_to_string(&path) {
+                Ok(content) => pairs.extend(parse_env_assignments(&content)),
+                Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                    saw_eacces = true;
+                }
+                Err(_) => {}
+            }
+        }
+    }
+
+    // systemd applies inline `Environment=` after `EnvironmentFile=`.
+    pairs.extend(spec.inline_env.clone());
+    let mut pairs = systemd_env_merge(&pairs);
+    for entry in &spec.unset_env {
+        if let Some((k, v)) = entry.split_once('=') {
+            if env_lookup(&pairs, k).as_deref() == Some(v) {
+                pairs.retain(|(name, _)| name != k);
+            }
+        } else {
+            pairs.retain(|(name, _)| name != entry);
+        }
+    }
+
+    let app_dsn = env_lookup_precedence(&pairs, &["DB__DSN", "DB_DSN"]).filter(|v| !v.is_empty());
+    let worker_dsn = env_lookup_precedence(&pairs, &["DB__WORKER_DSN", "DB_WORKER_DSN"])
+        .filter(|v| !v.is_empty());
+    let owner_dsn = env_lookup_precedence(&pairs, &["DB_OWNER_DSN", "DB_DIRECT_OWNER_DSN"])
+        .filter(|v| !v.is_empty());
+
+    let mut summary = setjoin_pg::rls_preflight::DsnRoleSummary::from_dsns(
+        app_dsn.as_deref(),
+        worker_dsn.as_deref(),
+        owner_dsn.as_deref(),
+    );
+    // Only flag config_env_unreadable when EACCES prevented us from seeing DB_DSN.
+    if summary.app_role.is_none() && saw_eacces {
+        summary.config_env_unreadable = true;
+    }
+    summary
+}
+
 pub async fn stop() -> Result<()> {
     let mut args = vec!["stop"];
     args.extend(stop_units_in(Path::new("/etc/systemd/system"))?);
@@ -4789,5 +4861,76 @@ mod unit_binaries {
         )
         .await
         .is_err());
+    }
+
+    #[test]
+    fn gateway_db_dsn_role_inspection_degrades_on_eacces_and_never_leaks_passwords() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = dir("rls-eacces");
+        let unit = root.join("setjoin-gateway.service");
+        let cfg = root.join("config.env");
+        let fed = root.join("federation.env");
+        std::fs::write(
+            &cfg,
+            "DB_DSN=postgres://setjoin_app:supersecret_cfg@127.0.0.1:5432/mail\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &fed,
+            "DB_DSN=postgres://setjoin_app:supersecret_fed@127.0.0.1:5432/mail\n\
+             DB_WORKER_DSN=postgres://setjoin_worker:supersecret_w@127.0.0.1:5432/mail\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &unit,
+            format!(
+                "[Service]\nEnvironmentFile={}\nEnvironmentFile={}\n",
+                cfg.display(),
+                fed.display()
+            ),
+        )
+        .unwrap();
+
+        // When both files are readable, usernames are extracted without passwords.
+        let summary = super::inspect_gateway_db_dsn_roles_in(&unit, &[]);
+        assert_eq!(summary.app_role.as_deref(), Some("setjoin_app"));
+        assert_eq!(summary.worker_role.as_deref(), Some("setjoin_worker"));
+        assert!(!summary.config_env_unreadable);
+        let serialized = serde_json::to_string(&summary).unwrap();
+        assert!(!serialized.contains("supersecret"), "{serialized}");
+
+        // Inline Environment= overrides EnvironmentFile= (systemd precedence).
+        std::fs::write(
+            &unit,
+            format!(
+                "[Service]\nEnvironmentFile={}\nEnvironment=\"DB_DSN=postgres://setjoin_override:supersecret_inline@127.0.0.1:5432/mail\"\n",
+                cfg.display()
+            ),
+        )
+        .unwrap();
+        let overridden = super::inspect_gateway_db_dsn_roles_in(&unit, &[]);
+        assert_eq!(overridden.app_role.as_deref(), Some("setjoin_override"));
+        let overridden_json = serde_json::to_string(&overridden).unwrap();
+        assert!(
+            !overridden_json.contains("supersecret"),
+            "{overridden_json}"
+        );
+
+        // When config.env is unreadable (0000 -> EACCES for non-root) and no
+        // other file supplies DB_DSN, inspect gracefully degrades instead of failing.
+        std::fs::write(
+            &unit,
+            format!("[Service]\nEnvironmentFile={}\n", cfg.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let degraded = super::inspect_gateway_db_dsn_roles_in(&unit, &[]);
+        let is_root = unsafe { libc::geteuid() } == 0;
+        if !is_root {
+            assert!(degraded.config_env_unreadable);
+            assert!(degraded.app_role.is_none());
+        }
+        let _ = std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o600));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

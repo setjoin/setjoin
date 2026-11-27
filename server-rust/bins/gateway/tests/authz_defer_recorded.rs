@@ -114,8 +114,8 @@ impl Process {
         for (key, value) in [
             ("GATEWAY_LISTEN", address.to_string()),
             ("GATEWAY_AUTH_UPSTREAM", "http://127.0.0.1:1".into()),
-            ("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn).into()),
-            ("DB_WORKER_DSN", db.dsn.clone()),
+            ("DB_DSN", db.app_dsn().into()),
+            ("DB_WORKER_DSN", db.worker_dsn().to_owned()),
             ("DB_OWNER_DSN", db.dsn.clone()),
             ("DB_DIRECT_DSN", db.direct.clone()),
             ("DB_ENCRYPTION_KEY", "22".repeat(32)),
@@ -1525,15 +1525,25 @@ async fn cold_denylist_with_cae_matches_go() -> Result<(), BoxError> {
         )
         .await?
         .get(0);
-    assert!(c
-        .query_one(
-            "SELECT has_table_privilege('setjoin_app','session_revocations','SELECT')",
-            &[]
-        )
-        .await?
-        .get::<_, bool>(0));
-    c.batch_execute("REVOKE SELECT ON session_revocations FROM setjoin_app")
-        .await?;
+    // Wave 1.9 (#547): DB_DSN and DB_WORKER_DSN must use distinct roles.
+    // Provision a throwaway BYPASSRLS worker role lacking SELECT on
+    // session_revocations (dropped unconditionally in cleanup) instead of
+    // reusing setjoin_app as DB_WORKER_DSN.
+    let tmp_worker_role = format!("setjoin_w547_cold_{}", std::process::id());
+    let tmp_worker_pw = "w547_cold_pw";
+    c.batch_execute(&format!(
+        "DROP ROLE IF EXISTS {tmp_worker_role}; \
+         CREATE ROLE {tmp_worker_role} LOGIN NOSUPERUSER BYPASSRLS PASSWORD '{tmp_worker_pw}'; \
+         GRANT USAGE ON SCHEMA public TO {tmp_worker_role}; \
+         GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {tmp_worker_role}; \
+         GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {tmp_worker_role}; \
+         GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO {tmp_worker_role}; \
+         REVOKE SELECT ON session_revocations FROM {tmp_worker_role};"
+    ))
+    .await?;
+    let tmp_worker_dsn =
+        setjoin_pg::rls_preflight::rewrite_dsn_credentials(&db.dsn, &tmp_worker_role, tmp_worker_pw)
+            .map_err(|e| format!("rewrite throwaway worker dsn: {e}"))?;
     c.execute(
         "UPDATE feature_toggles SET enabled=true WHERE key='feature.cae_runtime'",
         &[],
@@ -1542,7 +1552,7 @@ async fn cold_denylist_with_cae_matches_go() -> Result<(), BoxError> {
     let result = std::panic::AssertUnwindSafe(async {
         let record = std::env::var_os("GOFREE_RECORD_GO_BINARY").is_some();
         let extra = vec![
-            ("DB_WORKER_DSN", db.app.clone().ok_or("app DSN required")?),
+            ("DB_WORKER_DSN", tmp_worker_dsn.clone()),
             ("RUST_WORKERS_ON", "session-denylist-refresh".into()),
         ];
         let s3 = common::fake_upstream(|_| async { hyper::Response::new(full("")) }).await;
@@ -1589,8 +1599,14 @@ async fn cold_denylist_with_cae_matches_go() -> Result<(), BoxError> {
     })
     .catch_unwind()
     .await;
-    c.batch_execute("GRANT SELECT ON session_revocations TO setjoin_app")
-        .await?;
+    c.batch_execute(&format!(
+        "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM {tmp_worker_role}; \
+         REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM {tmp_worker_role}; \
+         REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM {tmp_worker_role}; \
+         REVOKE ALL PRIVILEGES ON SCHEMA public FROM {tmp_worker_role}; \
+         DROP ROLE IF EXISTS {tmp_worker_role};"
+    ))
+    .await?;
     c.execute(
         "UPDATE feature_toggles SET enabled=$1 WHERE key='feature.cae_runtime'",
         &[&saved],
@@ -1620,29 +1636,47 @@ async fn unreadable_revocations_with_cae_off_is_503_without_go() -> Result<(), B
         )
         .await?
         .get(0);
-    assert!(c
-        .query_one(
-            "SELECT has_table_privilege('setjoin_app','session_revocations','SELECT')",
-            &[]
-        )
-        .await?
-        .get::<_, bool>(0));
+    // Wave 1.9 (#547): DB_DSN and DB_WORKER_DSN must use distinct roles.
+    // Provision a throwaway BYPASSRLS worker role lacking SELECT on
+    // session_revocations (dropped unconditionally in cleanup).
+    let tmp_worker_role = format!("setjoin_w547_rev503_{}", std::process::id());
+    let tmp_worker_pw = "w547_rev503_pw";
     c.execute(
         "UPDATE feature_toggles SET enabled=false WHERE key='feature.cae_runtime'",
         &[],
     )
     .await?;
-    c.batch_execute("REVOKE SELECT ON session_revocations FROM setjoin_app")
-        .await?;
+    c.batch_execute(&format!(
+        "DROP ROLE IF EXISTS {tmp_worker_role}; \
+         CREATE ROLE {tmp_worker_role} LOGIN NOSUPERUSER BYPASSRLS PASSWORD '{tmp_worker_pw}'; \
+         GRANT USAGE ON SCHEMA public TO {tmp_worker_role}; \
+         GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {tmp_worker_role}; \
+         GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {tmp_worker_role}; \
+         GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO {tmp_worker_role}; \
+         REVOKE SELECT ON session_revocations FROM {tmp_worker_role};"
+    ))
+    .await?;
+    let tmp_worker_dsn =
+        setjoin_pg::rls_preflight::rewrite_dsn_credentials(&db.dsn, &tmp_worker_role, tmp_worker_pw)
+            .map_err(|e| format!("rewrite throwaway worker dsn: {e}"))?;
     let result = std::panic::AssertUnwindSafe(async {
-        // Session admission reads revocations on DB_WORKER_DSN: make it the app credential
-        // the REVOKE affects, and prove that credential cannot read the table.
-        let app = db.connect_command().await?;
+        // Session admission reads revocations on DB_WORKER_DSN: prove our
+        // distinct throwaway worker credential cannot read session_revocations.
+        let (worker_client, worker_conn) =
+            tokio_postgres::connect(&tmp_worker_dsn, tokio_postgres::NoTls).await?;
+        let worker_driver = tokio::spawn(async move {
+            let _ = worker_conn.await;
+        });
         assert!(
-            app.query("SELECT 1 FROM session_revocations LIMIT 1", &[]).await.is_err(),
-            "setjoin_app must be unable to SELECT session_revocations"
+            worker_client
+                .query("SELECT 1 FROM session_revocations LIMIT 1", &[])
+                .await
+                .is_err(),
+            "throwaway worker role must be unable to SELECT session_revocations"
         );
-        let extra = vec![("DB_WORKER_DSN", db.app.clone().ok_or("app DSN required")?)];
+        drop(worker_client);
+        let _ = worker_driver.await;
+        let extra = vec![("DB_WORKER_DSN", tmp_worker_dsn.clone())];
         let native = Process::start_with(&db, &extra).await?;
         let token = member_token(actor.user, false, &[], None);
         let response = send(
@@ -1666,8 +1700,14 @@ async fn unreadable_revocations_with_cae_off_is_503_without_go() -> Result<(), B
     .catch_unwind()
     .await;
     let restore = async {
-        c.batch_execute("GRANT SELECT ON session_revocations TO setjoin_app")
-            .await?;
+        c.batch_execute(&format!(
+            "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM {tmp_worker_role}; \
+             REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM {tmp_worker_role}; \
+             REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM {tmp_worker_role}; \
+             REVOKE ALL PRIVILEGES ON SCHEMA public FROM {tmp_worker_role}; \
+             DROP ROLE IF EXISTS {tmp_worker_role};"
+        ))
+        .await?;
         c.execute(
             "UPDATE feature_toggles SET enabled=$1 WHERE key='feature.cae_runtime'",
             &[&saved],

@@ -118,8 +118,8 @@ async fn bundled_scim_is_native_and_every_kill_switch_forwards() -> Result<(), B
                     },
                 )
                 .env("SCIM_RATE_LIMIT", "100000")
-                .env("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn))
-                .env("DB_WORKER_DSN", &db.dsn)
+                .env("DB_DSN", db.app_dsn())
+                .env("DB_WORKER_DSN", db.worker_dsn())
                 .env("DB_DIRECT_DSN", &db.dsn)
                 .env("DB_ENCRYPTION_KEY", "22".repeat(32))
                 .env("JWT_SECRET", "blobs1-test-jwt-secret-for-recording")

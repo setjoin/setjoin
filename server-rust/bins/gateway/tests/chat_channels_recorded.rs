@@ -1533,7 +1533,7 @@ async fn run_inner(route: &str, case: &str, mutant: bool, no_notify: bool) -> Re
     }
     let result=async {
         let fake=common::fake_upstream(|_|async{Response::new(common::full("unused"))}).await;
-        let oracle_db=Db{dsn:db.dsn.clone(),direct:db.direct.clone(),app:Some(app_dsn.clone())};
+        let oracle_db=Db{dsn:db.dsn.clone(),direct:db.direct.clone(),app:Some(app_dsn.clone()),worker:db.worker.clone()};
         let oracle=common::go_oracle::start_named_with_federation_domain(&oracle_db,fake,"gofree-chat2",if case=="no_domain"{""}else{"gofree-chat2.test"}).await?;
         let recording=oracle.is_some();
         let adapter=setjoin_gateway::chat_channels::ChannelRoute{ unfurl:if matches!(case,"url_cached"|"url_claim"|"foreign_url"|"url_invalid_type"|"url_malformed"|"url_raw_query"|"url_repeat"|"url_budget") || case.starts_with("commit-") {Some(std::sync::Arc::new(setjoin_gateway::chat_unfurl::Unfurl::production(loaded_host_exec(&app_dsn)?,std::sync::Arc::new(setjoin_gateway::recovery_worker::S3Store::new(&format!("http://{fake}"),"mailblobs","test-access","test-secret")?))))}else{None},federation_typing:None,federation_local_domain:if case=="no_domain"{String::new()}else{"gofree-chat2.test".into()},exec:loaded_host_exec(&app_dsn)?.with_audit_keys("22".repeat(32),String::new()),keys:std::sync::Arc::new(common::recovery_keys()),issuer:"mailserver".into()};

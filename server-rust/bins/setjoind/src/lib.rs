@@ -219,10 +219,13 @@ pub fn run_cli() -> ExitCode {
     }
 
     // Strict pre-bind schema check (`actual == expected`) BEFORE any listener binds.
-    if let Err(refusal) = runtime.block_on(setjoin_boot::run_for_subsystems(subsystems, true)) {
-        drop(activated);
-        return ExitCode::from(refusal.exit_code);
-    }
+    let boot_posture = match runtime.block_on(setjoin_boot::run_for_subsystems(subsystems, true)) {
+        Ok(posture) => Arc::new(posture),
+        Err(refusal) => {
+            drop(activated);
+            return ExitCode::from(refusal.exit_code);
+        }
+    };
 
     let shutdown = CancellationToken::new();
     match runtime.block_on(run_subsystems(
@@ -231,6 +234,7 @@ pub fn run_cli() -> ExitCode {
         activated,
         sd_notify,
         shutdown,
+        boot_posture,
     )) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
@@ -306,6 +310,7 @@ struct InProcessAuthBundle {
 async fn init_in_process_auth(
     unified_with_http: bool,
     listen_hub: Option<&ListenHub>,
+    boot_posture: Arc<setjoin_boot::BootPosture>,
 ) -> Result<InProcessAuthBundle, String> {
     let config = setjoin_auth::Config::from_env_for(unified_with_http)?;
     let shared_runtime = setjoin_threat::admit_runtime(
@@ -382,7 +387,8 @@ async fn init_in_process_auth(
     let server = Arc::new(
         AuthServer::load_shared(exec, Some(worker_exec), config, unified_with_http)
             .await?
-            .with_gate(gate.clone()),
+            .with_gate(gate.clone())
+            .with_boot_posture(boot_posture),
     );
     let (saml_listener, rp_listener, ca_listener) = match listen_hub {
         Some(hub) => (
@@ -453,6 +459,7 @@ pub async fn run_subsystems(
     mut activated: Activated,
     sd_notify: SdNotify,
     shutdown: CancellationToken,
+    boot_posture: Arc<setjoin_boot::BootPosture>,
 ) -> Result<(), String> {
     if subsystems.is_empty() {
         return Err("at least one subsystem must be enabled".into());
@@ -476,7 +483,7 @@ pub async fn run_subsystems(
 
     // Auth-only mode (`--subsystems=auth`): bind standalone auth listener or Slot::Auth.
     if subsystems.auth && !subsystems.http && !subsystems.protocols && !subsystems.workers {
-        let auth = init_in_process_auth(false, listen_hub.as_ref()).await?;
+        let auth = init_in_process_auth(false, listen_hub.as_ref(), boot_posture.clone()).await?;
         let listener = match activated.auth.take() {
             Some(listener) => listener,
             None => TcpListener::bind(&auth.config_listen)
@@ -535,7 +542,9 @@ pub async fn run_subsystems(
     // Co-located auth (when `subsystems.auth` is active alongside other subsystems)
     // OR RemoteAuthAuthority (when `subsystems.auth` is false).
     let (auth_bundle, auth_authority, shared_gate, standalone_auth_listener) = if subsystems.auth {
-        let bundle = init_in_process_auth(subsystems.http, listen_hub.as_ref()).await?;
+        let bundle =
+            init_in_process_auth(subsystems.http, listen_hub.as_ref(), boot_posture.clone())
+                .await?;
         let authority = bundle.authority.clone();
         let gate = bundle.shared_gate.clone();
         // In unified mode (`http` + `auth`), `auth` does NOT bind LISTEN_ADDR;
@@ -593,6 +602,7 @@ pub async fn run_subsystems(
         reload_auth_on_sighup: subsystems.auth,
         drain_timeout: DEFAULT_DRAIN_TIMEOUT,
         extra_tasks,
+        boot_posture,
     };
 
     let result = run_with_options(configuration, options).await;

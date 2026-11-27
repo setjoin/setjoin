@@ -912,6 +912,130 @@ if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
     exit 0
 fi
 
+# resolve_schema_dsn CONFIG_ENV CRED_FILE — print the DSN schema apply/preflight
+# should run under, honoring the DEPLOY-004 privileged-DSN split. DDL runs as
+# the OWNER identity: under the constrained native-RLS shape install.sh writes
+# (DB_DSN = setjoin_app), applying migrations over DB_DSN would create
+# app-owned tables — runbook footgun #1 (docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md).
+# Preference order: the owner tiers from the root-owned credential file
+# (direct, then pooled — where a split install keeps them), then the
+# pre-split config.env owner copies, then the legacy fallbacks
+# (DB_DIRECT_DSN/DB_DSN — for pre-DEPLOY-004 hosts where those hold the owner).
+# Refusal contract: when CRED_FILE exists but fails its installed namespace
+# posture (symlink, widened mode, wrong owner, substituted or runtime-writable
+# parent directory), this function returns 1 WITHOUT a fallback.
+resolve_schema_dsn() {
+    local config_env="$1" cred_file="$2"
+    local want_owner="${3:-root}" want_group="${4:-root}" runtime_group="${5:-setjoin}"
+    local cred_dir val key st want
+    cred_dir="$(dirname "$cred_file")"
+    if [ -L "$cred_file" ] || [ -e "$cred_file" ]; then
+        if [ -L "$cred_file" ] || [ ! -f "$cred_file" ]; then
+            echo "privileged credential file $cred_file is a symlink or not a regular file — possible plant" >&2
+            return 1
+        fi
+        st="$(stat -c '%U %G %a' "$cred_file" 2>/dev/null)" \
+          || st="$(stat -f '%Su %Sg %Lp' "$cred_file" 2>/dev/null)" \
+          || { echo "cannot stat $cred_file" >&2; return 1; }
+        want="$want_owner $want_group 600"
+        if [ "$st" != "$want" ]; then
+            echo "privileged credential file $cred_file is '$st', want '$want' — posture does not match the installed store" >&2
+            return 1
+        fi
+        st="$(stat -c '%U %G %a' "$cred_dir" 2>/dev/null)" \
+          || st="$(stat -f '%Su %Sg %Lp' "$cred_dir" 2>/dev/null)" \
+          || { echo "cannot stat $cred_dir" >&2; return 1; }
+        want="$want_owner $runtime_group 750"
+        if [ -L "$cred_dir" ] || [ ! -d "$cred_dir" ] || [ "$st" != "$want" ]; then
+            echo "credential directory $cred_dir is '${st:-missing}', want '$want' — possible whole-directory replacement (the real directory was renamed aside and a substitute planted); refusing the substitute" >&2
+            return 1
+        fi
+        st="$(stat -c '%U %G %a' "$(dirname "$cred_dir")" 2>/dev/null)" \
+          || st="$(stat -f '%Su %Sg %Lp' "$(dirname "$cred_dir")" 2>/dev/null)" \
+          || { echo "cannot stat the credential ancestor" >&2; return 1; }
+        want="$want_owner $want_group 755"
+        if [ "$st" != "$want" ]; then
+            echo "credential ancestor $(dirname "$cred_dir") is '$st', want '$want' — a runtime-writable ancestor permits whole-directory replacement; refusing" >&2
+            return 1
+        fi
+        for key in DB_DIRECT_OWNER_DSN DB_OWNER_DSN; do
+            val="$(grep -E "^$key=" "$cred_file" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+            val="$(strip_env_quotes "$val")"
+            if [ -n "$val" ]; then
+                printf '%s\n' "$val"
+                return 0
+            fi
+        done
+    fi
+    # Pre-split/legacy fallbacks from config.env — owner keys first, exactly
+    # as this probe has always ordered them.
+    if [ -f "$config_env" ]; then
+        for key in DB_DIRECT_OWNER_DSN DB_OWNER_DSN DB_DIRECT_DSN DB_DSN; do
+            val="$(grep -E "^$key=" "$config_env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+            val="$(strip_env_quotes "$val")"
+            if [ -n "$val" ]; then
+                printf '%s\n' "$val"
+                return 0
+            fi
+        done
+    fi
+    return 0
+}
+
+# run_rls_preflight_gate MAILCTL_BIN SCHEMA_DSN — run fail-closed `mailctl
+# schema preflight` with runtime DB_DSN (from CONFIG_ENV) and DB_WORKER_DSN
+# (from DB_CRED_FILE, falling back to CONFIG_ENV ONLY when DB_CRED_FILE does
+# not exist on legacy pre-DEPLOY-004 hosts), normalized via strip_env_quotes
+# and supplied strictly via process environment (never argv or echoed logs).
+run_rls_preflight_gate() {
+    local mailctl_bin="$1" schema_dsn="$2"
+    local app_dsn="" worker_dsn="" raw_val=""
+    if [ -f "$CONFIG_ENV" ]; then
+        raw_val="$(grep -E '^DB_DSN=' "$CONFIG_ENV" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+        app_dsn="$(strip_env_quotes "$raw_val")"
+    fi
+    if [ -e "$DB_CRED_FILE" ] || [ -L "$DB_CRED_FILE" ]; then
+        # Posture was already verified by resolve_schema_dsn; never fall back to
+        # CONFIG_ENV when DB_CRED_FILE exists.
+        raw_val="$(grep -E '^DB_WORKER_DSN=' "$DB_CRED_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+        worker_dsn="$(strip_env_quotes "$raw_val")"
+    elif [ -f "$CONFIG_ENV" ]; then
+        # Legacy pre-DEPLOY-004 fallback ONLY when DB_CRED_FILE does not exist.
+        raw_val="$(grep -E '^DB_WORKER_DSN=' "$CONFIG_ENV" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+        worker_dsn="$(strip_env_quotes "$raw_val")"
+    fi
+    DB_DIRECT_OWNER_DSN="$schema_dsn" \
+    DB_OWNER_DSN="$schema_dsn" \
+    DB_DSN="$app_dsn" \
+    DB_WORKER_DSN="$worker_dsn" \
+        "$mailctl_bin" schema preflight
+}
+
+echo "=== Setjoin Server Upgrade ==="
+# Wave 1.9 (#547): Pre-stop / pre-swap fail-closed native-RLS & PG CVE-2026-14666
+# gate BEFORE Step 1 so doomed upgrades fail with zero downtime and zero DDL.
+echo "0. Pre-flight native-RLS and PostgreSQL version check (before stopping services)..."
+if ! PREFLIGHT_SCHEMA_DSN="$(resolve_schema_dsn "$CONFIG_ENV" "$DB_CRED_FILE" "${DB_CRED_WANT_OWNER:-root}" "${DB_CRED_WANT_GROUP:-root}" "${DB_CRED_RUNTIME_GROUP:-setjoin}")"; then
+    echo "   ✗ privileged DB credential namespace failed validation — aborting before stopping services." >&2
+    exit 1
+fi
+PREFLIGHT_MAILCTL=""
+if [ -n "$NEW_MAILCTL" ] && [ -x "$NEW_MAILCTL" ]; then
+    PREFLIGHT_MAILCTL="$NEW_MAILCTL"
+elif [ -x "$INSTALL_DIR/mailctl" ]; then
+    PREFLIGHT_MAILCTL="$INSTALL_DIR/mailctl"
+elif command -v mailctl >/dev/null 2>&1; then
+    PREFLIGHT_MAILCTL="$(command -v mailctl)"
+fi
+if [ -n "$PREFLIGHT_MAILCTL" ] && [ -n "$PREFLIGHT_SCHEMA_DSN" ]; then
+    _preflight_rc=0
+    run_rls_preflight_gate "$PREFLIGHT_MAILCTL" "$PREFLIGHT_SCHEMA_DSN" || _preflight_rc=$?
+    if [ "$_preflight_rc" -ne 0 ]; then
+        echo "   ✗ pre-stop native-RLS preflight FAILED (exit $_preflight_rc) — aborting upgrade before stopping services or swapping binaries." >&2
+        exit 1
+    fi
+fi
+
 backup_gateway_deployment
 
 LEGACY_SETJOIN_PRESENT=0
@@ -923,7 +1047,6 @@ HAD_AUTH=0
 HAD_LEGACY_AUTHSERVER=0
 HAD_SETJOIND=0
 
-echo "=== Setjoin Server Upgrade ==="
 echo "1. Stopping services..."
 # Stop the front door before changing its upstreams or descriptor set.
 systemctl stop setjoin-gateway
@@ -1078,86 +1201,6 @@ roll_back_and_exit() {
 }
 
 echo "3.5. Applying pending DB schema migrations (before start)..."
-# resolve_schema_dsn CONFIG_ENV CRED_FILE — print the DSN schema apply should
-# run under, honoring the DEPLOY-004 privileged-DSN split. DDL runs as the
-# OWNER identity: under the constrained native-RLS shape install.sh writes
-# (DB_DSN = setjoin_app), applying migrations over DB_DSN would create
-# app-owned tables — runbook footgun #1 (docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md).
-# Preference order: the owner tiers from the root-owned credential file
-# (direct, then pooled — where a split install keeps them), then the
-# pre-split config.env owner copies, then the legacy fallbacks
-# (DB_DIRECT_DSN/DB_DSN — correct on permissive/pre-flip installs where those
-# ARE the owner).
-# Refusal contract: when CRED_FILE exists but fails its installed namespace
-# posture (symlink, widened mode, wrong owner, substituted or runtime-writable
-# parent directory), this function returns 1 WITHOUT a fallback — a substitute
-# at the live pathname would point schema apply at attacker-chosen content
-# (whole-directory replacement). The caller must refuse loud, not silently
-# skip: the skip path only prints a warning, and the gateway's
-# refuse-to-start backstop must not become the only thing standing between a
-# planted credential file and a migration run.
-# The `|| true` on the greps is load-bearing: under `set -euo pipefail`, a grep
-# that matches nothing exits 1 and would otherwise abort the whole upgrade with
-# the service already stopped — and every key here is legitimately optional.
-# Expected-namespace-posture parameters (ROOT_OWNER/ROOT_GROUP/RUNTIME_GROUP)
-# default to the production literals (root/root/setjoin); the hermetic render
-# lane overrides them with its own identity to execute this function over
-# fixture trees it actually owns.
-resolve_schema_dsn() {
-    local config_env="$1" cred_file="$2"
-    local want_owner="${3:-root}" want_group="${4:-root}" runtime_group="${5:-setjoin}"
-    local cred_dir val key st want
-    cred_dir="$(dirname "$cred_file")"
-    if [ -L "$cred_file" ] || [ -e "$cred_file" ]; then
-        if [ -L "$cred_file" ] || [ ! -f "$cred_file" ]; then
-            echo "privileged credential file $cred_file is a symlink or not a regular file — possible plant" >&2
-            return 1
-        fi
-        st="$(stat -c '%U %G %a' "$cred_file" 2>/dev/null)" \
-          || st="$(stat -f '%Su %Sg %Lp' "$cred_file" 2>/dev/null)" \
-          || { echo "cannot stat $cred_file" >&2; return 1; }
-        want="$want_owner $want_group 600"
-        if [ "$st" != "$want" ]; then
-            echo "privileged credential file $cred_file is '$st', want '$want' — posture does not match the installed store" >&2
-            return 1
-        fi
-        st="$(stat -c '%U %G %a' "$cred_dir" 2>/dev/null)" \
-          || st="$(stat -f '%Su %Sg %Lp' "$cred_dir" 2>/dev/null)" \
-          || { echo "cannot stat $cred_dir" >&2; return 1; }
-        want="$want_owner $runtime_group 750"
-        if [ -L "$cred_dir" ] || [ ! -d "$cred_dir" ] || [ "$st" != "$want" ]; then
-            echo "credential directory $cred_dir is '${st:-missing}', want '$want' — possible whole-directory replacement (the real directory was renamed aside and a substitute planted); refusing the substitute" >&2
-            return 1
-        fi
-        st="$(stat -c '%U %G %a' "$(dirname "$cred_dir")" 2>/dev/null)" \
-          || st="$(stat -f '%Su %Sg %Lp' "$(dirname "$cred_dir")" 2>/dev/null)" \
-          || { echo "cannot stat the credential ancestor" >&2; return 1; }
-        want="$want_owner $want_group 755"
-        if [ "$st" != "$want" ]; then
-            echo "credential ancestor $(dirname "$cred_dir") is '$st', want '$want' — a runtime-writable ancestor permits whole-directory replacement; refusing" >&2
-            return 1
-        fi
-        for key in DB_DIRECT_OWNER_DSN DB_OWNER_DSN; do
-            val="$(grep -E "^$key=" "$cred_file" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
-            if [ -n "$val" ]; then
-                printf '%s\n' "$val"
-                return 0
-            fi
-        done
-    fi
-    # Pre-split/legacy fallbacks from config.env — owner keys first, exactly
-    # as this probe has always ordered them.
-    if [ -f "$config_env" ]; then
-        for key in DB_DIRECT_OWNER_DSN DB_OWNER_DSN DB_DIRECT_DSN DB_DSN; do
-            val="$(grep -E "^$key=" "$config_env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
-            if [ -n "$val" ]; then
-                printf '%s\n' "$val"
-                return 0
-            fi
-        done
-    fi
-    return 0
-}
 if ! SCHEMA_DSN="$(resolve_schema_dsn "$CONFIG_ENV" "$DB_CRED_FILE" "${DB_CRED_WANT_OWNER:-root}" "${DB_CRED_WANT_GROUP:-root}" "${DB_CRED_RUNTIME_GROUP:-setjoin}")"; then
     echo "   ✗ privileged DB credential namespace failed validation — refusing to pick a schema DSN from a substituted store."
     roll_back_and_exit
@@ -1172,6 +1215,15 @@ if [ -n "$MAILCTL_BIN" ] && [ -n "$SCHEMA_DSN" ]; then
         # (it was stopped at step 1). Roll back to the previous version instead.
         if ! DB_DSN="$SCHEMA_DSN" "$MAILCTL_BIN" schema apply --yes; then
             echo "   ✗ schema apply FAILED — the new gateway would refuse to start on this schema."
+            roll_back_and_exit
+        fi
+        # Wave 1.9 (#547): defense-in-depth post-apply fail-closed preflight
+        # (catches newly applied migrations introducing unforced RLS or drifted
+        # SECURITY DEFINER helpers; any non-zero exit rolls back immediately).
+        _preflight_rc=0
+        run_rls_preflight_gate "$MAILCTL_BIN" "$SCHEMA_DSN" || _preflight_rc=$?
+        if [ "$_preflight_rc" -ne 0 ]; then
+            echo "   ✗ native-RLS preflight FAILED (exit $_preflight_rc) — rolling back."
             roll_back_and_exit
         fi
     else

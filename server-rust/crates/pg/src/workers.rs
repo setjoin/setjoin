@@ -194,6 +194,10 @@ impl WorkerRows {
     }
 }
 impl WorkerConnection {
+    pub(crate) fn operator_client(&self) -> &Client {
+        self.inner.client()
+    }
+
     pub async fn rows(
         &self,
         statement: &str,

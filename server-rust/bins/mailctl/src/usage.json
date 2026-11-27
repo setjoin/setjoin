@@ -9,7 +9,7 @@
   "config": "config get <key> | list",
   "migration": "migration list | status <id> | cancel <id>",
   "mailbox": "mailbox retained | parity | preview <mailbox-id> | suspend|resume|detach-retain <mailbox-id> --generation N --reason TEXT | reconnect <mailbox-id> --generation N --target-user ID --evidence-kind local_user|identity_link --reason TEXT | purge-schedule <mailbox-id> --generation N --preview-digest HEX --approver-user ID --reason TEXT | purge-approve|purge-deny <approval-id> [--comment TEXT] | purge-cancel|purge-execute <purge-id> --reason TEXT",
-  "schema": "schema check [--json] | apply [--yes]\n  (database schema version — forward migrations; requires DB_DSN env var)",
+  "schema": "schema check [--json] | apply [--yes] | preflight [--json] | provision-roles [--config-dir DIR] [--write-dsns] [--rotate-passwords] [--yes] [--json]\n  (database schema version, forward migrations, native-RLS preflight & least-privilege role provisioning; requires owner/DB DSN env var)",
   "bootstrap-admin": "bootstrap-admin --email <address> [--password-stdin | --password-file <0600-file>]\n  (local first-boot authority; requires an owner/direct DB DSN and refuses after any user exists)",
   "backup": "backup run | list | create --pre-upgrade [options] | verify --pre-upgrade <recovery-set-id> [options]",
   "backup-db": "backup-db --bucket <b> --access-key-file <0600-file> --secret-key-file <0600-file> [--dsn <dsn>] [--provider <p>] [--endpoint <e>] [--region <r>]\n  (operator pg_dump -> backup bucket; DSN defaults to owner-first DB_*_DSN precedence; secrets also via BACKUP_ACCESS_KEY/BACKUP_SECRET_KEY env; argv secret flags refused)",

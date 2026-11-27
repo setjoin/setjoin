@@ -151,7 +151,11 @@ impl Fixture {
             command.env("DB_OWNER_DSN", &fixture.dsn);
         }
         if !specified(command, "DB_WORKER_DSN") {
-            command.env("DB_WORKER_DSN", &fixture.dsn);
+            let worker_dsn = std::env::var("DB_WORKER_DSN")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| fixture.dsn.clone());
+            command.env("DB_WORKER_DSN", worker_dsn);
         }
         if !specified(command, "DB_ENCRYPTION_KEY") {
             command.env("DB_ENCRYPTION_KEY", "22".repeat(32));

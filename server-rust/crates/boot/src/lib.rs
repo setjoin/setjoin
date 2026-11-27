@@ -1,4 +1,8 @@
-//! Pre-listener server initialization, preserving frozen Go's refusal classes.
+//! Pre-listener server initialization, preserving frozen Go's refusal classes
+//! while enforcing Wave 1.9 (#547) Release N+1 unconditional fail-closed
+//! least-privilege `FORCE RLS` posture.
+use setjoin_pg::rls_preflight::{inspect_rls_posture_worker, DsnRoleSummary, PostureContext};
+pub use setjoin_pg::rls_preflight::{BootPosture, EnforcementMode};
 use setjoin_pg::workers::{WorkerConnection, WorkerDatabase};
 pub mod geoip;
 mod secrets;
@@ -44,8 +48,10 @@ fn refuse_detail(exit_code: u8, message: &str, error: &str) -> Refusal {
 }
 
 /// No database means the established bare front door, with no local boot work.
-/// Server deployments run these checks before constructing workers/listeners.
-pub async fn run() -> Result<(), Refusal> {
+/// Server deployments run these checks before constructing workers/listeners,
+/// unconditionally enforcing Release N+1 (`FailClosedReleaseNPlus1`) `FORCE RLS`
+/// posture with zero bypass flags.
+pub async fn run() -> Result<BootPosture, Refusal> {
     run_for_subsystems(Subsystems::ALL, false).await
 }
 
@@ -62,12 +68,12 @@ pub async fn run() -> Result<(), Refusal> {
 pub async fn run_for_subsystems(
     subsystems: Subsystems,
     strict_schema: bool,
-) -> Result<(), Refusal> {
+) -> Result<BootPosture, Refusal> {
     if subsystems.is_empty() {
         return Err(refuse(1, "at least one subsystem must be enabled"));
     }
     let Some(dsn) = std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()) else {
-        return Ok(());
+        return Ok(BootPosture::bare());
     };
     if subsystems.http || subsystems.auth || subsystems.protocols {
         let configured = std::env::var("GEOIP_DB_PATH").unwrap_or_default();
@@ -87,11 +93,11 @@ pub async fn run_for_subsystems(
     let db = connect(&dsn)
         .await
         .map_err(|_| refuse(0, "database pool failed"))?;
+    let raw_worker_dsn = std::env::var("DB_WORKER_DSN")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let worker_dsn = raw_worker_dsn.clone().unwrap_or_else(|| dsn.clone());
     let worker = if subsystems.workers {
-        let worker_dsn = std::env::var("DB_WORKER_DSN")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| dsn.clone());
         Some(
             connect(&worker_dsn)
                 .await
@@ -100,11 +106,9 @@ pub async fn run_for_subsystems(
     } else {
         None
     };
+    let raw_owner_dsn = std::env::var("DB_OWNER_DSN").ok().filter(|s| !s.is_empty());
+    let owner_dsn = raw_owner_dsn.clone().unwrap_or_else(|| dsn.clone());
     let owner = if subsystems.workers {
-        let owner_dsn = std::env::var("DB_OWNER_DSN")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| dsn.clone());
         Some(
             connect(&owner_dsn)
                 .await
@@ -113,6 +117,12 @@ pub async fn run_for_subsystems(
     } else {
         None
     };
+    // Pass effective `worker_dsn` (so omitting DB_WORKER_DSN fails closed
+    // loudly instead of silently reusing DB_DSN) and `raw_owner_dsn` (so
+    // production units intentionally omitting DB_OWNER_DSN per DEPLOY-004
+    // are allowed while an explicitly shared DB_OWNER_DSN fails closed).
+    let dsn_roles =
+        DsnRoleSummary::from_dsns(Some(&dsn), Some(&worker_dsn), raw_owner_dsn.as_deref());
     let rows = db
         .query(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -140,7 +150,7 @@ pub async fn run_for_subsystems(
     } else {
         None
     };
-    assert_rls(&db)
+    let boot_posture = assert_rls(&db, dsn_roles)
         .await
         .map_err(|_| refuse(1, "native-RLS boot check FAILED — refusing to start"))?;
     if let Some(owner) = &owner {
@@ -244,7 +254,7 @@ pub async fn run_for_subsystems(
         }
     }
     log("INFO", "server boot checks completed");
-    Ok(())
+    Ok(boot_posture)
 }
 
 fn verify_schema_version(actual: i32, expected: i32, strict_schema: bool) -> Result<(), Refusal> {
@@ -328,19 +338,24 @@ async fn report(db: &setjoin_pg::workers::WorkerConnection, result: &str) {
     }
 }
 
-async fn assert_rls(db: &WorkerConnection) -> Result<(), String> {
-    let role = db.query("SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user", &[]).await?;
-    let owned = db.query("SELECT c.relname FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE c.relforcerowsecurity AND c.relkind IN ('r','p') AND r.rolname=current_user ORDER BY c.relname", &[]).await?;
-    let disabled = db.query("SELECT DISTINCT c.relname FROM pg_policy pol JOIN pg_class c ON c.oid=pol.polrelid WHERE c.relkind IN ('r','p') AND NOT c.relrowsecurity ORDER BY c.relname", &[]).await?;
-    if role[0].get::<_, bool>(1) {
-        log("INFO", "native-RLS boot check: runtime is a superuser identity — FORCE is inert (flip not live), skipping");
-        return Ok(());
-    }
-    if role[0].get::<_, bool>(2) || !owned.is_empty() || !disabled.is_empty() {
-        return Err("runtime role or policy catalog violates native-RLS invariants".into());
+async fn assert_rls(
+    db: &WorkerConnection,
+    dsn_roles: DsnRoleSummary,
+) -> Result<BootPosture, String> {
+    let report =
+        inspect_rls_posture_worker(db, PostureContext::RuntimeApp, Some(dsn_roles)).await?;
+    let errors = report.fail_closed_errors(false);
+    if !errors.is_empty() {
+        for err in &errors {
+            log("ERROR", &format!("native-RLS boot check: {err}"));
+        }
+        return Err(errors.join("; "));
     }
     log("INFO", "native-RLS boot check: passed");
-    Ok(())
+    Ok(BootPosture::from_report(
+        report,
+        EnforcementMode::FailClosedReleaseNPlus1,
+    ))
 }
 
 async fn connect(dsn: &str) -> Result<WorkerConnection, String> {

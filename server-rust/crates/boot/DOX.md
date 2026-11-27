@@ -72,3 +72,26 @@ set, S3/WORM checks run only when `subsystems.workers || subsystems.http`, and
 `strict_schema == true` refuses both behind and ahead schema versions
 (`actual != expected`) before any listener binds. `run()` delegates to
 `(Subsystems::ALL, false)` for backward compatibility.
+
+## Wave 1.9 Release N+1 fail-closed posture (#547)
+
+`setjoin_boot::run()` returns `Result<BootPosture, Refusal>` and
+unconditionally enforces `EnforcementMode::FailClosedReleaseNPlus1` with zero
+bypass flags (`run_with_mode` and `WarnReleaseN` are removed from production
+entrypoints, guarded by `scripts/check-rls-fail-closed.sh`). It passes the
+effective `worker_dsn` (so omitting `DB_WORKER_DSN` fails closed loudly instead
+of reusing `DB_DSN`) and `raw_owner_dsn.as_deref()` (so production units
+intentionally omitting `DB_OWNER_DSN` per DEPLOY-004 succeed while an
+explicitly shared `DB_OWNER_DSN` fails closed). Any finding from
+`RlsPreflightReport::fail_closed_errors(false)` — superuser/`BYPASSRLS` runtime
+`DB_DSN`, direct or `pg_has_role(..., 'MEMBER')` ownership of any `FORCE RLS`
+table, shared app/worker or app/owner roles (including username-less DSNs),
+policy tables missing `ENABLE` or `FORCE ROW LEVEL SECURITY`, PG
+`CVE-2026-14666` (`< 17.11` or `18.0–18.5`), or drifted roles / ARCH-018 scope
+helpers — logs `ERROR` and refuses boot with exit `1` before binding any
+listener. `tests/oracle/oracle.py` defaults Rust replay to `DB_APP_DSN` +
+`DB_WORKER_DSN`, normalizes the documented Release N+1 INFO-event divergence
+against immutable frozen-Go `goldens.json`, and asserts the documented `#547`
+refusal divergence on `partition-ddl-denied-go-warns` (whose companion test in
+`tests/recorded.rs` proves a distinct unprivileged `DB_OWNER_DSN` still boots
+cleanly).

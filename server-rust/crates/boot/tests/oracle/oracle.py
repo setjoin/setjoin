@@ -116,14 +116,37 @@ def observe(case, binary, go):
                 config.chmod(0o600 if state == "empty-private" else 0o644)
             geo = path / "geo.mmdb"
             geo.write_bytes((HERE.parents[3] / "tests/conformance/authzgates/us.mmdb").read_bytes() if case.get("geo") == "valid" else b"hostile database payload")
-            env = {"PATH": os.environ["PATH"], "BOOT_RECORD_CHILD": "1", "BOOT_PROBE_CHILD": "1",
-                   "DB_DSN": os.environ["TEST_DB_DSN"], "DB_DIRECT_DSN": os.environ["TEST_DB_DSN"],
-                   "DB_OWNER_DSN": os.environ["TEST_DB_DSN"], "DB_WORKER_DSN": os.environ["TEST_DB_DSN"],
-                   "DB_ENCRYPTION_KEY": KEY, "JWT_SECRET": KEY, "INTERNAL_API_KEY": KEY,
-                   "MINIO_ENDPOINT": f"127.0.0.1:{server.server_port}", "MINIO_BUCKET": "boot-bucket",
-                   "MINIO_ACCESS_KEY": "test-access", "MINIO_SECRET_KEY": "test-secret", "MINIO_SECURE": "false",
-                   "CONFIG_PATH": str(config), "GEOIP_DB_PATH": str(geo), "NETWORK_MODE": "airgap",
-                   "GATEWAY_LISTEN": "127.0.0.1:0", "IMAP_ADDR": "127.0.0.1:0", "SMTP_ADDR": "127.0.0.1:0", "SMTP_SUBMISSION_ADDR": "127.0.0.1:0", "LDAP_ADDR": "127.0.0.1:0"}
+            default_app = os.environ["TEST_DB_DSN"] if go else os.environ["DB_APP_DSN"]
+            default_worker = (
+                os.environ["TEST_DB_DSN"]
+                if go or case.get("credential_tags")
+                else os.environ.get("DB_WORKER_DSN", os.environ["TEST_DB_DSN"])
+            )
+            env = {
+                "PATH": os.environ["PATH"],
+                "BOOT_RECORD_CHILD": "1",
+                "BOOT_PROBE_CHILD": "1",
+                "DB_DSN": default_app,
+                "DB_DIRECT_DSN": default_app,
+                "DB_OWNER_DSN": os.environ["TEST_DB_DSN"],
+                "DB_WORKER_DSN": default_worker,
+                "DB_ENCRYPTION_KEY": KEY,
+                "JWT_SECRET": KEY,
+                "INTERNAL_API_KEY": KEY,
+                "MINIO_ENDPOINT": f"127.0.0.1:{server.server_port}",
+                "MINIO_BUCKET": "boot-bucket",
+                "MINIO_ACCESS_KEY": "test-access",
+                "MINIO_SECRET_KEY": "test-secret",
+                "MINIO_SECURE": "false",
+                "CONFIG_PATH": str(config),
+                "GEOIP_DB_PATH": str(geo),
+                "NETWORK_MODE": "airgap",
+                "GATEWAY_LISTEN": "127.0.0.1:0",
+                "IMAP_ADDR": "127.0.0.1:0",
+                "SMTP_ADDR": "127.0.0.1:0",
+                "SMTP_SUBMISSION_ADDR": "127.0.0.1:0",
+                "LDAP_ADDR": "127.0.0.1:0",
+            }
             env.update(case.get("env", {}))
             if case.get("storage_http_scheme"):
                 env["S3_ENDPOINT"] = "http://" + env["MINIO_ENDPOINT"]
@@ -131,8 +154,16 @@ def observe(case, binary, go):
                 env["S3_ENDPOINT"] = env["MINIO_ENDPOINT"] + "/qualified/path"
             if case.get("request_app"):
                 env["DB_DSN"] = os.environ["DB_APP_DSN"]
+            if case.get("superuser_app"):
+                env["DB_DSN"] = os.environ["TEST_DB_DSN"]
+            if case.get("worker_app"):
+                env["DB_DSN"] = os.environ["DB_WORKER_DSN"]
             if case.get("owner_app"):
                 env["DB_OWNER_DSN"] = os.environ["DB_APP_DSN"]
+            if case.get("unset_worker_dsn"):
+                env.pop("DB_WORKER_DSN", None)
+            if case.get("unset_owner_dsn"):
+                env.pop("DB_OWNER_DSN", None)
             if case.get("credential_tags"):
                 for key, tag in [("DB_DSN", "request"), ("DB_OWNER_DSN", "owner"), ("DB_WORKER_DSN", "worker")]:
                     env[key] += ("&" if "?" in env[key] else "?") + f"application_name=gofree-boot-{tag}"
@@ -205,6 +236,13 @@ def observe(case, binary, go):
                 if env.get("BOOT_INSPECT_SECRETS") == "1":
                     decrypted = [line.removeprefix("BOOT_DECRYPT ") for line in result.stdout.splitlines() if line.startswith("BOOT_DECRYPT ")]
                     observed["secrets"] = json.loads(decrypted[-1]) if decrypted else None
+                if env.get("BOOT_PRINT_POSTURE") == "1":
+                    postures = [
+                        line.removeprefix("BOOT_POSTURE ")
+                        for line in result.stdout.splitlines()
+                        if line.startswith("BOOT_POSTURE ")
+                    ]
+                    observed["posture"] = json.loads(postures[-1]) if postures else None
                 if not events:
                     raise AssertionError(f"{case['id']}: no boot events: {result.stderr}\n{result.stdout}")
                 return observed
@@ -218,6 +256,57 @@ def observe(case, binary, go):
         server.shutdown()
         server.server_close()
         thread.join()
+
+
+GO_SUPERUSER_SKIP_EVENT = [
+    "INFO",
+    "native-RLS boot check: runtime is a superuser identity"
+    " — FORCE is inert (flip not live), skipping",
+]
+
+
+def normalize_wave19_divergence(observed, expected):
+    """Recorded Wave 1.9 (#547) Release N+1 divergence from frozen Go boot logs:
+    frozen Go booted on superuser DB_DSN (logging a single INFO skip) and
+    omitted per-finding ERROR detail lines before 'native-RLS boot check FAILED'.
+    Rust enforces unconditional fail-closed FORCE RLS on DB_APP_DSN, logging
+    'native-RLS boot check: passed'. Keep goldens.json immutable while verifying
+    exact parity on every other boot stage; recorded.rs tests the unnormalized
+    Wave 1.9 refusals directly."""
+    out = dict(observed)
+    expected_events = expected.get("events", [])
+    go_skipped_super = GO_SUPERUSER_SKIP_EVENT in expected_events
+    normalized = []
+    for level, msg in observed["events"]:
+        if (
+            go_skipped_super
+            and level == "INFO"
+            and msg == "native-RLS boot check: passed"
+        ):
+            normalized.append(list(GO_SUPERUSER_SKIP_EVENT))
+            continue
+        if level == "ERROR" and msg.startswith("native-RLS boot check: "):
+            continue
+        normalized.append([level, msg])
+    out["events"] = normalized
+    return out
+
+
+def assert_partition_ddl_denied_divergence(actual):
+    """Recorded Wave 1.9 (#547) security divergence: `partition-ddl-denied-go-warns`
+    sets both DB_DSN and DB_OWNER_DSN to setjoin_app. Frozen Go allowed shared
+    app/owner roles; Release N+1 unconditionally refuses boot (exit 1) when an
+    explicitly configured DB_OWNER_DSN shares a role with DB_DSN."""
+    assert actual["exit"] == 1, actual
+    assert [
+        "ERROR",
+        "native-RLS boot check FAILED — refusing to start",
+    ] in actual["events"], actual
+    assert any(
+        lvl == "ERROR" and "DB_DSN and DB_OWNER_DSN share role" in msg
+        for lvl, msg in actual["events"]
+    ), actual
+    assert actual["storage"] == [], actual
 
 
 def main():
@@ -238,8 +327,14 @@ def main():
         actual = observe(case, args.binary, args.mode == "record")
         if args.mode == "record":
             goldens[case["id"]] = actual
+        elif case["id"] == "partition-ddl-denied-go-warns":
+            assert_partition_ddl_denied_divergence(actual)
         else:
-            assert actual == goldens[case["id"]], f"{case['id']}\nexpected: {json.dumps(goldens[case['id']], indent=2)}\nactual: {json.dumps(actual, indent=2)}"
+            comparable = normalize_wave19_divergence(actual, goldens[case["id"]])
+            assert comparable == goldens[case["id"]], (
+                f"{case['id']}\nexpected: {json.dumps(goldens[case['id']], indent=2)}\n"
+                f"actual: {json.dumps(comparable, indent=2)}"
+            )
         print(f"BOOT {args.mode} {case['id']}: ok", flush=True)
     if args.mode == "record":
         assert args.output and not args.output.exists(), "record into a NEW path; never overwrite goldens"

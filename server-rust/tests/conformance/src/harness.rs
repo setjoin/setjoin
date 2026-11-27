@@ -12,12 +12,14 @@ use crate::db_gate::{self, DbGate, SKIP_MARKER};
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// The database a case runs against: the owner DSN (fixtures, observation),
-/// the direct DSN used only to LISTEN, and the optional `setjoin_app` DSN the
-/// command under test runs on (so FORCE RLS binds it as in production).
+/// the direct DSN used only to LISTEN, the `setjoin_app` DSN (`DB_APP_DSN`)
+/// the tenant runtime runs on (so `FORCE RLS` binds it as in production), and
+/// the `setjoin_worker` DSN (`DB_WORKER_DSN`) for cross-tenant workers.
 pub struct Db {
     pub dsn: String,
     pub direct: String,
     pub app: Option<String>,
+    pub worker: Option<String>,
 }
 
 /// DB-backed oracles run on a shared, CPU-starved host: the authz precondition reads
@@ -43,9 +45,19 @@ impl Db {
     /// libtest's output capture). With `REQUIRE_DB` set and no database, panics.
     pub fn for_case(case: &str) -> Option<Db> {
         match db_gate::resolve(|k| std::env::var(k).ok()) {
-            DbGate::Run { dsn, direct, app } => {
+            DbGate::Run {
+                dsn,
+                direct,
+                app,
+                worker,
+            } => {
                 widen_authz_precheck();
-                Some(Db { dsn, direct, app })
+                Some(Db {
+                    dsn,
+                    direct,
+                    app,
+                    worker,
+                })
             }
             DbGate::Skip => {
                 use std::io::Write;
@@ -65,6 +77,20 @@ impl Db {
     /// An owner client; its connection task runs on the current runtime.
     pub async fn connect(&self) -> Result<Client, BoxError> {
         open(&self.dsn).await
+    }
+
+    /// The constrained `setjoin_app` DSN (`DB_APP_DSN`), required under
+    /// Wave 1.9 (`#547`) fail-closed `FORCE RLS` startup enforcement.
+    pub fn app_dsn(&self) -> &str {
+        self.app
+            .as_deref()
+            .expect("DB_APP_DSN is required for Release N+1 (#547) fail-closed runtime boot")
+    }
+
+    /// The cross-tenant `BYPASSRLS` worker DSN (`DB_WORKER_DSN`), falling back
+    /// to the owner DSN only when `DB_WORKER_DSN` is unset (never to `DB_APP_DSN`).
+    pub fn worker_dsn(&self) -> &str {
+        self.worker.as_deref().unwrap_or(&self.dsn)
     }
 
     /// The client the command under test runs on: `setjoin_app` when

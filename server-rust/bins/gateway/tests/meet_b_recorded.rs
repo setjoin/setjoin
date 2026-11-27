@@ -1132,6 +1132,7 @@ async fn run(route: &str, case: &str, mutant: Mutant) -> Result<(), BoxError> {
             dsn: db.dsn.clone(),
             direct: db.direct.clone(),
             app: db.app.clone(),
+            worker: db.worker.clone(),
         };
         let oracle = common::go_oracle::start_named_with_env(&oracle_db, unused, "gofree-meet3", &go_env).await?;
         let recording = oracle.is_some();

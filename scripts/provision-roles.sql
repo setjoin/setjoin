@@ -147,6 +147,7 @@ ALTER ROLE setjoin_updater NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 -- runtime pool uses setjoin_owner.
 GRANT setjoin_worker TO setjoin_owner;
 
+-- === SETJOIN_PROVISION_ROLES_DB_LOCAL_PASS ===
 -- ── Runtime GRANTs on the existing loaded schema (setjoin_app + setjoin_worker) ─
 -- Both runtime roles need the same data-plane privileges; setjoin_app is then
 -- additionally constrained by RLS policies at the flip, setjoin_worker is not.

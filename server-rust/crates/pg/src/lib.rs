@@ -54,6 +54,7 @@ pub mod operator;
 pub mod outcome;
 pub mod pipeline;
 pub mod pool;
+pub mod rls_preflight;
 pub mod statement;
 pub mod ticket_keys;
 pub mod workers;
