@@ -13,6 +13,7 @@ mod xml;
 
 pub struct CardDavRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
     basic: crate::dav_auth::DavBasicAuth,
@@ -21,10 +22,15 @@ impl<K: KeySource + 'static> CardDavRoute<K> {
     pub fn new(exec: ScopedExecutor, keys: Arc<K>, issuer: String) -> Self {
         Self {
             exec,
+            worker: None,
             keys,
             issuer,
             basic: crate::dav_auth::DavBasicAuth::default(),
         }
+    }
+    pub fn with_worker(mut self, worker: ScopedExecutor) -> Self {
+        self.worker = Some(worker);
+        self
     }
     pub fn with_basic_auth(mut self, basic: crate::dav_auth::DavBasicAuth) -> Self {
         self.basic = basic;
@@ -48,15 +54,22 @@ impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer, basic) = (
+        let (exec, worker, keys, issuer, basic) = (
             self.exec.clone(),
+            self.worker.clone(),
             self.keys.clone(),
             self.issuer.clone(),
             self.basic.clone(),
         );
         Box::pin(async move {
-            let auth = match crate::deny::admit(&exec, &*keys, &issuer, &r, crate::deny::Scope::User)
-                .await
+            let auth = match crate::deny::admit(
+                &exec,
+                &*keys,
+                &issuer,
+                &r,
+                crate::deny::Scope::User,
+            )
+            .await
             {
                 Ok(auth) => auth,
                 Err(crate::deny::Refusal::AlternativeCredential)
@@ -99,16 +112,19 @@ impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
                 r.headers().get("x-request-id"),
                 crate::jmap::random().unwrap_or([0; 16]),
             );
-            if !setjoin_calendar::entitled_app(&exec, auth.context(), "contacts")
+            let Some(tx) = crate::policy_composition::tx_factory_from_executors(&exec, None) else {
+                return reply(500, String::new(), None, c.identity.proto, id);
+            };
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = tx.mint_user_from_authorized(&auth, &client_ip).await else {
+                return reply(500, String::new(), None, c.identity.proto, id);
+            };
+            if !setjoin_calendar::entitled_app(&tx, &user_principal, "contacts")
                 .await
                 .unwrap_or(false)
             {
-                let _ = setjoin_calendar::carddav::blocked_audit(
-                    &exec,
-                    auth.context().user_id(),
-                    &c.identity.client_ip.to_string(),
-                )
-                .await;
+                let _ = setjoin_calendar::carddav::blocked_audit(&tx, &user_principal, &client_ip)
+                    .await;
                 let instance =
                     crate::guests_input::go_utf8(&crate::inventory::unescape(r.uri().path()));
                 let mut response = reply(
@@ -157,23 +173,25 @@ impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
                 return response;
             }
             if matches!(*r.method(), hyper::Method::PUT | hyper::Method::DELETE) {
-                return write::handle(&exec, r, &c, auth.context(), id).await;
+                return write::handle(&tx, &user_principal, r, &c, id).await;
             }
+            let worker_exec = worker.as_ref().unwrap_or(&exec);
             if r.method().as_str() == "REPORT" {
-                return report::handle(&exec, &mut r, &c, auth.context(), id).await;
+                return report::handle(&tx, worker_exec, &auth, &user_principal, &mut r, &c, id)
+                    .await;
             }
             if r.method() == hyper::Method::GET {
                 let (_, parts) = path(&r);
                 if parts.first().is_some_and(|p| p == "gal") {
-                    return gal::get(&exec, &parts, &c, auth.context().user_id(), id).await;
+                    return gal::get(&tx, worker_exec, &user_principal, &parts, &c, id).await;
                 }
                 if parts.len() != 2 {
                     return reply(404, String::new(), None, c.identity.proto, id);
                 }
                 let uid = parts[1].strip_suffix(".vcf").unwrap_or(&parts[1]);
                 let contact = setjoin_calendar::carddav::get_contact(
-                    &exec,
-                    auth.context().user_id(),
+                    &tx,
+                    &user_principal,
                     parts[0].parse().unwrap_or(0),
                     uid,
                 )
@@ -207,12 +225,13 @@ impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
                 let (path, parts) = path(&r);
                 if parts.first().is_some_and(|p| p == "gal") {
                     return gal::propfind(
-                        &exec,
+                        &tx,
+                        worker_exec,
+                        &user_principal,
                         &parts,
                         req.as_deref(),
                         r.headers().get("depth").and_then(|h| h.to_str().ok()) != Some("0"),
                         &c,
-                        auth.context().user_id(),
                         id,
                     )
                     .await;
@@ -234,7 +253,7 @@ impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
                         }))
                     }));
                     if r.headers().get("depth").and_then(|h| h.to_str().ok()) != Some("0") {
-                        for book in setjoin_calendar::carddav::books(&exec, user)
+                        for book in setjoin_calendar::carddav::books(&tx, &user_principal)
                             .await
                             .unwrap_or_default()
                         {
@@ -245,7 +264,7 @@ impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
                                 &book.description,
                             ));
                         }
-                        if setjoin_calendar::flag(&exec, "feature.gal_carddav", false)
+                        if setjoin_calendar::flag(&tx, "feature.gal_carddav", false)
                             .await
                             .unwrap_or(false)
                         {
@@ -259,8 +278,8 @@ impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
                     }
                 } else if parts.len() == 1 {
                     if let Ok(Some(book)) = setjoin_calendar::carddav::book(
-                        &exec,
-                        auth.context().user_id(),
+                        &tx,
+                        &user_principal,
                         parts[0].parse().unwrap_or(0),
                     )
                     .await
@@ -273,8 +292,8 @@ impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
                         ));
                         if r.headers().get("depth").and_then(|h| h.to_str().ok()) != Some("0") {
                             let contacts = setjoin_calendar::carddav::list_contacts(
-                                &exec,
-                                auth.context().user_id(),
+                                &tx,
+                                &user_principal,
                                 book.id,
                             )
                             .await
@@ -297,8 +316,8 @@ impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
                         }
                     }
                 } else if let Ok(Some(contact)) = setjoin_calendar::carddav::get_contact(
-                    &exec,
-                    auth.context().user_id(),
+                    &tx,
+                    &user_principal,
                     parts[0].parse().unwrap_or(0),
                     parts[1].strip_suffix(".vcf").unwrap_or(&parts[1]),
                 )

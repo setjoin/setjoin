@@ -44,7 +44,10 @@ impl Typing {
         tokio::spawn(async move {
             let _=tokio::time::timeout(Duration::from_secs(5),async {
                 let user=actor.user_id();
-                let rows=exec.read_user_scoped(setjoin_contracts::ids::ActorId::new(user).expect("verified actor"),
+                let actor_id = setjoin_contracts::ids::ActorId::new(user).ok()?;
+                let rows=crate::policy_composition::user_read(
+                    &exec,
+                    actor_id,
                     "SELECT c.federated_peer_domain,c.federated_room_id,c.federated_remote_id FROM chat_channels c WHERE c.id=$1 AND (c.visibility='public' OR EXISTS(SELECT 1 FROM chat_channel_members m WHERE m.channel_id=c.id AND m.user_id=$2))",
                     &[(&channel,Type::INT8),(&user,Type::INT8)]).await.ok()?;
                 let row=rows.first()?;

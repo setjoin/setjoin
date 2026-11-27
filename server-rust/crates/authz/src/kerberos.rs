@@ -149,14 +149,23 @@ pub enum PrincipalLookup {
 /// Resolve a validated Kerberos principal to an enabled non-guest user, enforcing
 /// fail-closed guest containment (`guest_account_status($1)`) and TOTP check.
 pub async fn lookup_principal(exec: &ScopedExecutor, principal: &str) -> PrincipalLookup {
-    let rows = match exec
-        .read(
-            "SELECT u.id, u.email, u.totp_enabled FROM users u \
-             WHERE u.krb5_principal = $1 AND u.enabled = TRUE",
-            &[(&principal, Type::TEXT)],
-        )
-        .await
-    {
+    lookup_principal_with_pre_auth(None, exec, principal).await
+}
+
+/// Resolve a validated Kerberos principal, preferring the private pre-auth
+/// `AdminWorkerPool` seam (`setjoin_worker`) when configured (#546d).
+pub(crate) async fn lookup_principal_with_pre_auth(
+    pre_auth: Option<&setjoin_pg::AdminWorkerPool>,
+    exec: &ScopedExecutor,
+    principal: &str,
+) -> PrincipalLookup {
+    const SQL: &str = "SELECT u.id, u.email, u.totp_enabled FROM users u \
+                       WHERE u.krb5_principal = $1 AND u.enabled = TRUE";
+    let params: [setjoin_pg::Param<'_>; 1] = [(&principal, Type::TEXT)];
+    let rows = match match pre_auth {
+        Some(pool) => pool.run_pre_auth_read_pipelined(SQL, &params).await,
+        None => exec.read(SQL, &params).await,
+    } {
         Ok(rows) => rows,
         Err(_) => return PrincipalLookup::Unavailable,
     };

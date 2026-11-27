@@ -80,8 +80,10 @@ require "sample: points at the root-owned credential file" \
   '/etc/setjoin/db-credentials.d/db-credentials.env' "$SAMPLE"
 require "sample: cites the native-RLS runbook" \
   'docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md' "$SAMPLE"
-require "sample: marks permissive single-DSN as an explicit downgrade" \
+refuse "sample: retired permissive single-DSN opt-out must not appear" \
   '--permissive-dsn' "$SAMPLE"
+require "sample: states unconditional fail-closed startup refusal" \
+  'unconditionally refuse to start' "$SAMPLE"
 require "sample: warns against owner/superuser runtime credentials" \
   'Tenant-facing services must never run as the database owner' "$SAMPLE"
 refuse "sample: no owner-role DSN default" \

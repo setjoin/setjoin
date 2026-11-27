@@ -61,7 +61,12 @@ impl Revocations {
         {
             return true;
         }
-        let text = |key: &str| claims.get(key).and_then(serde_json::Value::as_str).unwrap_or("");
+        let text = |key: &str| {
+            claims
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+        };
         let iat = (claims
             .get("iat")
             .and_then(serde_json::Value::as_f64)
@@ -69,7 +74,10 @@ impl Revocations {
             .floor()
             * 1_000_000_000.) as i128;
         self.rows.contains(
-            claims.get("uid").and_then(serde_json::Value::as_i64).unwrap_or(0),
+            claims
+                .get("uid")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0),
             iat,
             text("jti"),
             text("fam"),

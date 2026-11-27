@@ -1,15 +1,10 @@
-//! Conditional access (F03) slice `policies`: the policy lifecycle routes. Reads repeat Go's
-//! queries; every write calls the reducer Go calls, inside one receipted command. Create and
-//! update go through `rust_ca_policy_save` (Go's upsert plus optional `set_session_control`
-//! transaction); the other writes call `ca_policy_soft_delete|restore|restore_from_audit|
-//! reorder|promote` unchanged (they already commit data, audit and the single
-//! `ca_notify_policy_change` together). A reducer `BZ0xx` exception rolls the command back
-//! and is projected by [`project`] like Go's `caErrorStatus`/`caErrorDetail`.
-use super::{deadline, done, envelope, invalid, s};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{
-    CommandOutcome, ReceiptCommand, Rejection, ScopedExecutor, StatementFailure, Type,
-};
+//! Conditional access (F03) slice `policies`: the policy lifecycle routes. Reads run via
+//! `AdminReadTx`; writes run via `AdminWriteTx` (`ReducerWritesCoreAudit`) with in-tx reach and
+//! priority checks.
+use super::cmd::{one_i64, one_text, one_void, run_checked_audited, PolicyLock};
+use super::{done, invalid, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::{CommandOutcome, Rejection, StatementFailure};
 
 /// One refusal as Go's `httputil.WriteError(w, caErrorStatus(err), caErrorDetail(err))`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,10 +13,7 @@ pub struct Projected {
     pub detail: String,
 }
 
-/// Go's `caErrorStatus`/`caErrorDetail` over a database failure: a CHECK violation (23514)
-/// is a 400 carrying the HINT (else the message); a classified CA reducer code carries the
-/// status of its reducer class and the HINT (else the message); anything else is a 500
-/// with the fixed `request failed`.
+/// Go's `caErrorStatus`/`caErrorDetail` over a database failure.
 pub fn project(error: &StatementFailure) -> Projected {
     let text = |hint: &Option<String>| match hint {
         Some(h) if !h.is_empty() => h.clone(),
@@ -35,15 +27,9 @@ pub fn project(error: &StatementFailure) -> Projected {
         };
     }
     let status = match code {
-        // ClassConflict: lockout guard, restore priority clash, location name clash,
-        // device state conflict.
         "BZ080" | "BZ087" | "BZ093" | "BZ095" => 409,
-        // ClassNotFound: CA entity, restore audit row, import slug.
         "BZ081" | "BZ086" | "BZ091" => 404,
-        // ClassInvalidArguments: empty break-glass, template slug, built-in strength,
-        // revocation scope, session-control arguments.
         "BZ082" | "BZ085" | "BZ094" | "BZ097" | "BZ098" => 400,
-        // ClassUnprocessable: import schema version, shape, mode.
         "BZ088" | "BZ090" | "BZ092" => 422,
         _ => {
             return Projected {
@@ -58,7 +44,7 @@ pub fn project(error: &StatementFailure) -> Projected {
     }
 }
 
-/// The projection of a rejected command or read, `None` for a failure with no database error.
+/// The projection of a rejected command or read.
 pub fn project_rejection(error: &Rejection<StatementFailure>) -> Projected {
     match error {
         Rejection::Statement(e) | Rejection::Body(e) => project(e),
@@ -93,56 +79,31 @@ pub fn compact(text: &str) -> String {
     out
 }
 
-fn command(name: &'static str) -> ReceiptCommand {
-    ReceiptCommand {
-        family: super::FAMILY,
-        command: name,
-    }
-}
-
-/// Owner-approved security fix 2026-11-05 (#467): a domain-scoped admin reaches only the
-/// policies scoped to users it reaches; organization-wide policies (global, role, guests)
-/// need an organization-wide `access.policy_*` grant, which is checked in the same SQL
-/// statement as every read or write (`rust_ca_policy_*_reach`, mailserver/sql/reducers).
-pub(crate) const READ_PERMS: &str = "'{access.policy_read,access.policy_write}'::text[]";
-const WRITE_PERMS: &str = "'{access.policy_write}'::text[]";
-
 /// Test-only: restores frozen Go's missing tenant filter (feature `oracle-mutants`).
-pub(crate) fn open() -> &'static str {
-    if setjoin_contracts::mutants::on("ca-policy-foreign") {
-        "true"
-    } else {
-        "false"
-    }
+pub(crate) fn open() -> bool {
+    setjoin_contracts::mutants::on("ca-policy-foreign")
 }
 
 /// Test-only: restores the missing priority floor (a scoped admin ahead of org-wide policies).
-fn ahead() -> &'static str {
-    if setjoin_contracts::mutants::on("ca-priority-ahead") {
-        "true"
-    } else {
-        "false"
-    }
+fn ahead() -> bool {
+    setjoin_contracts::mutants::on("ca-priority-ahead")
 }
 
 /// Owner decision 2026-11-06 (#467, #510): whether the caller may give a policy `priority` (or
-/// rebuild the `audit` snapshot's priority). A domain-limited admin's policies must come after
-/// every policy outside its reach; org-wide admins are unchanged. The statements repeat it.
+/// rebuild the `audit` snapshot's priority).
 pub async fn priority_allowed(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     priority: Option<i64>,
     audit: Option<i64>,
 ) -> Result<bool, StatementFailure> {
-    let user = actor.user_id();
-    let rows = exec
-        .read(
-            &format!(
-                "SELECT {ahead} OR (rust_ca_priority_ok($1, $2, {WRITE_PERMS}) \
-                 AND COALESCE(rust_ca_audit_priority_ok($1, $3, {WRITE_PERMS}), true))",
-                ahead = ahead()
-            ),
-            &[(&user, Type::INT8), (&priority, Type::INT8), (&audit, Type::INT8)],
+    let user = admin.actor().get();
+    let ahead_flag = ahead();
+    let rows = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::PRIORITY_ALLOWED,
+            &[&user, &priority, &audit, &ahead_flag],
         )
         .await?;
     rows.first()
@@ -161,39 +122,35 @@ pub enum Gate {
 }
 
 /// Read-side check run before a mutation to choose 404 or 403; the mutation repeats the same
-/// predicate inside its own statement, so a grant revoked in between cannot slip through.
+/// predicate inside its own `AdminWriteTx`.
 pub async fn gate(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     id: Option<i64>,
     audit: Option<i64>,
     scope: Option<(&str, &str)>,
     read: bool,
 ) -> Result<Gate, StatementFailure> {
-    let user = actor.user_id();
-    let perms = if read { READ_PERMS } else { WRITE_PERMS };
+    let user = admin.actor().get();
+    let open_flag = open();
     let (scope_type, scope_target) = scope.map_or((None, None), |(a, b)| (Some(a), Some(b)));
-    let rows = exec
-        .read(
-            &format!(
-                "SELECT CASE WHEN {open} THEN 'ok' \
-                 WHEN $2::bigint IS NOT NULL AND (rust_ca_policy_row_reach($1, $2, {perms}) IS FALSE \
-                      OR (rust_ca_policy_row_reach($1, $2, {perms}) IS NULL AND NOT admin_org_wide_grant($1, {perms}))) THEN 'row' \
-                 WHEN $3::bigint IS NOT NULL AND rust_ca_policy_audit_reach($1, $3, {perms}) IS NOT DISTINCT FROM false THEN 'row' \
-                 WHEN $4::text IS NOT NULL AND NOT rust_ca_policy_scope_reach($1, $4, $5, {perms}) THEN 'scope' \
-                 ELSE 'ok' END",
-                open = open()
-            ),
-            &[
-                (&user, Type::INT8),
-                (&id, Type::INT8),
-                (&audit, Type::INT8),
-                (&scope_type, Type::TEXT),
-                (&scope_target, Type::TEXT),
-            ],
+    let contract = if read {
+        &sql::POLICY_GATE_READ
+    } else {
+        &sql::POLICY_GATE_WRITE
+    };
+    let rows = factory
+        .run_admin_read_contract(
+            admin,
+            contract,
+            &[&user, &id, &audit, &scope_type, &scope_target, &open_flag],
         )
         .await?;
-    match rows.first().and_then(|r| r.try_get::<_, String>(0).ok()).as_deref() {
+    match rows
+        .first()
+        .and_then(|r| r.try_get::<_, String>(0).ok())
+        .as_deref()
+    {
         Some("ok") => Ok(Gate::Allowed),
         Some("row") => Ok(Gate::NotFound),
         Some("scope") => Ok(Gate::Forbidden),
@@ -209,24 +166,18 @@ pub fn not_found() -> Projected {
     }
 }
 
-/// Whether the caller reaches `user` for the policy-console reads: an organization-wide
-/// `access.policy_*` grant, or reach through a grant that carries one of those permissions
-/// (permission-aware `admin_can_reach_perm`, not any grant). Owner-approved security fix
-/// 2026-11-05 (#467, #510).
+/// Whether the caller reaches `user` for the policy-console reads.
 pub async fn user_in_reach(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     user: i64,
 ) -> Result<bool, StatementFailure> {
-    if setjoin_contracts::mutants::on("ca-policy-foreign") {
+    if open() {
         return Ok(true);
     }
-    let admin = actor.user_id();
-    let rows = exec
-        .read(
-            &format!("SELECT admin_org_wide_grant($1, {READ_PERMS}) OR admin_can_reach_perm($1, $2, {READ_PERMS})"),
-            &[(&admin, Type::INT8), (&user, Type::INT8)],
-        )
+    let actor_id = admin.actor().get();
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::USER_IN_REACH, &[&actor_id, &user])
         .await?;
     rows.first()
         .and_then(|r| r.try_get::<_, bool>(0).ok())
@@ -234,23 +185,23 @@ pub async fn user_in_reach(
 }
 
 /// Whether the caller holds `access.policy_write` (or, for `read`, `access.policy_read`)
-/// organization-wide; the bulk routes (export, import, diff, template instantiate) touch
-/// every policy and need it.
+/// organization-wide.
 pub async fn org_wide(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     read: bool,
 ) -> Result<bool, StatementFailure> {
-    if setjoin_contracts::mutants::on("ca-policy-foreign") {
+    if open() {
         return Ok(true);
     }
-    let user = actor.user_id();
-    let perms = if read { READ_PERMS } else { WRITE_PERMS };
-    let rows = exec
-        .read(
-            &format!("SELECT admin_org_wide_grant($1, {perms})"),
-            &[(&user, Type::INT8)],
-        )
+    let user = admin.actor().get();
+    let contract = if read {
+        &sql::ORG_WIDE_READ
+    } else {
+        &sql::ORG_WIDE_WRITE
+    };
+    let rows = factory
+        .run_admin_read_contract(admin, contract, &[&user])
         .await?;
     rows.first()
         .and_then(|r| r.try_get::<_, bool>(0).ok())
@@ -258,28 +209,21 @@ pub async fn org_wide(
 }
 
 /// `GET /admin/conditional-access/policies`: live policies by priority, tombstones too with
-/// `?include_deleted=1`. A row that fails to scan is skipped by Go (none can here). Only the
-/// policies in the caller's reach are listed.
+/// `?include_deleted=1`. Only the policies in the caller's reach are listed.
 pub async fn list(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     include_deleted: bool,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    let sql = format!(
-        "SELECT id, priority, name, description, state, scope_type, scope_target, \
-         conditions::text, actions::text, exclude_users::text, exclude_groups::text, \
-         session_control::text, created_at::text, updated_at::text, deleted_at::text \
-         FROM conditional_access_policies WHERE ({open} OR rust_ca_policy_scope_reach($1, scope_type, scope_target, {READ_PERMS})){} \
-         ORDER BY priority ASC",
-        if include_deleted {
-            ""
-        } else {
-            " AND deleted_at IS NULL"
-        },
-        open = open()
-    );
-    let rows = exec.read(&sql, &[(&user, Type::INT8)]).await?;
+    let user = admin.actor().get();
+    let open_flag = open();
+    let rows = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::POLICY_LIST,
+            &[&user, &open_flag, &include_deleted],
+        )
+        .await?;
     let bad = |_| invalid();
     let mut out = Vec::new();
     for r in &rows {
@@ -309,8 +253,7 @@ pub async fn list(
     Ok(done(format!("[{}]", out.join(","))))
 }
 
-/// The create/update request after Go's decoding: `name` and the raw documents are the
-/// request's own text, never an identity field.
+/// The create/update request after Go's decoding.
 pub struct Policy<'a> {
     pub name: &'a str,
     pub description: &'a str,
@@ -363,237 +306,199 @@ impl Policy<'_> {
 /// `POST|PUT /admin/conditional-access/policies[/{id}]`: the reducer's persisted row, jsonb
 /// text verbatim (no newline).
 pub async fn save(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     ip: &str,
     id: Option<i64>,
     policy: &Policy<'_>,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = super::scope(actor);
+    let actor_id = admin.actor().get();
     let document = policy.document();
     let actions = compact(policy.actions.unwrap_or(DEFAULT_ACTIONS));
     let session = policy.session_control.map(compact);
     let scope_type = first_non_empty(policy.scope_type, "global");
-    setjoin_pg::run_receipted_command(
-        exec,
-        command(if id.is_some() {
+    let open_flag = open();
+    let ahead_flag = ahead();
+    run_checked_audited(
+        factory,
+        admin,
+        if id.is_some() {
             "ca_policy_update"
         } else {
             "ca_policy_create"
-        }),
-        &envelope(
-            &auth,
-            operation,
-            &format!("{id:?}:{ip}:{document}:{actions}:{session:?}"),
-        ),
-        &auth,
-        deadline(),
-        &format!(
-            "SELECT rust_ca_policy_save($2,$4::text::inet,$5,$6::text::jsonb,$7::text::jsonb,$8::text::jsonb)::text \
-             WHERE $1::bigint >= 0 AND $3::text <> '' \
-             AND ({open} OR (rust_ca_policy_scope_reach($2, $9, $10, {WRITE_PERMS}) \
-                  AND COALESCE(rust_ca_policy_row_reach($2, $5, {WRITE_PERMS}), true))) \
-             AND ({ahead} OR rust_ca_priority_ok($2, $11, {WRITE_PERMS}))",
-            open = open(),
-            ahead = ahead()
-        ),
-        &[
-            (&ip, Type::TEXT),
-            (&id, Type::INT8),
-            (&document, Type::TEXT),
-            (&actions, Type::TEXT),
-            (&session, Type::TEXT),
-            (&scope_type, Type::TEXT),
-            (&policy.scope_target, Type::TEXT),
-            (&policy.priority, Type::INT8),
-        ],
-        |rows| match rows {
-            [row] => row.try_get::<_, String>(0).map_err(|_| invalid()),
-            _ => Err(invalid()),
         },
+        operation,
+        &format!("{id:?}:{ip}:{document}:{actions}:{session:?}"),
+        id.map_or(PolicyLock::FenceOnly, PolicyLock::Row),
+        &sql::POLICY_SAVE_CHECK,
+        &[
+            &actor_id,
+            &id,
+            &scope_type,
+            &policy.scope_target,
+            &policy.priority,
+            &open_flag,
+            &ahead_flag,
+        ],
+        &sql::POLICY_SAVE,
+        &[&ip, &id, &document, &actions, &session],
+        one_text,
     )
     .await
 }
 
-/// `DELETE .../policies/{id}` (soft delete) and `POST .../policies/{id}/restore`: Go calls
-/// the reducer and answers 204.
+/// `DELETE .../policies/{id}` (soft delete).
 pub async fn soft_delete(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     policy: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = super::scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("ca_policy_soft_delete"),
-        &envelope(&auth, operation, &policy.to_string()),
-        &auth,
-        deadline(),
-        &format!(
-            "SELECT count(*)::bigint FROM (SELECT ca_policy_soft_delete($4,$2) \
-             WHERE $1::bigint >= 0 AND $3::text <> '' \
-             AND ({open} OR COALESCE(rust_ca_policy_row_reach($2, $4, {WRITE_PERMS}), true))) w",
-            open = open()
-        ),
-        &[(&policy, Type::INT8)],
-        count,
+    let actor_id = admin.actor().get();
+    let open_flag = open();
+    run_checked_audited(
+        factory,
+        admin,
+        "ca_policy_soft_delete",
+        operation,
+        &policy.to_string(),
+        PolicyLock::Row(policy),
+        &sql::POLICY_ROW_REACH_WRITE,
+        &[&actor_id, &policy, &open_flag],
+        &sql::POLICY_SOFT_DELETE,
+        &[&policy],
+        one_void,
     )
     .await
 }
 
 pub async fn restore(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     policy: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = super::scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("ca_policy_restore"),
-        &envelope(&auth, operation, &policy.to_string()),
-        &auth,
-        deadline(),
-        &format!(
-            "SELECT count(*)::bigint FROM (SELECT ca_policy_restore($4,$2) \
-             WHERE $1::bigint >= 0 AND $3::text <> '' \
-             AND ({open} OR COALESCE(rust_ca_policy_row_reach($2, $4, {WRITE_PERMS}), true))) w",
-            open = open()
-        ),
-        &[(&policy, Type::INT8)],
-        count,
+    let actor_id = admin.actor().get();
+    let open_flag = open();
+    run_checked_audited(
+        factory,
+        admin,
+        "ca_policy_restore",
+        operation,
+        &policy.to_string(),
+        PolicyLock::Row(policy),
+        &sql::POLICY_ROW_REACH_WRITE,
+        &[&actor_id, &policy, &open_flag],
+        &sql::POLICY_RESTORE,
+        &[&policy],
+        one_void,
     )
     .await
 }
 
-fn count(rows: &[setjoin_pg::Row]) -> Result<(), StatementFailure> {
-    match rows {
-        [row] if row.try_get::<_, i64>(0).is_ok_and(|n| n == 1) => Ok(()),
-        _ => Err(invalid()),
-    }
-}
-
 /// `POST .../policies/restore-from-audit`: the rebuilt policy's new id.
 pub async fn restore_from_audit(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     audit: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    let auth = super::scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("ca_policy_restore_from_audit"),
-        &envelope(&auth, operation, &audit.to_string()),
-        &auth,
-        deadline(),
-        &format!(
-            "SELECT ca_policy_restore_from_audit($4,$2) WHERE $1::bigint >= 0 AND $3::text <> '' \
-             AND ({open} OR COALESCE(rust_ca_policy_audit_reach($2, $4, {WRITE_PERMS}), true)) \
-             AND ({ahead} OR COALESCE(rust_ca_audit_priority_ok($2, $4, {WRITE_PERMS}), true))",
-            open = open(),
-            ahead = ahead()
-        ),
-        &[(&audit, Type::INT8)],
-        |rows| match rows {
-            [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
-            _ => Err(invalid()),
-        },
+    let actor_id = admin.actor().get();
+    let open_flag = open();
+    let ahead_flag = ahead();
+    run_checked_audited(
+        factory,
+        admin,
+        "ca_policy_restore_from_audit",
+        operation,
+        &audit.to_string(),
+        PolicyLock::FenceOnly,
+        &sql::POLICY_RESTORE_FROM_AUDIT_CHECK,
+        &[&actor_id, &audit, &open_flag, &ahead_flag],
+        &sql::POLICY_RESTORE_FROM_AUDIT,
+        &[&audit],
+        one_i64,
     )
     .await
 }
 
 /// `POST .../policies/reorder`: priorities restepped by ten in the supplied order.
 pub async fn reorder(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     ip: &str,
     ids: &Vec<i64>,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = super::scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("ca_policy_reorder"),
-        &envelope(&auth, operation, &format!("{ip}:{ids:?}")),
-        &auth,
-        deadline(),
-        &format!(
-            "SELECT count(*)::bigint FROM (SELECT {reorder}($2,$4::text::inet,$5) \
-             WHERE $1::bigint >= 0 AND $3::text <> '' \
-             AND ({open} OR NOT EXISTS (SELECT 1 FROM unnest($5::bigint[]) i \
-                  WHERE rust_ca_policy_row_reach($2, i, {WRITE_PERMS}) IS NOT DISTINCT FROM false))) w",
-            open = open(),
-            // A scoped admin's reorder is restepped from the priority floor (behind org-wide policies).
-            reorder = if setjoin_contracts::mutants::on("ca-priority-ahead") {
-                "ca_policy_reorder"
-            } else {
-                "rust_ca_policy_reorder"
-            }
-        ),
-        &[(&ip, Type::TEXT), (ids, Type::INT8_ARRAY)],
-        count,
+    let actor_id = admin.actor().get();
+    let open_flag = open();
+    let write_contract = if ahead() {
+        &sql::POLICY_REORDER_MUTANT
+    } else {
+        &sql::POLICY_REORDER
+    };
+    run_checked_audited(
+        factory,
+        admin,
+        "ca_policy_reorder",
+        operation,
+        &format!("{ip}:{ids:?}"),
+        PolicyLock::Rows(ids),
+        &sql::POLICY_REORDER_CHECK,
+        &[&actor_id, ids, &open_flag],
+        write_contract,
+        &[&ip, ids],
+        one_void,
     )
     .await
 }
 
 /// `ca_policy_impact(id, '7d', list)` as jsonb text; the reducer is STABLE and read-only.
-/// `list` is `None` for the summary, `Some("blocked_users")` for the list.
 pub async fn impact(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     policy: i64,
     list: Option<&str>,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    let rows = exec
-        .read(
-            &format!(
-                "SELECT ca_policy_impact($1, '7d', $2::text)::text \
-                 WHERE {open} OR COALESCE(rust_ca_policy_row_reach($3, $1, {READ_PERMS}), true)",
-                open = open()
-            ),
-            &[(&policy, Type::INT8), (&list, Type::TEXT), (&user, Type::INT8)],
+    let user = admin.actor().get();
+    let open_flag = open();
+    let rows = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::POLICY_IMPACT_7D,
+            &[&policy, &list, &user, &open_flag],
         )
         .await?;
-    match rows.as_slice() {
-        [row] => row.try_get::<_, String>(0).map_err(|_| invalid()),
-        _ => Err(invalid()),
-    }
+    one_text(&rows)
 }
 
 /// `ca_policy_promote`: the promoted policy's jsonb text, verbatim.
 pub async fn promote(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     policy: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = super::scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("ca_policy_promote"),
-        &envelope(&auth, operation, &policy.to_string()),
-        &auth,
-        deadline(),
-        &format!(
-            "SELECT ca_policy_promote($4,$2)::text WHERE $1::bigint >= 0 AND $3::text <> '' \
-             AND ({open} OR COALESCE(rust_ca_policy_row_reach($2, $4, {WRITE_PERMS}), true))",
-            open = open()
-        ),
-        &[(&policy, Type::INT8)],
-        |rows| match rows {
-            [row] => row.try_get::<_, String>(0).map_err(|_| invalid()),
-            _ => Err(invalid()),
-        },
+    let actor_id = admin.actor().get();
+    let open_flag = open();
+    run_checked_audited(
+        factory,
+        admin,
+        "ca_policy_promote",
+        operation,
+        &policy.to_string(),
+        PolicyLock::Row(policy),
+        &sql::POLICY_ROW_REACH_WRITE,
+        &[&actor_id, &policy, &open_flag],
+        &sql::POLICY_PROMOTE,
+        &[&policy],
+        one_text,
     )
     .await
 }
 
-/// The promote dialog's blast-radius body (Go's `promotePreviewResponse`): `blocked` and
-/// `admins` are the impact list's `users` and `admin_users` arrays, rendered field for field.
+/// The promote dialog's blast-radius body (Go's `promotePreviewResponse`).
 pub struct Preview {
     pub would_block_users: i64,
     pub would_block_admins: i64,
@@ -648,8 +553,7 @@ impl Preview {
     }
 }
 
-/// The impact summary fields the promote handler reads (`json.Unmarshal` into int64/string:
-/// a missing key stays zero, a wrong type is Go's 500 "impact read failed").
+/// The impact summary fields the promote handler reads.
 pub fn parse_summary(text: &str) -> Option<(i64, i64, String)> {
     let value: serde_json::Value = serde_json::from_str(text).ok()?;
     let object = value.as_object()?;

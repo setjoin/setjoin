@@ -5,8 +5,9 @@
 //! registered live component probe, behind a 5 s verdict cache, a global token bucket and a
 //! one-evaluation concurrency bound. The ok-to-error alert is raised through an optional
 //! [`Alerts`] observer (the gateway's webhook dispatcher), which receives every checked row.
-use super::{config::go_f64, done, s};
-use setjoin_pg::ScopedExecutor;
+use super::{config::go_f64, done, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::rls_preflight::BootPosture;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -79,20 +80,61 @@ pub struct Probe {
     pub error: Option<String>,
 }
 
-/// The query of Go's `runEvaluation`, with the numeric columns as float8 (pgx scans them
-/// into `*float64`).
-const LATEST: &str = "SELECT DISTINCT ON (check_name) check_name, status, value::float8, threshold::float8, details, \
-     to_char(checked_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS') || CASE WHEN date_part('microseconds', checked_at AT TIME ZONE 'UTC')::bigint % 1000000 = 0 THEN '' ELSE regexp_replace(to_char(checked_at AT TIME ZONE 'UTC','.US'),'0+$','') END || 'Z' \
-     FROM health_history ORDER BY check_name, checked_at DESC";
-
 /// A full evaluation. `now` renders the probes' `checked_at`.
 pub async fn evaluate(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     probes: &[Probe],
     now: &str,
     alerts: Option<&Alerts>,
 ) -> Verdict {
-    let Ok(rows) = exec.read(LATEST, &[]).await else {
+    evaluate_with_boot_posture(factory, admin, probes, None, now, alerts).await
+}
+
+fn append_boot_posture_checks(
+    results: &mut Vec<String>,
+    overall: &mut &'static str,
+    boot_posture: Option<&BootPosture>,
+    now: &str,
+) {
+    let Some(posture) = boot_posture else {
+        return;
+    };
+    for check in posture.admin_checks() {
+        if check.status == "error" {
+            *overall = "error";
+        } else if check.status == "warn" && *overall != "error" {
+            *overall = "warn";
+        }
+        results.push(format!(
+            "{{\"check_name\":{},\"status\":{},\"details\":{},\"checked_at\":{}}}",
+            s(check.check_name),
+            s(check.status),
+            s(&check.details),
+            s(now)
+        ));
+    }
+    if posture.public_status() == "error" {
+        *overall = "error";
+    } else if posture.public_status() == "warn" && *overall != "error" {
+        *overall = "warn";
+    }
+}
+
+/// Full evaluation appending optional redacted startup RLS/PG-version check
+/// rows (`db_rls_posture`, `pg_version_cve_2026_14666`, `rls_scope_helpers`).
+pub async fn evaluate_with_boot_posture(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    probes: &[Probe],
+    boot_posture: Option<&BootPosture>,
+    now: &str,
+    alerts: Option<&Alerts>,
+) -> Verdict {
+    let Ok(rows) = factory
+        .run_admin_read_contract(admin, &sql::HEALTH_LATEST, &[])
+        .await
+    else {
         return Verdict::Internal;
     };
     let mut results: Vec<String> = Vec::new();
@@ -150,6 +192,7 @@ pub async fn evaluate(
             s(now)
         ));
     }
+    append_boot_posture_checks(&mut results, &mut overall, boot_posture, now);
     Verdict::Json {
         status: if overall == "error" { 503 } else { 200 },
         body: done(format!(
@@ -163,6 +206,7 @@ pub async fn evaluate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use setjoin_pg::rls_preflight::{BootHealthCheck, EnforcementMode};
 
     #[test]
     fn bucket_admits_a_burst_then_refills() {
@@ -182,5 +226,44 @@ mod tests {
                 body: "{\"checks\":[],\"status\":\"error\"}\n".into()
             }
         );
+    }
+
+    #[test]
+    fn boot_posture_checks_append_and_degrade_overall_status() {
+        let posture = BootPosture {
+            mode: EnforcementMode::WarnReleaseN,
+            overall_status: "warn",
+            report: None,
+            checks: vec![
+                BootHealthCheck {
+                    check_name: "db_rls_posture",
+                    status: "warn",
+                    details: "runtime role \"mail\" is superuser".into(),
+                },
+                BootHealthCheck {
+                    check_name: "pg_version_cve_2026_14666",
+                    status: "ok",
+                    details: "PostgreSQL 17.12".into(),
+                },
+                BootHealthCheck {
+                    check_name: "rls_scope_helpers",
+                    status: "ok",
+                    details: "all ARCH-018 scope helpers clean".into(),
+                },
+            ],
+        };
+        let mut rows = Vec::new();
+        let mut overall = "ok";
+        append_boot_posture_checks(
+            &mut rows,
+            &mut overall,
+            Some(&posture),
+            "2026-11-26T00:00:00Z",
+        );
+        assert_eq!(overall, "warn");
+        assert_eq!(rows.len(), 3);
+        assert!(rows[0].contains("\"check_name\":\"db_rls_posture\""));
+        assert!(rows[1].contains("\"check_name\":\"pg_version_cve_2026_14666\""));
+        assert!(rows[2].contains("\"check_name\":\"rls_scope_helpers\""));
     }
 }

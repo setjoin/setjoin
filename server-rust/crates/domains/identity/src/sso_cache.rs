@@ -148,6 +148,26 @@ impl<T: Send + Sync + 'static> Cache<T> {
             Err(DISCONNECTED.into())
         }
     }
+
+    pub(super) async fn subscribe_hub(
+        &self,
+        hub: &setjoin_pg::ListenHub,
+    ) -> Result<(setjoin_pg::ListenSubscription, u64), String> {
+        let epoch = self.begin_connection();
+        let sub = hub
+            .subscribe("config_changed")
+            .await
+            .map_err(|e| e.to_string())?;
+        if self.connected(epoch) {
+            Ok((sub, epoch))
+        } else {
+            Err(DISCONNECTED.into())
+        }
+    }
+
+    pub(super) fn disconnect_epoch(&self, epoch: u64) {
+        self.state.write().unwrap().disconnect(epoch);
+    }
 }
 
 #[cfg(test)]

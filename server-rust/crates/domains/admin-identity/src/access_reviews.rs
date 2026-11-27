@@ -1,15 +1,7 @@
 //! Admin identity (F01) slice `access-reviews`: recertification campaigns.
-//!
-//! Reads are `SELECT`s that repeat Go's queries. Every write calls the existing
-//! `access_review_*` reducer exactly as Go does (the reducers already commit data
-//! and audit in one statement, so no new reducer is needed); the receipt joins
-//! the same transaction. A reducer `BZ0xx` exception rolls the command back and
-//! is projected by the adapter like Go's `reducererr.WriteClassified`.
-use super::{count as _count, deadline, envelope, invalid, s, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{
-    CommandOutcome, ReceiptCommand, Rejection, ScopedExecutor, StatementFailure, Type,
-};
+use super::{deadline, envelope, invalid, s, sql, FAMILY};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, Rejection, StatementFailure};
 
 /// `roles.manage`: the only gate of every route in this slice (Go's `requireRolesManage`).
 pub const ROLES_MANAGE: [&str; 1] = ["roles.manage"];
@@ -29,8 +21,6 @@ const FORBIDDEN: &str =
     "Complete the required authorization, approval, or recovery step before retrying.";
 const CONFLICT: &str = "Refresh current state, resolve the conflict, and retry.";
 
-/// The reducer codes these routes can raise (campaign guard, SoD, close-time
-/// deletes guarded by the admin protection triggers). Messages pass through.
 pub fn reducer_of(error: &Rejection<StatementFailure>) -> Option<Reducer> {
     let (Rejection::Statement(e) | Rejection::Body(e)) = error else {
         return None;
@@ -51,7 +41,6 @@ pub fn reducer_of(error: &Rejection<StatementFailure>) -> Option<Reducer> {
 }
 
 #[allow(clippy::too_many_arguments)]
-/// Go's `campaignRow`: `closedBy` and `closedAt` are omitted when null.
 fn campaign_json(
     id: i64,
     name: &str,
@@ -80,21 +69,13 @@ fn campaign_json(
 }
 
 /// `GET /admin/access-reviews`: the caller's in-scope campaigns, open first.
-pub async fn list(exec: &ScopedExecutor, domain_scope: i64) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT c.id, c.name, c.status, \
-             COUNT(i.id) FILTER (WHERE i.decision <> 'undecided')::int, COUNT(i.id)::int, \
-             u.email, c.created_at::text, cu.email, c.closed_at::text \
-             FROM access_review_campaigns c \
-             JOIN users u ON u.id = c.created_by \
-             LEFT JOIN users cu ON cu.id = c.closed_by \
-             LEFT JOIN access_review_items i ON i.campaign_id = c.id \
-             WHERE $1 <= 0 OR c.domain_scope = $1 \
-             GROUP BY c.id, u.email, cu.email \
-             ORDER BY (c.status='open') DESC, c.created_at DESC",
-            &[(&domain_scope, Type::INT8)],
-        )
+pub async fn list(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    domain_scope: i64,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::ACCESS_REVIEWS_LIST, &[&domain_scope])
         .await?;
     let bad = |_| invalid();
     let mut out = Vec::new();
@@ -114,29 +95,20 @@ pub async fn list(exec: &ScopedExecutor, domain_scope: i64) -> Result<String, St
 }
 
 /// `GET /admin/access-reviews/{id}`; `None` is Go's 404 (missing or out of scope).
-/// Go scans a NULL email, role name or self flag (a deleted user or role) into a
-/// plain value, which fails the whole request with its 500.
 pub async fn get(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     actor: i64,
     domain_scope: i64,
     id: i64,
 ) -> Result<Option<String>, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT c.id, c.name, c.status, u.email, c.created_at::text, cu.email, c.closed_at::text \
-             FROM access_review_campaigns c \
-             JOIN users u ON u.id = c.created_by \
-             LEFT JOIN users cu ON cu.id = c.closed_by \
-             WHERE c.id = $1 AND ($2 <= 0 OR c.domain_scope = $2)",
-            &[(&id, Type::INT8), (&domain_scope, Type::INT8)],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::ACCESS_REVIEW_GET, &[&id, &domain_scope])
         .await?;
     let bad = |_| invalid();
     let Some(r) = rows.first() else {
         return Ok(None);
     };
-    // Go's Get leaves `reviewed` and `total` at zero: only the list counts items.
     let campaign = campaign_json(
         r.try_get(0).map_err(bad)?,
         &r.try_get::<_, String>(1).map_err(bad)?,
@@ -147,18 +119,8 @@ pub async fn get(
         r.try_get(5).map_err(bad)?,
         r.try_get(6).map_err(bad)?,
     );
-    let rows = exec
-        .read(
-            "SELECT i.id, u.email, rg.name, COALESCE(i.domain_override, rg.domain_scope), \
-             i.granted_at::text, gb.email, i.is_sso, (i.user_id = $2), i.decision, i.applied_at::text \
-             FROM access_review_items i \
-             LEFT JOIN users u ON u.id = i.user_id \
-             LEFT JOIN admin_role_groups rg ON rg.id = i.role_group_id \
-             LEFT JOIN users gb ON gb.id = i.granted_by \
-             WHERE i.campaign_id = $1 \
-             ORDER BY (i.decision='undecided') DESC, u.email",
-            &[(&id, Type::INT8), (&actor, Type::INT8)],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::ACCESS_REVIEW_ITEMS, &[&id, &actor])
         .await?;
     let mut items = Vec::new();
     for r in &rows {
@@ -191,41 +153,46 @@ pub async fn get(
 
 fn command(name: &'static str) -> ReceiptCommand {
     ReceiptCommand {
-        family: "F01",
+        family: FAMILY,
         command: name,
     }
 }
 
 /// `POST /admin/access-reviews`: the new campaign id.
 pub async fn start(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     name: &str,
     domain_scope: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("access_review_start"),
-        &envelope(&auth, operation, &format!("{name}:{domain_scope}")),
-        &auth,
-        deadline(),
-        "SELECT access_review_start($2,$4,$5) WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[(&name, Type::TEXT), (&domain_scope, Type::INT8)],
-        |rows| match rows {
-            [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
-            _ => Err(invalid()),
-        },
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!("{name}:{domain_scope}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::ACCESS_REVIEW_START,
+            &[&name, &domain_scope],
+            Some(command("access_review_start")),
+            |rows, _audited| match rows.as_slice() {
+                [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
+                _ => Err(invalid()),
+            },
+        )
+        .await
 }
 
 /// `PUT /admin/access-reviews/{id}/items/{itemId}`.
 #[allow(clippy::too_many_arguments)]
 pub async fn decide(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     campaign: i64,
     item: i64,
     decision: &str,
@@ -233,92 +200,94 @@ pub async fn decide(
     domain_scope: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("access_review_decide"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("{campaign}:{item}:{decision}:{note:?}:{domain_scope}"),
-        ),
-        &auth,
-        deadline(),
-        "SELECT count(*)::bigint FROM (SELECT access_review_decide($2,$4,$5,$6,$7,$8) \
-         WHERE $1::bigint >= 0 AND $3::text <> '') w",
-        &[
-            (&campaign, Type::INT8),
-            (&item, Type::INT8),
-            (&decision, Type::TEXT),
-            (&note, Type::TEXT),
-            (&domain_scope, Type::INT8),
-        ],
-        |rows| _count(rows).map(|_| ()),
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!("{campaign}:{item}:{decision}:{note:?}:{domain_scope}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::ACCESS_REVIEW_DECIDE,
+            &[&campaign, &item, &decision, &note, &domain_scope],
+            Some(command("access_review_decide")),
+            |rows, _audited| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
-/// `PUT /admin/access-reviews/{id}/items`: the reducer's `{applied, skipped}` JSON,
-/// written verbatim by Go (jsonb text, no trailing newline).
+/// `PUT /admin/access-reviews/{id}/items`: the reducer's `{applied, skipped}` JSON.
+#[allow(clippy::too_many_arguments)]
 pub async fn decide_bulk(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     campaign: i64,
     items: &Vec<i64>,
     decision: &str,
     domain_scope: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("access_review_decide_bulk"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("{campaign}:{items:?}:{decision}:{domain_scope}"),
-        ),
-        &auth,
-        deadline(),
-        "SELECT access_review_decide_bulk($2,$4,$5,$6,$7)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&campaign, Type::INT8),
-            (items, Type::INT8_ARRAY),
-            (&decision, Type::TEXT),
-            (&domain_scope, Type::INT8),
-        ],
-        |rows| match rows {
-            [row] => row.try_get::<_, String>(0).map_err(|_| invalid()),
-            _ => Err(invalid()),
-        },
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!("{campaign}:{items:?}:{decision}:{domain_scope}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::ACCESS_REVIEW_DECIDE_BULK,
+            &[&campaign, items, &decision, &domain_scope],
+            Some(command("access_review_decide_bulk")),
+            |rows, _audited| match rows.as_slice() {
+                [row] => row.try_get::<_, String>(0).map_err(|_| invalid()),
+                _ => Err(invalid()),
+            },
+        )
+        .await
 }
 
 /// `POST /admin/access-reviews/{id}/close`.
 pub async fn close(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     campaign: i64,
     ip: &str,
     domain_scope: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("access_review_close"),
-        &envelope(&auth, operation, &format!("{campaign}:{ip}:{domain_scope}")),
-        &auth,
-        deadline(),
-        "SELECT count(*)::bigint FROM (SELECT access_review_close($2,$4,$5::text::inet,$6) \
-         WHERE $1::bigint >= 0 AND $3::text <> '') w",
-        &[
-            (&campaign, Type::INT8),
-            (&ip, Type::TEXT),
-            (&domain_scope, Type::INT8),
-        ],
-        |rows| _count(rows).map(|_| ()),
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!("{campaign}:{ip}:{domain_scope}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::ACCESS_REVIEW_CLOSE,
+            &[&campaign, &ip, &domain_scope],
+            Some(command("access_review_close")),
+            |rows, _audited| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }

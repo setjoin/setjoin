@@ -501,21 +501,21 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
         }
         Some("reach-bypass") => {
             // A private admin_can_reach that always answers yes (neutralizes the reach rule).
-            owner.batch_execute(&format!("CREATE SCHEMA {schema};GRANT USAGE ON SCHEMA {schema} TO setjoin_app;CREATE FUNCTION {schema}.admin_can_reach(bigint,bigint) RETURNS boolean LANGUAGE sql AS 'SELECT true';GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA {schema} TO setjoin_app;")).await?;
+            owner.batch_execute(&format!("CREATE SCHEMA {schema};GRANT USAGE ON SCHEMA {schema} TO PUBLIC;CREATE FUNCTION {schema}.admin_can_reach(bigint,bigint) RETURNS boolean LANGUAGE sql AS 'SELECT true';GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA {schema} TO PUBLIC;")).await?;
             private = true;
         }
         _ => {}
     }
+    let mut worker_dsn = db.worker_dsn().to_owned();
     if private {
-        db.app = Some(format!(
-            "{}{}options=-csearch_path%3D{schema}%2Cpublic",
-            db.app.as_deref().unwrap_or(&db.dsn),
-            if db.app.as_deref().unwrap_or(&db.dsn).contains('?') {
-                "&"
-            } else {
-                "?"
-            }
-        ));
+        let extend = |dsn: &str| {
+            format!(
+                "{dsn}{}options=-csearch_path%3D{schema}%2Cpublic",
+                if dsn.contains('?') { "&" } else { "?" }
+            )
+        };
+        db.app = Some(extend(db.app.as_deref().unwrap_or(&db.dsn)));
+        worker_dsn = extend(&worker_dsn);
     }
     let users: Vec<(i64, &str)> = vec![
         (t.user, "<target>"),
@@ -542,8 +542,10 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
         let recording = go.is_some();
         let exec = loaded_host_exec(db.app.as_deref().unwrap_or(&db.dsn))?
             .with_audit_keys("22".repeat(32), String::new());
+        let worker = loaded_host_exec(&worker_dsn)?
+            .with_audit_keys("22".repeat(32), String::new());
         let adapter = Probe {
-            inner: AdminAccessReviewsRoute { exec, keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
+            inner: AdminAccessReviewsRoute { exec, worker: Some(worker), keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
             changed_status: mutant,
         };
         let mut inventory: Value = serde_json::from_str(include_str!("../../route-inventory.json"))?;

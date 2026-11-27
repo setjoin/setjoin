@@ -1,6 +1,6 @@
 //! The executable must resolve YAML without any Go upstream.
-use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
+use crate::common::boot::CommandBootExt;
 mod common;
 use common::BoxError;
 use hyper::{Request, Response};
@@ -12,6 +12,42 @@ use std::{
 };
 
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn grant_admin_role(
+    owner: &tokio_postgres::Client,
+    user_id: i64,
+    label: &str,
+    perms: &[&str],
+) -> Result<i64, BoxError> {
+    let name = format!("gwconfig-{label}-{user_id}");
+    let role_id: i64 = owner
+        .query_one(
+            "INSERT INTO admin_role_groups(name,permissions,sod_class) VALUES($1,$2,'system') RETURNING id",
+            &[&name, &perms],
+        )
+        .await?
+        .get(0);
+    owner
+        .execute(
+            "INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES($1,$2,$1)",
+            &[&user_id, &role_id],
+        )
+        .await?;
+    Ok(role_id)
+}
+
+async fn revoke_admin_role(owner: &tokio_postgres::Client, role_id: i64) -> Result<(), BoxError> {
+    owner
+        .execute(
+            "DELETE FROM admin_role_assignments WHERE role_group_id=$1",
+            &[&role_id],
+        )
+        .await?;
+    owner
+        .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role_id])
+        .await?;
+    Ok(())
+}
 
 struct Process {
     child: Child,
@@ -57,8 +93,8 @@ async fn start_configured(
         .env("GATEWAY_LISTEN", address.to_string())
         .env("GATEWAY_AUTH_UPSTREAM", "http://127.0.0.1:1")
         .env("SETJOIN_CONFIG", &file)
-        .env("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn))
-        .env("DB_WORKER_DSN", &db.dsn)
+        .env("DB_DSN", db.app_dsn())
+        .env("DB_WORKER_DSN", db.worker_dsn())
         .env("DB_DIRECT_DSN", &db.direct)
         .env("JWT_SECRET", "blobs1-test-jwt-secret-for-recording")
         .env("DB_ENCRYPTION_KEY", "22".repeat(32))
@@ -216,6 +252,7 @@ async fn f7_case(scim: bool) -> Result<(), BoxError> {
     let db = Db::for_case("gwconfig-f7").expect("required disposable database");
     let owner = db.connect().await?;
     let actor = setjoin_conformance::fixture::account(&owner, "gwconfig").await?;
+    let role = grant_admin_role(&owner, actor.user, "f7", &["users.read"]).await?;
     let domain: String = owner
         .query_one("SELECT name FROM domains WHERE id=$1", &[&actor.domain])
         .await?
@@ -265,7 +302,8 @@ async fn f7_case(scim: bool) -> Result<(), BoxError> {
         native = Some(process);
         address
     };
-    let token = common::recovery_token_with(actor.user, json!({"perms":["users.read"]}));
+    let token =
+        common::recovery_token_with(actor.user, json!({"admin":true,"perms":["users.read"]}));
     let mut observations = serde_json::Map::new();
     for (name, path, auth) in [
         ("scim-by-file", "/scim/v2/ServiceProviderConfig", None),
@@ -328,6 +366,7 @@ async fn f7_case(scim: bool) -> Result<(), BoxError> {
             )
             .await?;
     }
+    revoke_admin_role(&owner, role).await?;
     setjoin_conformance::fixture::remove(&owner, &actor).await?;
     result.map_err(Into::into)
 }
@@ -373,6 +412,7 @@ async fn reload_http_case(receipt: &str) -> Result<(), BoxError> {
     let db = Db::for_case("gwconfig-reload").expect("required disposable database");
     let owner = db.connect().await?;
     let actor = setjoin_conformance::fixture::account(&owner, "gwconfig-reload").await?;
+    let role = grant_admin_role(&owner, actor.user, "reload", &["system.config"]).await?;
     let saved = owner
         .query_opt(
             "SELECT value::text,encrypted,description FROM system_config WHERE key='trusted_proxy_ips'",
@@ -417,11 +457,12 @@ async fn reload_http_case(receipt: &str) -> Result<(), BoxError> {
         native = Some(process);
         (address, file)
     };
-    let allowed = common::recovery_token_with(actor.user, json!({"perms":["system.config"]}));
+    let allowed =
+        common::recovery_token_with(actor.user, json!({"admin":true,"perms":["system.config"]}));
     let denied = common::recovery_token(actor.user);
     let scoped = common::recovery_token_with(
         actor.user,
-        json!({"perms":["system.config"],"domain":actor.domain}),
+        json!({"admin":true,"perms":["system.config"],"domain":actor.domain}),
     );
     let mut observations = serde_json::Map::new();
     observations.insert(
@@ -524,6 +565,7 @@ async fn reload_http_case(receipt: &str) -> Result<(), BoxError> {
             .await?;
         owner.batch_execute("COMMIT").await?;
     }
+    revoke_admin_role(&owner, role).await?;
     setjoin_conformance::fixture::remove(&owner, &actor).await?;
     if result.is_ok() && !record {
         // The recorded case is one wire sequence; each test names the golden case it stands for.
@@ -608,6 +650,7 @@ async fn proxy_reload_input(signal: bool, case: &str, trust: &str) -> Result<(),
     let db = Db::for_case("gwconfig-proxy-refresh").expect("required disposable database");
     let owner = db.connect().await?;
     let actor = setjoin_conformance::fixture::account(&owner, "gwconfig-proxy").await?;
+    let role = grant_admin_role(&owner, actor.user, "proxy", &["system.config"]).await?;
     let saved = owner
         .query_opt(
             "SELECT value::text,encrypted,description FROM system_config WHERE key='trusted_proxy_ips'",
@@ -688,7 +731,8 @@ async fn proxy_reload_input(signal: bool, case: &str, trust: &str) -> Result<(),
         .await;
         common::body_bytes(response).await;
     }
-    let token = common::recovery_token_with(actor.user, json!({"perms":["system.config"]}));
+    let token =
+        common::recovery_token_with(actor.user, json!({"admin":true,"perms":["system.config"]}));
     let mut statuses = vec![];
     for _ in 0..3 {
         statuses.push(proxy_status(address, ips[1], None).await?);
@@ -746,6 +790,7 @@ async fn proxy_reload_input(signal: bool, case: &str, trust: &str) -> Result<(),
         .await?;
     let rows = serde_json::to_string(&counters)?;
     owner.execute("INSERT INTO rate_limit_counters SELECT * FROM jsonb_populate_recordset(NULL::rate_limit_counters,$1::text::jsonb)",&[&rows]).await?;
+    revoke_admin_role(&owner, role).await?;
     setjoin_conformance::fixture::remove(&owner, &actor).await?;
     result.map_err(Into::into)
 }
@@ -835,6 +880,7 @@ async fn reload_status_mutant_is_rejected() -> Result<(), BoxError> {
     let db = Db::for_case("gwconfig-status-mutant").expect("required disposable database");
     let owner = db.connect().await?;
     let actor = setjoin_conformance::fixture::account(&owner, "gwconfig-mutant").await?;
+    let role = grant_admin_role(&owner, actor.user, "mutant", &["system.config"]).await?;
     let environment = std::collections::BTreeMap::from([
         (
             "DB_DSN".into(),
@@ -855,7 +901,9 @@ async fn reload_status_mutant_is_rejected() -> Result<(), BoxError> {
         settings,
     )?);
     let exec = common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 2)?;
-    let token = common::recovery_token_with(actor.user, json!({"perms":["system.config"]}));
+    let worker = common::patient_exec(db.worker_dsn(), 2)?;
+    let token =
+        common::recovery_token_with(actor.user, json!({"admin":true,"perms":["system.config"]}));
     let golden: Value = serde_json::from_str(include_str!(
         "../../../tests/conformance/gateway-config/reload-success.json"
     ))?;
@@ -866,6 +914,7 @@ async fn reload_status_mutant_is_rejected() -> Result<(), BoxError> {
             Arc::new(common::recovery_keys()),
             "mailserver".into(),
         )
+        .with_worker(worker.clone())
         .with_configuration(runtime.clone());
         let routes = if changed {
             RouteTable::proxy_all().with(Changed(route))
@@ -899,6 +948,7 @@ async fn reload_status_mutant_is_rejected() -> Result<(), BoxError> {
             comparison?;
         }
     }
+    revoke_admin_role(&owner, role).await?;
     setjoin_conformance::fixture::remove(&owner, &actor).await?;
     println!("MUTANT-REJECTED: POST /admin/reload :: changed-status");
     Ok(())
@@ -951,6 +1001,7 @@ async fn legacy_jwt_configuration_serves_config_without_a_jwks_url() -> Result<(
     let db = Db::for_case("gwconfig-legacy-only").expect("required disposable database");
     let owner = db.connect().await?;
     let actor = setjoin_conformance::fixture::account(&owner, "gwconfig-legacy").await?;
+    let role = grant_admin_role(&owner, actor.user, "legacy", &["system.config"]).await?;
     let (process, address) = start_configured(
         &db,
         "network:\n  mode: airgap\n",
@@ -963,7 +1014,7 @@ async fn legacy_jwt_configuration_serves_config_without_a_jwks_url() -> Result<(
         common::body_bytes(public).await;
         if status != 200 { return Err::<(), BoxError>(format!("Go's optional JWKS setting prevented public config: {status}").into()); }
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
-        let claims = json!({"uid":actor.user,"email":"x@test","typ":"access","jti":"gwconfig-legacy","fam":"gwconfig-legacy","iss":"mailserver","aud":["mailserver-gateway"],"iat":now-10,"exp":now+600,"perms":["system.config"]});
+        let claims = json!({"uid":actor.user,"email":"x@test","typ":"access","jti":"gwconfig-legacy","fam":"gwconfig-legacy","iss":"mailserver","aud":["mailserver-gateway"],"iat":now-10,"exp":now+600,"admin":true,"perms":["system.config"]});
         let token = setjoin_authz::legacy_jwt::sign_hs256(b"blobs1-test-jwt-secret-for-recording", &claims.to_string());
         let response = reload_request(address, "POST", "/api/admin/reload", &token).await?;
         let go: Value = serde_json::from_str(include_str!("../../../tests/conformance/gateway-config/reload-success.json"))?;
@@ -971,6 +1022,7 @@ async fn legacy_jwt_configuration_serves_config_without_a_jwks_url() -> Result<(
         no_go(address).await
     }.await;
     drop(process);
+    revoke_admin_role(&owner, role).await?;
     setjoin_conformance::fixture::remove(&owner, &actor).await?;
     result
 }

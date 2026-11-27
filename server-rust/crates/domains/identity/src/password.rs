@@ -2,7 +2,7 @@
 use crate::session::Session;
 use serde_json::{json, Value};
 use setjoin_config_secret::CryptoProfile;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, Type};
+use setjoin_pg::{AuthDb, CommandOutcome, Type};
 use sha2::{Digest, Sha256};
 
 pub(crate) const COMMON_PASSWORD_ERROR: &str =
@@ -28,10 +28,10 @@ pub enum Failure {
 fn reply(status: u16, detail: impl Into<String>) -> Failure {
     Failure::Reply(status, detail.into())
 }
-async fn check_policy(exec: &ScopedExecutor, new: &str, admin: bool) -> Result<(), Failure> {
+async fn check_policy(exec: &AuthDb, new: &str, admin: bool) -> Result<(), Failure> {
     let rows = exec
-        .read(
-            "SELECT validate_password($1,$2)::text",
+        .read_contract(
+            &crate::sql::PASSWORD_L34,
             &[(&new, Type::TEXT), (&admin, Type::BOOL)],
         )
         .await
@@ -47,8 +47,9 @@ async fn check_policy(exec: &ScopedExecutor, new: &str, admin: bool) -> Result<(
         Err(reply(400, value["error"].as_str().unwrap_or("")))
     }
 }
+#[allow(clippy::too_many_arguments)]
 async fn write(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     proof: &Session,
     email: &str,
     old_hash: &str,
@@ -62,10 +63,10 @@ async fn write(
         .map_err(|_| reply(500, "internal error"))?;
     let history = history.to_string();
     match exec
-        .run_user_command(
+        .run_user_command_contract(
             actor,
             operation,
-            "SELECT rust_identity_password_write($1,$2,$3,$4::text::jsonb,$5,$6,$7)::text",
+            &crate::sql::PASSWORD_L68,
             &[
                 (&proof.user(), Type::INT8),
                 (&email, Type::TEXT),
@@ -76,14 +77,14 @@ async fn write(
                 (&reset, Type::BOOL),
             ],
             |rows| {
-                let raw: String = rows
-                    .first()
-                    .and_then(|r| r.try_get(0).ok())
-                    .ok_or_else(|| setjoin_pg::StatementFailure {
-                        sqlstate: None,
-                        hint: None,
-                        message: "password result row".into(),
-                    })?;
+                let raw: String =
+                    rows.first()
+                        .and_then(|r| r.try_get(0).ok())
+                        .ok_or_else(|| setjoin_pg::StatementFailure {
+                            sqlstate: None,
+                            hint: None,
+                            message: "password result row".into(),
+                        })?;
                 serde_json::from_str::<Value>(&raw).map_err(|_| setjoin_pg::StatementFailure {
                     sqlstate: None,
                     hint: None,
@@ -99,7 +100,7 @@ async fn write(
     }
 }
 pub async fn change(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     proof: &Session,
     old: &str,
     new: &str,
@@ -119,14 +120,13 @@ pub async fn change(
             .unwrap_or(false),
     )
     .await?;
+    let actor = setjoin_contracts::ids::ActorId::new(proof.user())
+        .map_err(|_| reply(403, "invalid current password"))?;
     let hash = common_password_digest(new);
     // #454: a query error, an unreadable or a missing flag fails closed as an internal
     // fault, never as "not common" (frozen Go proceeds on a failed lookup).
     let common = match exec
-        .read(
-            "SELECT EXISTS(SELECT 1 FROM common_passwords WHERE password_hash=$1)",
-            &[(&hash, Type::BYTEA)],
-        )
+        .read_user_scoped_contract(actor, &crate::sql::PASSWORD_L127, &[(&hash, Type::BYTEA)])
         .await
     {
         Ok(rows) => match rows.first().map(|r| r.try_get::<_, bool>(0)) {
@@ -154,7 +154,7 @@ pub async fn change(
     let email = canonical.as_str();
     // A query error, a missing row or an unreadable depth is the 500 internal fault; the
     // SQL already COALESCEs an absent setting to 5, so a decode error never falls back to 5.
-    let depth = match exec.read("SELECT COALESCE((SELECT (value->>0)::INT FROM system_config WHERE key='password_history_depth'),5)",&[]).await {
+    let depth = match exec.read_contract(&crate::sql::PASSWORD_L157, &[]).await {
         Ok(rows) => match rows.first().map(|r| r.try_get::<_, i32>(0)) {
             Some(Ok(n)) => n,
             _ => return Err(reply(500, "internal error")),
@@ -164,29 +164,30 @@ pub async fn change(
     let depth = if depth > 0 { depth } else { 5 };
     for _ in 0..4 {
         if exec
-            .read(
-                "SELECT identity_auth_local_mint_fence($1)",
-                &[(&proof.user(), Type::INT8)],
-            )
+            .protocol_query_contract(&crate::sql::PASSWORD_L168, &[(&proof.user(), Type::INT8)])
             .await
             .is_err()
         {
             return Err(reply(503, "credential update fence unavailable"));
         }
         let by_email = setjoin_contracts::mutants::on("password-keyed-on-email");
-        let rows = exec
-            .read(
-                // Owner-approved security fix 2026-11-05 (#490): the credential row
-                // is the signed uid's, never whichever row the signed email names.
-                if by_email {
-                    "SELECT password_hash FROM users WHERE email=$2 AND $1>0"
-                } else {
-                    "SELECT password_hash FROM users WHERE id=$1 AND $2::text IS NOT NULL"
-                },
+        // Owner-approved security fix 2026-11-05 (#490): the credential row
+        // is the signed uid's, never whichever row the signed email names.
+        let rows = if by_email {
+            exec.read_contract(
+                &crate::sql::PASSWORD_L182,
                 &[(&proof.user(), Type::INT8), (&email, Type::TEXT)],
             )
             .await
-            .map_err(|_| reply(403, "invalid current password"))?;
+        } else {
+            exec.read_user_scoped_contract(
+                actor,
+                &crate::sql::PASSWORD_L184,
+                &[(&proof.user(), Type::INT8), (&email, Type::TEXT)],
+            )
+            .await
+        }
+        .map_err(|_| reply(403, "invalid current password"))?;
         let stored: String = rows
             .first()
             .ok_or_else(|| reply(403, "invalid current password"))?
@@ -202,7 +203,18 @@ pub async fn change(
         {
             return Err(reply(403, "invalid current password"));
         }
-        let hashes:Vec<String>=exec.read("SELECT password_hash FROM password_history WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2",&[(&proof.user(),Type::INT8),(&depth,Type::INT4)]).await.map_err(|_|reply(500,"token revocation failed"))?.iter().map(|r|r.try_get(0)).collect::<Result<Vec<String>,_>>().map_err(|_|reply(500,"token revocation failed"))?;
+        let hashes: Vec<String> = exec
+            .read_user_scoped_contract(
+                actor,
+                &crate::sql::PASSWORD_L205,
+                &[(&proof.user(), Type::INT8), (&depth, Type::INT4)],
+            )
+            .await
+            .map_err(|_| reply(500, "token revocation failed"))?
+            .iter()
+            .map(|r| r.try_get(0))
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|_| reply(500, "token revocation failed"))?;
         let history = json!(hashes);
         let candidate = new.to_owned();
         let (reused, new_hash) = tokio::task::spawn_blocking(move || {
@@ -216,7 +228,7 @@ pub async fn change(
         }
         let new_hash = new_hash.map_err(|_| reply(500, "internal error"))?;
         match write(
-            exec, proof, &email, &stored, &history, &new_hash, depth, false, operation,
+            exec, proof, email, &stored, &history, &new_hash, depth, false, operation,
         )
         .await?
         .as_str()
@@ -233,7 +245,7 @@ pub async fn change(
 }
 
 pub async fn reset(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     proof: &Session,
     new: &str,
     profile: CryptoProfile,
@@ -248,10 +260,27 @@ pub async fn reset(
         .collect::<String>();
     // Frozen Go consumes the token BEFORE policy/user/fence checks. This is
     // intentionally a separate committed statement, including failed resets.
-    match exec.run_user_command(actor,operation,"INSERT INTO used_password_reset_tokens(token_hash) VALUES($1) ON CONFLICT DO NOTHING RETURNING true",&[(&hash,Type::TEXT)],|rows|Ok(!rows.is_empty())).await {
-        CommandOutcome::Committed(true)=>{},CommandOutcome::Committed(false)=>return Err(reply(401,"invalid or expired reset token")),CommandOutcome::Unknown{operation}=>return Err(Failure::Unknown(operation)),_=>return Err(reply(500,"internal error")),
+    match exec
+        .run_user_command_contract(
+            actor,
+            operation,
+            &crate::sql::PASSWORD_L251,
+            &[(&hash, Type::TEXT)],
+            |rows| Ok(!rows.is_empty()),
+        )
+        .await
+    {
+        CommandOutcome::Committed(true) => {}
+        CommandOutcome::Committed(false) => {
+            return Err(reply(401, "invalid or expired reset token"))
+        }
+        CommandOutcome::Unknown { operation } => return Err(Failure::Unknown(operation)),
+        _ => return Err(reply(500, "internal error")),
     }
-    let rows=exec.read("SELECT EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=users.id AND (ara.expires_at IS NULL OR ara.expires_at>now())) FROM users WHERE id=$1",&[(&proof.user(),Type::INT8)]).await.map_err(|_|reply(401,"user not found"))?;
+    let rows = exec
+        .read_contract(&crate::sql::PASSWORD_L254, &[(&proof.user(), Type::INT8)])
+        .await
+        .map_err(|_| reply(401, "user not found"))?;
     let admin = rows
         .first()
         .ok_or_else(|| reply(401, "user not found"))?
@@ -260,10 +289,7 @@ pub async fn reset(
     check_policy(exec, new, admin).await?;
     // Preserve Go's fence error priority before hashing, then recheck in SQL.
     if exec
-        .read(
-            "SELECT identity_auth_local_mint_fence($1)",
-            &[(&proof.user(), Type::INT8)],
-        )
+        .protocol_query_contract(&crate::sql::PASSWORD_L168, &[(&proof.user(), Type::INT8)])
         .await
         .is_err()
     {

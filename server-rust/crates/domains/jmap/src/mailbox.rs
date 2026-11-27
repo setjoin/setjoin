@@ -1,5 +1,8 @@
 //! Mailbox and thread reads use frozen Go's reducers in authenticated read-only scope.
-use setjoin_pg::{MailboxAuthContext, Param, ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{ReadCapability, TxFactory};
+use setjoin_pg::StatementFailure;
+
+use crate::sql;
 
 pub enum Read {
     ThreadGet(Option<Vec<String>>),
@@ -25,6 +28,7 @@ pub enum Read {
         since: String,
     },
 }
+
 impl Read {
     pub fn since_state(&self) -> Option<&str> {
         match self {
@@ -37,31 +41,35 @@ impl Read {
 }
 
 pub async fn read(
-    exec: &ScopedExecutor,
-    auth: &MailboxAuthContext,
+    tx_factory: &TxFactory,
+    read: &ReadCapability,
     request: &Read,
 ) -> Result<String, StatementFailure> {
-    let mailbox = auth.mailbox().get();
-    let mut params: Vec<Param<'_>> = vec![(&mailbox, Type::INT8)];
-    let sql = match request {
+    let mailbox = read.mailbox().get();
+    let rows = match request {
         Read::ThreadGet(ids) => {
-            params.push((ids, Type::TEXT_ARRAY));
-            "SELECT jmap_thread_get($1,$2)::text"
+            tx_factory
+                .run_mailbox_read_contract(read, &sql::MAILBOX_THREAD_GET, &[&mailbox, ids])
+                .await?
         }
         Read::ThreadChanges(since) => {
-            params.push((since, Type::TEXT));
-            "SELECT jmap_thread_changes($1,$2)::text"
+            tx_factory
+                .run_mailbox_read_contract(read, &sql::MAILBOX_THREAD_CHANGES, &[&mailbox, since])
+                .await?
         }
         Read::SearchSnippet { filter, ids } => {
-            params.extend([(filter as _, Type::TEXT), (ids as _, Type::INT8_ARRAY)]);
-            "SELECT jmap_search_snippet_get($1,$2::text::jsonb,$3)::text"
+            tx_factory
+                .run_mailbox_read_contract(
+                    read,
+                    &sql::MAILBOX_SEARCH_SNIPPET,
+                    &[&mailbox, filter, ids],
+                )
+                .await?
         }
         Read::Get { ids, properties } => {
-            params.extend([
-                (ids as _, Type::INT8_ARRAY),
-                (properties as _, Type::TEXT_ARRAY),
-            ]);
-            "SELECT jmap_mailbox_get($1,$2,$3)::text"
+            tx_factory
+                .run_mailbox_read_contract(read, &sql::MAILBOX_GET, &[&mailbox, ids, properties])
+                .await?
         }
         Read::Query {
             filter,
@@ -69,32 +77,33 @@ pub async fn read(
             position,
             limit,
         } => {
-            params.extend([
-                (filter as _, Type::TEXT),
-                (sort as _, Type::TEXT),
-                (position as _, Type::INT4),
-                (limit as _, Type::INT4),
-            ]);
-            "SELECT jmap_mailbox_query($1,$2::text::jsonb,$3::text::jsonb,$4,$5)::text"
+            tx_factory
+                .run_mailbox_read_contract(
+                    read,
+                    &sql::MAILBOX_QUERY,
+                    &[&mailbox, filter, sort, position, limit],
+                )
+                .await?
         }
         Read::Changes(since) => {
-            params.push((since, Type::TEXT));
-            "SELECT jmap_mailbox_changes($1,$2)::text"
+            tx_factory
+                .run_mailbox_read_contract(read, &sql::MAILBOX_CHANGES, &[&mailbox, since])
+                .await?
         }
         Read::QueryChanges {
             filter,
             sort,
             since,
         } => {
-            params.extend([
-                (filter as _, Type::TEXT),
-                (sort as _, Type::TEXT),
-                (since as _, Type::TEXT),
-            ]);
-            "SELECT jmap_mailbox_query_changes($1,$2::text::jsonb,$3::text::jsonb,$4)::text"
+            tx_factory
+                .run_mailbox_read_contract(
+                    read,
+                    &sql::MAILBOX_QUERY_CHANGES,
+                    &[&mailbox, filter, sort, since],
+                )
+                .await?
         }
     };
-    let rows = exec.read_scoped(auth, sql, &params).await?;
     rows.first()
         .and_then(|r| r.try_get(0).ok())
         .ok_or_else(|| StatementFailure {

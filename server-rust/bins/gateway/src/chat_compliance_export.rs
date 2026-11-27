@@ -3,9 +3,234 @@ use crate::{Body, RequestContext};
 use async_zip::{base::write::ZipFileWriter, Compression, ZipEntryBuilder};
 use futures_lite::io::AsyncWriteExt;
 use serde::Serialize;
-use setjoin_compliance::chat_export::{Begin, Snapshot};
-use setjoin_pg::workers::WorkerDatabase;
+use serde_json::value::RawValue;
+use setjoin_compliance::chat_export::{
+    Begin, ChainHead, Channel, Epoch, Federation, Interval, ManifestChannel, Member, Room,
+};
+use setjoin_pg::{
+    workers::{WorkerConnection, WorkerDatabase, WorkerRows},
+    Type,
+};
 use sha2::{Digest, Sha256};
+
+/// Explicitly authorized, organization-wide worker snapshot for chat eDiscovery export.
+struct Snapshot {
+    connection: WorkerConnection,
+    case_name: String,
+}
+
+impl Snapshot {
+    async fn open(database: &WorkerDatabase, case: i64) -> Result<Self, String> {
+        let connection = database.connect().await.map_err(|e| e.to_string())?;
+        connection
+            .batch("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await?;
+        let rows = connection
+            .query(
+                "SELECT name FROM ediscovery_cases WHERE id=$1",
+                &[(&case, Type::INT8)],
+            )
+            .await?;
+        let name = rows
+            .first()
+            .ok_or("case disappeared")?
+            .try_get(0)
+            .map_err(|e| e.to_string())?;
+        Ok(Self {
+            connection,
+            case_name: name,
+        })
+    }
+
+    async fn messages(&self, channel: i64) -> Result<WorkerRows, String> {
+        self.connection
+            .rows(
+                "SELECT chat_ediscovery_message_json(m.id)::text FROM chat_messages m WHERE m.channel_id=$1 ORDER BY m.id",
+                &[(&channel, Type::INT8)],
+            )
+            .await
+    }
+
+    async fn scheduled(&self, channel: i64) -> Result<WorkerRows, String> {
+        self.connection
+            .rows(
+                "SELECT sa.id::text,(sa.payload->>'userId')::bigint,sa.status,rtrim(rtrim(to_char(sa.fire_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US'),'0'),'.')||'Z',sa.payload->>'body' FROM scheduled_actions sa WHERE sa.action_kind='chat_send' AND sa.status IN ('pending','failed') AND (sa.payload->>'channelId')::bigint=$1 ORDER BY sa.id",
+                &[(&channel, Type::INT8)],
+            )
+            .await
+    }
+
+    async fn manifest_channel(
+        &self,
+        ch: &Channel,
+        messages: usize,
+        scheduled: usize,
+    ) -> Result<ManifestChannel, String> {
+        let r = self
+            .connection
+            .query(
+                "SELECT (SELECT count(*) FROM chat_message_revisions rv JOIN chat_messages m ON m.id=rv.message_id WHERE m.channel_id=$1),(SELECT count(*) FROM chat_message_attachments a JOIN chat_messages m ON m.id=a.message_id WHERE m.channel_id=$1),last_purged_seq FROM chat_channels WHERE id=$1",
+                &[(&ch.channel_id, Type::INT8)],
+            )
+            .await?;
+        let r = r.first().ok_or("channel disappeared")?;
+        let head = self
+            .connection
+            .query(
+                "SELECT a.id,a.after_state->>'_checksum' FROM chat_audit_log a WHERE a.channel_id=$1 ORDER BY a.id DESC LIMIT 1",
+                &[(&ch.channel_id, Type::INT8)],
+            )
+            .await?;
+        let head = head.first().ok_or("missing export chain")?;
+        let acts = self
+            .connection
+            .query(
+                "SELECT COALESCE(jsonb_agg(jsonb_build_object('actId',pa.id,'idFrom',(pa.after_state->>'idFrom')::bigint,'idTo',(pa.after_state->>'idTo')::bigint,'purgedCount',(pa.after_state->>'purgedCount')::int) ORDER BY pa.id),'[]'::jsonb)::text FROM chat_audit_log pa WHERE pa.channel_id=$1 AND pa.action='purge.execute'",
+                &[(&ch.channel_id, Type::INT8)],
+            )
+            .await?;
+        let acts_raw: String = acts
+            .first()
+            .ok_or("missing purge acts")?
+            .try_get(0)
+            .map_err(|e| e.to_string())?;
+        Ok(ManifestChannel {
+            channel_id: ch.channel_id,
+            message_count: messages,
+            revision_count: r.try_get(0).map_err(|e| e.to_string())?,
+            scheduled_count: scheduled,
+            attachment_count: r.try_get(1).map_err(|e| e.to_string())?,
+            chain_head: ChainHead {
+                id: head.try_get(0).map_err(|e| e.to_string())?,
+                checksum: head.try_get(1).map_err(|e| e.to_string())?,
+            },
+            last_purged_seq: r.try_get(2).map_err(|e| e.to_string())?,
+            purge_acts: RawValue::from_string(acts_raw).map_err(|e| e.to_string())?,
+            export_act_id: ch.export_act_id,
+        })
+    }
+
+    async fn federation(
+        &self,
+        channel: i64,
+        parse: fn(&str) -> Result<String, String>,
+    ) -> Result<Federation, String> {
+        let binding = self
+            .connection
+            .query(
+                "SELECT federated_room_id,federated_peer_domain FROM chat_channels WHERE id=$1",
+                &[(&channel, Type::INT8)],
+            )
+            .await?;
+        let binding = binding.first().ok_or("channel disappeared")?;
+        let peer: Option<String> = binding.try_get(1).map_err(|e| e.to_string())?;
+        let Some(room) = binding
+            .try_get::<_, Option<String>>(0)
+            .map_err(|e| e.to_string())?
+        else {
+            return Ok(Federation {
+                room: None,
+                dm: peer.is_some(),
+            });
+        };
+        let hub = self
+            .connection
+            .query(
+                "SELECT hub_domain FROM federation_rooms WHERE room_id=$1",
+                &[(&room, Type::TEXT)],
+            )
+            .await?;
+        let hub: String = hub
+            .first()
+            .ok_or("room disappeared")?
+            .try_get(0)
+            .map_err(|e| e.to_string())?;
+        let rows = self
+            .connection
+            .query(
+                "SELECT member_domain,rtrim(rtrim(to_char(invited_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US'),'0'),'.')||'Z',rtrim(rtrim(to_char(left_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US'),'0'),'.')||'Z',left_reason,coverage_epochs::text FROM federation_room_members WHERE room_id=$1 ORDER BY member_domain",
+                &[(&room, Type::TEXT)],
+            )
+            .await?;
+        let mut members = Vec::new();
+        for row in rows {
+            let raw: String = row.try_get(4).map_err(|e| e.to_string())?;
+            let epochs = serde_json::from_str::<Option<Vec<Option<Epoch>>>>(&raw)
+                .map_err(|e| e.to_string())?
+                .unwrap_or_default();
+            let mut gaps = Vec::new();
+            for epoch in epochs {
+                let epoch = epoch.unwrap_or_default();
+                gaps.push(Interval {
+                    from: epoch
+                        .parked_at
+                        .as_deref()
+                        .map(parse)
+                        .transpose()?
+                        .unwrap_or_else(|| "0001-01-01T00:00:00Z".into()),
+                    to: epoch.resumed_at.as_deref().map(parse).transpose()?,
+                    reason: epoch.reason.unwrap_or_default(),
+                });
+            }
+            members.push(Member {
+                domain: row.try_get(0).map_err(|e| e.to_string())?,
+                joined_at: row.try_get(1).map_err(|e| e.to_string())?,
+                removed_at: row.try_get(2).map_err(|e| e.to_string())?,
+                removed_reason: row
+                    .try_get::<_, Option<String>>(3)
+                    .map_err(|e| e.to_string())?
+                    .unwrap_or_default(),
+                known_missing_intervals: gaps,
+            });
+        }
+        Ok(Federation {
+            room: Some(Room {
+                channel_id: channel,
+                room_id: room,
+                hub_domain: hub,
+                is_hub: peer.is_none(),
+                members: (!members.is_empty()).then_some(members),
+            }),
+            dm: false,
+        })
+    }
+
+    async fn attachments(&self, channels: &[Channel]) -> Result<Vec<(String, i64)>, String> {
+        let ids: Vec<i64> = channels.iter().map(|ch| ch.channel_id).collect();
+        let rows = self
+            .connection
+            .query(
+                "SELECT DISTINCT ON(v.content_sha256) v.content_sha256,v.id FROM chat_message_attachments a JOIN chat_messages m ON m.id=a.message_id JOIN drive_file_versions v ON v.id=a.version_id WHERE m.channel_id=ANY($1) ORDER BY v.content_sha256,v.id",
+                &[(&ids, Type::INT8_ARRAY)],
+            )
+            .await?;
+        rows.iter()
+            .map(|r| {
+                Ok((
+                    r.try_get(0).map_err(|e| e.to_string())?,
+                    r.try_get(1).map_err(|e| e.to_string())?,
+                ))
+            })
+            .collect()
+    }
+
+    async fn chunks(&self, version: i64) -> Result<Vec<String>, String> {
+        let rows = self
+            .connection
+            .query(
+                "SELECT c.storage_ref FROM drive_version_chunks vc JOIN drive_chunks c ON c.scope_key=vc.scope_key AND c.sha256=vc.chunk_sha256 WHERE vc.version_id=$1 AND vc.stream='content' ORDER BY vc.ordinal",
+                &[(&version, Type::INT8)],
+            )
+            .await?;
+        rows.iter()
+            .map(|r| r.try_get(0).map_err(|e| e.to_string()))
+            .collect()
+    }
+
+    async fn close(self) -> Result<(), String> {
+        self.connection.batch("ROLLBACK").await
+    }
+}
 const DISCLAIMERS:[&str;3]=[
 "Chain heads pin the per-channel audit-chain state at export time; verify with the chain verifier and retain off-box.",
 "This record begins above the recorded purge floors. lastPurgedSeq is provenance only, never a replayable cursor (seq is re-stamped on edit).",

@@ -88,6 +88,8 @@ CREATE OR REPLACE FUNCTION directory_visible_users(
   addresses     JSONB,
   address_blob  TEXT
 ) AS $$
+BEGIN
+  RETURN QUERY
   SELECT
     u.id, u.email, u.display_name, u.first_name, u.last_name,
     u.phone, u.job_title, u.department_id, d.name AS dept_name, u.avatar_sha256,
@@ -118,8 +120,12 @@ CREATE OR REPLACE FUNCTION directory_visible_users(
                     WHERE pm.user_id = u.id AND pm.is_primary AND pm.hidden_from_gal)
     -- org-wide: NO domain filter (ADR-004). Caller-existence keeps an unknown
     -- mailbox from listing the org (fail-safe), without re-introducing scope.
-    AND EXISTS (SELECT 1 FROM mailboxes cm WHERE cm.id = p_mailbox_id);
-$$ LANGUAGE sql STABLE;
+    AND EXISTS (SELECT 1 FROM public.mailboxes cm WHERE cm.id = p_mailbox_id)
+    AND (public.rls_caller_is_privileged() OR public.rls_mailbox_in_scope(p_mailbox_id));
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.directory_visible_users(bigint)'::regprocedure);
 
 CREATE OR REPLACE FUNCTION directory_tree(
   p_mailbox_id BIGINT

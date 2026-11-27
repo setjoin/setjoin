@@ -6,7 +6,7 @@ use hyper::{Method, Request, Response};
 use setjoin_authz::token::KeySource;
 use setjoin_pg::ScopedExecutor;
 
-use crate::{Body, BoxFuture, Intercept, RequestContext, recovery_worker::S3Store};
+use crate::{recovery_worker::S3Store, Body, BoxFuture, Intercept, RequestContext};
 
 pub struct BlobCommands<K: KeySource> {
     pub exec: ScopedExecutor,
@@ -74,7 +74,27 @@ impl<K: KeySource> BlobCommands<K> {
         let Ok(hash) = String::from_utf8(crate::inventory::unescape(raw)) else {
             return text(&req, &ctx, 500, "internal error\n");
         };
-        match setjoin_blobs::blob_owned(&self.worker_exec, authorized.context(), &hash).await {
+        let user_id = authorized.context().user_id();
+        let owned = match self.worker_exec.try_worker_pool() {
+            Some(wp) => match wp.begin_repeatable_read_only().await {
+                Ok(mut tx) => {
+                    let params: &[&(dyn setjoin_pg::ToSql + Sync)] = &[&hash, &user_id];
+                    let res = tx
+                        .query_contract(&setjoin_blobs::sql::BLOB_OWNED, params)
+                        .await
+                        .and_then(|rows| setjoin_blobs::decode_blob_owned(&rows));
+                    let _ = tx.rollback().await;
+                    res
+                }
+                Err(e) => Err(e),
+            },
+            None => Err(setjoin_pg::StatementFailure {
+                hint: None,
+                sqlstate: None,
+                message: "worker pool unavailable".into(),
+            }),
+        };
+        match owned {
             Ok(true) => {}
             Ok(false) => return text(&req, &ctx, 404, "blob not found\n"),
             // handler.go:541-544: the ownership read failed.
@@ -283,9 +303,23 @@ impl<K: KeySource> BlobCommands<K> {
             let _ = self.store.remove(&temp_key).await;
             return reply(400, "sha256 mismatch\n");
         }
-        match setjoin_blobs::account_upload(
+        let Some(factory) = crate::policy_composition::tx_factory_from_executors(
             &self.exec,
-            actor.context(),
+            Some(&self.worker_exec),
+        ) else {
+            let _ = self.store.remove(&temp_key).await;
+            return reply(500, "upload failed\n");
+        };
+        let Ok(user) = factory
+            .mint_user_from_authorized(&actor, &ctx.identity.client_ip.to_string())
+            .await
+        else {
+            let _ = self.store.remove(&temp_key).await;
+            return reply(500, "upload failed\n");
+        };
+        match setjoin_blobs::account_upload(
+            &factory,
+            &user,
             &hash,
             &self.store.blob_reference(&hash),
             size,

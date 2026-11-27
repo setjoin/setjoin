@@ -611,6 +611,101 @@ fn warn_page(url: &str, token: &str) -> String {
         .replace("{TOKEN}", token)
 }
 
+/// Read `feature.link_protect_strict_mode` on `WorkerPool` via `DLP_STRICT_MODE`.
+async fn worker_strict_mode(worker: &ScopedExecutor) -> Result<bool, setjoin_pg::StatementFailure> {
+    let invalid = || setjoin_pg::StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: "invalid link protect toggle result".into(),
+    };
+    let pool = worker.try_worker_pool().ok_or_else(invalid)?;
+    let mut tx = pool.begin_repeatable_read_only().await?;
+    let rows = tx
+        .query_contract(&setjoin_mail_security::sql::DLP_STRICT_MODE, &[])
+        .await?;
+    tx.commit().await?;
+    rows.first()
+        .and_then(|r| r.try_get::<_, bool>(0).ok())
+        .ok_or_else(invalid)
+}
+
+/// Execute `link_protect_check_and_audit` via `WorkerPool` (`SqlScope::WorkerBypass`)
+/// with a durable `rust_operation_receipts` row. Preserves D-357e-1 fail-closed
+/// rejection when the signed token's `mailbox <= 0`.
+#[allow(clippy::too_many_arguments)]
+async fn worker_click_audit(
+    worker: &ScopedExecutor,
+    mailbox: i64,
+    url: &str,
+    rfc_message_id: &str,
+    base: &str,
+    scanners: &str,
+    all_errors: bool,
+    strict: bool,
+    ip: &str,
+    operation: [u8; 16],
+) -> setjoin_mail_security::dlp::Click {
+    use setjoin_mail_security::dlp::{parse_click_verdict, Click};
+    if mailbox <= 0 {
+        return Click::Unscoped;
+    }
+    let Some(pool) = worker.try_worker_pool() else {
+        return Click::Failed;
+    };
+    let Ok(mut tx) = pool.begin_read_write().await else {
+        return Click::Failed;
+    };
+    let op_hex = setjoin_pg::operation_hex(setjoin_contracts::ids::OperationId(operation));
+    let body: Result<String, setjoin_pg::StatementFailure> = async {
+        let rows = tx
+            .query_contract(
+                &setjoin_mail_security::sql::DLP_CLICK_AUDIT,
+                &[
+                    &url,
+                    &rfc_message_id,
+                    &mailbox,
+                    &base,
+                    &scanners,
+                    &all_errors,
+                    &strict,
+                    &ip,
+                ],
+            )
+            .await?;
+        let text: String = rows
+            .first()
+            .and_then(|r| r.try_get(0).ok())
+            .ok_or_else(|| setjoin_pg::StatementFailure {
+                sqlstate: None,
+                hint: None,
+                message: "invalid link protect verdict".into(),
+            })?;
+        let verdict = parse_click_verdict(&text)?;
+        tx.execute(
+            "INSERT INTO public.rust_operation_receipts(operation_id, family, command) \
+             VALUES ($1::text::uuid, $2, $3)",
+            &[
+                (&op_hex, setjoin_pg::Type::TEXT),
+                (&setjoin_mail_security::FAMILY, setjoin_pg::Type::TEXT),
+                (&"link_protect.click", setjoin_pg::Type::TEXT),
+            ],
+        )
+        .await?;
+        Ok(verdict)
+    }
+    .await;
+    match body {
+        Ok(verdict) => match tx.commit().await {
+            Ok(()) => Click::Verdict(verdict),
+            Err(_) => Click::Failed,
+        },
+        Err(_) => {
+            let _ = tx.rollback().await;
+            Click::Failed
+        }
+    }
+}
+
 impl Intercept for LinkProtectRoute {
     fn matches(&self, r: &Request<Body>) -> bool {
         matches!(*r.method(), Method::GET | Method::HEAD) && r.uri().path() == "/link-protect"
@@ -640,7 +735,7 @@ impl Intercept for LinkProtectRoute {
             };
             // Go reads the toggle from memory. An unreadable toggle cannot be audited either:
             // fail closed as Go does when its audit fails, the warn page, never a redirect (#357).
-            let Ok(strict) = setjoin_mail_security::dlp::strict_mode(&worker).await else {
+            let Ok(strict) = worker_strict_mode(&worker).await else {
                 return page(warn_page(&claims.url, &token), head, &c, &id);
             };
             let (base, results, all_errors) = scan(&scanners, &claims.url).await;
@@ -653,7 +748,7 @@ impl Intercept for LinkProtectRoute {
                     .join(",")
             );
             let ip = c.identity.client_ip.to_string();
-            let decided = setjoin_mail_security::dlp::click_audit(
+            let decided = worker_click_audit(
                 &worker,
                 claims.mailbox,
                 &claims.url,
@@ -712,9 +807,12 @@ mod tests {
     #[tokio::test]
     async fn an_unreadable_strict_mode_toggle_answers_the_warn_page_without_go() {
         use http_body_util::{BodyExt, Full};
-        let worker = ScopedExecutor::from_dsn("host=127.0.0.1 port=1 user=none dbname=none connect_timeout=1", 1)
-            .map_err(|e| e.0)
-            .unwrap();
+        let worker = ScopedExecutor::from_dsn(
+            "host=127.0.0.1 port=1 user=none dbname=none connect_timeout=1",
+            1,
+        )
+        .map_err(|e| e.0)
+        .unwrap();
         let secret = b"strict-mode-fault-secret-0123456789";
         let route = LinkProtectRoute {
             worker,
@@ -727,10 +825,17 @@ mod tests {
         };
         let token = sign("https://ok.example/", secret, 1, 4_102_444_800).replace('=', "%3D");
         let request = Request::get(format!("/link-protect?token={token}"))
-            .body(Full::new(bytes::Bytes::new()).map_err(|n| match n {}).boxed())
+            .body(
+                Full::new(bytes::Bytes::new())
+                    .map_err(|n| match n {})
+                    .boxed(),
+            )
             .unwrap();
         let context = RequestContext {
-            identity: crate::ClientIdentity { client_ip: "127.0.0.1".parse().unwrap(), proto: "http" },
+            identity: crate::ClientIdentity {
+                client_ip: "127.0.0.1".parse().unwrap(),
+                proto: "http",
+            },
             upstream: crate::proxy::Upstream::disabled(),
         };
         let response = route.handle(request, context).await;

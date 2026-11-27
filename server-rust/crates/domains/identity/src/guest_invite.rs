@@ -8,8 +8,7 @@ use serde_json::Value;
 use setjoin_config_secret::CryptoProfile;
 use setjoin_contracts::ids::{ActorId, OperationId};
 use setjoin_pg::{
-    CommandOutcome, ProvenStatement, ReceiptCommand, Rejection, Row, ScopedExecutor,
-    StatementFailure, Type,
+    AuthDb, CommandOutcome, ProvenContract, ReceiptCommand, Rejection, Row, StatementFailure, Type,
 };
 use sha2::{Digest, Sha256};
 
@@ -88,26 +87,20 @@ fn settle<T>(outcome: CommandOutcome<Option<T>, StatementFailure>) -> Outcome<T>
 }
 
 /// Go's unlocked id discovery; FORCE RLS without BYPASSRLS yields no row (uniform 401).
-async fn discover(worker: &ScopedExecutor, hash: &str) -> Result<Option<i64>, ()> {
+async fn discover(worker: &AuthDb, hash: &str) -> Result<Option<i64>, ()> {
     worker
-        .read(
-            "SELECT guest_user_id FROM guest_invites WHERE token_hash=$1",
-            &[(&hash, Type::TEXT)],
-        )
+        .read_contract(&crate::sql::GUEST_INVITE_L94, &[(&hash, Type::TEXT)])
         .await
         .map(|rows| rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()))
         .map_err(|_| ())
 }
 
 /// Startup posture check: BYPASSRLS worker credential and installed reducers.
-pub async fn readiness(worker: &ScopedExecutor) -> Result<(), String> {
-    let rows = worker.read(
-        "SELECT COALESCE((SELECT rolbypassrls OR rolsuper FROM pg_roles WHERE rolname=current_user),false), \
-         to_regprocedure('rust_guest_invite_disclosure(bigint,text)') IS NOT NULL \
-         AND to_regprocedure('rust_guest_invite_accept_read(bigint,text,text,boolean,boolean,bytea)') IS NOT NULL \
-         AND to_regprocedure('rust_guest_invite_accept_finish(bigint,bigint,text,text,inet)') IS NOT NULL",
-        &[],
-    ).await.map_err(|e| format!("readiness query failed: {}", e.message))?;
+pub async fn readiness(worker: &AuthDb) -> Result<(), String> {
+    let rows = worker
+        .read_contract(&crate::sql::GUEST_INVITE_L105, &[])
+        .await
+        .map_err(|e| format!("readiness query failed: {}", e.message))?;
     let r = rows
         .first()
         .ok_or_else(|| "readiness query returned no row".to_string())?;
@@ -129,7 +122,7 @@ pub async fn readiness(worker: &ScopedExecutor) -> Result<(), String> {
 }
 
 /// GET: one user-scoped transaction (no receipt); a terminal verdict rolls back.
-pub async fn disclosure(worker: &ScopedExecutor, raw_token: &[u8]) -> Outcome<Disclosure> {
+pub async fn disclosure(worker: &AuthDb, raw_token: &[u8]) -> Outcome<Disclosure> {
     let hash = token_hash(raw_token);
     let guest = match discover(worker, &hash).await {
         Ok(Some(g)) => g,
@@ -141,10 +134,10 @@ pub async fn disclosure(worker: &ScopedExecutor, raw_token: &[u8]) -> Outcome<Di
     };
     settle(
         worker
-            .run_user_command(
+            .run_user_command_contract(
                 actor,
                 OperationId(*uuid::Uuid::new_v4().as_bytes()),
-                "SELECT rust_guest_invite_disclosure($1,$2)::text",
+                &crate::sql::GUEST_INVITE_L147,
                 &[(&guest, Type::INT8), (&hash, Type::TEXT)],
                 |rows| {
                     let v = verdict(rows);
@@ -177,7 +170,7 @@ pub async fn disclosure(worker: &ScopedExecutor, raw_token: &[u8]) -> Outcome<Di
 /// POST: discovery selects the scope. The read reducer locks and checks policy.
 /// Rust checks history and hashes under those locks before the finishing write.
 pub async fn accept(
-    worker: &ScopedExecutor,
+    worker: &AuthDb,
     raw_token: &str,
     password: &str,
     profile: CryptoProfile,
@@ -204,55 +197,72 @@ pub async fn accept(
         family: "F21",
         command: "guest_invite_accept",
     });
-    settle(worker.run_user_async_proof_command_with_tail(
-        actor, operation,
-        "SELECT rust_guest_invite_accept_read($1,$2,$3,$4,$5,$6)::text",
-        &[
-            (&guest, Type::INT8),
-            (&hash, Type::TEXT),
-            (&bound, Type::TEXT),
-            (&too_long, Type::BOOL),
-            (&invalid_text, Type::BOOL),
-            (&digest, Type::BYTEA),
-        ],
-        move |rows: &[Row]| {
-            let mut v = verdict(rows);
-            let invite = v["invite_id"].as_i64();
-            let status = v["status"].as_str().unwrap_or("reject").to_owned();
-            let error = v["error"].as_str().unwrap_or("").to_owned();
-            async move {
-                match (status.as_str(), invite) {
-                    ("ready", Some(invite)) => {
-                        let history: Vec<String> = serde_json::from_value(v["history"].take())
-                            .map_err(|_| marker("guest invite history result", None))?;
-                        let hashed = tokio::task::spawn_blocking(move || {
-                            if password_was_used(&history, &candidate) {
-                                return Err(marker(INVALID, Some(REUSED_PASSWORD_ERROR.into())));
+    settle(
+        worker
+            .run_user_async_proof_command_contract_with_tail(
+                actor,
+                operation,
+                &crate::sql::GUEST_INVITE_L209,
+                &[
+                    (&guest, Type::INT8),
+                    (&hash, Type::TEXT),
+                    (&bound, Type::TEXT),
+                    (&too_long, Type::BOOL),
+                    (&invalid_text, Type::BOOL),
+                    (&digest, Type::BYTEA),
+                ],
+                move |rows: &[Row]| {
+                    let mut v = verdict(rows);
+                    let invite = v["invite_id"].as_i64();
+                    let status = v["status"].as_str().unwrap_or("reject").to_owned();
+                    let error = v["error"].as_str().unwrap_or("").to_owned();
+                    async move {
+                        match (status.as_str(), invite) {
+                            ("ready", Some(invite)) => {
+                                let history: Vec<String> =
+                                    serde_json::from_value(v["history"].take())
+                                        .map_err(|_| marker("guest invite history result", None))?;
+                                let hashed = tokio::task::spawn_blocking(move || {
+                                    if password_was_used(&history, &candidate) {
+                                        return Err(marker(
+                                            INVALID,
+                                            Some(REUSED_PASSWORD_ERROR.into()),
+                                        ));
+                                    }
+                                    setjoin_authz::password::hash(&candidate, profile)
+                                        .map_err(|_| marker("guest invite hash failed", None))
+                                })
+                                .await
+                                .map_err(|_| marker("guest invite hash task failed", None))??;
+                                Ok(ProvenContract::new(&crate::sql::GUEST_INVITE_L237)
+                                    .bind(guest, Type::INT8)
+                                    .bind(invite, Type::INT8)
+                                    .bind(token, Type::TEXT)
+                                    .bind(hashed, Type::TEXT)
+                                    .bind(ip, Type::TEXT))
                             }
-                            setjoin_authz::password::hash(&candidate, profile)
-                                .map_err(|_| marker("guest invite hash failed", None))
-                        })
-                        .await
-                        .map_err(|_| marker("guest invite hash task failed", None))??;
-                        Ok(ProvenStatement::new("SELECT rust_guest_invite_accept_finish($1,$2,$3,$4,$5::text::inet)::text")
-                            .bind(guest, Type::INT8).bind(invite, Type::INT8).bind(token, Type::TEXT)
-                            .bind(hashed, Type::TEXT).bind(ip, Type::TEXT))
+                            ("expired", _) => Ok(ProvenContract::new(&crate::sql::ECHO_TEXT)
+                                .bind(r#"{"status":"expired"}"#.to_owned(), Type::TEXT)),
+                            ("invalid", _) => Err(marker(INVALID, Some(error))),
+                            ("common", _) => {
+                                Err(marker(INVALID, Some(COMMON_PASSWORD_ERROR.into())))
+                            }
+                            _ => Err(marker(REJECT, None)),
+                        }
                     }
-                    ("expired", _) => Ok(ProvenStatement::new("SELECT $1::text").bind(r#"{"status":"expired"}"#.to_owned(), Type::TEXT)),
-                    ("invalid", _) => Err(marker(INVALID, Some(error))),
-                    ("common", _) => Err(marker(INVALID, Some(COMMON_PASSWORD_ERROR.into()))),
-                    _ => Err(marker(REJECT, None)),
-                }
-            }
-        },
-        |rows| {
-            let v = verdict(rows);
-            match v["status"].as_str() {
-                Some("accepted") => Ok(Some(Accepted { invited_email: v["invited_email"].as_str().unwrap_or("").to_owned() })),
-                Some("expired") => Ok(None),
-                _ => Err(marker("guest invite finish result", None)),
-            }
-        },
-        |_| std::future::ready(()),
-    ).await)
+                },
+                |rows| {
+                    let v = verdict(rows);
+                    match v["status"].as_str() {
+                        Some("accepted") => Ok(Some(Accepted {
+                            invited_email: v["invited_email"].as_str().unwrap_or("").to_owned(),
+                        })),
+                        Some("expired") => Ok(None),
+                        _ => Err(marker("guest invite finish result", None)),
+                    }
+                },
+                |_| std::future::ready(()),
+            )
+            .await,
+    )
 }

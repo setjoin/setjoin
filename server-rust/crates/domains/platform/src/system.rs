@@ -1,20 +1,13 @@
 //! Platform slice `system-features`, group `system`: version, schema version, process
 //! status and the backup run queue (`/admin/system/*`).
-//!
-//! Go's `SystemHandler`. `status` and `health` describe the serving process, so the
-//! numbers are the Rust process's own (the gateway adapter supplies them). The backup
-//! enqueue is Go's whole transaction: one `INSERT` whose trigger notifies the worker, with
-//! no other write, audit or state bump, so it stays one receipted statement.
-use super::{command, deadline, done, envelope, invalid, nano, s, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure};
+use super::{command, deadline, done, envelope, invalid, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 
-/// `GET /admin/system/version`: Go's constant.
 pub fn version() -> String {
     done("{\"version\":\"v2.1.3\"}".into())
 }
 
-/// The process facts `status` renders; the caller measures them.
 pub struct Process {
     pub pid: u32,
     pub uptime_sec: u64,
@@ -23,7 +16,6 @@ pub struct Process {
     pub started_at: String,
 }
 
-/// `GET /admin/system/status` and `/admin/system/health` (Go's map: sorted keys).
 pub fn status(p: &Process) -> String {
     done(format!(
         "{{\"goroutines\":{},\"memory_mb\":{},\"pid\":{},\"started_at\":{},\"status\":\"running\",\"uptime_sec\":{}}}",
@@ -35,16 +27,14 @@ pub fn status(p: &Process) -> String {
     ))
 }
 
-/// `GET /admin/system/schema-version`. `current` is `MAX(version)` of
-/// `schema_migrations`, 0 when the table does not exist (an unbaselined database); any
-/// other fault is Go's 500 with an `error` document, carried as `Err`.
-pub async fn schema_version(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
+/// `GET /admin/system/schema-version`.
+pub async fn schema_version(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
     let expected = setjoin_schema::MIGRATIONS.last().map_or(0, |m| m.0);
-    let current = match exec
-        .read(
-            "SELECT COALESCE(MAX(version), 0)::bigint FROM schema_migrations",
-            &[],
-        )
+    let current = match factory
+        .run_admin_read_contract(admin, &sql::SYSTEM_SCHEMA_VERSION, &[])
         .await
     {
         Ok(rows) => rows
@@ -66,18 +56,14 @@ pub async fn schema_version(exec: &ScopedExecutor) -> Result<String, StatementFa
     )))
 }
 
-/// `GET /admin/system/backup/list`: the 50 newest runs. A row that fails to decode is
-/// Go's 500, so a decode failure is an error here too.
-pub async fn backup_list(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let sql = format!(
-        "SELECT id, status, blob_count::bigint, blob_total_size, config_size, manifest_timestamp, \
-         blobs_copied::bigint, blobs_skipped::bigint, {}, {}, {} \
-         FROM backup_runs ORDER BY created_at DESC, id DESC LIMIT 50",
-        nano("started_at"),
-        nano("completed_at"),
-        nano("created_at")
-    );
-    let rows = exec.read(&sql, &[]).await?;
+/// `GET /admin/system/backup/list`: the 50 newest runs.
+pub async fn backup_list(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::SYSTEM_BACKUP_LIST, &[])
+        .await?;
     let bad = |_| invalid();
     let int = |v: Option<i64>| v.map_or("null".to_owned(), |n| n.to_string());
     let text = |v: Option<String>| v.map_or("null".to_owned(), |t| s(&t));
@@ -103,26 +89,27 @@ pub async fn backup_list(exec: &ScopedExecutor) -> Result<String, StatementFailu
 
 /// `POST /admin/system/backup`: enqueue one pending run (trigger notifies the worker).
 pub async fn backup_enqueue(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("backup_enqueue"),
-        &envelope(&auth, operation, "backup"),
-        &auth,
-        deadline(),
-        "INSERT INTO backup_runs (status) SELECT 'pending' WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
-        &[],
-        |rows| match rows {
-            [row] => Ok(done(format!(
-                "{{\"run_id\":{},\"status\":\"enqueued\"}}",
-                row.try_get::<_, i64>(0).map_err(|_| invalid())?
-            ))),
-            _ => Err(invalid()),
-        },
-    )
-    .await
+    let env = envelope(user.user(), user.generation(), operation, "backup");
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::SYSTEM_BACKUP_ENQUEUE,
+            &[],
+            Some(command("backup_enqueue")),
+            |rows| match rows.as_slice() {
+                [row] => Ok(done(format!(
+                    "{{\"run_id\":{},\"status\":\"enqueued\"}}",
+                    row.try_get::<_, i64>(0).map_err(|_| invalid())?
+                ))),
+                _ => Err(invalid()),
+            },
+        )
+        .await
 }

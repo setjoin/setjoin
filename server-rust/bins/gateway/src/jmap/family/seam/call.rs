@@ -221,8 +221,7 @@ async fn scoped_rows(
     let actor = scope.auth.actor().get();
     let mut bindings: Vec<Param<'_>> = vec![(&scope.mailbox, Type::INT8), (&actor, Type::INT8)];
     bindings.extend(params.iter().map(|(value, ty)| (*value, ty.clone())));
-    cx.exec
-        .read_scoped(&scope.auth, sql, &bindings)
+    crate::policy_composition::mailbox_read(cx.exec, &scope.auth, sql, &bindings)
         .await
         .map_err(|failure| project(&failure))
 }
@@ -578,21 +577,20 @@ pub(crate) async fn rsvp_on_behalf(
         return Err(refuse(cx, "rsvp on behalf"));
     }
     let missing = || MethodError::new("notFound", "manager mailbox not found");
-    let rows = cx
-        .exec
-        .read_user_scoped(
-            cx.primary.actor(),
-            DELEGATE_MAILBOX,
-            &[(&cx.user, Type::INT8), (&manager_email, Type::TEXT)],
-        )
-        .await
-        .map_err(|error| {
-            eprintln!(
-                "setjoin-gateway: jmap CalendarEvent/rsvp manager lookup failed: sqlstate={}",
-                error.sqlstate.as_deref().unwrap_or("none")
-            );
-            missing()
-        })?;
+    let rows = crate::policy_composition::user_read(
+        cx.exec,
+        cx.primary.actor(),
+        DELEGATE_MAILBOX,
+        &[(&cx.user, Type::INT8), (&manager_email, Type::TEXT)],
+    )
+    .await
+    .map_err(|error| {
+        eprintln!(
+            "setjoin-gateway: jmap CalendarEvent/rsvp manager lookup failed: sqlstate={}",
+            error.sqlstate.as_deref().unwrap_or("none")
+        );
+        missing()
+    })?;
     let manager = rows
         .first()
         .and_then(|row| row.try_get::<_, i64>(0).ok())
@@ -832,11 +830,14 @@ pub(crate) async fn worker_read(cx: &Cx<'_>, statement: WorkerRead) -> Result<St
     if let Some(list) = &list {
         bindings.push((list, Type::INT8));
     }
-    let rows = services
-        .worker
-        .read_user_scoped(cx.primary.actor(), sql, &bindings)
-        .await
-        .map_err(|failure| project(&failure))?;
+    let rows = crate::policy_composition::worker_user_read(
+        &services.worker,
+        cx.primary.actor(),
+        sql,
+        &bindings,
+    )
+    .await
+    .map_err(|failure| project(&failure))?;
     first_text(&rows).map_err(|failure| project(&failure))
 }
 
@@ -859,77 +860,78 @@ pub(crate) async fn worker_write(
     let actor = cx.primary.actor();
     let operation = OperationId(operation);
     let user = cx.primary.actor().get();
+    let decode = first_text;
     let outcome = match statement {
         WorkerWrite::TaskListCreate { name, color } => {
-            worker
-                .run_user_command(
-                    actor,
-                    operation,
-                    sql,
-                    &[
-                        (&user, Type::INT8),
-                        (&name, Type::TEXT),
-                        (&color, Type::TEXT),
-                    ],
-                    first_text,
-                )
-                .await
+            crate::policy_composition::worker_user_write(
+                worker,
+                actor,
+                operation,
+                sql,
+                &[
+                    (&user, Type::INT8),
+                    (&name, Type::TEXT),
+                    (&color, Type::TEXT),
+                ],
+                decode,
+            )
+            .await
         }
         WorkerWrite::TaskListUpdate { list, patch } => {
-            worker
-                .run_user_command(
-                    actor,
-                    operation,
-                    sql,
-                    &[
-                        (&user, Type::INT8),
-                        (&list, Type::INT8),
-                        (&patch, Type::TEXT),
-                    ],
-                    first_text,
-                )
-                .await
+            crate::policy_composition::worker_user_write(
+                worker,
+                actor,
+                operation,
+                sql,
+                &[
+                    (&user, Type::INT8),
+                    (&list, Type::INT8),
+                    (&patch, Type::TEXT),
+                ],
+                decode,
+            )
+            .await
         }
         WorkerWrite::TaskListDelete { list } => {
-            worker
-                .run_user_command(
-                    actor,
-                    operation,
-                    sql,
-                    &[(&user, Type::INT8), (&list, Type::INT8)],
-                    first_text,
-                )
-                .await
+            crate::policy_composition::worker_user_write(
+                worker,
+                actor,
+                operation,
+                sql,
+                &[(&user, Type::INT8), (&list, Type::INT8)],
+                decode,
+            )
+            .await
         }
         WorkerWrite::TaskListAddMember { list, email } => {
-            worker
-                .run_user_command(
-                    actor,
-                    operation,
-                    sql,
-                    &[
-                        (&user, Type::INT8),
-                        (&list, Type::INT8),
-                        (&email, Type::TEXT),
-                    ],
-                    first_text,
-                )
-                .await
+            crate::policy_composition::worker_user_write(
+                worker,
+                actor,
+                operation,
+                sql,
+                &[
+                    (&user, Type::INT8),
+                    (&list, Type::INT8),
+                    (&email, Type::TEXT),
+                ],
+                decode,
+            )
+            .await
         }
         WorkerWrite::TaskListRemoveMember { list, member } => {
-            worker
-                .run_user_command(
-                    actor,
-                    operation,
-                    sql,
-                    &[
-                        (&user, Type::INT8),
-                        (&list, Type::INT8),
-                        (&member, Type::INT8),
-                    ],
-                    first_text,
-                )
-                .await
+            crate::policy_composition::worker_user_write(
+                worker,
+                actor,
+                operation,
+                sql,
+                &[
+                    (&user, Type::INT8),
+                    (&list, Type::INT8),
+                    (&member, Type::INT8),
+                ],
+                decode,
+            )
+            .await
         }
         WorkerWrite::TaskListTaskSet {
             list,
@@ -937,36 +939,36 @@ pub(crate) async fn worker_write(
             updates,
             destroys,
         } => {
-            worker
-                .run_user_command(
-                    actor,
-                    operation,
-                    sql,
-                    &[
-                        (&user, Type::INT8),
-                        (&list, Type::INT8),
-                        (&creates, Type::TEXT),
-                        (&updates, Type::TEXT),
-                        (&destroys, Type::TEXT),
-                    ],
-                    first_text,
-                )
-                .await
+            crate::policy_composition::worker_user_write(
+                worker,
+                actor,
+                operation,
+                sql,
+                &[
+                    (&user, Type::INT8),
+                    (&list, Type::INT8),
+                    (&creates, Type::TEXT),
+                    (&updates, Type::TEXT),
+                    (&destroys, Type::TEXT),
+                ],
+                decode,
+            )
+            .await
         }
         WorkerWrite::TaskAssigneeSetStatus { task, status } => {
-            worker
-                .run_user_command(
-                    actor,
-                    operation,
-                    sql,
-                    &[
-                        (&user, Type::INT8),
-                        (&task, Type::INT8),
-                        (&status, Type::TEXT),
-                    ],
-                    first_text,
-                )
-                .await
+            crate::policy_composition::worker_user_write(
+                worker,
+                actor,
+                operation,
+                sql,
+                &[
+                    (&user, Type::INT8),
+                    (&task, Type::INT8),
+                    (&status, Type::TEXT),
+                ],
+                decode,
+            )
+            .await
         }
     };
     settle(outcome, projection(cx.method.name))
@@ -3001,7 +3003,10 @@ mod db {
             false,
         )
         .await;
-        assert!(scoped_list.is_empty(), "reviewed list query: {scoped_list:?}");
+        assert!(
+            scoped_list.is_empty(),
+            "reviewed list query: {scoped_list:?}"
+        );
         // The expression rule itself (p_x of seam_probe_expr is reviewed neutral).
         let control = violations(&owner, "fixture", "SELECT seam_probe_expr($1,$3)", 2, true).await;
         assert!(control.is_empty(), "plain control: {control:?}");

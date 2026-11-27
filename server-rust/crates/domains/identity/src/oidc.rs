@@ -12,7 +12,7 @@ pub use operations::{lookup_authorization, lookup_operation, Operation};
 mod consumers;
 pub use consumers::{access, authenticate, end_session, introspect, revoke, userinfo};
 pub use grants::{code_exchange, refresh_exchange, OAuthError, TokenReply};
-use setjoin_pg::{ScopedExecutor, Type};
+use setjoin_pg::{AuthDb, Type};
 
 /// Go schema's scalar decoder uses the last value, unlike URL.Query.Get.
 pub fn form_last(raw: &str) -> std::collections::BTreeMap<String, String> {
@@ -64,8 +64,11 @@ pub struct Client {
     pub grants: Vec<String>,
     pub public: bool,
 }
-pub async fn client(exec: &ScopedExecutor, id: &str) -> Result<Client, String> {
-    let rows=exec.read("SELECT id,redirect_uris,scopes,grant_types,client_type,enabled FROM oidc_clients WHERE id=$1",&[(&id,Type::TEXT)]).await.map_err(|e|e.message)?;
+pub async fn client(exec: &AuthDb, id: &str) -> Result<Client, String> {
+    let rows = exec
+        .read_contract(&crate::sql::OIDC_L68, &[(&id, Type::TEXT)])
+        .await
+        .map_err(|e| e.message)?;
     let r = rows
         .first()
         .ok_or_else(|| format!("client not found: {id}"))?;
@@ -86,8 +89,9 @@ pub async fn client(exec: &ScopedExecutor, id: &str) -> Result<Client, String> {
         public: r.try_get::<_, String>(4).map_err(invalid)? == "public",
     })
 }
+#[allow(clippy::too_many_arguments)]
 pub async fn create_request(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     client: &Client,
     redirect: &str,
     state: &str,
@@ -97,17 +101,49 @@ pub async fn create_request(
     scopes: &[String],
     operation: setjoin_contracts::ids::OperationId,
 ) -> setjoin_pg::CommandOutcome<String, setjoin_pg::StatementFailure> {
-    let id=match grants::random_hex(16){Ok(id)=>id,Err(e)=>return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(setjoin_pg::StatementFailure{sqlstate:None,hint:None,message:e.description}))};
+    let id = match grants::random_hex(16) {
+        Ok(id) => id,
+        Err(e) => {
+            return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(
+                setjoin_pg::StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: e.description,
+                },
+            ))
+        }
+    };
     let expiry = std::time::SystemTime::now() + std::time::Duration::from_secs(600);
     // This is Go's entire one-statement transaction. The user is deliberately
     // NULL, including when an id_token_hint or a user_id parameter is supplied.
-    exec.run_protocol_command(&format!("oidc-client:{}",client.id),operation,setjoin_pg::ReceiptCommand{family:"F21",command:"oidc-authorize"},"INSERT INTO oidc_auth_requests(id,client_id,redirect_uri,state,nonce,code_challenge,code_challenge_method,scopes,user_id,expires_at,done,auth_time,acr,amr) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULL,$9,false,NULL,NULL,'{}')",&[(&id,Type::TEXT),(&client.id,Type::TEXT),(&redirect,Type::TEXT),(&state,Type::TEXT),(&nonce,Type::TEXT),(&challenge,Type::TEXT),(&method,Type::TEXT),(&scopes,Type::TEXT_ARRAY),(&expiry,Type::TIMESTAMPTZ)],|_|Ok(id.clone())).await
+    exec.run_protocol_command_contract(
+        &format!("oidc-client:{}", client.id),
+        operation,
+        setjoin_pg::ReceiptCommand {
+            family: "F21",
+            command: "oidc-authorize",
+        },
+        &crate::sql::OIDC_L104,
+        &[
+            (&id, Type::TEXT),
+            (&client.id, Type::TEXT),
+            (&redirect, Type::TEXT),
+            (&state, Type::TEXT),
+            (&nonce, Type::TEXT),
+            (&challenge, Type::TEXT),
+            (&method, Type::TEXT),
+            (&scopes, Type::TEXT_ARRAY),
+            (&expiry, Type::TIMESTAMPTZ),
+        ],
+        |_| Ok(id.clone()),
+    )
+    .await
 }
 
 /// The session is the only source of user and authentication context. An
 /// unbound request capability can be claimed once; nobody may replace a bind.
 pub async fn complete_request(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &crate::session::Session,
     id: &str,
     operation: setjoin_contracts::ids::OperationId,
@@ -135,9 +171,25 @@ pub async fn complete_request(
         .flatten()
         .filter_map(|v| v.as_str().map(str::to_owned))
         .collect();
-    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"oidc-complete"}).run_user_command(actor,operation,
-        "UPDATE oidc_auth_requests SET user_id=$2,done=true,auth_time=$3,acr=$4,amr=$5 WHERE id=$1 AND expires_at>now() AND done=false AND user_id IS NULL AND $2::bigint=current_setting('app.current_user_id')::bigint RETURNING id",
-        &[(&id,Type::TEXT),(&session.user(),Type::INT8),(&time,Type::TIMESTAMPTZ),(&acr,Type::TEXT),(&amr,Type::TEXT_ARRAY)],|rows|Ok(rows.len()==1)).await
+    exec.clone()
+        .with_user_receipt(setjoin_pg::ReceiptCommand {
+            family: "F21",
+            command: "oidc-complete",
+        })
+        .run_user_command_contract(
+            actor,
+            operation,
+            &crate::sql::OIDC_L139,
+            &[
+                (&id, Type::TEXT),
+                (&session.user(), Type::INT8),
+                (&time, Type::TIMESTAMPTZ),
+                (&acr, Type::TEXT),
+                (&amr, Type::TEXT_ARRAY),
+            ],
+            |rows| Ok(rows.len() == 1),
+        )
+        .await
 }
 
 pub fn valid_origins(configured: &str) -> bool {
@@ -323,16 +375,51 @@ pub fn discovery_unwrapped(hostname: &str) -> String {
 
 /// Native clients may vary loopback scheme/host/port as frozen Go does; path
 /// and the raw query still match a registered loopback redirect exactly.
-pub fn redirect_error(client:&Client,uri:&str,response_type:&str)->Option<&'static str>{
- const MISSING:&str="The requested redirect_uri is missing in the client configuration. If you have any questions, you may contact the administrator of the application.";
- const HTTP:&str="This client's redirect_uri is http and is not allowed. If you have any questions, you may contact the administrator of the application.";
- const CUSTOM:&str="This client's redirect_uri is using a custom schema and is not allowed. If you have any questions, you may contact the administrator of the application.";
- fn loopback(uri:&str)->Option<url::Url>{let u=url::Url::parse(uri).ok()?;if !matches!(u.scheme(),"http"|"https"){return None;}let host=u.host_str()?.trim_matches(['[',']']);(host=="localhost"||host.parse::<std::net::IpAddr>().is_ok_and(|ip|ip.is_loopback())).then_some(u)}
- let registered=client.redirects.iter().any(|s|s==uri);
- if client.public{
-  let parsed=loopback(uri);
-  if registered{return if parsed.is_some()||!uri.starts_with("http://"){None}else{Some(HTTP)};}
-  let Some(parsed)=parsed else{return Some(MISSING);};return if client.redirects.iter().any(|s|loopback(s).is_some_and(|u|u.path()==parsed.path()&&u.query()==parsed.query())){None}else{Some(MISSING)};
- }
- if !registered{return Some(MISSING);}if uri.starts_with("https://")||(uri.starts_with("http://")&&response_type=="code"){None}else if uri.starts_with("http://"){Some(HTTP)}else{Some(CUSTOM)}
+pub fn redirect_error(client: &Client, uri: &str, response_type: &str) -> Option<&'static str> {
+    const MISSING:&str="The requested redirect_uri is missing in the client configuration. If you have any questions, you may contact the administrator of the application.";
+    const HTTP:&str="This client's redirect_uri is http and is not allowed. If you have any questions, you may contact the administrator of the application.";
+    const CUSTOM:&str="This client's redirect_uri is using a custom schema and is not allowed. If you have any questions, you may contact the administrator of the application.";
+    fn loopback(uri: &str) -> Option<url::Url> {
+        let u = url::Url::parse(uri).ok()?;
+        if !matches!(u.scheme(), "http" | "https") {
+            return None;
+        }
+        let host = u.host_str()?.trim_matches(['[', ']']);
+        (host == "localhost"
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback()))
+        .then_some(u)
+    }
+    let registered = client.redirects.iter().any(|s| s == uri);
+    if client.public {
+        let parsed = loopback(uri);
+        if registered {
+            return if parsed.is_some() || !uri.starts_with("http://") {
+                None
+            } else {
+                Some(HTTP)
+            };
+        }
+        let Some(parsed) = parsed else {
+            return Some(MISSING);
+        };
+        return if client.redirects.iter().any(|s| {
+            loopback(s).is_some_and(|u| u.path() == parsed.path() && u.query() == parsed.query())
+        }) {
+            None
+        } else {
+            Some(MISSING)
+        };
+    }
+    if !registered {
+        return Some(MISSING);
+    }
+    if uri.starts_with("https://") || (uri.starts_with("http://") && response_type == "code") {
+        None
+    } else if uri.starts_with("http://") {
+        Some(HTTP)
+    } else {
+        Some(CUSTOM)
+    }
 }

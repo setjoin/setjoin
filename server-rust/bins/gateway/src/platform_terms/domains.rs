@@ -87,10 +87,10 @@ fn canonical(name: &str) -> Result<String, &'static str> {
 }
 
 pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Response<Body> {
-    let scope = e.authority.domain_scope();
+    let scope = e.domain_scope;
     let target = |r: &Request<Body>| path_id(r.uri().path(), 4);
     match what {
-        Action::DomainList => match domains::list(e.exec, scope).await {
+        Action::DomainList => match domains::list(e.factory, e.admin, scope).await {
             Ok(body) => e.reply(body, 200),
             Err(_) => e.database(),
         },
@@ -101,7 +101,7 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
             if scope > 0 && id != scope {
                 return e.problem(403, "access denied: domain not in scope");
             }
-            match domains::get(e.exec, id).await {
+            match domains::get(e.factory, e.admin, id).await {
                 Ok(Some(body)) => e.reply(body, 200),
                 Ok(None) => e.problem(404, "domain not found"),
                 Err(_) => e.database(),
@@ -138,7 +138,7 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
                 },
                 quota_bytes: body.quota,
             };
-            match domains::create(e.exec, e.actor, &new, e.operation).await {
+            match domains::create(e.factory, e.user, e.admin, &new, e.operation).await {
                 CommandOutcome::Committed(Created::Id(id)) => {
                     e.reply(setjoin_platform::done(format!("{{\"id\":{id}}}")), 201)
                 }
@@ -177,7 +177,8 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
             if patch.is_empty() {
                 return e.problem(400, "no fields to update");
             }
-            match domains::update(e.exec, e.actor, id, scope, &patch, e.operation).await {
+            match domains::update(e.factory, e.user, e.admin, id, scope, &patch, e.operation).await
+            {
                 CommandOutcome::Committed(true) => e.no_content(),
                 CommandOutcome::Committed(false) => e.problem(404, "domain not found"),
                 CommandOutcome::RolledBack(_) => e.database(),
@@ -191,7 +192,7 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
             if scope > 0 && id != scope {
                 return e.problem(403, "access denied: domain not in scope");
             }
-            match domains::delete(e.exec, e.actor, id, scope, e.operation).await {
+            match domains::delete(e.factory, e.user, e.admin, id, scope, e.operation).await {
                 CommandOutcome::Committed(()) => e.no_content(),
                 CommandOutcome::RolledBack(_) => e.database(),
                 CommandOutcome::Unknown { operation } => e.unknown(operation),

@@ -2,8 +2,7 @@
 mod commands;
 mod ssh;
 use serde::Serialize;
-use setjoin_authz::AuthContext;
-use setjoin_pg::{ScopedExecutor, Type};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -143,7 +142,7 @@ impl Default for State {
 }
 struct Inner {
     state: Mutex<State>,
-    worker: ScopedExecutor,
+    factory: TxFactory,
     config: Config,
 }
 pub struct Wizard {
@@ -164,7 +163,12 @@ pub fn valid_host(host: &str) -> bool {
         Some((name, port)) if name.ends_with(']') => (name, Some(port)),
         _ => (host, None),
     };
-    if port.is_some_and(|p| p.is_empty() || p.len() > 5 || !p.bytes().all(|b| b.is_ascii_digit()) || p.parse::<u32>().map_or(true, |n| n == 0 || n > 65535)) {
+    if port.is_some_and(|p| {
+        p.is_empty()
+            || p.len() > 5
+            || !p.bytes().all(|b| b.is_ascii_digit())
+            || p.parse::<u32>().map_or(true, |n| n == 0 || n > 65535)
+    }) {
         return false;
     }
     if let Some(inner) = name.strip_prefix('[').and_then(|n| n.strip_suffix(']')) {
@@ -178,7 +182,9 @@ pub fn valid_host(host: &str) -> bool {
             && label.len() <= 63
             && !label.starts_with('-')
             && !label.ends_with('-')
-            && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            && label
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
     })
 }
 /// Strict POSIX-style SSH user name.
@@ -187,9 +193,13 @@ pub fn valid_user(user: &str) -> bool {
         return true;
     }
     let mut chars = user.chars();
-    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && user.len() <= 32
-        && user.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+        && user
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
 }
 /// The request-time check of every node field that reaches a command or a connection.
 pub fn validate(nodes: &[Node]) -> Result<(), &'static str> {
@@ -210,9 +220,13 @@ pub(crate) fn sh_quote(text: &str) -> String {
         return text.to_owned();
     }
     if !text.is_empty()
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'@' | b'%' | b'+' | b'=' | b':' | b',' | b'.' | b'/' | b'-'))
+        && text.bytes().all(|b| {
+            b.is_ascii_alphanumeric()
+                || matches!(
+                    b,
+                    b'_' | b'@' | b'%' | b'+' | b'=' | b':' | b',' | b'.' | b'/' | b'-'
+                )
+        })
     {
         return text.to_owned();
     }
@@ -288,23 +302,63 @@ fn redact(text: &[u8], secrets: &[String]) -> Vec<u8> {
     out
 }
 impl Wizard {
-    pub async fn load(worker: ScopedExecutor, config: Config) -> Self {
+    pub async fn load(factory: TxFactory, config: Config) -> Self {
         let mut state = State::default();
-        if let Ok(rows)=worker.read("SELECT step_name,status,COALESCE(output,''),COALESCE(error,'') FROM deployment_steps ORDER BY step_name",&[]).await{for row in rows{let(Ok(name),Ok(mut status),Ok(output),Ok(error))=(row.try_get::<_,String>(0),row.try_get::<_,String>(1),row.try_get::<_,String>(2),row.try_get::<_,String>(3))else{continue;};if status=="running"{status="failed".into();}state.steps.push(Step{name,status,output:if output.is_empty(){String::new()}else{WITHHELD.into()},error:if error.is_empty(){GoText::default()}else{WITHHELD.into()}});}if !state.steps.is_empty(){state.status="resumed".into();}}
+        if let Ok(rows) = factory
+            .run_public_read_contract(&crate::sql::DEPLOY_STEPS_LOAD, &[])
+            .await
+        {
+            for row in rows {
+                let (Ok(name), Ok(mut status), Ok(output), Ok(error)) = (
+                    row.try_get::<_, String>(0),
+                    row.try_get::<_, String>(1),
+                    row.try_get::<_, String>(2),
+                    row.try_get::<_, String>(3),
+                ) else {
+                    continue;
+                };
+                if status == "running" {
+                    status = "failed".into();
+                }
+                state.steps.push(Step {
+                    name,
+                    status,
+                    output: if output.is_empty() {
+                        String::new()
+                    } else {
+                        WITHHELD.into()
+                    },
+                    error: if error.is_empty() {
+                        GoText::default()
+                    } else {
+                        WITHHELD.into()
+                    },
+                });
+            }
+            if !state.steps.is_empty() {
+                state.status = "resumed".into();
+            }
+        }
         // #542 (owner-approved security fix 2026-11-05): the unresolved remote-command fence is
         // durable. Test-only bug restoration (deploy-fence-memory-only): ignore the row.
         if !setjoin_contracts::mutants::on("deploy-fence-memory-only") {
-            match worker.read("SELECT count(*)::bigint FROM deploy_remote_fence",&[]).await.ok().and_then(|r|r.first().and_then(|r|r.try_get::<_,i64>(0).ok())){
-                Some(0)=>{}
-                Some(_)=>{state.fenced=true;state.fence_persisted=true;}
-                // Unreadable: refuse new runs rather than run past a fence that may exist (re-checked at begin).
-                None=>{state.fenced=true;state.fence_persisted=true;}
+            match factory
+                .run_public_read_contract(&crate::sql::DEPLOY_FENCE_COUNT, &[])
+                .await
+                .ok()
+                .and_then(|r| r.first().and_then(|r| r.try_get::<_, i64>(0).ok()))
+            {
+                Some(0) => {}
+                Some(_) | None => {
+                    state.fenced = true;
+                    state.fence_persisted = true;
+                }
             }
         }
         Self {
             inner: Arc::new(Inner {
                 state: Mutex::new(state),
-                worker,
+                factory,
                 config,
             }),
             stop: CancellationToken::new(),
@@ -338,14 +392,19 @@ impl Wizard {
             .await;
         }
     }
-    pub async fn begin(&self, nodes: Vec<Node>, actor: AuthContext) -> Result<(), String> {
+    pub async fn begin(
+        &self,
+        nodes: Vec<Node>,
+        user: UserPrincipal,
+        _admin: &AdminPermissionProof,
+    ) -> Result<(), String> {
         let mut state = self.inner.state.lock().await;
         if state.fenced && state.fence_persisted && self.inner.fence_row_absent().await {
             // The operator resolved the fence (DELETE FROM deploy_remote_fence).
             state.fenced = false;
             state.fence_persisted = false;
         }
-        if state.fenced && !state.fence_persisted && self.inner.persist_fence(&actor).await {
+        if state.fenced && !state.fence_persisted && self.inner.persist_fence(&user).await {
             // A fence that could not be written earlier is retried before any run is admitted.
             state.fence_persisted = true;
         }
@@ -370,10 +429,10 @@ impl Wizard {
         };
         let inner = self.inner.clone();
         tokio::spawn(async move {
-            inner.execute(nodes, actor.clone(), run.clone()).await;
+            inner.execute(nodes, &user, run.clone()).await;
             let fence = run.cancel.is_cancelled() && run.unknown.load(Ordering::Acquire);
             // Durable before the run is reported finished.
-            let persisted = fence && inner.persist_fence(&actor).await;
+            let persisted = fence && inner.persist_fence(&user).await;
             if fence && !persisted {
                 eprintln!("deploy: FAILED to persist the remote-command fence; refusing new runs in this process until it is written");
             }
@@ -446,14 +505,14 @@ impl Drop for Wizard {
 }
 impl Inner {
     async fn fence_row_absent(&self) -> bool {
-        self.worker
-            .read("SELECT count(*)::bigint FROM deploy_remote_fence", &[])
+        self.factory
+            .run_public_read_contract(&crate::sql::DEPLOY_FENCE_COUNT, &[])
             .await
             .ok()
             .and_then(|r| r.first().and_then(|r| r.try_get::<_, i64>(0).ok()))
             == Some(0)
     }
-    async fn persist_fence(&self, actor: &AuthContext) -> bool {
+    async fn persist_fence(&self, user: &UserPrincipal) -> bool {
         if setjoin_contracts::mutants::on("deploy-fence-memory-only") {
             return false;
         }
@@ -461,10 +520,30 @@ impl Inner {
         if getrandom::getrandom(&mut operation).is_err() {
             return false;
         }
+        let actor_id = user.user().get();
         let detail = "deployment cancelled with unconfirmed remote command termination";
-        matches!(crate::upgrades::write(&self.worker,actor,"deploy_fence_set","INSERT INTO deploy_remote_fence(id,actor_user_id,detail) SELECT true,$2::bigint,$4::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' ON CONFLICT(id) DO UPDATE SET detail=EXCLUDED.detail RETURNING 'null'::text",&[(&detail,Type::TEXT)],operation).await,setjoin_pg::CommandOutcome::Committed(_))
+        let env = crate::envelope(
+            user.user(),
+            user.generation(),
+            operation,
+            "deploy_fence_set",
+        );
+        matches!(
+            self.factory
+                .run_user_write_contract_pipelined(
+                    user,
+                    &env,
+                    crate::deadline(),
+                    &crate::sql::DEPLOY_FENCE_SET,
+                    &[&actor_id, &detail],
+                    Some(crate::command("deploy_fence_set")),
+                    |_| Ok(()),
+                )
+                .await,
+            setjoin_pg::CommandOutcome::Committed(())
+        )
     }
-    async fn persist(&self, step: &Step, actor: &AuthContext, nodes: &[Node]) {
+    async fn persist(&self, step: &Step, user: &UserPrincipal, nodes: &[Node]) {
         let secret = secrets(nodes);
         let output = redact(step.output.as_bytes(), &secret);
         let error = redact(&step.error.0, &secret);
@@ -472,9 +551,26 @@ impl Inner {
         if getrandom::getrandom(&mut operation).is_err() {
             return;
         }
-        let _=crate::upgrades::write(&self.worker,actor,"deployment_step_upsert","INSERT INTO deployment_steps(step_name,status,output,error,started_at,completed_at) SELECT $4::text,$5::text,convert_from($6::bytea,'UTF8'),convert_from($7::bytea,'UTF8'),now(),CASE WHEN $5::text IN ('done','failed') THEN now() END WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' ON CONFLICT(step_name) DO UPDATE SET status=EXCLUDED.status,output=EXCLUDED.output,error=EXCLUDED.error,started_at=COALESCE(deployment_steps.started_at,EXCLUDED.started_at),completed_at=CASE WHEN EXCLUDED.status IN ('done','failed') THEN now() ELSE deployment_steps.completed_at END RETURNING 'null'::text",&[(&step.name,Type::TEXT),(&step.status,Type::TEXT),(&output,Type::BYTEA),(&error,Type::BYTEA)],operation).await;
+        let env = crate::envelope(
+            user.user(),
+            user.generation(),
+            operation,
+            "deployment_step_upsert",
+        );
+        let _ = self
+            .factory
+            .run_user_write_contract_pipelined(
+                user,
+                &env,
+                crate::deadline(),
+                &crate::sql::DEPLOY_STEP_UPSERT,
+                &[&step.name, &step.status, &output, &error],
+                Some(crate::command("deployment_step_upsert")),
+                |_| Ok(()),
+            )
+            .await;
     }
-    async fn execute(self: &Arc<Self>, nodes: Vec<Node>, actor: AuthContext, run: Run) {
+    async fn execute(self: &Arc<Self>, nodes: Vec<Node>, user: &UserPrincipal, run: Run) {
         for (index, (name, description)) in commands::STAGES.iter().enumerate() {
             {
                 let mut state = self.state.lock().await;
@@ -529,7 +625,7 @@ impl Inner {
             if let Some(error) = &failed {
                 step.error = GoText(error.clone());
             }
-            self.persist(step, &actor, &nodes).await;
+            self.persist(step, user, &nodes).await;
             state.log.push(if let Some(error) = &failed {
                 let mut line = format!("[{name}] FAILED: ").into_bytes();
                 line.extend(error);

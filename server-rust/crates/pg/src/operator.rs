@@ -22,6 +22,14 @@ pub fn error(err: tokio_postgres::Error) -> String {
 }
 
 impl OperatorConnection {
+    pub(crate) fn client(&self) -> &Client {
+        &self.client
+    }
+
+    pub(crate) fn client_mut(&mut self) -> &mut Client {
+        &mut self.client
+    }
+
     /// Unnamed, backpressured rows on this dedicated connection.
     pub(crate) async fn rows(
         &self,

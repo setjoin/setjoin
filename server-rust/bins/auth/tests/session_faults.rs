@@ -68,8 +68,13 @@ async fn refresh(cut: wire::Cut) {
         .await
         .unwrap();
     let record = std::env::var_os("GOFREE_RECORD_REFRESH_FAULTS").is_some();
+    let worker_base = std::env::var("DB_WORKER_DSN")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| db.dsn.clone());
+    let app_base = db.app.as_deref().unwrap_or(&db.dsn);
     let (dsn, task, active) = wire::armable(
-        db.app.as_deref().unwrap_or(&db.dsn),
+        if record { app_base } else { &worker_base },
         cut,
         if record { 1 } else { 2 },
     )
@@ -96,17 +101,16 @@ async fn refresh(cut: wire::Cut) {
             .unwrap()
             .map(|b| b.map_err(std::io::Error::other).boxed())
     } else {
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(app_base, 4).unwrap();
+        let mut cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
+        cfg.worker_dsn = Some(dsn);
+        let server = AuthServer::load(exec, cfg)
+            .await
+            .unwrap()
+            .with_threat_gate(&db.dsn)
+            .await
+            .unwrap();
         active.store(true, std::sync::atomic::Ordering::SeqCst);
-        let exec = setjoin_pg::ScopedExecutor::from_dsn(&dsn, 4).unwrap();
-        let server = AuthServer::load(
-            exec,
-            Config::for_secret(f["secret"].as_str().unwrap().into()),
-        )
-        .await
-        .unwrap()
-        .with_threat_gate(&db.dsn)
-        .await
-        .unwrap();
         let response = server
             .handle(
                 Request::post("/auth/refresh")
@@ -159,6 +163,8 @@ async fn refresh(cut: wire::Cut) {
         .unwrap();
         let clean =
             setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2).unwrap();
+        let clean_worker = setjoin_pg::ScopedExecutor::from_dsn(&db.dsn, 2).unwrap();
+        let clean = setjoin_pg::AuthDb::from_executors(clean, clean_worker);
         assert_eq!(
             proof
                 .lookup_refresh(&clean, setjoin_contracts::ids::OperationId(*id.as_bytes()))
@@ -552,12 +558,7 @@ async fn credential_commit(cut: wire::Cut, reset: bool) {
         .map(|b| format!("{b:02x}"))
         .collect::<String>();
     let record = std::env::var_os("GOFREE_RECORD_REFRESH_FAULTS").is_some();
-    let (dsn, task, active) = wire::armable(
-        db.app.as_deref().unwrap_or(&db.dsn),
-        cut,
-        if reset && !record { 2 } else { 1 },
-    )
-    .await;
+    let (dsn, task, active) = wire::armable(db.app.as_deref().unwrap_or(&db.dsn), cut, 1).await;
     let mut wire = Wire(task);
     let path = if reset {
         "/auth/forgot-password/reset"

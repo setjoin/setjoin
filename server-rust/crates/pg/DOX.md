@@ -379,3 +379,176 @@ periodic heartbeats such as `POST /device/checkin`: `admit(sql)`, combined
 execute+decode, explicit bounded `COMMIT`, clean `ROLLBACK` + pool reuse on
 SQL/decode errors, and lease discard on timeout, cancellation or non-`RolledBack`
 `COMMIT` errors — with zero advisory locks and zero `rust_operation_receipts` writes.
+
+## Capability handles, `RecyclingMethod::Fast`, and 1-RTT pipelining (#540)
+
+Wave 1.2 introduces compile-time type-state capability handles over `AppPool`
+(`DB_DSN` / `setjoin_app`, `NOBYPASSRLS`) and feature-gated `WorkerPool`
+(`DB_WORKER_DSN` / `setjoin_worker`, `BYPASSRLS`), all under `#![forbid(unsafe_code)]`,
+with private fields, sealed marker traits, `#[must_use]`, and zero
+`Deref`/`DerefMut`/`AsRef`/`Borrow` to inner `Client`/`Object`/`Transaction`:
+
+- `MailboxTx<ReadOnly>` / `MailboxTx<ReadWrite>`: `BEGIN READ ONLY` (zero
+  mutating methods, PG `25006`) and `BEGIN READ WRITE`; installs
+  `app.current_mailbox_id`, `app.current_user_id`, deployment audit keys, and
+  optional `app.rust_operation_id` + `pg_advisory_xact_lock` via one merged
+  static preamble statement (never folded into an RLS CTE).
+- `UserTx<ReadOnly>` / `UserTx<ReadWrite>`: mailbox-less user scope
+  (`app.current_mailbox_id = ''`, `app.current_user_id = actor`).
+- `AdminReadTx<Standard>`: non-sensitive `BEGIN READ ONLY` admin reads (zero
+  mutating methods, PG `25006`).
+- `AdminSensitiveRead` (`AppPool::run_admin_sensitive_read[_with]`):
+  audit-before-read single-call API. Tx 1 (`BEGIN READ WRITE`, no retry)
+  durably commits `audit_write(verified_actor, ..., 'core')` (`p_actor` strictly
+  from verified `VerifiedAdmin`, `p_tier` pinned to `'core'` so
+  `audit_policy.level = 'lean'` never suppresses it); Tx 2 executes the
+  sensitive `SELECT` under real PostgreSQL `BEGIN READ ONLY` (`25006` blocks
+  `SELECT volatile_fn()`, `FOR UPDATE`, and `nextval()`).
+- `AdminWriteTx<Unaudited>` → `AdminWriteTx<Audited>` (and 1-RTT
+  `AppPool::run_admin_write_pipelined`): `.commit()` is unavailable until
+  `record_audit(&AuditEvent)` runs `audit_write(..., 'core')` in the same tx.
+- `WorkerTx`: constructible only from `WorkerPool` (`worker-pool` feature).
+
+### Typed `SqlContract` execution helpers (#541)
+
+All capability transaction handles (`MailboxTx`, `UserTx`, `AdminReadTx`,
+`AdminSensitiveRead`, `AdminWriteTx`, and `WorkerTx`) expose `query_contract`
+(and read-write handles also expose `execute_contract`) accepting
+`&'static SqlContract` from `setjoin-sql-catalog`. Read-only handles
+(`MailboxTx<ReadOnly>`, `UserTx<ReadOnly>`, `AdminReadTx<Standard>`,
+`AdminSensitiveRead`) expose no `execute_contract` method (proven by
+`compile_fail` doctest). Every call validates contract `SqlScope` compatibility
+and exact parameter arity locally before executing via unnamed
+`query_typed_raw` (PgBouncer-safe, zero `TYPEINFO_QUERY`).
+
+### Cargo feature gating & static isolation
+
+`setjoin_pg::mint` (`mint` feature) is enabled only on `setjoin-authz` and
+composition-root binaries (`bins/gateway`, `bins/auth`); `WorkerPool` and
+`WorkerTx` (`worker-pool` feature) are enabled only on composition-root
+binaries. `scripts/check-rust-family-isolation.py` enforces both `cargo
+metadata` feature rules (including renamed `setjoin-pg` dependency forwarding)
+and hard bans across all `crates/domains/*/{src,tests}` on `setjoin_pg::mint`,
+`capability::mint`, `::mint`, `AppPool`, `AdminWorkerPool`, `PreAuthReadTx`,
+`WorkerPool`, `WorkerTx`, `WorkerDatabase`, `ScopedExecutor`,
+`from_authenticated_session`, `from_authenticated_user`, and
+`deadpool_postgres` (`WAVE_1_8_LEGACY_ALLOWLIST == {}` as of Phase `546e`).
+
+### 1-RTT vs 2-RTT decoder boundary & pipeline truth table
+
+- **1-RTT pipelined writes (`run_*_write_pipelined`):** strictly for commands
+  whose validation/rollback conditions raise SQL errors (`RAISE EXCEPTION`,
+  constraints, RLS). All validation (`CommandEnvelope`, deadline, `statement::admit`
+  including interior `\0` and all 7 session-level `pg_advisory_*` lock
+  functions, `params.len() <= i16::MAX`, `ToSql::to_sql_checked` pre-encoding,
+  and `OptIn` prepared statement resolution/eviction) runs strictly **before**
+  `BEGIN` is enqueued. Wire execution uses `tokio::join!(biased; ...)` draining
+  every step to `ReadyForQuery` (preventing `mpsc::channel(1)` multi-chunk
+  deadlocks). Post-commit projections never report `RolledBack`.
+- **2-RTT interactive writes (`run_mailbox_write`, `run_user_write`,
+  `begin_admin_write`, legacy `ScopedExecutor::run`):** required whenever a
+  command performs semantic Rust pre-commit decoding (`decode(&rows) -> Err`)
+  or multi-step interactive queries before receipt/`COMMIT`.
+- **Tightened pipeline truth table:** Step 1 (`BEGIN`) transport failure ->
+  `Unknown` + quarantine + `CancelRequest`; Step 1 server `ErrorResponse` ->
+  always quarantine, `RolledBack(Unavailable)` only if every mutating step
+  (3/4/5) also returned a server `ErrorResponse`, else `Unknown`; Steps 2–5
+  first server `ErrorResponse` -> `RolledBack(Statement(first_db_error))`
+  (never masked by `25P02`), recycled only if Step 6 (`COMMIT`) returned
+  `Ok(())` and `!is_closed()`, else quarantined; Step 6 server `ErrorResponse`
+  -> `commit_failure_observation(sqlstate)`; timeout/drop/transport error
+  without prior server `ErrorResponse` -> `Unknown` + quarantine +
+  `CancelRequest`.
+
+### `RecyclingMethod::Fast`, PgBouncer-safe `CancelRequest` drop, and `OptIn` prepared LRU
+
+- Custom `deadpool::managed::Manager` (`SetjoinManager`) uses 0-RTT fast
+  recycle (`!client.is_closed()`) with TCP keepalives (`30s` idle, `10s`
+  interval, `3` retries; Linux `TCP_USER_TIMEOUT = 30s`). Stale-socket 1-retry
+  applies strictly to pure `BEGIN READ ONLY` / autocommit reads and 2-RTT
+  `BEGIN` pre-business-SQL transport errors (never post-flush 1-RTT writes or
+  `AdminSensitiveRead` audit Tx 1).
+- Dirty lease quarantine/drop (`ManagedLease`, `ReadLease`, `Lease`) calls
+  `Object::take(object)` synchronously to free the pool slot, then spawns a
+  bounded (`Semaphore(32)`) `timeout(2s, cancel_token.cancel_query(NoTls))`
+  task that drops the connection wrapper **after** `cancel_query` finishes or
+  times out (keeping PgBouncer's `client_list` mapping alive for the cancel
+  handshake); outside a Tokio runtime or when saturated, it drops synchronously
+  without panicking.
+- `PreparedStatementMode::Unnamed` (default) creates zero named prepared
+  statements (zero `TYPEINFO_QUERY` `s0`). `PreparedStatementMode::OptIn`
+  requires both the `CVE-2026-14666` PG version floor
+  (`(170011..180000).contains(&v) || v >= 180006`, rejecting `< 17.11` and
+  `18.0–18.5`) and a validated `PgBouncerAttestation`
+  (`max_prepared_statements >= 200`, `server_reset_query_always == false`, LRU
+  cap `<= min(configured_cap, max_prepared_statements - 16)`). All prepare and
+  LRU eviction runs strictly before `BEGIN`. `PlanCacheHint::ForceCustomPlan`
+  appends `; SET LOCAL plan_cache_mode = force_custom_plan` to Step 1 at 0 RTT.
+
+
+### `ListenHub` single-backend `DB_DIRECT_DSN` multiplexer (#543)
+
+`listen_hub::ListenHub` runs one `DB_DIRECT_DSN` actor serializing ref-counted
+`LISTEN`/`UNLISTEN` (`0 -> 1` / `1 -> 0`) across subscribers. On reconnect it
+re-`LISTEN`s every active channel before broadcasting
+`ListenEvent::ResyncRequired { epoch }`. Each subscriber pairs a bounded queue
+with a coalesced `watch` dirty-epoch watermark so slow/overflowing subscribers
+never block other channels, never lose `ResyncRequired`, and never surface stale
+pre-watermark notifications; `UNLISTEN` errors transition cleanly to reconnect,
+and root `CancellationToken` cancellation tears down cleanly without `Drop::abort`.
+
+### Wave 1.8 Phase `546a` foundation seams (#546)
+
+- **Unforgeable `ReducerWritesCoreAudit` proof:** `audit_write.sql` sets transaction-local
+  `app.core_audit_written = '1'` strictly after a successful `'core'` insert.
+  `AdminWriteTx<Unaudited>::execute_audited_reducer_contract` binds `$1` (`p_actor`) from
+  `self.principal.actor` (R2), resets `app.core_audit_written`, executes the
+  `SqlAuditPosture::ReducerWritesCoreAudit` contract, and checks
+  `current_setting('app.core_audit_written', true) = '1'`: returning
+  `AdminReducerOutcome::Audited` (`AdminWriteTx<Audited>`, zero double-audit) iff `'1'`,
+  or rollback-only `AdminReducerOutcome::NoOp` (`AdminRollbackOnlyTx`, no `.commit()`).
+- **Encapsulated `AdminWorkerPool` & `PreAuthReadTx` (`mint` feature):** minted from
+  `WorkerPool::admin_pool()` at binary composition roots without exposing `WorkerTx` or
+  `worker-pool` to `setjoin-authz` or domain crates; serves cross-tenant `AdminReadTx`,
+  `AdminSensitiveRead`, `AdminWriteTx`, and `BEGIN READ ONLY` `SqlScope::AuthPreScope`
+  pre-auth credential proofs.
+- **Effect/lock safety & iterated reads:** `AppPool::run_{mailbox,user}_effect_write`
+  enforces `SET LOCAL idle_in_transaction_session_timeout = 8000`, `<= 5s` peripheral body
+  timeout, bounded concurrency semaphore, preamble advisory lock, and same-tx receipt
+  insert (`lookup_{mailbox,user}_command`). `MailboxTx<ReadWrite>::prelock_mailbox_hierarchy`
+  enforces `#481` `users FOR KEY SHARE -> mailboxes FOR UPDATE`. All `ReadOnly` handles
+  expose `query_iterated_contract` preserving frozen-Go `Rows.Err` parity.
+- **Wave 1.8 Phase `546d` dual-pool `AuthDb` (`auth_db.rs`):** contract-gated facade for
+  `setjoin-identity` routing `SqlScope::UserScoped` statements onto `AppPool` (`setjoin_app`,
+  `NOBYPASSRLS`) with `SET LOCAL app.current_user_id`, `SqlScope::AuthPreScope` reads inside
+  `BEGIN READ ONLY` on the private worker read seam (`setjoin_worker`, `BYPASSRLS`), and
+  `SqlScope::WorkerBypass` statements onto private `WorkerPool` (`setjoin_worker`), with
+  constructors gated behind `#[cfg(feature = "mint")]` so domain crates cannot mint credentials
+  or obtain `WorkerTx`.
+- **Wave 1.8 Phase `546e` contract lock-in & 187-table live `FORCE RLS` matrix:**
+  - `ScopedExecutor` and `WorkerDatabase` are hard-banned across `crates/domains/*/{src,tests}` (`WAVE_1_8_LEGACY_ALLOWLIST == {}`).
+  - Narrow `ScopedExecutor` infrastructure seams retained strictly outside domain crates:
+    internal pool-carrier inside `AuthDb`, `setjoin-authz` (`PolicyGate`, `basic`, `kerberos`,
+    `signing_keys`, `policy::Engine`, `DeviceResolver` with private `with_worker` for unauthenticated
+    device proofs), `setjoin-threat` (`Gate`), protocol listener auth plumbing
+    (`crates/protocols/{imap,smtp,ldap}`), composition-root `/ready` & startup probes,
+    JMAP v1 receipted-command dispatch (`bins/gateway/src/jmap/family/seam` writes), and
+    integration test harnesses. All user-facing scoped reads/writes in `bins/auth` (`ca`, `saml`,
+    `totp` using `AppPool` for user reads and `AdminWorkerPool` backed by `DB_WORKER_DSN` for
+    pre-auth reads) and `bins/gateway` (`federation_typing`, `jmap/{imip,presence,sse,account,http,push,smime_*,family/seam}`
+    using `AppPool` for tenant reads and `WorkerPool::run_read_only_pipelined` / `run_user_write`
+    (pre-commit decode) for cross-user worker reads/writes) route strictly through role-accurate
+    capability pools.
+  - `V289__wave18e_close_legacy_open_rls_policies.sql` drops all 4 legacy open `TO PUBLIC`
+    (`USING (true)` / `WITH CHECK (true)`) policies on `devices`, `user_devices`, and
+    `session_revocations` and enforces strict `app.current_user_id` `TO setjoin_app` scoping.
+  - `crates/pg/tests/rls_full_matrix.rs` reads `config/table-ownership-manifest.json`, asserts
+    `0` pending RLS tables, `0` legacy cross-domain writes, and `open_pols.is_empty()` across all
+    187 scoped tables (66 `mailbox_scoped` + 121 `user_scoped`) with exact 1:1 coverage, refuses
+    non-test databases unless explicitly opted in, serializes concurrent runs via
+    `pg_advisory_lock`, and proves under live `setjoin_app` (`NOSUPERUSER NOBYPASSRLS`) with
+    strictly divergent tenant IDs (`user_id != mailbox_id`): cross-tenant
+    `SELECT`/`INSERT`/`UPDATE`/`DELETE` denial (plus intentional V134:63 org-visible authenticated
+    `SELECT` / owner-only writes on `meetings`), swapped-GUC enforcement, fresh-connection
+    truly-unset (`NULL`) and empty (`''`) GUC fail-closed behavior, and 14 own-scope + 20
+    cross-scope `INSERT ... ON CONFLICT DO NOTHING / DO UPDATE` anti-oracle probes (`ARCH-018:51`).

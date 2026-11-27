@@ -71,7 +71,10 @@ impl Chain {
                 loop {
                     tokio::select! {
                      _=&mut stop=>{drop(listener);return;},
-                     message=listener.recv()=>{if message.is_none(){break;}if let Err(error)=self.reload(&db).await{eprintln!("auth-chain reload: {error}");}}
+                     message=listener.recv()=>{
+                         if message.is_none(){break;}
+                         if let Err(error)=self.reload(&db).await{eprintln!("auth-chain reload: {error}");}
+                     }
                     }
                 }
             } else if !subscribed {
@@ -79,6 +82,40 @@ impl Chain {
                 self.kerberos.store(false, Ordering::Release);
             }
             tokio::select! {_=&mut stop=>return,_=tokio::time::sleep(std::time::Duration::from_secs(1))=>{}}
+        }
+    }
+
+    /// Multiplex `config_changed` over a shared [`setjoin_pg::ListenHub`] (#543).
+    pub async fn listen_with_hub(
+        self: Arc<Self>,
+        db: ScopedExecutor,
+        hub: setjoin_pg::ListenHub,
+        mut stop: tokio::sync::oneshot::Receiver<()>,
+    ) {
+        let mut sub = match hub.subscribe("config_changed").await {
+            Ok(sub) => sub,
+            Err(_) => {
+                self.basic.store(false, Ordering::Release);
+                self.kerberos.store(false, Ordering::Release);
+                let _ = stop.await;
+                return;
+            }
+        };
+        if let Err(error) = self.reload(&db).await {
+            eprintln!("auth-chain reload: {error}");
+        }
+        loop {
+            tokio::select! {
+                _ = &mut stop => return,
+                event = sub.recv() => {
+                    if event.is_none() {
+                        return;
+                    }
+                    if let Err(error) = self.reload(&db).await {
+                        eprintln!("auth-chain reload: {error}");
+                    }
+                }
+            }
         }
     }
 }

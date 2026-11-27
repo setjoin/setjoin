@@ -1,6 +1,6 @@
 //! Directory reads mirror frozen Go. People visibility is reducer-owned and
 //! keyed by the authenticated principal's primary mailbox (never the base DN).
-use super::{result, Server};
+use super::{result, BoundPrincipal, Server};
 use ldap3_proto::{control::LdapControl, proto::*};
 use setjoin_pg::{Param, Row, Type};
 
@@ -88,28 +88,13 @@ fn entry(dn: String) -> LdapSearchResultEntry {
     }
 }
 impl Server {
-    pub(crate) async fn mailbox(&self, user: i64) -> Result<i64, ()> {
-        self.db
-            .as_ref()
-            .ok_or(())?
-            .read(
-                "SELECT id FROM mailboxes WHERE user_id=$1 AND is_primary=TRUE LIMIT 1",
-                &[(&user, Type::INT8)],
-            )
-            .await
-            .map_err(|_| ())?
-            .first()
-            .ok_or(())?
-            .try_get(0)
-            .map_err(|_| ())
-    }
     pub(crate) async fn search(
         &self,
-        user: i64,
+        principal: &BoundPrincipal,
         request: LdapSearchRequest,
         controls: &[LdapControl],
     ) -> Vec<LdapOp> {
-        match self.search_inner(user, &request, controls).await {
+        match self.search_inner(principal, &request, controls).await {
             Ok(ops) => ops,
             Err(()) => vec![LdapOp::SearchResultDone(result(
                 LdapResultCode::OperationsError,
@@ -118,11 +103,11 @@ impl Server {
     }
     async fn search_inner(
         &self,
-        user: i64,
+        principal: &BoundPrincipal,
         request: &LdapSearchRequest,
         controls: &[LdapControl],
     ) -> Result<Vec<LdapOp>, ()> {
-        let db = self.db.as_ref().ok_or(())?;
+        let tx_factory = self.tx_factory.as_ref().ok_or(())?;
         let base = base(&self.domain);
         let kind = ou(&request.base, &base);
         if kind == "root" {
@@ -170,20 +155,26 @@ impl Server {
             ]);
         }
         if kind == "groups" {
-            return self.search_groups(request).await;
+            return self.search_groups(principal, request).await;
         }
         if kind == "resources" {
-            return self.search_resources(request).await;
+            return self.search_resources(principal, request).await;
         }
         if kind == "contacts" {
-            return self.search_contacts(request).await;
+            return self.search_contacts(principal, request).await;
         }
         if kind != "people" {
             return Ok(vec![LdapOp::SearchResultDone(result(
                 LdapResultCode::Success,
             ))]);
         }
-        let mailbox = self.mailbox(user).await?;
+        let read_cap = principal
+            .mailbox
+            .as_ref()
+            .ok_or(())?
+            .require_read()
+            .map_err(|_| ())?;
+        let mailbox = read_cap.mailbox().get();
         let mut limit = i64::from(if request.sizelimit <= 0 || request.sizelimit > 1000 {
             1000
         } else {
@@ -256,7 +247,12 @@ impl Server {
             params.push((&query_limit, Type::INT8));
             params.push((&offset, Type::INT8));
         }
-        let rows = db.read(&query, &params).await.map_err(|_| ())?;
+        let mut tx = tx_factory
+            .begin_mailbox_read(&read_cap)
+            .await
+            .map_err(|_| ())?;
+        let rows = tx.query(&query, &params).await.map_err(|_| ())?;
+        tx.finish().await.map_err(|_| ())?;
         let mut ops = vec![];
         let too_many = rows.len() > limit as usize;
         for row in rows.iter().take(limit as usize) {
@@ -319,25 +315,35 @@ fn person(row: &Row, base: &str, r: &LdapSearchRequest) -> Result<LdapSearchResu
 }
 
 impl Server {
-    pub(crate) async fn compare(&self, user: i64, r: &LdapCompareRequest) -> LdapResultCode {
+    pub(crate) async fn compare(
+        &self,
+        principal: &BoundPrincipal,
+        r: &LdapCompareRequest,
+    ) -> LdapResultCode {
         let cn = rdn(&r.dn, "cn");
         if cn.is_empty() {
             return LdapResultCode::NoSuchObject;
         }
-        let Some(db) = &self.db else {
+        let Some(tx_factory) = &self.tx_factory else {
             return LdapResultCode::OperationsError;
         };
         let kind = ou(&r.dn, &base(&self.domain));
         if kind != "people" {
-            return self.compare_other(&kind, r, &cn).await;
+            return self.compare_other(principal, &kind, r, &cn).await;
         }
-        let Ok(mailbox) = self.mailbox(user).await else {
+        let Some(read_cap) = principal
+            .mailbox
+            .as_ref()
+            .and_then(|mb| mb.require_read().ok())
+        else {
             return LdapResultCode::OperationsError;
         };
+        let mailbox = read_cap.mailbox().get();
         let query="SELECT LOWER(v.display_name),LOWER(v.email),COALESCE(LOWER(v.last_name),''),COALESCE(LOWER(v.first_name),''),COALESCE(LOWER(v.phone),''),COALESCE(LOWER(v.job_title),''),EXISTS(SELECT 1 FROM jsonb_array_elements(v.addresses) asserted WHERE LOWER(asserted->>'email')=LOWER($3)) FROM directory_visible_users($1) v WHERE LOWER(v.display_name)=LOWER($2) OR EXISTS(SELECT 1 FROM jsonb_array_elements(v.addresses) address WHERE LOWER(SPLIT_PART(address->>'email','@',1))=LOWER($2) OR LOWER(address->>'email')=LOWER($2)) LIMIT 1";
         let value = String::from_utf8_lossy(&r.val).to_string();
-        let Ok(rows) = db
-            .read(
+        let Ok(rows) = tx_factory
+            .run_mailbox_read_pipelined(
+                &read_cap,
                 query,
                 &[
                     (&mailbox, Type::INT8),
@@ -380,9 +386,13 @@ impl Server {
 }
 
 impl Server {
-    async fn search_groups(&self, r: &LdapSearchRequest) -> Result<Vec<LdapOp>, ()> {
+    async fn search_groups(
+        &self,
+        principal: &BoundPrincipal,
+        r: &LdapSearchRequest,
+    ) -> Result<Vec<LdapOp>, ()> {
         let base = base(&self.domain);
-        let (rows, cap) = self.other_rows(r, "groups").await?;
+        let (rows, cap) = self.other_rows(principal, r, "groups").await?;
         let mut ops = vec![];
         for row in rows.iter().take(cap as usize) {
             let (Ok(name), Ok(email)) = (row.try_get::<_, String>(0), row.try_get::<_, String>(1))
@@ -412,9 +422,13 @@ impl Server {
 }
 
 impl Server {
-    async fn search_resources(&self, r: &LdapSearchRequest) -> Result<Vec<LdapOp>, ()> {
+    async fn search_resources(
+        &self,
+        principal: &BoundPrincipal,
+        r: &LdapSearchRequest,
+    ) -> Result<Vec<LdapOp>, ()> {
         let base = base(&self.domain);
-        let (rows, cap) = self.other_rows(r, "resources").await?;
+        let (rows, cap) = self.other_rows(principal, r, "resources").await?;
         let mut ops = vec![];
         for row in rows.iter().take(cap as usize) {
             let (Ok(name), Ok(email)) = (row.try_get::<_, String>(0), row.try_get::<_, String>(1))
@@ -450,7 +464,11 @@ impl Server {
 }
 
 impl Server {
-    async fn search_contacts(&self, r: &LdapSearchRequest) -> Result<Vec<LdapOp>, ()> {
+    async fn search_contacts(
+        &self,
+        principal: &BoundPrincipal,
+        r: &LdapSearchRequest,
+    ) -> Result<Vec<LdapOp>, ()> {
         let base = base(&self.domain);
         let cn = rdn(&r.base, "cn");
         if r.scope == LdapSearchScope::Base && cn.is_empty() {
@@ -458,7 +476,7 @@ impl Server {
                 LdapResultCode::Success,
             ))]);
         }
-        let (rows, cap) = self.other_rows(r, "contacts").await?;
+        let (rows, cap) = self.other_rows(principal, r, "contacts").await?;
         let mut ops = vec![];
         for row in rows.iter().take(cap as usize) {
             let Ok(v) = (0..7)
@@ -503,8 +521,14 @@ impl Server {
 }
 
 impl Server {
-    async fn compare_other(&self, kind: &str, r: &LdapCompareRequest, cn: &str) -> LdapResultCode {
-        let Some(db) = &self.db else {
+    async fn compare_other(
+        &self,
+        principal: &BoundPrincipal,
+        kind: &str,
+        r: &LdapCompareRequest,
+        cn: &str,
+    ) -> LdapResultCode {
+        let Some(tx_factory) = &self.tx_factory else {
             return LdapResultCode::OperationsError;
         };
         let query=match kind {
@@ -513,8 +537,29 @@ impl Server {
    "contacts"=>"SELECT LOWER(c.display_name),'',COALESCE(LOWER(c.last_name),''),COALESCE(LOWER(c.first_name),''),COALESCE(LOWER(c.company),''),COALESCE(LOWER(c.job_title),'') FROM contacts c JOIN addressbooks ab ON ab.id=c.addressbook_id WHERE c.display_name ILIKE $1 AND ab.is_shared=TRUE LIMIT 1",
    _=>return LdapResultCode::NoSuchObject,
   };
-        let Ok(rows) = db.read(query, &[(&cn, Type::TEXT)]).await else {
-            return LdapResultCode::NoSuchAttribute;
+        let rows = if matches!(kind, "groups" | "resources") {
+            if let Some(auth_db) = &self.auth_db {
+                let Ok(rows) = auth_db.read(query, &[(&cn, Type::TEXT)]).await else {
+                    return LdapResultCode::NoSuchAttribute;
+                };
+                rows
+            } else {
+                let Ok(rows) = tx_factory
+                    .run_user_read_pipelined(&principal.user, query, &[(&cn, Type::TEXT)])
+                    .await
+                else {
+                    return LdapResultCode::NoSuchAttribute;
+                };
+                rows
+            }
+        } else {
+            let Ok(rows) = tx_factory
+                .run_user_read_pipelined(&principal.user, query, &[(&cn, Type::TEXT)])
+                .await
+            else {
+                return LdapResultCode::NoSuchAttribute;
+            };
+            rows
         };
         let Some(row) = rows.first() else {
             return LdapResultCode::NoSuchAttribute;
@@ -542,8 +587,13 @@ impl Server {
 }
 
 impl Server {
-    async fn other_rows(&self, r: &LdapSearchRequest, kind: &str) -> Result<(Vec<Row>, i64), ()> {
-        let db = self.db.as_ref().ok_or(())?;
+    async fn other_rows(
+        &self,
+        principal: &BoundPrincipal,
+        r: &LdapSearchRequest,
+        kind: &str,
+    ) -> Result<(Vec<Row>, i64), ()> {
+        let tx_factory = self.tx_factory.as_ref().ok_or(())?;
         let (select,source,name)=match kind {
    "groups"=>("m.display_name,m.email","distribution_groups dg JOIN mailboxes m ON m.id=dg.mailbox_id WHERE TRUE","m.display_name"),
    "resources"=>("display_name,email","mailboxes WHERE resource_type IS NOT NULL AND enabled=TRUE","display_name"),
@@ -586,9 +636,27 @@ impl Server {
             params.push((&fetch, Type::INT8));
             params.push((&offset, Type::INT8));
         }
-        Ok((
-            db.read_iterated(&query, &params).await.map_err(|_| ())?,
-            cap,
-        ))
+        let rows = if matches!(kind, "groups" | "resources") {
+            if let Some(auth_db) = &self.auth_db {
+                auth_db.read(&query, &params).await.map_err(|_| ())?
+            } else {
+                let mut tx = tx_factory
+                    .begin_user_read(&principal.user)
+                    .await
+                    .map_err(|_| ())?;
+                let rows = tx.query(&query, &params).await.map_err(|_| ())?;
+                tx.finish().await.map_err(|_| ())?;
+                rows
+            }
+        } else {
+            let mut tx = tx_factory
+                .begin_user_read(&principal.user)
+                .await
+                .map_err(|_| ())?;
+            let rows = tx.query(&query, &params).await.map_err(|_| ())?;
+            tx.finish().await.map_err(|_| ())?;
+            rows
+        };
+        Ok((rows, cap))
     }
 }

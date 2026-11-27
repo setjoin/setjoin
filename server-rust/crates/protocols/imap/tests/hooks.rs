@@ -131,7 +131,8 @@ async fn rig(db: &setjoin_conformance::harness::Db) -> Rig {
         executor(db),
         ThreatPolicy::Enforced(gate.clone()),
         WebhookPolicy::Wired(hooks.clone()),
-    );
+    )
+    .with_auth_db(worker_executor(db));
     assert!(server.threat_enforced());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

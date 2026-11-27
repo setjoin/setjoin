@@ -1,23 +1,19 @@
 //! Frozen Go SP profile. The registered ACS cannot reach assertion parsing;
 //! this module grants no principal authority from inbound SAML XML.
+use crate::sso_cache::Cache;
 use base64::{
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
     Engine,
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use serde_json::{json, Value};
-use crate::sso_cache::Cache;
-use setjoin_pg::ScopedExecutor;
-use std::{
-    collections::BTreeMap,
-    future::Future,
-    io::Write,
-    sync::Arc,
-};
+use setjoin_pg::AuthDb;
+use std::{collections::BTreeMap, future::Future, io::Write, sync::Arc};
 pub const REDIRECT: &str = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect";
 pub const POST: &str = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST";
 pub const RSA_SHA256: &str = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
 const MD: &str = "urn:oasis:names:tc:SAML:2.0:metadata";
+#[allow(clippy::large_enum_variant)]
 enum SpSigner {
     Ring(ring::signature::RsaKeyPair),
     Existing(openssl::pkey::PKey<openssl::pkey::Private>),
@@ -118,7 +114,7 @@ pub struct Registration {
     mappings: Vec<crate::rp::Mapping>,
 }
 pub struct Registry {
-    exec: ScopedExecutor,
+    exec: AuthDb,
     encryption_key: String,
     key: Arc<Key>,
     http: Arc<dyn crate::rp::Http>,
@@ -126,7 +122,7 @@ pub struct Registry {
 }
 impl Registry {
     pub async fn load(
-        exec: ScopedExecutor,
+        exec: AuthDb,
         cert: &str,
         key: &str,
         encryption_key: &str,
@@ -161,7 +157,14 @@ impl Registry {
     ) -> Result<(BTreeMap<String, Arc<Registration>>, Vec<String>), String> {
         // Deployment-owned registrations, not user data. Keep the full Go scan:
         // an SQL/decryption/type failure invalidates the complete snapshot.
-        let rows=self.exec.read("SELECT id,idp_entity_id,idp_metadata_url,idp_sso_url,pgp_sym_decrypt(idp_cert_enc,$1::text),sp_entity_id,sp_acs_url,attribute_map::text,jit_enabled,enabled,group_attribute,group_mappings::text,allow_idp_initiated FROM saml_sp_registrations WHERE enabled=TRUE",&[(&self.encryption_key,setjoin_pg::Type::TEXT)]).await.map_err(|e|e.message)?;
+        let rows = self
+            .exec
+            .read_contract(
+                &crate::sql::SAML_L164,
+                &[(&self.encryption_key, setjoin_pg::Type::TEXT)],
+            )
+            .await
+            .map_err(|e| e.message)?;
         let mut entries = BTreeMap::new();
         let mut errors = Vec::new();
         for row in rows {
@@ -174,12 +177,14 @@ impl Registry {
             }
             let sp: String = row.try_get(5).map_err(|_| "SAML SP entity")?;
             let attributes: String = row.try_get(7).map_err(|_| "SAML attribute map")?;
-            let attribute_map = serde_json::from_str::<Option<BTreeMap<String, String>>>(&attributes)
-                .map_err(|_| "SAML attribute map type")?
-                .unwrap_or_default();
+            let attribute_map =
+                serde_json::from_str::<Option<BTreeMap<String, String>>>(&attributes)
+                    .map_err(|_| "SAML attribute map type")?
+                    .unwrap_or_default();
             let cert_text: String = row.try_get(4).map_err(|_| "SAML registration string")?;
             let jit: bool = row.try_get(8).map_err(|_| "SAML JIT flag")?;
-            let group_attribute: String = row.try_get(10).map_err(|_| "SAML registration string")?;
+            let group_attribute: String =
+                row.try_get(10).map_err(|_| "SAML registration string")?;
             let idp_initiated: bool = row.try_get(12).map_err(|_| "SAML IdP-initiated flag")?;
             let mappings: Option<String> = row.try_get(11).map_err(|_| "SAML group mappings")?;
             let build = async {
@@ -351,7 +356,12 @@ impl Registration {
     }
     /// `purpose` is `login` or `link`; a link names the link flow it belongs to. Both and the
     /// registration id are SP-signed into the tracking JWT and verified at the ACS.
-    pub fn authorization(&self, uri: &str, purpose: &str, flow: Option<&str>) -> Result<Authorization, String> {
+    pub fn authorization(
+        &self,
+        uri: &str,
+        purpose: &str,
+        flow: Option<&str>,
+    ) -> Result<Authorization, String> {
         let mut id = [0; 20];
         let mut relay = [0; 42];
         SystemRandom::new()
@@ -638,7 +648,10 @@ impl<'de> serde::Deserialize<'de> for SamlMapping {
                 .unwrap_or_default()
                 .to_owned(),
             distribution_group_id: fields.get("distribution_group_id").and_then(Value::as_i64),
-            admin_role: fields.get("admin_role").and_then(Value::as_str).map(str::to_owned),
+            admin_role: fields
+                .get("admin_role")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             department_id: fields.get("department_id").and_then(Value::as_i64),
         })
     }

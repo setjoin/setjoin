@@ -359,30 +359,19 @@ arm_dsn_split_posture() {
     echo "install provision render: the entry migration must run AFTER its renderer inputs are assigned (AUTH_ENV, CONTAINER_BIN) — the real unit renderer refuses a migration-time re-render without them" >&2
     exit 1
   fi
-  # Permissive posture (Astra L2-C8 HOLD): the credential file is
-  # UNCONDITIONAL — a fresh --permissive-dsn install must also produce it
-  # (the units' second EnvironmentFile= and the ownership block are
-  # unconditional); the postures differ only in CONTENT. The permissive
-  # heredoc carries the two owner tiers and never a worker key (no
-  # constrained worker role exists in that posture).
-  local permissive_heredoc
-  permissive_heredoc="$(sed -n '/permissive-dsn posture: no constrained roles/,/^ENV$/p' "$target")"
-  if [ -z "$permissive_heredoc" ]; then
-    echo "install provision render: the permissive-posture credential render is missing — a fresh --permissive-dsn install would chown a nonexistent credential file and boot units referencing a missing EnvironmentFile" >&2
-    exit 1
-  fi
-  for key in DB_OWNER_DSN DB_DIRECT_OWNER_DSN; do
-    printf '%s\n' "$permissive_heredoc" | grep -Eq "^$key=" ||
-      {
-        echo "install provision render: the permissive credential heredoc does not carry $key" >&2
-        exit 1
-      }
-  done
-  if printf '%s\n' "$permissive_heredoc" | grep -Eq '^DB_WORKER_DSN='; then
-    echo "install provision render: the permissive credential file must not carry DB_WORKER_DSN (no constrained worker role exists in that posture)" >&2
-    exit 1
-  fi
-  require_in "$target" 'permissive updater worker credential carries the posture DSN' "printf '%s\\n' \"\$DB_DSN\" > \"\$UPDATER_APP_WORKER_DSN_FILE\""
+  # Release N+1 (#547): single-DSN permissive mode is retired — install.sh must
+  # refuse --permissive-dsn / PERMISSIVE_DSN=1, carry no permissive credential
+  # heredoc or updater fallback, and refuse preflight exit code 2.
+  forbid_in "$target" 'retired permissive credential heredoc must not exist' \
+    'permissive-dsn posture: no constrained roles'
+  forbid_in "$target" 'retired permissive updater worker credential fallback must not exist' \
+    "printf '%s\\n' \"\$DB_DSN\" > \"\$UPDATER_APP_WORKER_DSN_FILE\""
+  forbid_in "$target" 'preflight exit 2 advisory branch must not exist' \
+    '_preflight_rc" -eq 2'
+  require_in "$target" '--permissive-dsn refused with die' \
+    'die "--permissive-dsn was retired in Release N+1'
+  require_in "$target" 'PERMISSIVE_DSN refused with die' \
+    'die "PERMISSIVE_DSN was retired in Release N+1'
 }
 
 # arm_wp2_write_posture <install-sh> — WP-2 write-hygiene pins.
@@ -900,10 +889,30 @@ expect_fire 'secret value expanded into an info line' arm_redaction 'JWT_SECRET'
 expect_fire 'recovered-DSN prompt default un-redacted' arm_redaction 'prompt default redacted' \
   '/^ask DB_DSN/ { sub(/ "\$DEF_DBDSN_RECOVERED"$/, ""); print; next } { print }'
 
-# Plant 8 (Astra L2-C8 permissive posture): a worker key planted into the
-# permissive credential heredoc → the arm fires — no constrained worker role
-# exists in that posture.
-expect_fire 'worker key planted into the permissive credential file' arm_dsn_split_posture 'permissive credential file must not carry DB_WORKER_DSN' \
-  '{ print } /permissive-dsn posture: no constrained roles/ { print "DB_WORKER_DSN=\$RUNTIME_WORKER_DSN" }'
+# Plant 8 (Release N+1 #547): re-introducing an exit-2 advisory branch for
+# mailctl schema preflight → the arm fires — Release N+1 refuses any non-zero
+# preflight exit.
+expect_fire 'preflight exit 2 advisory branch planted' arm_dsn_split_posture 'preflight exit 2 advisory branch must not exist' \
+  '/if \[ "\$_preflight_rc" -ne 0 \]; then/ { print "if [ \"$_preflight_rc\" -eq 2 ]; then info warn; fi" } { print }'
+
+# Live refusal check (Release N+1 #547): real install.sh refuses both
+# --permissive-dsn and PERMISSIVE_DSN=1 immediately before touching host state.
+_perm_out=""
+if _perm_out="$(bash "$INSTALL" --permissive-dsn 2>&1)"; then
+  echo "install provision render: install.sh --permissive-dsn succeeded instead of refusing" >&2
+  exit 1
+fi
+printf '%s\n' "$_perm_out" | grep -Fq -- '--permissive-dsn was retired' || {
+  echo "install provision render: unexpected --permissive-dsn output: $_perm_out" >&2
+  exit 1
+}
+if _perm_out="$(PERMISSIVE_DSN=1 bash "$INSTALL" 2>&1)"; then
+  echo "install provision render: PERMISSIVE_DSN=1 install.sh succeeded instead of refusing" >&2
+  exit 1
+fi
+printf '%s\n' "$_perm_out" | grep -Fq -- 'PERMISSIVE_DSN was retired' || {
+  echo "install provision render: unexpected PERMISSIVE_DSN=1 output: $_perm_out" >&2
+  exit 1
+}
 
 echo "install provision render: PASS"

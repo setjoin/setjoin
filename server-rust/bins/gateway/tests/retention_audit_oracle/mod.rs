@@ -171,8 +171,9 @@ pub async fn run(action: &str, label: &str, mutant: &str) -> Result<(), BoxError
         let mut worker_dsn=db.dsn.clone();let mut commit_wire=None;
         if mutant.starts_with("commit-"){
          let cut=if mutant=="commit-after"{common::commit::CommitCut::AfterCommit}else{common::commit::CommitCut::BeforeCommit};
-         let(dsn,task)=common::commit::commit_cut_proxy(if action=="purge"{&worker_dsn}else{&request_dsn},cut).await;
-         if action=="purge"{worker_dsn=dsn}else{request_dsn=dsn}commit_wire=Some(task);
+         let worker=matches!(action,"purge"|"create"|"update"|"delete"|"audit_set");
+         let(dsn,task)=common::commit::commit_cut_proxy(if worker{&worker_dsn}else{&request_dsn},cut).await;
+         if worker{worker_dsn=dsn}else{request_dsn=dsn}commit_wire=Some(task);
         }
         let make=|dsn:&str|setjoin_pg::ScopedExecutor::from_dsn(dsn,2).map(|e|e.with_audit_keys("22".repeat(32),if label=="keyed"{"33".repeat(32)}else{String::new()})).map_err(|e|e.0);
         let adapter=setjoin_gateway::retention_audit::RetentionAuditRoute{exec:make(&request_dsn)?,worker:make(&worker_dsn)?,keys:Arc::new(common::recovery_keys()),issuer:"mailserver".into()};

@@ -146,11 +146,12 @@ fn classified(e: &setjoin_pg::StatementFailure, env: &Env<'_>) -> Response<Body>
 
 pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Response<Body> {
     match what {
-        Action::PeerList => match setjoin_platform::federation::list(e.worker).await {
+        Action::PeerList => match setjoin_platform::federation::list(e.factory, e.admin).await {
             Ok(body) => {
                 let _ = federation::audit_list(
-                    e.exec,
-                    e.actor,
+                    e.factory,
+                    e.user,
+                    e.admin,
                     &e.c.identity.client_ip.to_string(),
                     e.operation,
                 )
@@ -176,7 +177,7 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
             }
             let mut anchor = peer.anchor.clone();
             if anchor.trim().is_empty() {
-                match federation::anchor(e.worker, &domain).await {
+                match federation::anchor(e.factory, e.admin, &domain).await {
                     Ok(Some(stored)) => anchor = stored,
                     Ok(None) => return e.problem(400, "anchor is required for a new peer"),
                     Err(_) => return e.database(),
@@ -186,8 +187,8 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
                 return e.problem(400, "anchor must be a valid PEM-encoded X.509 certificate");
             }
             match federation::set(
-                e.exec,
-                e.actor,
+                e.factory,
+                e.admin,
                 &domain,
                 &anchor,
                 &peer.scope,
@@ -212,7 +213,7 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
             if domain.is_empty() {
                 return e.problem(400, "invalid domain");
             }
-            match federation::delete(e.exec, e.actor, &domain, e.operation).await {
+            match federation::delete(e.factory, e.admin, &domain, e.operation).await {
                 CommandOutcome::Committed(true) => e.no_content(),
                 CommandOutcome::Committed(false) => e.problem(404, "peer not found"),
                 CommandOutcome::RolledBack(Rejection::Statement(f) | Rejection::Body(f)) => {

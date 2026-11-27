@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 pub struct DevicesRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: ScopedExecutor,
     pub keys: Arc<K>,
     pub issuer: String,
 }
@@ -171,7 +172,12 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        let (exec, worker, keys, issuer) = (
+            self.exec.clone(),
+            self.worker.clone(),
+            self.keys.clone(),
+            self.issuer.clone(),
+        );
         Box::pin(async move {
             let what = action(r.method(), r.uri().path()).expect("matched route");
             let verdict =
@@ -180,11 +186,19 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return bare(503, "service unavailable", &c, "");
+            };
             let Some(operation) = crate::jmap::random() else {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
-            let actor = auth.context();
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return bare(500, "database error", &c, &id);
+            };
             let path = r.uri().path().to_owned();
             let go_path = segment_path(&path);
             let write = !matches!(
@@ -203,20 +217,30 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
             } else {
                 &setjoin_devices::MAM_READ
             };
-            let authority = match setjoin_devices::authority(&exec, actor).await {
-                Ok(authority) if authority.allows_any(required) => authority,
-                _ => {
-                    let _ = setjoin_devices::console_denied(
-                        &exec,
-                        actor,
-                        &go_path,
-                        required[0],
-                        operation,
-                    )
-                    .await;
-                    return bare(403, "Forbidden", &c, &id);
-                }
+            let admin_and_proof = if auth.context().signed_admin() {
+                factory
+                    .mint_admin_from_authorized(&auth, &client_ip)
+                    .await
+                    .ok()
+                    .and_then(|admin| {
+                        let proof = admin.require_any_permission(required).ok()?;
+                        Some((admin, proof))
+                    })
+            } else {
+                None
             };
+            let Some((admin, proof)) = admin_and_proof else {
+                let _ = setjoin_devices::console_denied(
+                    &factory,
+                    &user,
+                    &go_path,
+                    required[0],
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
+            let scope = admin.enforced_domain_scope().unwrap_or(0);
             // `requireOrgWideSurface` guards the global policy writes only.
             let org_wide = matches!(
                 what,
@@ -225,13 +249,12 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     | Action::PolicyUpdate
                     | Action::PolicyDelete
             );
-            if org_wide && authority.domain_scope() != 0 {
-                let detail = format!(
-                    "org-wide-only surface (domain-scoped principal; domain={})",
-                    authority.domain_scope()
-                );
-                let _ = setjoin_devices::console_denied(&exec, actor, &go_path, &detail, operation)
-                    .await;
+            if org_wide && scope != 0 {
+                let detail =
+                    format!("org-wide-only surface (domain-scoped principal; domain={scope})");
+                let _ =
+                    setjoin_devices::console_denied(&factory, &user, &go_path, &detail, operation)
+                        .await;
                 return bare(403, "Forbidden", &c, &id);
             }
             let head = r.method() == Method::HEAD;
@@ -264,7 +287,6 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                 response
             };
             let problem = |status: u16, detail: &str| bare(status, detail, &c, &id);
-            let scope = authority.domain_scope();
             match what {
                 Action::MamGroupDelete => {
                     let group = segment(&path, 6);
@@ -275,7 +297,9 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     let Ok(group_id) = segment(&path, 7).parse::<i64>() else {
                         return problem(400, "invalid group_id");
                     };
-                    match mam::delete_group(&exec, actor, &group, group_id, &key, operation).await {
+                    match mam::delete_group(&factory, &user, &group, group_id, &key, operation)
+                        .await
+                    {
                         CommandOutcome::Committed(true) => {}
                         CommandOutcome::Committed(false) => {
                             return problem(404, "group policy not found")
@@ -285,7 +309,9 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                             return unknown_outcome(operation, &c, &id)
                         }
                     }
-                    match mam::notify(&exec, actor, 0, 0, "group_policy_updated", operation).await {
+                    match mam::notify(&factory, &user, 0, 0, "group_policy_updated", operation)
+                        .await
+                    {
                         CommandOutcome::Committed(()) => {
                             reply(200, "{\"status\":\"removed\"}\n".into())
                         }
@@ -314,7 +340,8 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                                 .into(),
                         );
                     }
-                    match mam::set_group(&exec, actor, &group, group_id, &policies, operation).await
+                    match mam::set_group(&factory, &user, &group, group_id, &policies, operation)
+                        .await
                     {
                         CommandOutcome::Committed(()) => {}
                         CommandOutcome::RolledBack(_) => return problem(500, "database error"),
@@ -322,7 +349,9 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                             return unknown_outcome(operation, &c, &id)
                         }
                     }
-                    match mam::notify(&exec, actor, 0, 0, "group_policy_updated", operation).await {
+                    match mam::notify(&factory, &user, 0, 0, "group_policy_updated", operation)
+                        .await
+                    {
                         CommandOutcome::Committed(()) => reply(200, "{\"status\":\"ok\"}\n".into()),
                         CommandOutcome::RolledBack(_) => {
                             problem(500, "policy-change notification failed")
@@ -339,14 +368,15 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     let Ok(policies) = mam::policies(&bytes) else {
                         return problem(400, "invalid JSON");
                     };
-                    let count = match mam::set_global(&exec, actor, &policies, operation).await {
+                    let count = match mam::set_global(&factory, &user, &policies, operation).await {
                         CommandOutcome::Committed(count) => count,
                         CommandOutcome::RolledBack(_) => return problem(500, "database error"),
                         CommandOutcome::Unknown { operation } => {
                             return unknown_outcome(operation, &c, &id)
                         }
                     };
-                    match mam::notify(&exec, actor, 0, count, "policy_updated", operation).await {
+                    match mam::notify(&factory, &user, 0, count, "policy_updated", operation).await
+                    {
                         CommandOutcome::Committed(()) => reply(200, "{\"status\":\"ok\"}\n".into()),
                         CommandOutcome::RolledBack(_) => {
                             problem(500, "policy-change notification failed")
@@ -361,7 +391,7 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     let Ok(registry) = registry_text.parse::<i64>() else {
                         return problem(400, "invalid device_id");
                     };
-                    let device = match mam::resolve(&exec, actor, registry, scope).await {
+                    let device = match mam::resolve(&factory, &proof, registry, scope).await {
                         Ok(Some(device)) if device != 0 => device,
                         Ok(_) => return problem(404, "device not found"),
                         Err(_) => return problem(500, "database error"),
@@ -370,7 +400,8 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     if key.is_empty() {
                         return problem(400, "policy key required");
                     }
-                    match mam::delete_device(&exec, actor, device, scope, &key, operation).await {
+                    match mam::delete_device(&factory, &user, device, scope, &key, operation).await
+                    {
                         CommandOutcome::Committed(true) => {}
                         CommandOutcome::Committed(false) => {
                             return problem(404, "policy not found")
@@ -380,7 +411,8 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                             return unknown_outcome(operation, &c, &id)
                         }
                     }
-                    match mam::notify(&exec, actor, device, 0, "policy_updated", operation).await {
+                    match mam::notify(&factory, &user, device, 0, "policy_updated", operation).await
+                    {
                         CommandOutcome::Committed(()) => reply(
                             200,
                             format!(
@@ -402,7 +434,7 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     let Ok(registry) = registry_text.parse::<i64>() else {
                         return problem(400, "invalid device_id");
                     };
-                    let device = match mam::resolve(&exec, actor, registry, scope).await {
+                    let device = match mam::resolve(&factory, &proof, registry, scope).await {
                         Ok(Some(device)) if device != 0 => device,
                         Ok(_) => return problem(404, "device not found"),
                         Err(_) => return problem(500, "database error"),
@@ -413,7 +445,9 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     let Ok(policies) = mam::policies(&bytes) else {
                         return problem(400, "invalid JSON");
                     };
-                    match mam::set_device(&exec, actor, device, scope, &policies, operation).await {
+                    match mam::set_device(&factory, &user, device, scope, &policies, operation)
+                        .await
+                    {
                         CommandOutcome::Committed(()) => {}
                         CommandOutcome::RolledBack(ref e) if mam::out_of_scope(e) => {
                             return problem(404, "device not found")
@@ -426,8 +460,8 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     let mut evidence_operation = operation;
                     evidence_operation[15] ^= 0x40;
                     match mam::log_event(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user,
                         device,
                         scope,
                         "policy_applied",
@@ -446,7 +480,8 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                             return unknown_outcome(operation, &c, &id)
                         }
                     }
-                    match mam::notify(&exec, actor, device, 0, "policy_updated", operation).await {
+                    match mam::notify(&factory, &user, device, 0, "policy_updated", operation).await
+                    {
                         CommandOutcome::Committed(()) => reply(
                             200,
                             format!(
@@ -482,13 +517,13 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     let Ok(registry) = registry_text.parse::<i64>() else {
                         return problem(400, "invalid device_id");
                     };
-                    let device = match mam::resolve(&exec, actor, registry, scope).await {
+                    let device = match mam::resolve(&factory, &proof, registry, scope).await {
                         Ok(Some(device)) if device != 0 => device,
                         Ok(_) => return problem(404, "device not found"),
                         Err(_) => return problem(500, "database error"),
                     };
                     match mam::log_event(
-                        &exec, actor, device, scope, event, severity, &detail, operation,
+                        &factory, &user, device, scope, event, severity, &detail, operation,
                     )
                     .await
                     {
@@ -501,7 +536,7 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                             return unknown_outcome(operation, &c, &id)
                         }
                     }
-                    match mam::notify(&exec, actor, device, 0, event, operation).await {
+                    match mam::notify(&factory, &user, device, 0, event, operation).await {
                         CommandOutcome::Committed(()) => reply(
                             200,
                             format!(
@@ -522,7 +557,7 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     let Ok(registry) = segment(&path, 5).parse::<i64>() else {
                         return problem(400, "invalid device_id");
                     };
-                    let device = match mam::resolve(&exec, actor, registry, scope).await {
+                    let device = match mam::resolve(&factory, &proof, registry, scope).await {
                         Ok(Some(device)) => device,
                         Ok(None) => return problem(404, "device not found"),
                         Err(_) => return problem(500, "database error"),
@@ -531,20 +566,20 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                         .and_then(|s| s.parse::<i64>().ok())
                         .filter(|n| *n > 0 && *n <= 200)
                         .unwrap_or(50);
-                    match mam::events(&exec, actor, device, limit, scope).await {
+                    match mam::events(&factory, &proof, device, limit, scope).await {
                         Ok(body) => reply(200, body),
                         Err(_) => problem(500, "database error"),
                     }
                 }
-                Action::MamDevices => match mam::list_devices(&exec, actor, scope).await {
+                Action::MamDevices => match mam::list_devices(&factory, &proof, scope).await {
                     Ok(body) => reply(200, body),
                     Err(_) => problem(500, "database error"),
                 },
-                Action::MamPolicies => match mam::list_policies(&exec, actor).await {
+                Action::MamPolicies => match mam::list_policies(&factory, &proof).await {
                     Ok(body) => reply(200, body),
                     Err(_) => problem(500, "database error"),
                 },
-                Action::MdmDevices => match mdm::list_devices(&exec, actor, scope).await {
+                Action::MdmDevices => match mdm::list_devices(&factory, &proof, scope).await {
                     Ok(body) => reply(200, body),
                     Err(_) => problem(500, "failed to list devices"),
                 },
@@ -552,7 +587,7 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     let Some(device) = parse_uuid(&segment(&path, 5)) else {
                         return problem(400, "invalid device_id");
                     };
-                    match mdm::get_device(&exec, actor, &device, scope).await {
+                    match mdm::get_device(&factory, &proof, &device, scope).await {
                         Some(body) => reply(200, body),
                         None => problem(404, "device not found"),
                     }
@@ -577,8 +612,11 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     if level != "account" && level != "device" {
                         return problem(400, "level must be 'account' or 'device'");
                     }
-                    let ip = c.identity.client_ip.to_string();
-                    match mdm::arm_wipe(&exec, actor, &device, &level, scope, &ip, operation).await {
+                    match mdm::arm_wipe(
+                        &factory, &user, &device, &level, scope, &client_ip, operation,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(()) => reply(
                             202,
                             format!(
@@ -602,7 +640,7 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                         CommandOutcome::Unknown { operation } => unknown_outcome(operation, &c, &id),
                     }
                 }
-                Action::Policies => match mdm::list_policies(&exec, actor).await {
+                Action::Policies => match mdm::list_policies(&factory, &proof).await {
                     Ok(body) => reply(200, body),
                     Err(_) => problem(500, "failed to list policies"),
                 },
@@ -638,7 +676,8 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                         );
                     }
                     if update {
-                        match mdm::update_policy(&exec, actor, policy_id, &fields, operation).await
+                        match mdm::update_policy(&factory, &user, policy_id, &fields, operation)
+                            .await
                         {
                             CommandOutcome::Committed(true) => {
                                 reply(200, "{\"message\":\"policy updated\"}\n".into())
@@ -652,7 +691,7 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                             }
                         }
                     } else {
-                        match mdm::create_policy(&exec, actor, &fields, operation).await {
+                        match mdm::create_policy(&factory, &user, &fields, operation).await {
                             CommandOutcome::Committed(new_id) => reply(
                                 201,
                                 format!("{{\"id\":{new_id},\"message\":\"policy created\"}}\n"),
@@ -670,7 +709,7 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     let Ok(policy) = segment(&path, 5).parse::<i64>() else {
                         return problem(400, "invalid policy id");
                     };
-                    match mdm::delete_policy(&exec, actor, policy, operation).await {
+                    match mdm::delete_policy(&factory, &user, policy, operation).await {
                         CommandOutcome::Committed(mdm::Deleted::Done) => {
                             reply(200, "{\"message\":\"policy deleted\"}\n".into())
                         }
@@ -701,7 +740,7 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     if ids.is_empty() {
                         return problem(400, "ids array is required");
                     }
-                    match mdm::reorder_policies(&exec, actor, &ids, operation).await {
+                    match mdm::reorder_policies(&factory, &user, &ids, operation).await {
                         CommandOutcome::Committed(()) => {
                             reply(200, "{\"message\":\"policies reordered\"}\n".into())
                         }
@@ -717,21 +756,21 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                     let limit = query(r.uri(), "limit").unwrap_or_default();
                     // Go keeps the limit only when Atoi succeeds and it is positive.
                     let limit = limit.parse::<i64>().ok().filter(|n| *n > 0).unwrap_or(0);
-                    match lockdown::queue(&exec, actor, &state, &text, limit).await {
+                    match lockdown::queue(&factory, &proof, &state, &text, limit).await {
                         Ok(body) => reply(200, body),
                         Err(_) => problem(500, "database error"),
                     }
                 }
                 Action::DeviceList => {
-                    let user = query(r.uri(), "user_id")
+                    let user_target = query(r.uri(), "user_id")
                         .unwrap_or_default()
                         .parse::<i64>()
                         .ok()
                         .filter(|n| *n > 0);
-                    let Some(user) = user else {
+                    let Some(user_target) = user_target else {
                         return problem(400, "user_id required");
                     };
-                    match lockdown::devices_of(&exec, actor, user).await {
+                    match lockdown::devices_of(&factory, &proof, user_target).await {
                         Ok(body) => reply(200, body),
                         Err(_) => problem(500, "database error"),
                     }
@@ -758,7 +797,9 @@ impl<K: KeySource + 'static> Intercept for DevicesRoute<K> {
                             .unwrap_or_default(),
                         None => String::new(),
                     };
-                    match lockdown::transition(&exec, actor, device, to, &reason, operation).await {
+                    match lockdown::transition(&factory, &user, device, to, &reason, operation)
+                        .await
+                    {
                         CommandOutcome::Committed(()) => reply(
                             200,
                             format!("{{\"device_id\":{device},\"state\":\"{to}\"}}\n"),

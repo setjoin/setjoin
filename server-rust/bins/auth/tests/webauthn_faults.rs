@@ -172,12 +172,25 @@ async fn lost_reply(kind: &str, cut: commit::CommitCut) {
         "register-finish" => "webauthn-register-finish",
         _ => unreachable!(),
     };
-    let (dsn, task) =
-        commit::commit_cut_proxy(db.app.as_deref().unwrap_or(&db.dsn), cut, command).await;
+    let work = matches!(kind, "counter" | "mint");
+    let worker_base = std::env::var("DB_WORKER_DSN")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| db.dsn.clone());
+    let app_base = db.app.as_deref().unwrap_or(&db.dsn);
+    let (dsn, task) = if work {
+        commit::multiplex_commit_cut_proxy(&worker_base, cut, command).await
+    } else {
+        commit::commit_cut_proxy(app_base, cut, command).await
+    };
     let mut wire = Wire(task);
+    let mut cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
+    if work {
+        cfg.worker_dsn = Some(dsn.clone());
+    }
     let server = AuthServer::load(
-        setjoin_pg::ScopedExecutor::from_dsn(&dsn, 1).unwrap(),
-        Config::for_secret(f["secret"].as_str().unwrap().into()),
+        setjoin_pg::ScopedExecutor::from_dsn(if work { app_base } else { &dsn }, 1).unwrap(),
+        cfg,
     )
     .await
     .unwrap()
@@ -225,8 +238,9 @@ async fn lost_reply(kind: &str, cut: commit::CommitCut) {
     let proof =
         setjoin_identity::session::Session::verify(&token, None, &legacy, "mailserver").unwrap();
     let committed = cut == commit::CommitCut::AfterCommit;
+    let auth_db = setjoin_pg::AuthDb::from_executors(exec.clone(), exec.clone());
     assert_eq!(
-        setjoin_identity::webauthn::lookup_operation(&exec, &proof, op, operation)
+        setjoin_identity::webauthn::lookup_operation(&auth_db, &proof, op, operation)
             .await
             .unwrap(),
         committed
@@ -237,7 +251,7 @@ async fn lost_reply(kind: &str, cut: commit::CommitCut) {
     let foreign =
         setjoin_identity::session::Session::verify(&foreign, None, &legacy, "mailserver").unwrap();
     assert!(
-        !setjoin_identity::webauthn::lookup_operation(&exec, &foreign, op, operation)
+        !setjoin_identity::webauthn::lookup_operation(&auth_db, &foreign, op, operation)
             .await
             .unwrap()
     );
@@ -335,7 +349,7 @@ async fn lost_reply(kind: &str, cut: commit::CommitCut) {
     }
     c.execute("INSERT INTO session_revocations(scope,user_id,jti,reason,expires_at) VALUES('jti',$1,'idmfa2-commit','idmfa2 fault authority',now()+interval '1 hour')",&[&a.user]).await.unwrap();
     assert!(
-        setjoin_identity::webauthn::lookup_operation(&exec, &proof, op, operation)
+        setjoin_identity::webauthn::lookup_operation(&auth_db, &proof, op, operation)
             .await
             .is_err()
     );

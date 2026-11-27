@@ -12,7 +12,8 @@ use serde_json::{json, Value};
 use setjoin_conformance::dns_fake::FakeDns;
 use setjoin_conformance::ldap_fake::{FakeLdap, Transport, CA_PEM};
 use setjoin_conformance::{fixture, golden, harness::Db};
-use setjoin_directory_sync::ad::{AdRuntime, NameServerResolver};
+use setjoin_directory_sync::ad::NameServerResolver;
+use setjoin_gateway::directory_sync_workers::AdRuntime;
 use setjoin_gateway::{
     directory_sync::DirectorySyncRoute, Body, BoxFuture, Config, Gateway, Intercept,
     RequestContext, RouteTable, TrustedProxies,
@@ -426,6 +427,9 @@ async fn run_inner(
         let exec = ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?
             .with_audit_keys(KEY.repeat(32), String::new());
+        let worker_exec = ScopedExecutor::from_dsn(&db.dsn, 4)
+            .map_err(|e| e.0)?
+            .with_audit_keys(KEY.repeat(32), String::new());
         let runtime = Arc::new(AdRuntime::with_parts(
             setjoin_pg::workers::WorkerDatabase::new(&db.dsn)?,
             Some(codec.clone()),
@@ -436,6 +440,7 @@ async fn run_inner(
         let adapter = Probe {
             inner: DirectorySyncRoute {
                 exec,
+                worker: Some(worker_exec),
                 keys: Arc::new(common::recovery_keys()),
                 issuer: "mailserver".into(),
                 ldap: None,

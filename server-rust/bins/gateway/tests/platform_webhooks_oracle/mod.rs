@@ -53,7 +53,11 @@ impl Intercept for Probe {
 
 fn timestamp_like(s: &str) -> bool {
     let b = s.as_bytes();
-    s.len() >= 19 && b[4] == b'-' && b[7] == b'-' && (b[10] == b'T' || b[10] == b' ') && b[13] == b':'
+    s.len() >= 19
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && (b[10] == b'T' || b[10] == b' ')
+        && b[13] == b':'
 }
 
 /// Run-time timestamps differ per run; the fixed seed times (`2026-10-01...`) are kept.
@@ -90,7 +94,10 @@ fn granted(action: &str) -> Vec<&'static str> {
 }
 
 fn hex_ok(text: &str) -> bool {
-    text.len() == 64 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    text.len() == 64
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 struct Seed {
@@ -113,7 +120,11 @@ async fn subscription(
     let (legacy, sealed, prev_legacy) = cells;
     let (enc, key): (Option<Vec<u8>>, Option<String>) = match sealed {
         Some((secret, key)) => (
-            Some(seal_column(secret.as_bytes(), MASTER, CryptoProfile::Standard)?),
+            Some(seal_column(
+                secret.as_bytes(),
+                MASTER,
+                CryptoProfile::Standard,
+            )?),
             key.map(str::to_owned),
         ),
         None => (None, None),
@@ -179,7 +190,9 @@ async fn snapshot(
             match cell {
                 (None, key) => json!({"cell":"null","key":key}),
                 (Some(bytes), key) => {
-                    let opened = open_column(bytes, MASTER).ok().map(|b| String::from_utf8_lossy(&b).into_owned());
+                    let opened = open_column(bytes, MASTER)
+                        .ok()
+                        .map(|b| String::from_utf8_lossy(&b).into_owned());
                     json!({"cell":"sealed","key":key,"opens_to":classify(opened,returned)})
                 }
             }
@@ -218,10 +231,18 @@ async fn run_inner(action: &str, kind: &str) -> Result<(), BoxError> {
     let domain_of = |id: i64| {
         let owner = &owner;
         async move {
-            Ok::<String, BoxError>(owner.query_one("SELECT name FROM domains WHERE id=$1", &[&id]).await?.get(0))
+            Ok::<String, BoxError>(
+                owner
+                    .query_one("SELECT name FROM domains WHERE id=$1", &[&id])
+                    .await?
+                    .get(0),
+            )
         }
     };
-    let domain_names = [(domain_of(a.domain).await?, "host-a.test"), (domain_of(b.domain).await?, "host-b.test")];
+    let domain_names = [
+        (domain_of(a.domain).await?, "host-a.test"),
+        (domain_of(b.domain).await?, "host-b.test"),
+    ];
     let names = |text: &str| {
         let mut out = text.to_owned();
         for (domain, name) in &domain_names {
@@ -236,7 +257,10 @@ async fn run_inner(action: &str, kind: &str) -> Result<(), BoxError> {
     };
     let role = format!("plat4-role-{}", a.user);
     owner
-        .execute("INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES($1,$2,$3)", &[&role, &permissions, &scope])
+        .execute(
+            "INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES($1,$2,$3)",
+            &[&role, &permissions, &scope],
+        )
         .await?;
     owner
         .execute(
@@ -245,7 +269,9 @@ async fn run_inner(action: &str, kind: &str) -> Result<(), BoxError> {
         )
         .await?;
     // The list route returns every subscription: start from a known-empty table.
-    owner.execute("DELETE FROM webhook_subscriptions", &[]).await?;
+    owner
+        .execute("DELETE FROM webhook_subscriptions", &[])
+        .await?;
     let all = r#"["user.created","user.updated"]"#;
     let mut seeds: Vec<Seed> = Vec::new();
     let mut deliveries: Vec<(i64, String)> = Vec::new();
@@ -253,26 +279,170 @@ async fn run_inner(action: &str, kind: &str) -> Result<(), BoxError> {
     let other = Some(b.user);
     match (action, label) {
         ("list", "success" | "ignored-query" | "scoped") => {
-            seeds.push(subscription(&owner, "a", me, 1, "self", true, all, (None, Some((OLD, Some("v1"))), None)).await?);
-            seeds.push(subscription(&owner, "b", None, 2, "organization", false, r#"["mail.received"]"#, (Some(OLD), None, None)).await?);
-            seeds.push(subscription(&owner, "c", other, 59, "self", true, r#"[]"#, (None, None, None)).await?);
-            seeds.push(subscription(&owner, "d", me, 30, "organization", true, r#"["user.deleted","auth.login"]"#, (None, Some((OLD, Some("v1"))), None)).await?);
+            seeds.push(
+                subscription(
+                    &owner,
+                    "a",
+                    me,
+                    1,
+                    "self",
+                    true,
+                    all,
+                    (None, Some((OLD, Some("v1"))), None),
+                )
+                .await?,
+            );
+            seeds.push(
+                subscription(
+                    &owner,
+                    "b",
+                    None,
+                    2,
+                    "organization",
+                    false,
+                    r#"["mail.received"]"#,
+                    (Some(OLD), None, None),
+                )
+                .await?,
+            );
+            seeds.push(
+                subscription(
+                    &owner,
+                    "c",
+                    other,
+                    59,
+                    "self",
+                    true,
+                    r#"[]"#,
+                    (None, None, None),
+                )
+                .await?,
+            );
+            seeds.push(
+                subscription(
+                    &owner,
+                    "d",
+                    me,
+                    30,
+                    "organization",
+                    true,
+                    r#"["user.deleted","auth.login"]"#,
+                    (None, Some((OLD, Some("v1"))), None),
+                )
+                .await?,
+            );
         }
         ("list", "odd-types") => {
-            seeds.push(subscription(&owner, "a", me, 1, "self", true, r#"[1,"user.created",null,{"x":1}]"#, (None, None, None)).await?);
-            seeds.push(subscription(&owner, "b", me, 2, "self", true, r#"{"not":"a list"}"#, (None, None, None)).await?);
-            seeds.push(subscription(&owner, "c", me, 3, "self", true, r#"null"#, (None, None, None)).await?);
-            seeds.push(subscription(&owner, "d", me, 4, "self", true, r#""text""#, (None, None, None)).await?);
+            seeds.push(
+                subscription(
+                    &owner,
+                    "a",
+                    me,
+                    1,
+                    "self",
+                    true,
+                    r#"[1,"user.created",null,{"x":1}]"#,
+                    (None, None, None),
+                )
+                .await?,
+            );
+            seeds.push(
+                subscription(
+                    &owner,
+                    "b",
+                    me,
+                    2,
+                    "self",
+                    true,
+                    r#"{"not":"a list"}"#,
+                    (None, None, None),
+                )
+                .await?,
+            );
+            seeds.push(
+                subscription(
+                    &owner,
+                    "c",
+                    me,
+                    3,
+                    "self",
+                    true,
+                    r#"null"#,
+                    (None, None, None),
+                )
+                .await?,
+            );
+            seeds.push(
+                subscription(
+                    &owner,
+                    "d",
+                    me,
+                    4,
+                    "self",
+                    true,
+                    r#""text""#,
+                    (None, None, None),
+                )
+                .await?,
+            );
         }
         ("deliveries", l) if l != "empty" && l != "denied" => {
-            seeds.push(subscription(&owner, "a", if l == "other-owner" { other } else { me }, 1, "self", true, all, (None, Some((OLD, Some("v1"))), None)).await?);
-            seeds.push(subscription(&owner, "b", me, 2, "self", true, all, (None, Some((OLD, Some("v1"))), None)).await?);
+            seeds.push(
+                subscription(
+                    &owner,
+                    "a",
+                    if l == "other-owner" { other } else { me },
+                    1,
+                    "self",
+                    true,
+                    all,
+                    (None, Some((OLD, Some("v1"))), None),
+                )
+                .await?,
+            );
+            seeds.push(
+                subscription(
+                    &owner,
+                    "b",
+                    me,
+                    2,
+                    "self",
+                    true,
+                    all,
+                    (None, Some((OLD, Some("v1"))), None),
+                )
+                .await?,
+            );
             let sub = seeds[0].id;
             for (n, (event, code, latency, attempt, status, error, minute)) in [
-                ("evt_one", Some(200i32), Some(12i32), 1i32, "success", Some(""), 10u32),
-                ("evt_two", Some(503), Some(1500), 2, "failed", Some("upstream <busy> & slow"), 11),
+                (
+                    "evt_one",
+                    Some(200i32),
+                    Some(12i32),
+                    1i32,
+                    "success",
+                    Some(""),
+                    10u32,
+                ),
+                (
+                    "evt_two",
+                    Some(503),
+                    Some(1500),
+                    2,
+                    "failed",
+                    Some("upstream <busy> & slow"),
+                    11,
+                ),
                 ("evt_three", None, None, 0, "pending", None, 12),
-                ("evt_four", Some(0), Some(0), 3, "exhausted", Some("circuit breaker open"), 13),
+                (
+                    "evt_four",
+                    Some(0),
+                    Some(0),
+                    3,
+                    "exhausted",
+                    Some("circuit breaker open"),
+                    13,
+                ),
             ]
             .into_iter()
             .enumerate()
@@ -296,55 +466,212 @@ async fn run_inner(action: &str, kind: &str) -> Result<(), BoxError> {
                 .await?;
         }
         ("deliveries", "empty") => {
-            seeds.push(subscription(&owner, "a", me, 1, "self", true, all, (None, None, None)).await?);
+            seeds.push(
+                subscription(&owner, "a", me, 1, "self", true, all, (None, None, None)).await?,
+            );
         }
         ("delete", "success" | "repeat") => {
-            seeds.push(subscription(&owner, "a", me, 1, "self", true, all, (None, Some((OLD, Some("v1"))), None)).await?);
-            seeds.push(subscription(&owner, "b", me, 2, "organization", true, all, (None, Some((OLD, Some("v1"))), None)).await?);
+            seeds.push(
+                subscription(
+                    &owner,
+                    "a",
+                    me,
+                    1,
+                    "self",
+                    true,
+                    all,
+                    (None, Some((OLD, Some("v1"))), None),
+                )
+                .await?,
+            );
+            seeds.push(
+                subscription(
+                    &owner,
+                    "b",
+                    me,
+                    2,
+                    "organization",
+                    true,
+                    all,
+                    (None, Some((OLD, Some("v1"))), None),
+                )
+                .await?,
+            );
             owner
                 .execute("INSERT INTO webhook_deliveries(subscription_id,event_id,event_type,request_body,attempt,status) VALUES($1,'evt_cascade','user.created','{}'::jsonb,1,'success')", &[&seeds[0].id])
                 .await?;
         }
         ("delete", "other-owner") => {
-            seeds.push(subscription(&owner, "a", other, 1, "organization", true, all, (None, Some((OLD, Some("v1"))), None)).await?);
-            seeds.push(subscription(&owner, "b", me, 2, "self", true, all, (None, Some((OLD, Some("v1"))), None)).await?);
+            seeds.push(
+                subscription(
+                    &owner,
+                    "a",
+                    other,
+                    1,
+                    "organization",
+                    true,
+                    all,
+                    (None, Some((OLD, Some("v1"))), None),
+                )
+                .await?,
+            );
+            seeds.push(
+                subscription(
+                    &owner,
+                    "b",
+                    me,
+                    2,
+                    "self",
+                    true,
+                    all,
+                    (None, Some((OLD, Some("v1"))), None),
+                )
+                .await?,
+            );
         }
         ("delete", _) => {
-            seeds.push(subscription(&owner, "a", me, 1, "self", true, all, (None, Some((OLD, Some("v1"))), None)).await?);
+            seeds.push(
+                subscription(
+                    &owner,
+                    "a",
+                    me,
+                    1,
+                    "self",
+                    true,
+                    all,
+                    (None, Some((OLD, Some("v1"))), None),
+                )
+                .await?,
+            );
         }
         ("rotate", "success" | "repeat" | "scoped" | "denied") => {
-            seeds.push(subscription(&owner, "a", me, 1, "self", true, all, (None, Some((OLD, Some("v1"))), None)).await?);
-            seeds.push(subscription(&owner, "b", me, 2, "self", true, all, (None, Some((PREV, Some("v1"))), None)).await?);
+            seeds.push(
+                subscription(
+                    &owner,
+                    "a",
+                    me,
+                    1,
+                    "self",
+                    true,
+                    all,
+                    (None, Some((OLD, Some("v1"))), None),
+                )
+                .await?,
+            );
+            seeds.push(
+                subscription(
+                    &owner,
+                    "b",
+                    me,
+                    2,
+                    "self",
+                    true,
+                    all,
+                    (None, Some((PREV, Some("v1"))), None),
+                )
+                .await?,
+            );
         }
         ("rotate", "legacy") => {
-            seeds.push(subscription(&owner, "a", me, 1, "self", true, all, (Some(OLD), None, Some(PREV))).await?);
+            seeds.push(
+                subscription(
+                    &owner,
+                    "a",
+                    me,
+                    1,
+                    "self",
+                    true,
+                    all,
+                    (Some(OLD), None, Some(PREV)),
+                )
+                .await?,
+            );
         }
         ("rotate", "malformed") => {
-            seeds.push(subscription(&owner, "a", me, 1, "self", true, all, (None, None, None)).await?);
+            seeds.push(
+                subscription(&owner, "a", me, 1, "self", true, all, (None, None, None)).await?,
+            );
         }
         ("rotate", "unknown-key") => {
-            seeds.push(subscription(&owner, "a", me, 1, "self", true, all, (None, Some((OLD, Some("v2"))), None)).await?);
+            seeds.push(
+                subscription(
+                    &owner,
+                    "a",
+                    me,
+                    1,
+                    "self",
+                    true,
+                    all,
+                    (None, Some((OLD, Some("v2"))), None),
+                )
+                .await?,
+            );
         }
         ("rotate", "no-key-id") => {
-            seeds.push(subscription(&owner, "a", me, 1, "self", true, all, (None, Some((OLD, None)), None)).await?);
+            seeds.push(
+                subscription(
+                    &owner,
+                    "a",
+                    me,
+                    1,
+                    "self",
+                    true,
+                    all,
+                    (None, Some((OLD, None)), None),
+                )
+                .await?,
+            );
         }
         ("rotate", "other-owner") => {
-            seeds.push(subscription(&owner, "a", other, 1, "organization", true, all, (None, Some((OLD, Some("v1"))), None)).await?);
+            seeds.push(
+                subscription(
+                    &owner,
+                    "a",
+                    other,
+                    1,
+                    "organization",
+                    true,
+                    all,
+                    (None, Some((OLD, Some("v1"))), None),
+                )
+                .await?,
+            );
         }
         ("rotate", "missing" | "bad-id") => {
-            seeds.push(subscription(&owner, "a", me, 1, "self", true, all, (None, Some((OLD, Some("v1"))), None)).await?);
+            seeds.push(
+                subscription(
+                    &owner,
+                    "a",
+                    me,
+                    1,
+                    "self",
+                    true,
+                    all,
+                    (None, Some((OLD, Some("v1"))), None),
+                )
+                .await?,
+            );
         }
         _ => {}
     }
-    let audit_start: i64 = owner.query_one("SELECT COALESCE(max(id),0) FROM admin_audit_log", &[]).await?.get(0);
+    let audit_start: i64 = owner
+        .query_one("SELECT COALESCE(max(id),0) FROM admin_audit_log", &[])
+        .await?
+        .get(0);
     let receipts = owner
-        .query("SELECT operation_id::text FROM rust_operation_receipts WHERE family='F08'", &[])
+        .query(
+            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F08'",
+            &[],
+        )
         .await?
         .iter()
         .map(|r| r.get::<_, String>(0))
         .collect::<Vec<_>>();
     let users: Vec<(i64, &str)> = vec![(a.user, "<admin>"), (b.user, "<other>")];
-    let seed_ids: Vec<(i64, String)> = seeds.iter().map(|s| (s.id, format!("<sub-{}>", s.label))).collect();
+    let seed_ids: Vec<(i64, String)> = seeds
+        .iter()
+        .map(|s| (s.id, format!("<sub-{}>", s.label)))
+        .collect();
     let result = async {
         let s3 = common::fake_upstream(|_| async { Response::new(common::full("")) }).await;
         let go = common::go_oracle::start_named(&db, s3, None, "gofree-plat4-http").await?;
@@ -357,9 +684,17 @@ async fn run_inner(action: &str, kind: &str) -> Result<(), BoxError> {
         )
         .map_err(|e| e.0)?
         .with_audit_keys("22".repeat(32), String::new());
+        let worker_exec = ScopedExecutor::from_dsn_with(
+            &db.dsn,
+            4,
+            setjoin_pg::Timeouts { pool_wait: patient, create: patient, statement: patient },
+        )
+        .map_err(|e| e.0)?
+        .with_audit_keys("22".repeat(32), String::new());
         let adapter = Probe {
             inner: PlatformWebhooksRoute {
                 exec,
+                worker: Some(worker_exec),
                 keys: Arc::new(common::recovery_keys()),
                 issuer: "mailserver".into(),
                 codec: SecretCodec::new(MASTER, CryptoProfile::Standard),
@@ -579,10 +914,22 @@ async fn run_inner(action: &str, kind: &str) -> Result<(), BoxError> {
         Ok::<_, BoxError>(())
     }
     .await;
-    owner.execute("DELETE FROM webhook_subscriptions WHERE url LIKE 'https://plat4-%'", &[]).await?;
+    owner
+        .execute(
+            "DELETE FROM webhook_subscriptions WHERE url LIKE 'https://plat4-%'",
+            &[],
+        )
+        .await?;
     owner.execute("DELETE FROM rust_operation_receipts WHERE family='F08' AND operation_id::text<>ALL($1)", &[&receipts]).await?;
-    owner.execute("DELETE FROM admin_role_assignments WHERE user_id=$1", &[&a.user]).await?;
-    owner.execute("DELETE FROM admin_role_groups WHERE name=$1", &[&role]).await?;
+    owner
+        .execute(
+            "DELETE FROM admin_role_assignments WHERE user_id=$1",
+            &[&a.user],
+        )
+        .await?;
+    owner
+        .execute("DELETE FROM admin_role_groups WHERE name=$1", &[&role])
+        .await?;
     for account in [&a, &b] {
         common::remove_blob_account(&owner, account).await?;
     }

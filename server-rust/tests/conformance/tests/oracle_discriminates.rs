@@ -29,11 +29,18 @@ impl SetSeen for DoubleBump {
     async fn set_seen(&self, c: &mut Client, cmd: SetMessageSeen) -> Result<SeenOutcome, BoxError> {
         let out = ReducerPath.set_seen(c, cmd).await?;
         let mb = cmd.mailbox.get();
-        c.query_typed(
+        let tx = c.transaction().await?;
+        tx.query_typed(
+            "SELECT set_config('app.current_mailbox_id', $1, true)",
+            &[(&cmd.mailbox.decimal(), Type::TEXT)],
+        )
+        .await?;
+        tx.query_typed(
             "SELECT app_notify('tag:' || $1, json_build_object('event','state_change','tag_id',NULL,'state',bump_email_state($1))::text)",
             &[(&mb, Type::INT8)],
         )
         .await?;
+        tx.commit().await?;
         Ok(out)
     }
 }

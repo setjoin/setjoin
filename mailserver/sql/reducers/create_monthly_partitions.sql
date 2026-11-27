@@ -54,6 +54,12 @@ BEGIN
         BEGIN
           EXECUTE format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
             v_name, v_tbl, v_start, v_end);
+          -- V287 defense-in-depth: revoke direct-leaf app grants on newly rolled
+          -- mailbox_audit_log partitions (via-parent access stays governed by
+          -- public.mailbox_audit_log's FORCE RLS policy).
+          IF v_tbl = 'mailbox_audit_log' THEN
+            EXECUTE format('REVOKE ALL ON TABLE public.%I FROM setjoin_app', v_name);
+          END IF;
         EXCEPTION WHEN OTHERS THEN
           RAISE WARNING 'create_monthly_partitions: % skipped (%: %)', v_name, SQLSTATE, SQLERRM;
         END;

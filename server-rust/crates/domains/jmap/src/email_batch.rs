@@ -1,23 +1,18 @@
 //! `Email/recover`, `Email/purge` and the paged reads `Email/deletedQuery`,
-//! `Email/bundles` (JMAP1, #315): the reducers Go calls, nothing else.
+//! `Email/bundles`, `Email/nudges` (JMAP1, #315): the reducers Go calls, nothing else.
 //!
-//! Recover and purge are one reducer call (`jmap_email_recover`,
-//! `jmap_email_purge(ids)` with the default `p_notify`) in a scoped transaction
-//! together with the operation's durable receipt ([`run_receipted_command`]):
-//! Go writes no audit row for either, so the receipt is a Rust-owned row in
-//! `rust_operation_receipts`, never a mailbox audit row. The mailbox is the
-//! authenticated one (R1/R3: both reducers filter by it); the reducers own the
-//! state bump, location transition, quota, orphaned-blob row and notification.
-//! The paged reads are one static `SELECT` each in a `READ ONLY` scoped read.
+//! Recover, purge, and nudge-dismiss run via [`TxFactory::run_mailbox_write_contract_pipelined`]
+//! strictly from a [`MutateCapability`] (`Owner | full_access` ONLY) together with the
+//! operation's durable receipt in `rust_operation_receipts`. The paged reads run via
+//! [`TxFactory::run_mailbox_read_contract`] strictly from a [`ReadCapability`].
+use setjoin_authz::principals::{MutateCapability, ReadCapability, TxFactory};
 use setjoin_contracts::command::CommandEnvelope;
-use setjoin_pg::{
-    run_receipted_command, CommandOutcome, MailboxAuthContext, ReceiptCommand, Rejection, Row,
-    ScopedExecutor, StatementFailure, Type,
-};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, Rejection, Row, StatementFailure};
 use std::time::Instant;
 
 use crate::email_set::SetOutcome;
 use crate::failure::{classify, Failure};
+use crate::sql;
 
 #[derive(Clone, Copy, Debug)]
 pub struct EmailBatch;
@@ -28,10 +23,9 @@ pub enum BatchOp {
     Purge,
 }
 
-pub const RECOVER: &str =
-    "SELECT jmap_email_recover($1, $4::bigint[])::text WHERE $2::bigint > 0 AND $3::text <> ''";
-pub const PURGE: &str =
-    "SELECT jmap_email_purge($1, $4::bigint[])::text WHERE $2::bigint > 0 AND $3::text <> ''";
+pub const RECOVER: &str = sql::EMAIL_RECOVER.sql;
+pub const PURGE: &str = sql::EMAIL_PURGE.sql;
+pub const NUDGE_DISMISS: &str = sql::EMAIL_NUDGE_DISMISS.sql;
 
 const RECOVER_RECEIPT: ReceiptCommand = ReceiptCommand {
     family: "jmap",
@@ -41,31 +35,36 @@ const PURGE_RECEIPT: ReceiptCommand = ReceiptCommand {
     family: "jmap",
     command: "email.purge",
 };
+const NUDGE_RECEIPT: ReceiptCommand = ReceiptCommand {
+    family: "jmap",
+    command: "email.nudge-dismiss",
+};
 
 pub async fn email_batch(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
     envelope: &CommandEnvelope<EmailBatch>,
-    auth: &MailboxAuthContext,
+    mutate: &MutateCapability,
     deadline: Instant,
     op: BatchOp,
     ids: &[i64],
 ) -> SetOutcome {
+    let mailbox = mutate.mailbox().get();
     let ids = ids.to_vec();
-    let (receipt, sql) = match op {
-        BatchOp::Recover => (RECOVER_RECEIPT, RECOVER),
-        BatchOp::Purge => (PURGE_RECEIPT, PURGE),
+    let (receipt, contract) = match op {
+        BatchOp::Recover => (RECOVER_RECEIPT, &sql::EMAIL_RECOVER),
+        BatchOp::Purge => (PURGE_RECEIPT, &sql::EMAIL_PURGE),
     };
-    let outcome = run_receipted_command(
-        exec,
-        receipt,
-        envelope,
-        auth,
-        deadline,
-        sql,
-        &[(&ids, Type::INT8_ARRAY)],
-        decode,
-    )
-    .await;
+    let outcome = tx_factory
+        .run_mailbox_write_contract_pipelined(
+            mutate,
+            envelope,
+            deadline,
+            contract,
+            &[&mailbox, &ids],
+            Some(receipt),
+            decode,
+        )
+        .await;
     match outcome {
         CommandOutcome::Committed(text) => SetOutcome::Done(text),
         CommandOutcome::RolledBack(Rejection::Statement(failure)) => match classify(&failure) {
@@ -77,7 +76,7 @@ pub async fn email_batch(
     }
 }
 
-fn decode(rows: &[Row]) -> Result<String, StatementFailure> {
+fn decode(rows: Vec<Row>) -> Result<String, StatementFailure> {
     rows.first()
         .and_then(|row| row.get::<_, Option<String>>(0))
         .ok_or_else(|| StatementFailure {
@@ -87,33 +86,27 @@ fn decode(rows: &[Row]) -> Result<String, StatementFailure> {
         })
 }
 
-pub const NUDGE_DISMISS: &str =
-    "SELECT nudge_dismiss($1, $4::text)::text WHERE $2::bigint > 0 AND $3::text <> ''";
-const NUDGE_RECEIPT: ReceiptCommand = ReceiptCommand {
-    family: "jmap",
-    command: "email.nudge-dismiss",
-};
-
 /// `Email/nudgeDismiss` with the toggle ON: the reducer appends the thread to
 /// the owning user's dismissed list (one statement, one receipt).
 pub async fn nudge_dismiss(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
     envelope: &CommandEnvelope<EmailBatch>,
-    auth: &MailboxAuthContext,
+    mutate: &MutateCapability,
     deadline: Instant,
     thread_id: &str,
 ) -> SetOutcome {
-    let outcome = run_receipted_command(
-        exec,
-        NUDGE_RECEIPT,
-        envelope,
-        auth,
-        deadline,
-        NUDGE_DISMISS,
-        &[(&thread_id, Type::TEXT)],
-        decode,
-    )
-    .await;
+    let mailbox = mutate.mailbox().get();
+    let outcome = tx_factory
+        .run_mailbox_write_contract_pipelined(
+            mutate,
+            envelope,
+            deadline,
+            &sql::EMAIL_NUDGE_DISMISS,
+            &[&mailbox, &thread_id],
+            Some(NUDGE_RECEIPT),
+            decode,
+        )
+        .await;
     match outcome {
         CommandOutcome::Committed(text) => SetOutcome::Done(text),
         CommandOutcome::RolledBack(Rejection::Statement(failure)) => match classify(&failure) {
@@ -133,33 +126,21 @@ pub enum Paged {
     Nudges,
 }
 
-const DELETED_QUERY: &str = "SELECT jmap_email_query_deleted($1, $2, $3)::text";
-const BUNDLES: &str = "SELECT newsletter_bundles_list($1, $2, $3)::text";
-const NUDGES: &str = "SELECT stale_thread_nudges_list($1, $2, $3)::text";
-
 pub async fn read_paged(
-    exec: &ScopedExecutor,
-    auth: &MailboxAuthContext,
+    tx_factory: &TxFactory,
+    read: &ReadCapability,
     which: Paged,
     limit: i32,
     position: i32,
 ) -> Result<String, StatementFailure> {
-    let mailbox = auth.mailbox().get();
-    let sql = match which {
-        Paged::DeletedQuery => DELETED_QUERY,
-        Paged::Bundles => BUNDLES,
-        Paged::Nudges => NUDGES,
+    let mailbox = read.mailbox().get();
+    let contract = match which {
+        Paged::DeletedQuery => &sql::EMAIL_DELETED_QUERY,
+        Paged::Bundles => &sql::EMAIL_BUNDLES,
+        Paged::Nudges => &sql::EMAIL_NUDGES,
     };
-    let rows = exec
-        .read_scoped(
-            auth,
-            sql,
-            &[
-                (&mailbox, Type::INT8),
-                (&limit, Type::INT4),
-                (&position, Type::INT4),
-            ],
-        )
+    let rows = tx_factory
+        .run_mailbox_read_contract(read, contract, &[&mailbox, &limit, &position])
         .await?;
     rows.first()
         .and_then(|row| row.get::<_, Option<String>>(0))
@@ -177,12 +158,12 @@ mod tests {
     #[test]
     fn statements_are_admissible_and_name_no_partitioned_table() {
         for sql in [
-            RECOVER,
-            PURGE,
-            DELETED_QUERY,
-            BUNDLES,
-            NUDGES,
-            NUDGE_DISMISS,
+            sql::EMAIL_RECOVER.sql,
+            sql::EMAIL_PURGE.sql,
+            sql::EMAIL_DELETED_QUERY.sql,
+            sql::EMAIL_BUNDLES.sql,
+            sql::EMAIL_NUDGES.sql,
+            sql::EMAIL_NUDGE_DISMISS.sql,
         ] {
             assert_eq!(setjoin_pg::statement::admit(sql), Ok(()));
             assert!(!sql.contains("messages") && !sql.contains("message_tags"));

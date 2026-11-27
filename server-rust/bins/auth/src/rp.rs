@@ -189,14 +189,12 @@ impl AuthServer {
             let strict_session =
                 cookie_value(req.headers(), "access_token").is_some_and(|s| !s.is_empty());
             if !strict_session && !setjoin_identity::mutants::on("oidc-link-needs-strict-cookies") {
-                let reply = self
-                    .rp_link_hold(&req, &assertion, &provider, &name, &flow)
-                    .await;
+                let reply =
+                    boxed(|| self.rp_link_hold(&req, &assertion, &provider, &name, &flow)).await;
                 return self.rp_clear(reply, &req, true);
             }
-            let mut reply = self
-                .rp_link_callback(&req, &assertion, &provider, &flow)
-                .await;
+            let mut reply =
+                boxed(|| self.rp_link_callback(&req, &assertion, &provider, &flow)).await;
             reply.headers_mut().append(
                 "set-cookie",
                 format!(
@@ -212,23 +210,25 @@ impl AuthServer {
             );
             return self.rp_clear(reply, &req, true);
         }
-        let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
-        let response = match assertion.resolve(&self.exec, worker).await {
+        let worker = self.recovery_worker.as_ref().unwrap_or(&self.auth_db);
+        let response = match assertion.resolve(&self.auth_db, worker).await {
             Ok(setjoin_identity::rp::Lookup::Missing(miss)) => {
                 if provider.jit() || self.config.jit_enabled {
-                    match miss.create(&self.exec, worker).await {
+                    match miss.create(&self.auth_db, worker).await {
                         Ok(resolution) => {
-                            self.rp_complete(
-                                &req,
-                                raw_body.as_deref(),
-                                &assertion,
-                                &*provider,
-                                &resolution,
-                                worker,
-                                ca_enabled,
-                                dt_enabled,
-                                "oidc",
-                            )
+                            boxed(|| {
+                                self.rp_complete(
+                                    &req,
+                                    raw_body.as_deref(),
+                                    &assertion,
+                                    &*provider,
+                                    &resolution,
+                                    worker,
+                                    ca_enabled,
+                                    dt_enabled,
+                                    "oidc",
+                                )
+                            })
                             .await
                         }
                         // identity_auth_jit's soft address collision is a conflict, not a fault (#547).
@@ -252,17 +252,19 @@ impl AuthServer {
                 req.uri().path(),
             ),
             Ok(setjoin_identity::rp::Lookup::Existing(resolution)) => {
-                self.rp_complete(
-                    &req,
-                    raw_body.as_deref(),
-                    &assertion,
-                    &*provider,
-                    &resolution,
-                    worker,
-                    ca_enabled,
-                    dt_enabled,
-                    "oidc",
-                )
+                boxed(|| {
+                    self.rp_complete(
+                        &req,
+                        raw_body.as_deref(),
+                        &assertion,
+                        &*provider,
+                        &resolution,
+                        worker,
+                        ca_enabled,
+                        dt_enabled,
+                        "oidc",
+                    )
+                })
                 .await
             }
         };
@@ -330,7 +332,7 @@ impl AuthServer {
         assertion: &setjoin_identity::rp::Assertion,
         provider: &dyn setjoin_identity::rp::Federated,
         resolution: &setjoin_identity::rp::Resolution,
-        worker: &setjoin_pg::ScopedExecutor,
+        worker: &setjoin_pg::AuthDb,
         ca_enabled: bool,
         dt_enabled: bool,
         auth_method: &str,
@@ -338,7 +340,7 @@ impl AuthServer {
         let path = req.uri().path();
         let user = match assertion
             .settle(
-                &self.exec,
+                &self.auth_db,
                 worker,
                 provider,
                 resolution,
@@ -369,11 +371,11 @@ impl AuthServer {
         };
         // #454: the verified user is known only after settlement; read the risk once here,
         // before any token is signed or stored, and pass it into both mint paths.
-        let risk = match user.risk(&self.exec).await {
+        let risk = match user.risk(&self.auth_db).await {
             Ok(risk) => risk,
             Err(_) => return Self::failure(500, "token issue failed", path),
         };
-        let is_guest = match resolution.guest_scope(&self.exec).await {
+        let is_guest = match resolution.guest_scope(&self.auth_db).await {
             Ok(g) => g,
             Err(_) => return Self::failure(503, "conditional access context unavailable", path),
         };
@@ -396,8 +398,15 @@ impl AuthServer {
                 .invalidate_user_scope(user.user())
                 .await;
         }
-        let ca_policy_id = match self
-            .evaluate_ca(
+        let pending_mint = super::ca::PendingMint {
+            user_id: user.user(),
+            email: user.email(),
+            amr: &["pwd"],
+            credential_fence: None,
+            identity_fence: resolution.fence(),
+        };
+        let ca_policy_id = match boxed(|| {
+            self.evaluate_ca(
                 ca_enabled,
                 self.ca_context(
                     user.user(),
@@ -408,16 +417,11 @@ impl AuthServer {
                     auth_method,
                 ),
                 false,
-                Some(&super::ca::PendingMint {
-                    user_id: user.user(),
-                    email: user.email(),
-                    amr: &["pwd"],
-                    credential_fence: None,
-                    identity_fence: resolution.fence(),
-                }),
+                Some(&pending_mint),
                 path,
             )
-            .await
+        })
+        .await
         {
             Ok(id) => id,
             Err(reply) => return reply,
@@ -429,12 +433,12 @@ impl AuthServer {
         // shape while still enforcing CA gates and attaching DeviceClaim.
         let _ = ca_policy_id;
         let outcome = if resolution.normalized() {
-            resolution
-                .mint_normalized(
+            boxed(|| {
+                resolution.mint_normalized(
                     worker,
                     |family| async {
-                        match self
-                            .completion_tokens(
+                        match boxed(|| {
+                            self.completion_tokens(
                                 &user,
                                 path,
                                 Some(family),
@@ -447,7 +451,8 @@ impl AuthServer {
                                 &ip,
                                 agent,
                             )
-                            .await
+                        })
+                        .await
                         {
                             Ok(tokens) => {
                                 let result = (tokens.refresh.clone(), self.config.refresh_seconds);
@@ -471,7 +476,7 @@ impl AuthServer {
                         async move {
                             if let Some(tokens) = tokens {
                                 user.record(
-                                    &self.exec,
+                                    &self.auth_db,
                                     &tokens.access,
                                     &tokens.jti,
                                     self.config.access_seconds,
@@ -484,10 +489,11 @@ impl AuthServer {
                         }
                     },
                 )
-                .await
+            })
+            .await
         } else {
-            let tokens = match self
-                .completion_tokens(
+            let tokens = match boxed(|| {
+                self.completion_tokens(
                     &user,
                     path,
                     None,
@@ -500,14 +506,15 @@ impl AuthServer {
                     &ip,
                     agent,
                 )
-                .await
+            })
+            .await
             {
                 Ok(t) => t,
                 Err(r) => return r,
             };
             let result = resolution
                 .mint(
-                    &self.exec,
+                    &self.auth_db,
                     &tokens.refresh,
                     self.config.refresh_seconds,
                     &tokens.family,
@@ -557,7 +564,7 @@ impl AuthServer {
             .expect("committed mint prepared credentials");
         if !resolution.normalized() {
             user.record(
-                &self.exec,
+                &self.auth_db,
                 &tokens.access,
                 &tokens.jti,
                 self.config.access_seconds,
@@ -587,6 +594,17 @@ impl AuthServer {
             None => None,
         }
     }
+
+    /// Start OIDC RP cache invalidation multiplexed onto a shared [`setjoin_pg::ListenHub`] (#543).
+    pub async fn start_rp_listener_with_hub(
+        &self,
+        hub: &setjoin_pg::ListenHub,
+    ) -> Option<setjoin_identity::rp::Listener> {
+        match &self.rp {
+            Some(registry) => Some(registry.listen_with_hub(hub).await),
+            None => None,
+        }
+    }
 }
 
 impl AuthServer {
@@ -607,7 +625,7 @@ impl AuthServer {
                 )))
                 .unwrap();
         }
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -625,7 +643,7 @@ impl AuthServer {
         let Some(flow) = setjoin_identity::rp::LinkFlow::begin(&session, &raw, &provider) else {
             return Self::failure(403, "fresh AAL2 step-up is required before linking", "");
         };
-        let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
+        let worker = self.recovery_worker.as_ref().unwrap_or(&self.auth_db);
         match flow.persist(worker).await {
             setjoin_pg::CommandOutcome::Committed(_) => {}
             setjoin_pg::CommandOutcome::Unknown { operation } => {
@@ -716,7 +734,7 @@ impl AuthServer {
         provider: &setjoin_identity::rp::Provider,
         raw_flow: &str,
     ) -> Response<Body> {
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -741,7 +759,7 @@ impl AuthServer {
         }) else {
             return Self::failure(403, "linking session changed", "");
         };
-        let flow = match flow.authorize(&session, &raw, &self.exec).await {
+        let flow = match flow.authorize(&session, &raw, &self.auth_db).await {
             Ok(f) => f,
             Err(detail) => {
                 return Self::failure(
@@ -758,7 +776,7 @@ impl AuthServer {
         self.rp_link_outcome(
             req,
             flow.finish(
-                self.recovery_worker.as_ref().unwrap_or(&self.exec),
+                self.recovery_worker.as_ref().unwrap_or(&self.auth_db),
                 assertion,
                 provider,
                 self.config.sso_allow_super_admin_mapping,
@@ -872,7 +890,7 @@ impl AuthServer {
         name: &str,
         raw_flow: &str,
     ) -> Response<Body> {
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -883,7 +901,7 @@ impl AuthServer {
         else {
             return Self::failure(400, "invalid identity link flow", "");
         };
-        let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
+        let worker = self.recovery_worker.as_ref().unwrap_or(&self.auth_db);
         let Some(token) = flow.hold(worker, assertion).await else {
             return Self::failure(
                 503,
@@ -931,9 +949,8 @@ impl AuthServer {
         if token.is_empty() {
             return Self::failure(400, "invalid identity link flow", &path);
         }
-        let mut reply = self
-            .rp_link_finish_held(&req, &provider, &raw_flow, &token)
-            .await;
+        let mut reply =
+            boxed(|| self.rp_link_finish_held(&req, &provider, &raw_flow, &token)).await;
         reply.headers_mut().append(
             "set-cookie",
             format!(
@@ -960,7 +977,7 @@ impl AuthServer {
         raw_flow: &str,
         token: &str,
     ) -> Response<Body> {
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -985,7 +1002,7 @@ impl AuthServer {
         }) else {
             return Self::failure(403, "linking session changed", "");
         };
-        let flow = match flow.authorize(&session, &raw, &self.exec).await {
+        let flow = match flow.authorize(&session, &raw, &self.auth_db).await {
             Ok(f) => f,
             Err(detail) => {
                 return Self::failure(
@@ -999,7 +1016,7 @@ impl AuthServer {
                 )
             }
         };
-        let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
+        let worker = self.recovery_worker.as_ref().unwrap_or(&self.auth_db);
         let Some(assertion) = flow.take_held(worker, token).await else {
             return Self::failure(401, "link completion expired or already used", "");
         };

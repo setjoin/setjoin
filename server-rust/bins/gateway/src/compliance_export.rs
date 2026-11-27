@@ -3,7 +3,7 @@ use crate::{recovery_worker::S3Store, Body, RequestContext};
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use hyper::Response;
-use setjoin_pg::ScopedExecutor;
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
 use sha2::{Digest, Sha256};
 use std::{
     pin::Pin,
@@ -73,14 +73,14 @@ impl hyper::body::Body for Stream {
 }
 pub(crate) struct Selection {
     pub head: bool,
-    pub actor: i64,
     pub case: i64,
     pub ids: Vec<i64>,
     pub original: Vec<String>,
     pub raw: Vec<u8>,
 }
 pub(crate) async fn response(
-    exec: ScopedExecutor,
+    factory: TxFactory,
+    admin: AdminPermissionProof,
     store: Option<Arc<S3Store>>,
     selection: Selection,
     c: &RequestContext,
@@ -88,7 +88,6 @@ pub(crate) async fn response(
 ) -> Response<Body> {
     let Selection {
         head,
-        actor,
         case,
         ids,
         original,
@@ -119,7 +118,7 @@ pub(crate) async fn response(
                 return;
             }
             for (id, key, from, subject, date) in
-                setjoin_compliance::export::messages(&exec, &ids, actor).await
+                setjoin_compliance::export::messages(&factory, &admin, &ids).await
             {
                 if w.write(Bytes::from(format!(
                     "From {from} {date}\r\nSubject: {subject}\r\nX-Custody-Message-ID: {id}\r\n"

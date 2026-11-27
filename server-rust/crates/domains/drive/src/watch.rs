@@ -2,6 +2,7 @@
 //! watchers' own `drive-watch:<uid>` channels. Only the explicit worker DSN
 //! (cross-tenant ancestor resolution) is used; the dedupe cache is
 //! process-local exactly like Go's.
+use crate::sql;
 use serde_json::Value;
 use std::{
     collections::HashMap,
@@ -84,7 +85,7 @@ impl DriveWatch {
             let (node, op) = if let Some(seq) = seq {
                 let rows = client
                     .query_typed(
-                        "SELECT node_id, op FROM drive_changes WHERE space_id = $1 AND seq = $2",
+                        sql::WATCH_CHANGE_LOOKUP.sql,
                         &[(&space, Type::INT8), (&seq, Type::INT8)],
                     )
                     .await?;
@@ -92,22 +93,21 @@ impl DriveWatch {
                     return Ok::<_, Error>(());
                 };
                 (row.get::<_, i64>(0), row.get::<_, String>(1))
-            } else if kind.as_deref() == Some("lock") && node.is_some() {
-                (node.unwrap(), "lock".to_owned())
+            } else if let (Some("lock"), Some(node)) = (kind.as_deref(), node) {
+                (node, "lock".to_owned())
             } else {
                 return Ok(());
             };
             let users = client
                 .query_typed(
-                    "SELECT DISTINCT wa.user_id FROM drive_nodes n \
-                     JOIN drive_node_closure c ON c.space_id = n.space_id AND c.descendant_id = n.id \
-                     JOIN drive_watches wa ON wa.node_id = c.ancestor_id \
-                     WHERE n.id = $1 AND (wa.ops IS NULL OR $2 = ANY(wa.ops)) \
-                     AND public.drive_runtime_has_node_capability(wa.user_id, n.id, 'read_metadata')",
+                    sql::WATCH_MATCHING_USERS.sql,
                     &[(&node, Type::INT8), (&op, Type::TEXT)],
                 )
                 .await?;
-            let out = format!("{{\"nodeId\":{node},\"op\":{},\"spaceId\":{space}}}", serde_json::to_string(&op)?);
+            let out = format!(
+                "{{\"nodeId\":{node},\"op\":{},\"spaceId\":{space}}}",
+                serde_json::to_string(&op)?
+            );
             for row in users {
                 let user: i64 = row.get(0);
                 if !self.should_send(user, node, &op) {
@@ -116,7 +116,7 @@ impl DriveWatch {
                 let channel = format!("drive-watch:{user}");
                 let _ = client
                     .query_typed(
-                        "SELECT pg_notify($1, $2)",
+                        sql::WATCH_PG_NOTIFY.sql,
                         &[(&channel, Type::TEXT), (&out, Type::TEXT)],
                     )
                     .await;
@@ -146,6 +146,34 @@ impl DriveWatch {
                 Err(_) => eprintln!("drive watch: listener disconnected"),
             }
             tokio::select! {_=&mut stop=>return,_=tokio::time::sleep(Duration::from_secs(1))=>{}}
+        }
+    }
+
+    /// Multiplex `drive` onto a shared [`setjoin_pg::ListenHub`] (#543).
+    pub async fn run_with_hub(self, hub: setjoin_pg::ListenHub, stop: impl Future<Output = ()>) {
+        tokio::pin!(stop);
+        let Ok(mut sub) = hub.subscribe("drive").await else {
+            stop.await;
+            return;
+        };
+        loop {
+            let event = tokio::select! {
+                _ = &mut stop => return,
+                event = sub.recv() => event,
+            };
+            let Some(event) = event else {
+                return;
+            };
+            if let setjoin_pg::ListenEvent::Notification(notification) = event {
+                tokio::select! {
+                    _ = &mut stop => return,
+                    result = self.tick(&notification.payload) => {
+                        if result.is_err() {
+                            eprintln!("drive watch: event failed");
+                        }
+                    }
+                }
+            }
         }
     }
 }

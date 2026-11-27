@@ -10,12 +10,18 @@ use setjoin_pg::ScopedExecutor;
 use std::sync::Arc;
 pub struct F15Config<K: KeySource> {
     pub exec: ScopedExecutor,
+    pub worker: ScopedExecutor,
     pub keys: Arc<K>,
     pub issuer: String,
     pub store: Option<Arc<S3Store>>,
 }
 impl<K: KeySource> F15Config<K> {
-    pub fn from_env(exec: ScopedExecutor, keys: Arc<K>, issuer: String) -> Result<Self, String> {
+    pub fn from_env(
+        exec: ScopedExecutor,
+        worker: ScopedExecutor,
+        keys: Arc<K>,
+        issuer: String,
+    ) -> Result<Self, String> {
         let configured = ["S3_ENDPOINT", "MINIO_ENDPOINT"]
             .iter()
             .any(|key| std::env::var(key).ok().is_some_and(|v| !v.is_empty()));
@@ -26,6 +32,7 @@ impl<K: KeySource> F15Config<K> {
         };
         Ok(Self {
             exec,
+            worker,
             keys,
             issuer,
             store,
@@ -42,6 +49,7 @@ impl<K: KeySource + 'static> F15Route<K> {
             wopi: OfficeRoute::new(c.exec.clone(), c.store),
             admin: OfficeAdminRoute {
                 exec: c.exec,
+                worker: c.worker,
                 keys: c.keys,
                 issuer: c.issuer,
                 provider_client: None,
@@ -50,7 +58,9 @@ impl<K: KeySource + 'static> F15Route<K> {
     }
 }
 impl<K: KeySource + 'static> Intercept for F15Route<K> {
-    fn requires_session(&self, r: &Request<Body>) -> bool { self.admin.matches(r) }
+    fn requires_session(&self, r: &Request<Body>) -> bool {
+        self.admin.matches(r)
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         self.wopi.matches(r) || self.admin.matches(r)
     }

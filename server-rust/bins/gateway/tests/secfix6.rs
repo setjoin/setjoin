@@ -9,17 +9,24 @@ use serde_json::{json, Value};
 use setjoin_conformance::{fixture, harness::Db};
 use tokio_postgres::Client;
 
-async fn actor(exec: &setjoin_pg::ScopedExecutor, user: i64) -> Result<setjoin_authz::Authorized, BoxError> {
+async fn actor(
+    exec: &setjoin_pg::ScopedExecutor,
+    user: i64,
+) -> Result<setjoin_authz::Authorized, BoxError> {
     let mut headers = hyper::HeaderMap::new();
     headers.insert("host", "mail.test".parse()?);
     headers.insert("origin", "http://mail.test".parse()?);
     let token = common::recovery_token_with(user, json!({"admin": true}));
     headers.insert("authorization", format!("Bearer {token}").parse()?);
-    Ok(
-        setjoin_authz::authorize_request(exec, &common::recovery_keys(), "mailserver", &headers, "http")
-            .await
-            .ok_or("verified actor")?,
+    Ok(setjoin_authz::authorize_request(
+        exec,
+        &common::recovery_keys(),
+        "mailserver",
+        &headers,
+        "http",
     )
+    .await
+    .ok_or("verified actor")?)
 }
 
 async fn cleanup(owner: &Client) -> Result<(), BoxError> {
@@ -56,8 +63,12 @@ async fn cleanup(owner: &Client) -> Result<(), BoxError> {
     Ok(())
 }
 
-async fn world(case: &str) -> Result<Option<(Db, Client, fixture::Account, fixture::Account)>, BoxError> {
-    let Some(db) = Db::for_case(case) else { return Ok(None) };
+async fn world(
+    case: &str,
+) -> Result<Option<(Db, Client, fixture::Account, fixture::Account)>, BoxError> {
+    let Some(db) = Db::for_case(case) else {
+        return Ok(None);
+    };
     let owner = db.connect().await?;
     cleanup(&owner).await?;
     let a = fixture::account(&owner, "secfix6-a").await?;
@@ -65,7 +76,13 @@ async fn world(case: &str) -> Result<Option<(Db, Client, fixture::Account, fixtu
     Ok(Some((db, owner, a, b)))
 }
 
-async fn queue_row(owner: &Client, table: &str, mailbox: i64, message_id: &str, status: &str) -> Result<(), BoxError> {
+async fn queue_row(
+    owner: &Client,
+    table: &str,
+    mailbox: i64,
+    message_id: &str,
+    status: &str,
+) -> Result<(), BoxError> {
     owner
         .execute(
             &format!(
@@ -80,7 +97,12 @@ async fn queue_row(owner: &Client, table: &str, mailbox: i64, message_id: &str, 
 
 async fn queue_count(owner: &Client, table: &str, mailbox: i64) -> Result<i64, BoxError> {
     Ok(owner
-        .query_one(&format!("SELECT count(*) FROM {table} WHERE mailbox_id=$1 AND message_id LIKE 'secfix6-%'"), &[&mailbox])
+        .query_one(
+            &format!(
+                "SELECT count(*) FROM {table} WHERE mailbox_id=$1 AND message_id LIKE 'secfix6-%'"
+            ),
+            &[&mailbox],
+        )
         .await?
         .get(0))
 }
@@ -93,7 +115,9 @@ static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 #[tokio::test]
 async fn undo_send_never_deletes_another_tenants_queue_row() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
-    let Some((_db, owner, a, b)) = world("secfix6-undo").await? else { return Ok(()) };
+    let Some((_db, owner, a, b)) = world("secfix6-undo").await? else {
+        return Ok(());
+    };
     let result = async {
         let shared = "secfix6-shared@oracle.test";
         owner.execute("UPDATE messages SET message_id=$2 WHERE id=$1", &[&a.inbox_only, &shared]).await?;
@@ -131,20 +155,48 @@ async fn undo_send_never_deletes_another_tenants_queue_row() -> Result<(), BoxEr
 #[tokio::test]
 async fn purge_blob_check_ignores_another_tenants_message() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
-    let Some((_db, owner, a, b)) = world("secfix6-purge").await? else { return Ok(()) };
+    let Some((_db, owner, a, b)) = world("secfix6-purge").await? else {
+        return Ok(());
+    };
     let result = async {
         let raw = "secfix6-shared-raw";
-        owner.execute("UPDATE messages SET raw_ref=$2, is_deleted=true, deleted_at=now() WHERE id=$1", &[&a.inbox_only, &raw]).await?;
-        owner.execute("UPDATE messages SET raw_ref=$2 WHERE id=$1", &[&b.inbox_only, &raw]).await?;
+        owner
+            .execute(
+                "UPDATE messages SET raw_ref=$2, is_deleted=true, deleted_at=now() WHERE id=$1",
+                &[&a.inbox_only, &raw],
+            )
+            .await?;
+        owner
+            .execute(
+                "UPDATE messages SET raw_ref=$2 WHERE id=$1",
+                &[&b.inbox_only, &raw],
+            )
+            .await?;
         let ids = vec![a.inbox_only];
-        let purged: String = owner.query_one("SELECT jmap_email_purge($1,$2,false)::text", &[&a.mailbox, &ids]).await?.get(0);
-        let purged: Value = serde_json::from_str(&purged)?;
-        assert_eq!(purged["purged"], json!([a.inbox_only.to_string()]), "{purged}");
-        let queued: bool = owner
-            .query_one("SELECT EXISTS(SELECT 1 FROM orphaned_message_blobs WHERE raw_ref=$1)", &[&raw])
+        let purged: String = owner
+            .query_one(
+                "SELECT jmap_email_purge($1,$2,false)::text",
+                &[&a.mailbox, &ids],
+            )
             .await?
             .get(0);
-        assert!(queued, "another tenant's message with the same raw_ref decided the purge");
+        let purged: Value = serde_json::from_str(&purged)?;
+        assert_eq!(
+            purged["purged"],
+            json!([a.inbox_only.to_string()]),
+            "{purged}"
+        );
+        let queued: bool = owner
+            .query_one(
+                "SELECT EXISTS(SELECT 1 FROM orphaned_message_blobs WHERE raw_ref=$1)",
+                &[&raw],
+            )
+            .await?
+            .get(0);
+        assert!(
+            queued,
+            "another tenant's message with the same raw_ref decided the purge"
+        );
         Ok::<_, BoxError>(())
     }
     .await;
@@ -157,21 +209,42 @@ async fn purge_blob_check_ignores_another_tenants_message() -> Result<(), BoxErr
 #[tokio::test]
 async fn mailbox_set_system_tag_precheck_is_mailbox_scoped() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
-    let Some((_db, owner, a, b)) = world("secfix6-systag").await? else { return Ok(()) };
+    let Some((_db, owner, a, b)) = world("secfix6-systag").await? else {
+        return Ok(());
+    };
     let result = async {
         let foreign_inbox = b.inbox;
         let patch = json!({ foreign_inbox.to_string(): {"name": "renamed"} });
-        let out: String = owner.query_one("SELECT jmap_mailbox_set_update($1,$2::text::jsonb)::text", &[&a.mailbox, &patch.to_string()]).await?.get(0);
+        let out: String = owner
+            .query_one(
+                "SELECT jmap_mailbox_set_update($1,$2::text::jsonb)::text",
+                &[&a.mailbox, &patch.to_string()],
+            )
+            .await?
+            .get(0);
         let out: Value = serde_json::from_str(&out)?;
         let err = &out["notUpdated"][foreign_inbox.to_string()];
         assert_eq!(err["type"], "notFound", "{out}");
-        let name: String = owner.query_one("SELECT name FROM tags WHERE id=$1", &[&foreign_inbox]).await?.get(0);
+        let name: String = owner
+            .query_one("SELECT name FROM tags WHERE id=$1", &[&foreign_inbox])
+            .await?
+            .get(0);
         assert_eq!(name, "Inbox");
         // The caller's own system tag stays protected.
         let own = json!({ a.inbox.to_string(): {"name": "renamed"} });
-        let out: String = owner.query_one("SELECT jmap_mailbox_set_update($1,$2::text::jsonb)::text", &[&a.mailbox, &own.to_string()]).await?.get(0);
+        let out: String = owner
+            .query_one(
+                "SELECT jmap_mailbox_set_update($1,$2::text::jsonb)::text",
+                &[&a.mailbox, &own.to_string()],
+            )
+            .await?
+            .get(0);
         let out: Value = serde_json::from_str(&out)?;
-        assert_eq!(out["notUpdated"][a.inbox.to_string()]["type"], "invalidArguments", "{out}");
+        assert_eq!(
+            out["notUpdated"][a.inbox.to_string()]["type"],
+            "invalidArguments",
+            "{out}"
+        );
         Ok::<_, BoxError>(())
     }
     .await;
@@ -184,7 +257,9 @@ async fn mailbox_set_system_tag_precheck_is_mailbox_scoped() -> Result<(), BoxEr
 #[tokio::test]
 async fn subscription_cap_counts_under_the_rls_bound_credential() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
-    let Some((db, owner, a, _b)) = world("secfix6-subscription-cap").await? else { return Ok(()) };
+    let Some((db, owner, a, _b)) = world("secfix6-subscription-cap").await? else {
+        return Ok(());
+    };
     let result = async {
         for i in 0..setjoin_calendar::MAX_SUBSCRIPTIONS_PER_USER {
             let calendar: i64 = owner
@@ -197,8 +272,10 @@ async fn subscription_cap_counts_under_the_rls_bound_credential() -> Result<(), 
         }
         let app = db.app.as_deref().ok_or("DB_APP_DSN is required for the RLS case")?;
         let exec = common::patient_exec(app, 4)?;
+        let tx = setjoin_gateway::policy_composition::tx_factory_from_executors(&exec, None).ok_or("tx factory unavailable")?;
         let authorized = actor(&common::patient_exec(&db.dsn, 2)?, a.user).await?;
-        let counted = setjoin_calendar::subscription_count(&exec, authorized.context()).await.map_err(|e| e.message)?;
+        let user = tx.mint_user_from_authorized(&authorized, "127.0.0.1").await.map_err(|e| format!("{e:?}"))?;
+        let counted = setjoin_calendar::subscription_count(&tx, &user).await.map_err(|e| e.message)?;
         assert_eq!(counted, setjoin_calendar::MAX_SUBSCRIPTIONS_PER_USER, "the cap saw {counted} rows under RLS");
         Ok::<_, BoxError>(())
     }
@@ -249,7 +326,9 @@ fn kql_refuses_a_quoted_nul() {
 #[tokio::test]
 async fn update_devices_are_confined_to_the_callers_reach() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
-    let Some((db, owner, a, b)) = world("secfix6-updates").await? else { return Ok(()) };
+    let Some((db, owner, a, b)) = world("secfix6-updates").await? else {
+        return Ok(());
+    };
     let result = async {
         let scoped = fixture::account(&owner, "secfix6-scoped").await?;
         let scoped_domain = scoped.domain;
@@ -264,16 +343,38 @@ async fn update_devices_are_confined_to_the_callers_reach() -> Result<(), BoxErr
             .get(0);
         owner.execute("INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES($1,$2,$1)", &[&scoped.user, &role]).await?;
         let exec = common::patient_exec(&db.dsn, 4)?;
+        let factory = setjoin_gateway::policy_composition::tx_factory_from_executors(&exec, Some(&exec))
+            .ok_or("tx factory")?;
+        let token = common::recovery_token_with(scoped.user, json!({"admin": true}));
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse()?);
+        let auth = setjoin_authz::admit(
+            &exec,
+            &common::recovery_keys(),
+            "mailserver",
+            &headers,
+            "GET",
+            "/admin/updates/summary",
+            setjoin_authz::Scope::Member,
+        )
+        .await
+        .map_err(|e| format!("admit: {e:?}"))?;
+        let admin = factory
+            .mint_admin_from_authorized(&auth, "127.0.0.1")
+            .await
+            .map_err(|e| format!("mint admin: {e:?}"))?
+            .require_any_permission(&setjoin_platform::SYSTEM_CONSOLE)
+            .map_err(|e| format!("perm: {e:?}"))?;
         let total = |text: &str| -> Result<i64, BoxError> {
             let value: Value = serde_json::from_str(text.trim())?;
             Ok(value["total_devices"].as_i64().ok_or("total_devices")?)
         };
         let all: i64 = owner.query_one("SELECT count(*) FROM devices", &[]).await?.get(0);
-        let scoped_summary = total(&setjoin_platform::updates::summary(&exec, scoped.user).await)?;
+        let scoped_summary = total(&setjoin_platform::updates::summary(&factory, &admin, scoped.user).await)?;
         assert_eq!(scoped_summary, 1, "a domain-scoped admin counted other tenants' devices");
-        let global_summary = total(&setjoin_platform::updates::summary(&exec, 0).await)?;
+        let global_summary = total(&setjoin_platform::updates::summary(&factory, &admin, 0).await)?;
         assert_eq!(global_summary, all);
-        let listed = setjoin_platform::updates::devices(&exec, scoped.user, 50, 0).await.map_err(|e| e.message)?;
+        let listed = setjoin_platform::updates::devices(&factory, &admin, scoped.user, 50, 0).await.map_err(|e| e.message)?;
         assert!(listed.contains("secfix6-s"), "{listed}");
         assert!(!listed.contains("secfix6-a") && !listed.contains("secfix6-b"), "{listed}");
         Ok::<_, BoxError>(())
@@ -287,7 +388,9 @@ async fn update_devices_are_confined_to_the_callers_reach() -> Result<(), BoxErr
 #[tokio::test]
 async fn attachments_zip_neutralises_dot_names_and_bounds_entries() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
-    use setjoin_gateway::jmap::messages_zip::{archive_bytes, entries_allowed, entry_name, MAX_ENTRIES};
+    use setjoin_gateway::jmap::messages_zip::{
+        archive_bytes, entries_allowed, entry_name, MAX_ENTRIES,
+    };
     assert_eq!(entry_name(".."), "attachment");
     assert_eq!(entry_name("."), "attachment");
     assert_eq!(entry_name("report.pdf"), "report.pdf");
@@ -304,9 +407,15 @@ async fn attachments_zip_neutralises_dot_names_and_bounds_entries() -> Result<()
     while let Some(found) = bytes[at..].windows(4).position(|w| w == b"PK\x01\x02") {
         let start = at + found;
         let len = u16::from_le_bytes([bytes[start + 28], bytes[start + 29]]) as usize;
-        names.push(String::from_utf8(bytes[start + 46..start + 46 + len].to_vec())?);
+        names.push(String::from_utf8(
+            bytes[start + 46..start + 46 + len].to_vec(),
+        )?);
         at = start + 46 + len;
     }
-    assert_eq!(names, ["attachment", "attachment-2"], "dot names must become ordinary entries");
+    assert_eq!(
+        names,
+        ["attachment", "attachment-2"],
+        "dot names must become ordinary entries"
+    );
     Ok(())
 }

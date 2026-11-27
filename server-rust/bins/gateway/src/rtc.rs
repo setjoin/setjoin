@@ -745,7 +745,10 @@ mod tests {
         assert!(valid_encoded("/rtc/%2e%2e/x"));
         assert!(valid_encoded("/rtc/!a'()*[0]%2Fb"));
         assert!(!valid_encoded("/rtc/a b"));
-        assert_eq!(unescape("/rtc/a%2Fb").as_deref(), Some(b"/rtc/a/b".as_slice()));
+        assert_eq!(
+            unescape("/rtc/a%2Fb").as_deref(),
+            Some(b"/rtc/a/b".as_slice())
+        );
         assert_eq!(
             unescape("/api/%72tc/%FF").as_deref(),
             Some(b"/api/rtc/\xff".as_slice())

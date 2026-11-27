@@ -368,8 +368,8 @@ async fn executable_installs_native_push_and_the_same_presence_registry() -> Res
         let mut command=std::process::Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
         command.arg0("gofree-jmap4-gateway-test").env_clear()
             .env("GATEWAY_LISTEN",address.to_string()).env("GATEWAY_AUTH_UPSTREAM",format!("http://{keys}"))
-            .env("AUTHSERVER_JWKS_URL",format!("http://{keys}/jwks")).env("DB_DSN",db.app.as_deref().unwrap_or(&db.dsn))
-            .env("DB_WORKER_DSN",&db.dsn).env("DB_DIRECT_DSN",&db.direct).env("JWT_ISSUER","mailserver")
+            .env("AUTHSERVER_JWKS_URL",format!("http://{keys}/jwks")).env("DB_DSN", db.app_dsn())
+            .env("DB_WORKER_DSN", db.worker_dsn()).env("DB_DIRECT_DSN",&db.direct).env("JWT_ISSUER","mailserver")
             .env("CORE_RATE_LIMIT","10000").env("SETJOIN_AUTHZ_PRECHECK_TIMEOUT_MS","15000").env("SETJOIN_PG_DEADLINE_MS","30000")
             .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
         let mut process=Process(command.spawn_boot()?);

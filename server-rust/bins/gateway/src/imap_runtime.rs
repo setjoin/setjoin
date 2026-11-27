@@ -22,6 +22,7 @@ pub struct ImapRuntime {
     listeners: Vec<(Arc<Server>, TcpListener)>,
     revocations: Arc<crate::workers::SessionDenylist>,
     direct: String,
+    listen_hub: Option<setjoin_pg::ListenHub>,
 }
 
 fn number<T: std::str::FromStr>(
@@ -97,15 +98,30 @@ pub fn start(
     let pair = certificate_pair(get)?;
     let executor = setjoin_pg::ScopedExecutor::from_dsn(&dsn, pool)
         .map_err(|e| format!("IMAP DB_DSN: {e:?}"))?;
+    let auth_db = match get("DB_WORKER_DSN").filter(|v| !v.is_empty()) {
+        Some(worker_dsn) => Some(
+            setjoin_pg::ScopedExecutor::from_dsn(&worker_dsn, pool.clamp(2, 4))
+                .map_err(|e| format!("IMAP DB_WORKER_DSN: {e:?}"))?,
+        ),
+        None => None,
+    };
+    let app_pool = executor
+        .try_app_pool()
+        .ok_or_else(|| "IMAP DB_DSN: AppPool unavailable".to_owned())?;
+    let tx_factory = setjoin_authz::principals::TxFactory::new(app_pool);
     let build = |tls: Option<&(PathBuf, PathBuf)>, implicit: bool| -> Result<Server, String> {
-        let server = Server::new(
+        let mut server = Server::new(
             executor.clone(),
             ThreatPolicy::Enforced(gate.clone()),
             WebhookPolicy::Wired(Arc::new(AuthEvents(webhooks.clone()))),
         )
+        .with_tx_factory(tx_factory.clone())
         .with_session_registry(registry.clone())
         .with_max_connections(max_conns)
         .with_per_user_max(per_user);
+        if let Some(auth_db) = auth_db.clone() {
+            server = server.with_auth_db(auth_db);
+        }
         let server = match (tls, implicit) {
             (Some((cert, key)), true) => server.with_tls_files(cert.clone(), key.clone())?,
             (Some((cert, key)), false) => server.with_starttls_files(cert.clone(), key.clone())?,
@@ -116,6 +132,9 @@ pub fn start(
         }
         if !server.webhooks_wired() {
             return Err("IMAP activation refused: auth webhooks are not wired".into());
+        }
+        if !server.tx_factory_wired() {
+            return Err("IMAP activation refused: TxFactory is not wired".into());
         }
         Ok(server)
     };
@@ -143,10 +162,16 @@ pub fn start(
         listeners,
         revocations,
         direct,
+        listen_hub: None,
     }))
 }
 
 impl ImapRuntime {
+    pub fn with_listen_hub(mut self, hub: setjoin_pg::ListenHub) -> Self {
+        self.listen_hub = Some(hub);
+        self
+    }
+
     /// Serve until `stop` flips; sessions end with the listener.
     pub async fn run(self, mut stop: watch::Receiver<bool>) {
         // A cold registry cannot reject already-revoked password sessions.
@@ -171,17 +196,20 @@ impl ImapRuntime {
         }
         let mut tasks = tokio::task::JoinSet::new();
         let mut revoked_stop = stop.clone();
+        let hub = self.listen_hub;
         tasks.spawn(async move {
-            let _ = self
-                .revocations
-                .run(self.direct, async move {
-                    while !*revoked_stop.borrow() {
-                        if revoked_stop.changed().await.is_err() {
-                            break;
-                        }
+            let shutdown_fut = async move {
+                while !*revoked_stop.borrow() {
+                    if revoked_stop.changed().await.is_err() {
+                        break;
                     }
-                })
-                .await;
+                }
+            };
+            if let Some(hub) = hub {
+                let _ = self.revocations.run_with_hub(hub, shutdown_fut).await;
+            } else {
+                let _ = self.revocations.run(self.direct, shutdown_fut).await;
+            }
         });
         for (server, listener) in self.listeners {
             let stop = stop.clone();
@@ -249,6 +277,16 @@ pub async fn load_security(
     settings: &crate::configuration::Settings,
     label: &str,
 ) -> Result<(Arc<setjoin_threat::Gate>, setjoin_threat::Watchers), String> {
+    load_security_with_hub(settings, label, None).await
+}
+
+/// Load the shared process-wide threat gate, optionally multiplexing its
+/// watchers onto a shared [`setjoin_pg::ListenHub`] (#543).
+pub async fn load_security_with_hub(
+    settings: &crate::configuration::Settings,
+    label: &str,
+    hub: Option<&setjoin_pg::ListenHub>,
+) -> Result<(Arc<setjoin_threat::Gate>, setjoin_threat::Watchers), String> {
     let request = settings.string("db.dsn");
     if request.is_empty() {
         return Err("DB_DSN is required for the protocol threat gate".into());
@@ -270,14 +308,20 @@ pub async fn load_security(
     )
     .await
     .map_err(|e| format!("protocol threat gate initialization failed: {e}"))?;
-    let direct = if direct.is_empty() { &request } else { &direct };
-    let watchers = setjoin_threat::Watchers::start(
-        gate.clone(),
-        direct,
-        &format!("setjoin-{label}-{}", std::process::id()),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let watchers = if let Some(hub) = hub {
+        setjoin_threat::Watchers::start_with_hub(gate.clone(), hub)
+            .await
+            .map_err(|e| e.to_string())?
+    } else {
+        let direct = if direct.is_empty() { &request } else { &direct };
+        setjoin_threat::Watchers::start(
+            gate.clone(),
+            direct,
+            &format!("setjoin-{label}-{}", std::process::id()),
+        )
+        .await
+        .map_err(|e| e.to_string())?
+    };
     Ok((gate, watchers))
 }
 

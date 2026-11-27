@@ -544,10 +544,11 @@ INNER
 }
 
 rehearse_rollback() {
-  say "Rehearse permissive DSN rollback and return to constrained shape on A"
+  say "Verify fail-closed refusal on privileged DB_DSN and clean recovery to constrained shape on A"
   docker exec -i "$A" bash -s >"$EVIDENCE_DIR/rls-rollback.txt" 2>&1 <<'INNER'
 set -Eeuo pipefail
 cfg=/etc/setjoin/config.env
+cred=/etc/setjoin/db-credentials.d/db-credentials.env
 orig=/etc/setjoin/config.env.pre-d2-rls-rollback
 cp -a "$cfg" "$orig"
 restore() {
@@ -560,29 +561,36 @@ restore() {
   return 1
 }
 trap restore EXIT
-source "$cfg"
-owner="$DB_DIRECT_OWNER_DSN"
+owner="$(grep -E '^DB_DIRECT_OWNER_DSN=' "$cred" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+[ -n "$owner" ] || owner="$(grep -E '^DB_DIRECT_OWNER_DSN=' "$cfg" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+[ -n "$owner" ] || { echo "missing DB_DIRECT_OWNER_DSN for fail-closed rehearsal" >&2; exit 1; }
 tmp="$(mktemp)"
 awk -v owner="$owner" '
   /^DB_DSN=/ { print "DB_DSN=" owner; next }
   /^DB_DIRECT_DSN=/ { print "DB_DIRECT_DSN=" owner; next }
-  /^DB_WORKER_DSN=/ { print "DB_WORKER_DSN=" owner; next }
   { print }
 ' "$cfg" >"$tmp"
 chmod 0600 "$tmp"
 mv "$tmp" "$cfg"
-systemctl restart setjoin-gateway
-for _ in $(seq 1 30); do
-  curl -skf --max-time 3 https://127.0.0.1/ready >/dev/null && break
-  sleep 1
-done
-curl -skf --max-time 3 https://127.0.0.1/ready >/dev/null
-printf 'permissive_restart=PASS\n'
+started_at="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+if systemctl restart setjoin-gateway 2>/dev/null; then
+  sleep 2
+  if curl -skf --max-time 3 https://127.0.0.1/ready >/dev/null 2>&1; then
+    echo "FAIL: setjoin-gateway accepted privileged DB_DSN instead of refusing fail-closed" >&2
+    exit 1
+  fi
+fi
+journalctl -u setjoin-gateway --since "$started_at" --no-pager |
+  grep -Fq 'native-RLS boot check FAILED' || {
+    echo "FAIL: expected fail-closed native-RLS refusal in journalctl" >&2
+    exit 1
+  }
+printf 'privileged_dsn_refused=PASS\n'
 restore
 trap - EXIT
-source "$cfg"
+app_dsn="$(grep -E '^DB_DSN=' "$cfg" | tail -1 | cut -d= -f2-)"
 printf 'constrained_app_user='
-psql "$DB_DSN" -Atc 'SELECT current_user'
+psql "$app_dsn" -Atc 'SELECT current_user'
 curl -skf --max-time 3 https://127.0.0.1/ready >/dev/null
 printf 'constrained_restart=PASS\n'
 INNER

@@ -44,7 +44,13 @@ def main():
     env = os.environ.copy()
     assert env.get("REQUIRE_DB") == "1", "REQUIRE_DB=1 required"
     coords = []
-    for key in ["TEST_DB_DSN", "DB_DSN", "DB_DIRECT_DSN", "DB_APP_DSN"]:
+    for key in [
+        "TEST_DB_DSN",
+        "DB_DSN",
+        "DB_DIRECT_DSN",
+        "DB_APP_DSN",
+        "DB_WORKER_DSN",
+    ]:
         parsed = urllib.parse.urlsplit(env[key])
         db = parsed.path.removeprefix("/")
         assert db == "mailserver_test" or "_e2e" in db or db.startswith("mailserver_determinism_"), f"non-disposable {key}"

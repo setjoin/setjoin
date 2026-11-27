@@ -97,7 +97,7 @@ pub async fn tenant_proxy(dsn: &str) -> Result<Proxy, BoxError> {
              let n=client.read_u32().await?;if !(8..=65536).contains(&n){return Err(std::io::Error::other("startup"));}let mut startup=vec![0;n as usize-4];client.read_exact(&mut startup).await?;server.write_u32(n).await?;server.write_all(&startup).await?;
              let(mut cr,mut cw)=client.into_split();let(mut sr,mut sw)=server.into_split();
              let requests=async {loop{let tag=cr.read_u8().await?;let len=cr.read_u32().await?;if !(4..=1048576).contains(&len){return Err(std::io::Error::other("message"));}let mut body=vec![0;len as usize-4];cr.read_exact(&mut body).await?;
-              if tag==b'P'{let name=body.iter().position(|b|*b==0).ok_or_else(||std::io::Error::other("Parse name"))?+1;let end=name+body[name..].iter().position(|b|*b==0).ok_or_else(||std::io::Error::other("Parse SQL"))?;let sql=String::from_utf8_lossy(&body[name..end]).replace("MIN(COALESCE(ra.domain_override,rg.domain_scope))","NULL::bigint");body.splice(name..end,sql.bytes());}
+              if tag==b'P'{let name=body.iter().position(|b|*b==0).ok_or_else(||std::io::Error::other("Parse name"))?+1;let end=name+body[name..].iter().position(|b|*b==0).ok_or_else(||std::io::Error::other("Parse SQL"))?;let sql=String::from_utf8_lossy(&body[name..end]).replace("MIN(COALESCE(ra.domain_override,rg.domain_scope))","NULL::bigint").replace("COALESCE(ra.domain_override, rg.domain_scope) AS eff_scope","NULL::bigint AS eff_scope");body.splice(name..end,sql.bytes());}
               sw.write_u8(tag).await?;sw.write_u32((body.len()+4) as u32).await?;sw.write_all(&body).await?;
              }};
              tokio::select!{r=requests=>r,r=tokio::io::copy(&mut sr,&mut cw)=>r.map(|_|())}

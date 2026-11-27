@@ -54,42 +54,32 @@ impl<K: KeySource + 'static> Admission for SessionAdmission<K> {
                         .unwrap_or(-62135596800.0);
                     let jti = claims.get("jti").and_then(|v| v.as_str()).unwrap_or("");
                     let family = claims.get("fam").and_then(|v| v.as_str()).unwrap_or("");
-                    let cached = denylist.as_ref().is_some_and(|d| {
-                        d.is_revoked(
-                            user,
-                            jti,
-                            family,
-                            chrono::DateTime::from_timestamp(iat as i64, 0).unwrap_or_default(),
-                        )
-                    });
-                    let revoked=tokio::time::timeout(setjoin_authz::precheck_timeout(),guest.read(
-                        "SELECT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND expires_at>now() AND ((scope='all' AND not_before>=to_timestamp($2::float8)) OR (scope='jti' AND $3<>'' AND jti=$3) OR (scope='family' AND $4<>'' AND family_id=$4)))",
-                        &[(&user,setjoin_pg::Type::INT8),(&iat,setjoin_pg::Type::FLOAT8),(&jti,setjoin_pg::Type::TEXT),(&family,setjoin_pg::Type::TEXT)]
-                    )).await;
-                    let revoked = match revoked {
-                        Ok(Ok(rows)) => Some(rows[0].get::<_, bool>(0)),
-                        _ => None,
-                    };
-                    if cached || revoked == Some(true) {
-                        return Some(revoked_problem(&headers, &identity, "Session has been revoked. Sign in again."));
-                    }
-                    let cae=tokio::time::timeout(setjoin_authz::precheck_timeout(),guest.read(
-                        "SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.cae_runtime'),false)",&[])).await;
-                    let cae = match cae {
-                        Ok(Ok(rows)) => rows[0].get::<_, bool>(0),
-                        _ => return Some(problem(&headers, &identity, 503, "service unavailable")),
-                    };
-                    if cae && denylist.as_ref().is_none_or(|d| !d.loaded()) {
-                        return Some(revoked_problem(
-                            &headers,
-                            &identity,
-                            "Session verification unavailable — re-authenticate.",
-                        ));
-                    }
-                    // #354: unreadable durable revocation state fails closed, after Go's
-                    // cold-cache answer so denylist-cold.json keeps its bytes.
-                    if revoked.is_none() {
-                        return Some(problem(&headers, &identity, 503, "service unavailable"));
+                    let bridge = denylist.as_deref().map(DenylistBridge);
+                    let view = bridge
+                        .as_ref()
+                        .map(|b| b as &dyn setjoin_authz::policy_gate::DenylistView);
+                    if let Err(denial) = setjoin_authz::policy_gate::check_session_revocation(
+                        &guest, view, user, jti, family, iat,
+                    )
+                    .await
+                    {
+                        return Some(match denial {
+                            setjoin_authz::policy_gate::GateDenial::SessionRevoked => {
+                                revoked_problem(
+                                    &headers,
+                                    &identity,
+                                    "Session has been revoked. Sign in again.",
+                                )
+                            }
+                            setjoin_authz::policy_gate::GateDenial::DenylistUnavailable => {
+                                revoked_problem(
+                                    &headers,
+                                    &identity,
+                                    "Session verification unavailable — re-authenticate.",
+                                )
+                            }
+                            _ => problem(&headers, &identity, 503, "service unavailable"),
+                        });
                     }
                 }
                 return None;
@@ -277,11 +267,31 @@ fn guest_allowed(method: &Method, path: &str) -> bool {
     })
 }
 
-pub(crate) fn revoked_problem(headers: &HeaderMap, identity: &ClientIdentity, detail: &str) -> Response<Body> {
+pub(crate) fn revoked_problem(
+    headers: &HeaderMap,
+    identity: &ClientIdentity,
+    detail: &str,
+) -> Response<Body> {
     let mut response = problem(headers, identity, 401, detail);
     crate::problem::set_body(
         &mut response,
         crate::problem::middleware(401, "session_revoked", detail),
     );
     response
+}
+
+struct DenylistBridge<'a>(&'a crate::workers::SessionDenylist);
+
+impl setjoin_authz::policy_gate::DenylistView for DenylistBridge<'_> {
+    fn loaded(&self) -> bool {
+        self.0.loaded()
+    }
+    fn is_revoked(&self, user_id: i64, jti: &str, family: &str, issued_at: i64) -> bool {
+        self.0.is_revoked(
+            user_id,
+            jti,
+            family,
+            chrono::DateTime::from_timestamp(issued_at, 0).unwrap_or_default(),
+        )
+    }
 }

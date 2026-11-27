@@ -1,0 +1,39 @@
+[package]
+name = "setjoin-sql-contracts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "verify-sql-contracts"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.145"
+setjoin-admin-identity = { path = "../../crates/domains/admin-identity" }
+setjoin-approvals = { path = "../../crates/domains/approvals" }
+setjoin-blobs = { path = "../../crates/domains/blobs" }
+setjoin-calendar = { path = "../../crates/domains/calendar" }
+setjoin-chat = { path = "../../crates/domains/chat" }
+setjoin-compliance = { path = "../../crates/domains/compliance" }
+setjoin-conditional-access = { path = "../../crates/domains/conditional-access" }
+setjoin-devices = { path = "../../crates/domains/devices" }
+setjoin-directory-sync = { path = "../../crates/domains/directory-sync" }
+setjoin-drive = { path = "../../crates/domains/drive" }
+setjoin-guests = { path = "../../crates/domains/guests" }
+setjoin-identity = { path = "../../crates/domains/identity" }
+setjoin-jmap = { path = "../../crates/domains/jmap" }
+setjoin-mail-security = { path = "../../crates/domains/mail-security" }
+setjoin-mailboxes = { path = "../../crates/domains/mailboxes" }
+setjoin-meet = { path = "../../crates/domains/meet" }
+setjoin-office = { path = "../../crates/domains/office" }
+setjoin-pg = { path = "../../crates/pg" }
+setjoin-platform = { path = "../../crates/domains/platform" }
+setjoin-rules = { path = "../../crates/domains/rules" }
+setjoin-sql-catalog = { path = "../../crates/sql-catalog" }
+setjoin-static = { path = "../../crates/domains/static" }
+setjoin-user-settings = { path = "../../crates/domains/user-settings" }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "time"] }
+tokio-postgres = "0.7.18"

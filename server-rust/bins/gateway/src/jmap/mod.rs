@@ -349,6 +349,14 @@ enum Buffered {
 }
 
 impl<K: KeySource> JmapCommands<K> {
+    pub(super) fn tx_factory(&self) -> Option<setjoin_authz::principals::TxFactory> {
+        let worker = self
+            .worker
+            .as_ref()
+            .or_else(|| self.services.as_ref().map(|s| &s.worker));
+        crate::policy_composition::tx_factory_from_executors(&self.exec, worker)
+    }
+
     async fn serve(&self, req: Request<Body>, ctx: RequestContext) -> Response<Body> {
         if http::matches(req.method(), req.uri().path()) {
             return self.try_http(req, &ctx).await;
@@ -472,16 +480,9 @@ impl<K: KeySource> JmapCommands<K> {
                 );
             }
         };
-        let identity = authorized.context();
+        let client_ip = ctx.identity.client_ip.to_string();
         let (request_random, outcome) = self
-            .execute_batch_verified(
-                identity.user_id(),
-                identity.mailbox_id(),
-                identity.email(),
-                &req.using,
-                &req.calls,
-                true,
-            )
+            .execute_batch_verified(authorized, &client_ip, &req.using, &req.calls, true)
             .await;
         let request_id = reply::request_id(
             parts.headers.get("x-request-id"),
@@ -504,9 +505,8 @@ impl<K: KeySource> JmapCommands<K> {
     /// Shared RNG reservation + batch execution engine for HTTP & WS.
     pub(super) async fn execute_batch_verified(
         &self,
-        user_id: i64,
-        primary_mailbox: i64,
-        email: &str,
+        authorized: &setjoin_authz::Authorized,
+        client_ip: &str,
         using: &[String],
         calls: &[ws_request::Call],
         need_request_random: bool,
@@ -568,16 +568,15 @@ impl<K: KeySource> JmapCommands<K> {
             operations.push(op);
         }
         let outcome = self
-            .execute_batch(user_id, primary_mailbox, email, using, calls, &operations)
+            .execute_batch(authorized, client_ip, using, calls, &operations)
             .await;
         (request_random, outcome)
     }
 
     async fn execute_batch(
         &self,
-        user_id: i64,
-        primary_mailbox: i64,
-        email: &str,
+        authorized: &setjoin_authz::Authorized,
+        client_ip: &str,
         using: &[String],
         calls: &[ws_request::Call],
         operations: &[[u8; 16]],
@@ -632,9 +631,8 @@ impl<K: KeySource> JmapCommands<K> {
                         )
                     } else {
                         self.execute_call(
-                            user_id,
-                            primary_mailbox,
-                            email,
+                            authorized,
+                            client_ip,
                             &call.name,
                             &resolved_args,
                             &call.id,
@@ -657,14 +655,17 @@ impl<K: KeySource> JmapCommands<K> {
     #[allow(clippy::too_many_arguments)]
     async fn execute_call(
         &self,
-        user_id: i64,
-        primary_mailbox: i64,
-        email: &str,
+        authorized: &setjoin_authz::Authorized,
+        client_ip: &str,
         method_name: &str,
         raw_args: &str,
         client_id: &str,
         operation: [u8; 16],
     ) -> (String, String) {
+        let identity = authorized.context();
+        let user_id = identity.user_id();
+        let primary_mailbox = identity.mailbox_id();
+        let email = identity.email();
         let Some(claimed) = claim_call(method_name, raw_args, client_id, self.services.as_deref())
         else {
             return ("error".into(), ws_request::server_fail());
@@ -678,22 +679,25 @@ impl<K: KeySource> JmapCommands<K> {
                 primary_mailbox_id,
                 REQUEST_AUTHORITY_GENERATION,
             ),
-            Err(_) => MailboxAuthContext::from_authenticated_user(
-                actor_id,
-                REQUEST_AUTHORITY_GENERATION,
-            ),
+            Err(_) => {
+                MailboxAuthContext::from_authenticated_user(actor_id, REQUEST_AUTHORITY_GENERATION)
+            }
+        };
+        let Some(tx) = self.tx_factory() else {
+            return ("error".into(), ws_request::server_fail());
         };
         let digest_bytes: [u8; 32] = Sha256::digest(raw_args.as_bytes()).into();
         let digest = Digest(digest_bytes);
 
         let seen = match claimed {
             Claimed::Identity(request) => {
-                let Some(services) = self.services.as_ref() else {
+                if self.services.is_none() {
+                    return ("error".into(), ws_request::server_fail());
+                }
+                let Ok(user) = tx.mint_user_from_authorized(authorized, client_ip).await else {
                     return ("error".into(), ws_request::server_fail());
                 };
-                let (m, json) =
-                    identity::response_call(&self.exec, &services.worker, &primary_auth, &request)
-                        .await;
+                let (m, json) = identity::response_call(&tx, &user, &request).await;
                 return (m.into(), json);
             }
             Claimed::Blob(request) => {
@@ -724,7 +728,13 @@ impl<K: KeySource> JmapCommands<K> {
             }
             Claimed::Receipt(request) => {
                 return self
-                    .execute_recovery_receipt(user_id, &request.raw_args, operation, digest_bytes)
+                    .execute_recovery_receipt(
+                        authorized,
+                        client_ip,
+                        &request.raw_args,
+                        operation,
+                        digest_bytes,
+                    )
                     .await;
             }
             Claimed::MailboxSet(request) => {
@@ -748,11 +758,12 @@ impl<K: KeySource> JmapCommands<K> {
                 } else {
                     family::Gate::Mutate
                 };
-                let resolved = match account::resolve_account(
-                    &self.exec,
-                    user_id,
+                let resolved = match account::resolve_principal(
+                    &tx,
+                    authorized,
                     &request.raw_account_id,
                     gate,
+                    client_ip,
                 )
                 .await
                 {
@@ -767,19 +778,20 @@ impl<K: KeySource> JmapCommands<K> {
                     command: (),
                 };
                 let outcome = if request.method == "Identity/set" {
+                    let Ok(owner_cap) = resolved.principal.require_owner() else {
+                        return ("error".into(), ws_request::server_fail());
+                    };
                     setjoin_jmap::identity::set(
-                        &self.exec,
-                        &resolved.auth,
-                        &envelope,
-                        &create,
-                        &update,
-                        &destroy,
+                        &tx, &owner_cap, &envelope, &create, &update, &destroy,
                     )
                     .await
                 } else {
+                    let Ok(mutate_cap) = resolved.principal.require_mutate() else {
+                        return ("error".into(), ws_request::server_fail());
+                    };
                     setjoin_jmap::mailbox_set::set(
-                        &self.exec,
-                        &resolved.auth,
+                        &tx,
+                        &mutate_cap,
                         &envelope,
                         &create,
                         &update,
@@ -829,16 +841,20 @@ impl<K: KeySource> JmapCommands<K> {
                         too_many,
                     } => (read, bad, too_many),
                 };
-                let resolved = match account::resolve_account(
-                    &self.exec,
-                    user_id,
+                let resolved = match account::resolve_principal(
+                    &tx,
+                    authorized,
                     &request.raw_account_id,
                     family::Gate::Read,
+                    client_ip,
                 )
                 .await
                 {
                     Ok(r) => r,
                     Err(e) => return ("error".into(), e.json()),
+                };
+                let Ok(read_cap) = resolved.principal.require_read() else {
+                    return ("error".into(), ws_request::server_fail());
                 };
                 if too_many {
                     return (
@@ -859,7 +875,7 @@ impl<K: KeySource> JmapCommands<K> {
                         ),
                     );
                 }
-                let raw = setjoin_jmap::mailbox::read(&self.exec, &resolved.auth, &read).await;
+                let raw = setjoin_jmap::mailbox::read(&tx, &read_cap, &read).await;
                 return match raw {
                     Ok(raw) => match get::add_not_found(&raw, &bad) {
                         Some(result) => (request.method.into(), result),
@@ -882,19 +898,28 @@ impl<K: KeySource> JmapCommands<K> {
                         reply::jmap_error_json(err.kind, err.status, &err.detail),
                     );
                 }
-                let resolved = match account::resolve_account(
-                    &self.exec,
-                    user_id,
+                let resolved = match account::resolve_principal(
+                    &tx,
+                    authorized,
                     &request.raw_account_id,
                     family::Gate::Submit,
+                    client_ip,
                 )
                 .await
                 {
                     Ok(r) => r,
                     Err(e) => return ("error".into(), e.json()),
                 };
+                let (Ok(submit_cap), Ok(read_cap)) = (
+                    resolved.principal.require_submit(),
+                    resolved.principal.require_read(),
+                ) else {
+                    return ("error".into(), ws_request::server_fail());
+                };
                 let (m, json) = submission::response_call(
-                    &self.exec,
+                    &tx,
+                    &read_cap,
+                    &submit_cap,
                     &resolved.auth,
                     self.worker.as_ref().unwrap_or(&self.exec),
                     self.services.as_deref(),
@@ -919,16 +944,20 @@ impl<K: KeySource> JmapCommands<K> {
                         max_changes,
                     } => (raw_account_id, since_state, max_changes),
                 };
-                let resolved = match account::resolve_account(
-                    &self.exec,
-                    user_id,
+                let resolved = match account::resolve_principal(
+                    &tx,
+                    authorized,
                     &raw_account_id,
                     family::Gate::Read,
+                    client_ip,
                 )
                 .await
                 {
                     Ok(r) => r,
                     Err(e) => return ("error".into(), e.json()),
+                };
+                let Ok(read_cap) = resolved.principal.require_read() else {
+                    return ("error".into(), ws_request::server_fail());
                 };
                 if !changes::since_state_is_well_formed(&since_state) {
                     return (
@@ -940,9 +969,7 @@ impl<K: KeySource> JmapCommands<K> {
                         ),
                     );
                 }
-                return match email_changes(&self.exec, &resolved.auth, &since_state, max_changes)
-                    .await
-                {
+                return match email_changes(&tx, &read_cap, &since_state, max_changes).await {
                     Ok(raw) => ("Email/changes".into(), raw),
                     Err(ChangesError::CannotCalculateChanges) => (
                         "error".into(),
@@ -986,16 +1013,20 @@ impl<K: KeySource> JmapCommands<K> {
                             destroy,
                         ),
                     };
-                let resolved = match account::resolve_account(
-                    &self.exec,
-                    user_id,
+                let resolved = match account::resolve_principal(
+                    &tx,
+                    authorized,
                     &raw_account_id,
                     family::Gate::Mutate,
+                    client_ip,
                 )
                 .await
                 {
                     Ok(r) => r,
                     Err(e) => return ("error".into(), e.json()),
+                };
+                let Ok(mutate_cap) = resolved.principal.require_mutate() else {
+                    return ("error".into(), ws_request::server_fail());
                 };
                 let gated_create = if let Some(raw_create) = create.as_deref() {
                     let worker = self
@@ -1029,15 +1060,7 @@ impl<K: KeySource> JmapCommands<K> {
                         ));
                         continue;
                     };
-                    match snooze_message(
-                        &self.exec,
-                        &envelope,
-                        &resolved.auth,
-                        deadline,
-                        msg_id,
-                        until,
-                    )
-                    .await
+                    match snooze_message(&tx, &envelope, &mutate_cap, deadline, msg_id, until).await
                     {
                         SnoozeOutcome::Committed => snooze_updated.push(id_str.clone()),
                         SnoozeOutcome::Failed(_) => snooze_not_updated.push((
@@ -1066,9 +1089,9 @@ impl<K: KeySource> JmapCommands<K> {
                     destroy: destroy.as_ref().map(|(ids, _)| ids.as_slice()),
                 };
                 let outcome = email_set_batch(
-                    &self.exec,
+                    &tx,
                     &envelope,
-                    &resolved.auth,
+                    &mutate_cap,
                     Instant::now() + COMMAND_DEADLINE,
                     batch,
                 )
@@ -1116,16 +1139,20 @@ impl<K: KeySource> JmapCommands<K> {
                     }
                     batch::BatchArgs::Valid { ids, bad } => (ids.clone(), bad.clone()),
                 };
-                let resolved = match account::resolve_account(
-                    &self.exec,
-                    user_id,
+                let resolved = match account::resolve_principal(
+                    &tx,
+                    authorized,
                     &request.raw_account_id,
                     family::Gate::Mutate,
+                    client_ip,
                 )
                 .await
                 {
                     Ok(r) => r,
                     Err(e) => return ("error".into(), e.json()),
+                };
+                let Ok(mutate_cap) = resolved.principal.require_mutate() else {
+                    return ("error".into(), ws_request::server_fail());
                 };
                 if ids.is_empty() && bad.is_empty() {
                     return ("error".into(), ws_request::server_fail());
@@ -1138,9 +1165,9 @@ impl<K: KeySource> JmapCommands<K> {
                     command: EmailBatch,
                 };
                 let outcome = email_batch(
-                    &self.exec,
+                    &tx,
                     &envelope,
-                    &resolved.auth,
+                    &mutate_cap,
                     Instant::now() + COMMAND_DEADLINE,
                     request.op,
                     &ids,
@@ -1180,16 +1207,20 @@ impl<K: KeySource> JmapCommands<K> {
                     }
                     batch::DismissArgs::Valid { thread_id } => thread_id.clone(),
                 };
-                let resolved = match account::resolve_account(
-                    &self.exec,
-                    user_id,
+                let resolved = match account::resolve_principal(
+                    &tx,
+                    authorized,
                     &request.raw_account_id,
                     family::Gate::Mutate,
+                    client_ip,
                 )
                 .await
                 {
                     Ok(r) => r,
                     Err(e) => return ("error".into(), e.json()),
+                };
+                let Ok(mutate_cap) = resolved.principal.require_mutate() else {
+                    return ("error".into(), ws_request::server_fail());
                 };
                 let Some(enabled) = gates::toggle_state(&self.exec, gates::NUDGES_FLAG).await
                 else {
@@ -1206,9 +1237,9 @@ impl<K: KeySource> JmapCommands<K> {
                     command: EmailBatch,
                 };
                 return match nudge_dismiss(
-                    &self.exec,
+                    &tx,
                     &envelope,
-                    &resolved.auth,
+                    &mutate_cap,
                     Instant::now() + COMMAND_DEADLINE,
                     &thread_id,
                 )
@@ -1247,16 +1278,20 @@ impl<K: KeySource> JmapCommands<K> {
                     }
                     batch::PagedArgs::Valid { limit, position } => (limit, position),
                 };
-                let resolved = match account::resolve_account(
-                    &self.exec,
-                    user_id,
+                let resolved = match account::resolve_principal(
+                    &tx,
+                    authorized,
                     &request.raw_account_id,
                     family::Gate::Read,
+                    client_ip,
                 )
                 .await
                 {
                     Ok(r) => r,
                     Err(e) => return ("error".into(), e.json()),
+                };
+                let Ok(read_cap) = resolved.principal.require_read() else {
+                    return ("error".into(), ws_request::server_fail());
                 };
                 if request.which == Paged::Nudges {
                     let Some(enabled) = gates::toggle_state(&self.exec, gates::NUDGES_FLAG).await
@@ -1267,9 +1302,7 @@ impl<K: KeySource> JmapCommands<K> {
                         return ("Email/nudges".into(), request.nudges_off());
                     }
                 }
-                return match read_paged(&self.exec, &resolved.auth, request.which, limit, position)
-                    .await
-                {
+                return match read_paged(&tx, &read_cap, request.which, limit, position).await {
                     Ok(raw) => {
                         let Some(result) = request.result(&raw, position) else {
                             return ("error".into(), ws_request::server_fail());
@@ -1298,16 +1331,20 @@ impl<K: KeySource> JmapCommands<K> {
                         limit,
                     } => (raw_account_id, filter, sort, position, limit),
                 };
-                let resolved = match account::resolve_account(
-                    &self.exec,
-                    user_id,
+                let resolved = match account::resolve_principal(
+                    &tx,
+                    authorized,
                     &raw_account_id,
                     family::Gate::Read,
+                    client_ip,
                 )
                 .await
                 {
                     Ok(r) => r,
                     Err(e) => return ("error".into(), e.json()),
+                };
+                let Ok(read_cap) = resolved.principal.require_read() else {
+                    return ("error".into(), ws_request::server_fail());
                 };
                 let Ok(position) = position else {
                     return (
@@ -1316,8 +1353,8 @@ impl<K: KeySource> JmapCommands<K> {
                     );
                 };
                 return match query_email(
-                    &self.exec,
-                    &resolved.auth,
+                    &tx,
+                    &read_cap,
                     filter.as_deref(),
                     sort.as_deref(),
                     position,
@@ -1348,16 +1385,20 @@ impl<K: KeySource> JmapCommands<K> {
                         too_many,
                     } => (raw_account_id, ids, bad, properties, too_many),
                 };
-                let resolved = match account::resolve_account(
-                    &self.exec,
-                    user_id,
+                let resolved = match account::resolve_principal(
+                    &tx,
+                    authorized,
                     &raw_account_id,
                     family::Gate::Read,
+                    client_ip,
                 )
                 .await
                 {
                     Ok(r) => r,
                     Err(e) => return ("error".into(), e.json()),
+                };
+                let Ok(read_cap) = resolved.principal.require_read() else {
+                    return ("error".into(), ws_request::server_fail());
                 };
                 if too_many {
                     return (
@@ -1374,9 +1415,9 @@ impl<K: KeySource> JmapCommands<K> {
                 };
                 let id_slice = (!ids.is_empty() || !bad.is_empty()).then_some(ids.as_slice());
                 let outcome = email_get(
-                    &self.exec,
+                    &tx,
                     &envelope,
-                    &resolved.auth,
+                    &read_cap,
                     Instant::now() + COMMAND_DEADLINE,
                     id_slice,
                     properties.as_deref(),
@@ -1413,19 +1454,22 @@ impl<K: KeySource> JmapCommands<K> {
             }
             Claimed::List(list) => {
                 let raw_acct = list.account_id.to_string();
-                let resolved = match account::resolve_account(
-                    &self.exec,
-                    user_id,
+                let resolved = match account::resolve_principal(
+                    &tx,
+                    authorized,
                     &raw_acct,
                     family::Gate::Read,
+                    client_ip,
                 )
                 .await
                 {
                     Ok(r) => r,
                     Err(e) => return ("error".into(), e.json()),
                 };
-                let Ok(page) = query_email_list(&self.exec, &resolved.auth, &list.query).await
-                else {
+                let Ok(read_cap) = resolved.principal.require_read() else {
+                    return ("error".into(), ws_request::server_fail());
+                };
+                let Ok(page) = query_email_list(&tx, &read_cap, &list.query).await else {
                     return ("error".into(), ws_request::server_fail());
                 };
                 if log_served() {
@@ -1446,13 +1490,21 @@ impl<K: KeySource> JmapCommands<K> {
         };
 
         let raw_acct = seen.account_id.to_string();
-        let resolved =
-            match account::resolve_account(&self.exec, user_id, &raw_acct, family::Gate::Mutate)
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => return ("error".into(), e.json()),
-            };
+        let resolved = match account::resolve_principal(
+            &tx,
+            authorized,
+            &raw_acct,
+            family::Gate::Mutate,
+            client_ip,
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => return ("error".into(), e.json()),
+        };
+        let Ok(mutate_cap) = resolved.principal.require_mutate() else {
+            return ("error".into(), ws_request::server_fail());
+        };
         let mailbox = resolved.mailbox;
         let (Ok(mailbox_id), Ok(message_id)) =
             (MailboxId::new(mailbox), MessageId::new(seen.message_id))
@@ -1473,7 +1525,7 @@ impl<K: KeySource> JmapCommands<K> {
                         seen: value,
                     },
                 };
-                set_message_seen(&self.exec, &envelope, &resolved.auth, deadline).await
+                set_message_seen(&tx, &envelope, &mutate_cap, deadline).await
             }
             seen::SeenValue::EmptyString => {
                 let envelope = CommandEnvelope {
@@ -1486,7 +1538,7 @@ impl<K: KeySource> JmapCommands<K> {
                         message: message_id,
                     },
                 };
-                set_message_seen_empty(&self.exec, &envelope, &resolved.auth, deadline).await
+                set_message_seen_empty(&tx, &envelope, &mutate_cap, deadline).await
             }
         };
         let outcome = match &reply.result {
@@ -1609,6 +1661,79 @@ pub(super) fn random_bytes() -> Result<[u8; 16], ()> {
 /// 16 bytes from the OS RNG; `None` (never a panic) when it cannot be read.
 pub(crate) fn random() -> Option<[u8; 16]> {
     random_bytes().ok()
+}
+
+/// Execute a `SqlScope::WorkerBypass` read contract on `worker`'s `WorkerPool`
+/// in a read-only transaction (matching `bins/gateway/src/recovery.rs`).
+pub(super) async fn worker_read_contract(
+    worker: &ScopedExecutor,
+    contract: &'static setjoin_pg::SqlContract,
+    values: &[&(dyn setjoin_pg::ToSql + Sync)],
+) -> Result<Vec<setjoin_pg::Row>, setjoin_pg::StatementFailure> {
+    let wp = worker
+        .try_worker_pool()
+        .ok_or_else(|| setjoin_pg::StatementFailure {
+            hint: None,
+            sqlstate: None,
+            message: "worker pool unavailable".into(),
+        })?;
+    let mut tx = wp.begin_repeatable_read_only().await?;
+    let rows = tx.query_contract(contract, values).await;
+    let _ = tx.rollback().await;
+    rows
+}
+
+/// Cross-mailbox blob download ownership check: verifies delegated account
+/// read grant via `TxFactory`, then runs `HTTP_BLOB_DOWNLOAD_ALLOWED` on `WorkerPool`.
+pub(super) async fn download_allowed(
+    worker: &ScopedExecutor,
+    tx_factory: &setjoin_authz::principals::TxFactory,
+    user: &setjoin_authz::principals::UserPrincipal,
+    primary_mailbox: Option<i64>,
+    account: &str,
+    hash: &str,
+) -> Result<bool, setjoin_pg::StatementFailure> {
+    let delegated = if let Some(acct) = account
+        .parse::<i64>()
+        .ok()
+        .filter(|n| *n > 0 && primary_mailbox.is_none_or(|m| m != *n))
+    {
+        if setjoin_jmap::http_blob::account_read(tx_factory, user, primary_mailbox, acct)
+            .await
+            .unwrap_or(false)
+        {
+            acct
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    let uid = user.user().get();
+    let rows = worker_read_contract(
+        worker,
+        &setjoin_jmap::sql::HTTP_BLOB_DOWNLOAD_ALLOWED,
+        &[&hash, &uid, &delegated],
+    )
+    .await?;
+    Ok(setjoin_jmap::http_blob::decode_download_allowed(&rows))
+}
+
+/// Read-only push state tokens for WS/SSE via capability-gated [`setjoin_authz::principals::TxFactory`].
+pub(super) async fn push_tokens(exec: &ScopedExecutor, scope: &MailboxAuthContext) -> [String; 6] {
+    let Some(tx) = crate::policy_composition::tx_factory_from_executors(exec, None) else {
+        return std::array::from_fn(|_| "unavailable".to_owned());
+    };
+    let Ok(mb) = tx
+        .mint_capability_primary_mailbox(scope.actor(), "", "")
+        .await
+    else {
+        return std::array::from_fn(|_| "unavailable".to_owned());
+    };
+    let Ok(read_cap) = mb.require_read() else {
+        return std::array::from_fn(|_| "unavailable".to_owned());
+    };
+    setjoin_jmap::push_state::tokens(&tx, &read_cap).await
 }
 
 #[cfg(test)]

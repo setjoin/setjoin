@@ -95,7 +95,7 @@ async fn health_alerts_on_ok_to_error_transitions() -> Result<(), BoxError> {
                             // Seed-plus-one-request seam: the public route drives the real
                             // tracker and signed dispatcher with Go absent.
                             let table = setjoin_gateway::RouteTable::proxy_all().with(setjoin_gateway::surface::SurfaceRoute {
-                                exec: exec.clone(), keys: std::sync::Arc::new(common::recovery_keys()),
+                                exec: exec.clone(), worker: None, keys: std::sync::Arc::new(common::recovery_keys()),
                                 issuer: "mailserver".into(), config: std::sync::Arc::new(setjoin_gateway::surface::SurfaceConfig::from_env()),
                                 health: std::sync::Arc::new(HealthGate::new(false).with_alerts(observer.clone())),
                                 fallback: None, discovery: None,
@@ -116,7 +116,49 @@ async fn health_alerts_on_ok_to_error_transitions() -> Result<(), BoxError> {
                             assert!(metrics.lines().any(|line| line == "setjoin_gateway_proxied_to_go_total 0"));
                         }
                         "admin" => {
-                            setjoin_platform::health::evaluate(&exec, &[], "now", Some(&observer)).await;
+                            let role: i64 = owner
+                                .query_one(
+                                    "INSERT INTO admin_role_groups(name,permissions) VALUES('wh457-health-admin',ARRAY['domains.read']) \
+                                     ON CONFLICT (name) DO UPDATE SET permissions=EXCLUDED.permissions RETURNING id",
+                                    &[],
+                                )
+                                .await?
+                                .get(0);
+                            owner
+                                .execute(
+                                    "INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES($1,$2,$1) ON CONFLICT DO NOTHING",
+                                    &[&account.user, &role],
+                                )
+                                .await?;
+                            let factory = setjoin_gateway::policy_composition::tx_factory_from_executors(&exec, Some(&exec))
+                                .ok_or("tx factory")?;
+                            let token = common::recovery_token_with(account.user, json!({"admin": true}));
+                            let mut headers = hyper::HeaderMap::new();
+                            headers.insert("authorization", format!("Bearer {token}").parse()?);
+                            let auth = setjoin_authz::admit(
+                                &exec,
+                                &common::recovery_keys(),
+                                "mailserver",
+                                &headers,
+                                "GET",
+                                "/admin/health",
+                                setjoin_authz::Scope::Member,
+                            )
+                            .await
+                            .map_err(|e| format!("admit: {e:?}"))?;
+                            let admin = factory
+                                .mint_admin_from_authorized(&auth, "127.0.0.1")
+                                .await
+                                .map_err(|e| format!("mint admin: {e:?}"))?
+                                .require_any_permission(&setjoin_platform::MAIL_CONSOLE)
+                                .map_err(|e| format!("perm: {e:?}"))?;
+                            setjoin_platform::health::evaluate(&factory, &admin, &[], "now", Some(&observer)).await;
+                            let _ = owner
+                                .execute("DELETE FROM admin_role_assignments WHERE role_group_id=$1", &[&role])
+                                .await;
+                            let _ = owner
+                                .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
+                                .await;
                         }
                         sql => {
                             owner.batch_execute(sql.strip_prefix("sql:").ok_or("step")?).await?;
@@ -159,7 +201,9 @@ async fn a_failed_live_probe_is_an_error_verdict_but_not_an_alert() -> Result<()
     let owner = db.connect().await?;
     owner.batch_execute("DELETE FROM health_history").await?;
     owner.batch_execute("INSERT INTO health_history(check_name,status,details) VALUES ('wh457_probe_base','ok','oracle')").await?;
-    let exec = setjoin_pg::ScopedExecutor::from_dsn(&db.dsn, 2).map_err(|e| e.0)?;
+    let factory = setjoin_authz::principals::TxFactory::new(
+        setjoin_pg::AppPool::from_dsn(&db.dsn, 2).map_err(|e| e.0)?,
+    );
     let rows: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
     let observer: setjoin_static::health::Alerts = {
         let rows = rows.clone();
@@ -175,9 +219,9 @@ async fn a_failed_live_probe_is_an_error_verdict_but_not_an_alert() -> Result<()
             .with_alerts(observer.clone())
             .with_probes(probes)
     };
-    let error = verdict(true).public(&exec).await;
-    let ok = verdict(false).public(&exec).await;
-    let deferred = HealthGate::new(true).public(&exec).await;
+    let error = verdict(true).public(&factory).await;
+    let ok = verdict(false).public(&factory).await;
+    let deferred = HealthGate::new(true).public(&factory).await;
     owner
         .batch_execute("DELETE FROM health_history WHERE check_name LIKE 'wh457_%'")
         .await?;

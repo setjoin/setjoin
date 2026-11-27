@@ -8,7 +8,8 @@
 //! `system.health_alert` is raised in Rust. The SFU/egress/ASR probes run through an
 //! optional [`Probes`] runner; a deployment with those sidecars configured and no
 //! runner is left to fail closed (`Outcome::Defer` -> 503 in the gateway).
-use setjoin_pg::ScopedExecutor;
+use setjoin_authz::principals::TxFactory;
+use setjoin_pg::rls_preflight::BootPosture;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -70,6 +71,7 @@ pub struct HealthGate {
     evaluating: tokio::sync::Mutex<()>,
     alerts: Option<Alerts>,
     probes: Option<Probes>,
+    boot_posture: Option<Arc<BootPosture>>,
 }
 
 impl HealthGate {
@@ -84,6 +86,7 @@ impl HealthGate {
             evaluating: tokio::sync::Mutex::new(()),
             alerts: None,
             probes: None,
+            boot_posture: None,
         }
     }
 
@@ -99,8 +102,15 @@ impl HealthGate {
         self
     }
 
+    /// Attach startup RLS/PG-version posture (#545). Defaults to `None` so
+    /// existing unit/oracle harnesses remain untouched.
+    pub fn with_boot_posture(mut self, boot_posture: Arc<BootPosture>) -> Self {
+        self.boot_posture = Some(boot_posture);
+        self
+    }
+
     /// `PublicCheck`: the redacted verdict.
-    pub async fn public(&self, exec: &ScopedExecutor) -> Outcome {
+    pub async fn public(&self, factory: &TxFactory) -> Outcome {
         if self.probes_configured && self.probes.is_none() {
             return Outcome::Defer;
         }
@@ -120,7 +130,12 @@ impl HealthGate {
         }
         let outcome = tokio::time::timeout(
             EVAL_TIMEOUT,
-            evaluate(exec, self.alerts.as_ref(), self.probes.as_ref()),
+            evaluate(
+                factory,
+                self.alerts.as_ref(),
+                self.probes.as_ref(),
+                self.boot_posture.as_deref(),
+            ),
         )
         .await
         .unwrap_or(Outcome::Internal);
@@ -129,16 +144,25 @@ impl HealthGate {
     }
 }
 
+fn fold_boot_posture(overall: &'static str, boot_posture: Option<&BootPosture>) -> &'static str {
+    let Some(posture) = boot_posture else {
+        return overall;
+    };
+    match posture.public_status() {
+        "error" => "error",
+        "warn" if overall != "error" => "warn",
+        _ => overall,
+    }
+}
+
 async fn evaluate(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
     alerts: Option<&Alerts>,
     probes: Option<&Probes>,
+    boot_posture: Option<&BootPosture>,
 ) -> Outcome {
-    let rows = exec
-        .read(
-            "SELECT DISTINCT ON (check_name) check_name, status FROM health_history ORDER BY check_name, checked_at DESC",
-            &[],
-        )
+    let rows = factory
+        .run_public_read_contract(&crate::sql::HEALTH_HISTORY, &[])
         .await;
     let Ok(rows) = rows else {
         return Outcome::Internal;
@@ -163,6 +187,7 @@ async fn evaluate(
             overall = "error";
         }
     }
+    overall = fold_boot_posture(overall, boot_posture);
     Outcome::Json {
         status: if overall == "error" { 503 } else { 200 },
         overall,
@@ -170,6 +195,40 @@ async fn evaluate(
 }
 
 /// `Ready`: the pool answers a ping.
-pub async fn ready(exec: &ScopedExecutor) -> bool {
-    exec.read("SELECT 1", &[]).await.is_ok()
+pub async fn ready(factory: &TxFactory) -> bool {
+    factory
+        .run_public_read_contract(&crate::sql::READY_PING, &[])
+        .await
+        .is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use setjoin_pg::rls_preflight::EnforcementMode;
+
+    #[test]
+    fn fold_boot_posture_respects_none_warn_and_error() {
+        assert_eq!(fold_boot_posture("ok", None), "ok");
+        assert_eq!(fold_boot_posture("warn", None), "warn");
+        assert_eq!(fold_boot_posture("error", None), "error");
+
+        let warn = BootPosture {
+            mode: EnforcementMode::WarnReleaseN,
+            overall_status: "warn",
+            report: None,
+            checks: Vec::new(),
+        };
+        assert_eq!(fold_boot_posture("ok", Some(&warn)), "warn");
+        assert_eq!(fold_boot_posture("error", Some(&warn)), "error");
+
+        let err = BootPosture {
+            mode: EnforcementMode::FailClosedReleaseNPlus1,
+            overall_status: "error",
+            report: None,
+            checks: Vec::new(),
+        };
+        assert_eq!(fold_boot_posture("ok", Some(&err)), "error");
+        assert_eq!(fold_boot_posture("warn", Some(&err)), "error");
+    }
 }

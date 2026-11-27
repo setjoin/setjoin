@@ -9,12 +9,50 @@ use crate::mailboxes::{language, render, unknown_outcome};
 use crate::problem::Problem;
 use crate::{Body, RequestContext};
 use hyper::{Request, Response};
-use setjoin_authz::AuthContext;
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_mail_security::sql as mailsec_sql;
 use setjoin_mail_security::threat as db;
-use setjoin_pg::{CommandOutcome, ScopedExecutor};
+use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure};
 
 const NOT_FOUND: &str = "https://setjoin.com/errors/not-found";
 const INTERNAL: &str = "https://setjoin.com/errors/internal-error";
+
+/// Execute the worker-only `lockout_count` / `lockout_list` accessors (`auth_lockouts`
+/// is deny-all FORCE RLS and the accessors are `REVOKE ALL FROM setjoin_app`).
+async fn worker_lockouts(
+    worker: &ScopedExecutor,
+    query: &db::Query<'_>,
+) -> Result<(Vec<db::Item>, i64), StatementFailure> {
+    let bad = || StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: "invalid lockout result".into(),
+    };
+    let limit = i32::try_from(query.limit).map_err(|_| bad())?;
+    let offset = i32::try_from(query.offset).map_err(|_| bad())?;
+    let (column, dir) = db::lockout_sort(query);
+    let pool = worker.try_worker_pool().ok_or_else(bad)?;
+    let mut tx = pool.begin_repeatable_read_only().await?;
+    let total = tx
+        .query_contract(&mailsec_sql::THREAT_LOCKOUT_COUNT, &[&query.q])
+        .await?
+        .first()
+        .and_then(|r| r.try_get::<_, i64>(0).ok())
+        .ok_or_else(bad)?;
+    let rows = tx
+        .query_contract(
+            &mailsec_sql::THREAT_LOCKOUT_LIST,
+            &[&query.q, &limit, &offset, &column, &dir],
+        )
+        .await?;
+    tx.commit().await?;
+    Ok((
+        rows.iter()
+            .filter_map(|r| db::lockout_item(r).ok())
+            .collect(),
+        total,
+    ))
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle(
@@ -23,8 +61,8 @@ pub(crate) async fn handle(
     c: &RequestContext,
     id: &str,
     operation: [u8; 16],
-    actor: &AuthContext,
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     worker: &ScopedExecutor,
 ) -> Response<Body> {
     let head = r.method() == hyper::Method::HEAD;
@@ -83,7 +121,12 @@ pub(crate) async fn handle(
                 sort: &sort,
                 dir: &dir,
             };
-            let Ok((items, total)) = db::rows(exec, worker, view, &spec).await else {
+            let fetched = if view == db::View::Lockouts {
+                worker_lockouts(worker, &spec).await
+            } else {
+                db::rows(factory, admin, view, &spec).await
+            };
+            let Ok((items, total)) = fetched else {
                 return internal();
             };
             if get("format") == "csv" {
@@ -106,7 +149,7 @@ pub(crate) async fn handle(
         }
         Action::IpRulesList => {
             let (limit, offset) = db::page(&get("limit"), &get("offset"));
-            match db::ip_rules_list(exec, limit, offset).await {
+            match db::ip_rules_list(factory, admin, limit, offset).await {
                 Ok(body) => reply(body, 200),
                 Err(_) => internal(),
             }
@@ -141,8 +184,8 @@ pub(crate) async fn handle(
             }
             let ip = c.identity.client_ip.to_string();
             match db::ip_rule_create(
-                worker,
-                actor,
+                factory,
+                admin,
                 &ip,
                 &body.cidr,
                 &body.action,
@@ -162,7 +205,7 @@ pub(crate) async fn handle(
                 return simple(400, "id must be a positive integer");
             };
             let ip = c.identity.client_ip.to_string();
-            match db::ip_rule_delete(worker, actor, &ip, target, operation).await {
+            match db::ip_rule_delete(factory, admin, &ip, target, operation).await {
                 CommandOutcome::Committed(true) => {
                     let mut response = crate::jmap::reply::response(
                         String::new(),

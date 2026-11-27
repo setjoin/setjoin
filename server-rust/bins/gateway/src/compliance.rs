@@ -133,7 +133,7 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
         Box::pin(async move {
             let EdiscoveryMatch {
                 list,
-                get,
+                get: _,
                 create,
                 update,
                 delete,
@@ -155,6 +155,15 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 return problem(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return problem(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return problem(500, "database error", &c, &id);
+            };
             let actor = auth.context();
             let path = r.uri().path().trim_start_matches("/api");
             let required: &[&str] =
@@ -165,23 +174,42 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 } else {
                     &db::MAIL_CONSOLE
                 };
-            let Some(authority) = db::authority(&exec, actor)
-                .await
-                .ok()
-                .filter(|authority| authority.allows_any(required))
-            else {
-                let _ =
-                    db::console_denied(&exec, actor, path, &required.join("|"), operation).await;
+            let admin_opt = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
+            };
+            let Some(admin_principal) = admin_opt.filter(|a| a.allows_any(required)) else {
+                let _ = db::console_denied(
+                    &factory,
+                    &user_principal,
+                    path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
                 return problem(403, "Forbidden", &c, &id);
             };
-            if authority.domain_scope() > 0 {
+            let domain_scope = admin_principal.enforced_domain_scope().unwrap_or(0);
+            if domain_scope > 0 {
                 let detail = format!(
-                    "org-wide-only surface (domain-scoped principal; domain={})",
-                    authority.domain_scope()
+                    "org-wide-only surface (domain-scoped principal; domain={domain_scope})"
                 );
-                let _ = db::console_denied(&exec, actor, path, &detail, operation).await;
+                let _ =
+                    db::console_denied(&factory, &user_principal, path, &detail, operation).await;
                 return problem(403, "Forbidden", &c, &id);
             }
+            let Ok(admin) = admin_principal.require_any_permission(required) else {
+                let _ = db::console_denied(
+                    &factory,
+                    &user_principal,
+                    path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return problem(403, "Forbidden", &c, &id);
+            };
             if export {
                 let raw = crate::compliance_export::query_bytes(r.uri(), "ids").unwrap_or_default();
                 if raw.is_empty() {
@@ -210,13 +238,15 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                         }
                     }
                 }
-                match db::export::authorize(
+                let original_json =
+                    serde_json::to_string(&original).unwrap_or_else(|_| "[]".into());
+                let actor_id = admin.actor().get();
+                match worker_text_command(
                     &worker,
-                    actor,
-                    case,
-                    &ids,
-                    &original,
-                    &c.identity.client_ip.to_string(),
+                    &admin,
+                    &db::sql::EXPORT_AUTHORIZE,
+                    &[&actor_id, &case, &ids, &original_json, &ip],
+                    "export.authorize",
                     operation,
                 )
                 .await
@@ -228,11 +258,11 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                             problem(501, "PST export: streaming support pending", &c, &id)
                         } else {
                             crate::compliance_export::response(
-                                worker,
+                                factory.clone(),
+                                admin.clone(),
                                 store,
                                 crate::compliance_export::Selection {
                                     head: *r.method() == Method::HEAD,
-                                    actor: actor.user_id(),
                                     case,
                                     ids,
                                     original,
@@ -296,8 +326,18 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 }
                 let mailboxes =
                     mailboxes.map(|xs| xs.into_iter().map(|x| x.unwrap_or(0)).collect::<Vec<_>>());
-                let query = serde_json::json!({"keywords":keywords,"kql":kql,"fromAddr":from,"dateFrom":date_from,"dateTo":date_to,"mailboxIds":mailboxes});
-                match db::search::start(&worker, actor, &name, &query, case, operation).await {
+                let query = serde_json::json!({"keywords":keywords,"kql":kql,"fromAddr":from,"dateFrom":date_from,"dateTo":date_to,"mailboxIds":mailboxes}).to_string();
+                let actor_id = admin.actor().get();
+                match worker_i64_command(
+                    &worker,
+                    &admin,
+                    &db::sql::SEARCH_START,
+                    &[&actor_id, &name, &query, &case],
+                    "search.start",
+                    operation,
+                )
+                .await
+                {
                     CommandOutcome::Committed(search) => {
                         jobs.launch(actor.user_id(), search);
                         json_response(
@@ -319,7 +359,7 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                     .ok()
                     .and_then(|s| s.parse::<i64>().ok())
                     .unwrap_or(0);
-                match db::get_search(&worker, target).await {
+                match db::get_search(&factory, &admin, target).await {
                     Ok(body) => json_response(200, body, &c, id),
                     Err(error) if error.hint.as_deref() == Some("kql-validation") => {
                         problem(400, &error.message, &c, &id)
@@ -338,17 +378,25 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 };
                 let ids = ids.map(|xs| xs.into_iter().map(|x| x.unwrap_or(0)).collect::<Vec<_>>());
                 let total = ids.as_ref().map_or(0, Vec::len);
-                match db::hold(
+                let actor_id = admin.actor().get();
+                match worker_text_command(
                     &worker,
-                    actor,
-                    &ids,
-                    hold,
-                    &c.identity.client_ip.to_string(),
+                    &admin,
+                    &db::sql::MESSAGE_HOLD,
+                    &[&actor_id, &ids, &hold, &ip],
+                    if hold {
+                        "message.hold"
+                    } else {
+                        "message.release"
+                    },
                     operation,
                 )
                 .await
                 {
-                    CommandOutcome::Committed(held) => {
+                    CommandOutcome::Committed(raw) => {
+                        let Ok(held) = db::decode_held_messages(&raw) else {
+                            return problem(500, "database error", &c, &id);
+                        };
                         let worm = worm.unwrap_or_else(WormConfig::from_env);
                         let legal_hold_objects = if !held.is_empty() && worm.mode_enabled {
                             apply_legal_hold(
@@ -395,7 +443,16 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 if name.is_empty() {
                     return problem(400, "name is required", &c, &id);
                 }
-                match db::create_case(&exec, actor, &name, &description, operation).await {
+                match db::create_case(
+                    &factory,
+                    &user_principal,
+                    &admin,
+                    &name,
+                    &description,
+                    operation,
+                )
+                .await
+                {
                     CommandOutcome::Committed(n) => {
                         json_response(201, format!("{{\"id\":{n}}}\n"), &c, id)
                     }
@@ -416,11 +473,12 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                     return problem(400, "invalid JSON", &c, &id);
                 };
                 match db::close_case(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user_principal,
+                    &admin,
                     target,
                     &reason,
-                    &c.identity.client_ip.to_string(),
+                    &ip,
                     operation,
                 )
                 .await
@@ -448,7 +506,16 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 if search <= 0 || case <= 0 {
                     return problem(400, "searchId and caseId required", &c, &id);
                 }
-                match db::associate_search(&exec, actor, search, case, operation).await {
+                match db::associate_search(
+                    &factory,
+                    &user_principal,
+                    &admin,
+                    search,
+                    case,
+                    operation,
+                )
+                .await
+                {
                     CommandOutcome::Committed(true) => empty(&c, id),
                     CommandOutcome::Committed(false) => problem(
                         404,
@@ -463,7 +530,7 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 let Some(target) = case_id(&r) else {
                     return problem(400, "invalid case id", &c, &id);
                 };
-                match db::delete_case(&exec, actor, target, operation).await {
+                match db::delete_case(&factory, &user_principal, &admin, target, operation).await {
                     CommandOutcome::Committed(true) => empty(&c, id),
                     CommandOutcome::Committed(false) => {
                         problem(409, "case not found or has associated searches", &c, &id)
@@ -491,8 +558,9 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                     return problem(400, "no fields to update", &c, &id);
                 }
                 match db::update_case(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user_principal,
+                    &admin,
                     target,
                     name.as_deref(),
                     description.as_deref(),
@@ -506,7 +574,7 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                     CommandOutcome::RolledBack(_) => problem(500, "database error", &c, &id),
                 }
             } else if list {
-                match db::list_cases(&exec).await {
+                match db::list_cases(&factory, &admin).await {
                     Ok(body) => json_response(200, body, &c, id),
                     Err(_) => problem(500, "database error", &c, &id),
                 }
@@ -519,7 +587,7 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 let Some(target) = target.filter(|n| *n > 0) else {
                     return problem(400, "invalid case id", &c, &id);
                 };
-                match db::get_case(&exec, target).await {
+                match db::get_case(&factory, &admin, target).await {
                     Ok(body) => json_response(200, body, &c, id),
                     Err(_) => problem(404, "case not found", &c, &id),
                 }
@@ -527,6 +595,107 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
         })
     }
 }
+/// Execute an RBAC-proved cross-tenant `SqlScope::WorkerBypass` compliance command
+/// returning a single text value on `WorkerPool` (`BYPASSRLS`) with a durable
+/// `rust_operation_receipts` row.
+async fn worker_text_command(
+    worker: &ScopedExecutor,
+    _admin: &setjoin_authz::principals::AdminPermissionProof,
+    contract: &'static setjoin_pg::SqlContract,
+    values: &[&(dyn setjoin_pg::ToSql + Sync)],
+    cmd: &'static str,
+    operation: [u8; 16],
+) -> CommandOutcome<String, setjoin_pg::StatementFailure> {
+    worker_contract_command(worker, _admin, contract, values, cmd, operation, |rows| {
+        rows.first()
+            .and_then(|r| r.try_get::<_, String>(0).ok())
+            .ok_or_else(|| setjoin_pg::StatementFailure {
+                sqlstate: None,
+                hint: None,
+                message: "invalid compliance worker result".into(),
+            })
+    })
+    .await
+}
+
+/// Execute an RBAC-proved cross-tenant `SqlScope::WorkerBypass` compliance command
+/// returning a single `i64` value on `WorkerPool` (`BYPASSRLS`) with a durable
+/// `rust_operation_receipts` row.
+async fn worker_i64_command(
+    worker: &ScopedExecutor,
+    _admin: &setjoin_authz::principals::AdminPermissionProof,
+    contract: &'static setjoin_pg::SqlContract,
+    values: &[&(dyn setjoin_pg::ToSql + Sync)],
+    cmd: &'static str,
+    operation: [u8; 16],
+) -> CommandOutcome<i64, setjoin_pg::StatementFailure> {
+    worker_contract_command(worker, _admin, contract, values, cmd, operation, |rows| {
+        rows.first()
+            .and_then(|r| r.try_get::<_, i64>(0).ok())
+            .ok_or_else(|| setjoin_pg::StatementFailure {
+                sqlstate: None,
+                hint: None,
+                message: "invalid compliance worker result".into(),
+            })
+    })
+    .await
+}
+
+async fn worker_contract_command<T, P>(
+    worker: &ScopedExecutor,
+    _admin: &setjoin_authz::principals::AdminPermissionProof,
+    contract: &'static setjoin_pg::SqlContract,
+    values: &[&(dyn setjoin_pg::ToSql + Sync)],
+    cmd: &'static str,
+    operation: [u8; 16],
+    project: P,
+) -> CommandOutcome<T, setjoin_pg::StatementFailure>
+where
+    P: FnOnce(Vec<setjoin_pg::Row>) -> Result<T, setjoin_pg::StatementFailure>,
+{
+    let op = setjoin_contracts::ids::OperationId(operation);
+    let Some(pool) = worker.try_worker_pool() else {
+        return CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
+    };
+    let mut tx = match pool.begin_read_write().await {
+        Ok(tx) => tx,
+        Err(e) => return CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e)),
+    };
+    let op_hex = setjoin_pg::operation_hex(op);
+    let body: Result<T, setjoin_pg::StatementFailure> = async {
+        let rows = tx.query_contract(contract, values).await?;
+        let out = project(rows)?;
+        tx.execute(
+            "INSERT INTO public.rust_operation_receipts(operation_id, family, command) \
+             VALUES ($1::text::uuid, $2, $3)",
+            &[
+                (&op_hex, setjoin_pg::Type::TEXT),
+                (&db::FAMILY, setjoin_pg::Type::TEXT),
+                (&cmd, setjoin_pg::Type::TEXT),
+            ],
+        )
+        .await?;
+        Ok(out)
+    }
+    .await;
+    match body {
+        Ok(value) => match tx.commit().await {
+            Ok(()) => CommandOutcome::Committed(value),
+            Err(e) => {
+                if e.sqlstate.is_none() {
+                    CommandOutcome::Unknown { operation: op }
+                } else {
+                    CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e))
+                }
+            }
+        },
+        Err(e) => {
+            let _ = tx.rollback().await;
+            CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e))
+        }
+    }
+}
+
 pub(crate) fn problem(status: u16, detail: &str, c: &RequestContext, id: &str) -> Response<Body> {
     let mut response = json_response(
         status,
@@ -632,13 +801,103 @@ impl SearchJobs {
                 let Ok(_permit) = jobs.slots.acquire().await else {
                     return;
                 };
-                if let Err(error) = db::search::execute(&jobs.database, actor, id).await {
+                if let Err(error) = execute_search_job(&jobs.database, actor, id).await {
                     eprintln!("ediscovery search {id} failed: {error}");
                 }
             })
             .await;
         });
     }
+}
+
+/// Worker-credential eDiscovery search execution (moved out of `setjoin-compliance`
+/// so domain crates never touch `WorkerDatabase`).
+async fn execute_search_job(
+    database: &setjoin_pg::workers::WorkerDatabase,
+    actor: i64,
+    id: i64,
+) -> Result<(), String> {
+    use setjoin_pg::Type;
+    let result = async {
+        let c = database.connect().await.map_err(|e| e.to_string())?;
+        let rows = c
+            .query(
+                "UPDATE ediscovery_searches SET status='running',started_at=now() WHERE id=$1 AND created_by=$2 RETURNING query::text",
+                &[(&id, Type::INT8), (&actor, Type::INT8)],
+            )
+            .await?;
+        let text = rows
+            .first()
+            .and_then(|r| r.try_get::<_, String>(0).ok())
+            .ok_or("missing search query")?;
+        let query: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let (predicate, values) = if let Some(kql) = query["kql"].as_str().filter(|s| !s.is_empty()) {
+            let parsed = db::kql::parse(kql)?;
+            (parsed.sql, parsed.values)
+        } else {
+            let mut values = vec![query["keywords"].as_str().unwrap_or("").to_owned()];
+            let mut predicate = "(m.body_tsv @@ websearch_to_tsquery('simple',($1::text[])[1]) OR m.subject_tsv @@ websearch_to_tsquery('simple',($1::text[])[1]) OR m.from_tsv @@ websearch_to_tsquery('simple',($1::text[])[1]))".to_owned();
+            if let Some(from) = query["fromAddr"].as_str().filter(|s| !s.is_empty()) {
+                values.push(from.to_owned());
+                predicate += &format!(
+                    " AND m.from_addr ILIKE '%' || ($1::text[])[{}] || '%'",
+                    values.len()
+                );
+            }
+            if let Some(date) = query["dateFrom"].as_str().filter(|s| !s.is_empty()) {
+                values.push(date.to_owned());
+                predicate += &format!(" AND m.received_at >= (($1::text[])[{}])::timestamptz", values.len());
+            }
+            if let Some(date) = query["dateTo"].as_str().filter(|s| !s.is_empty()) {
+                values.push(date.to_owned());
+                predicate += &format!(" AND m.received_at <= (($1::text[])[{}])::timestamptz", values.len());
+            }
+            if let Some(ids) = query["mailboxIds"].as_array().filter(|ids| !ids.is_empty()) {
+                let ids = ids
+                    .iter()
+                    .map(|v| {
+                        v.as_f64().map_or(0, |f| {
+                            if f >= i64::MAX as f64 || f < i64::MIN as f64 {
+                                i64::MIN
+                            } else {
+                                f as i64
+                            }
+                        })
+                    })
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>();
+                values.push(format!("{{{}}}", ids.join(",")));
+                predicate += &format!(
+                    " AND m.mailbox_id = ANY((($1::text[])[{}])::bigint[])",
+                    values.len()
+                );
+            }
+            (predicate, values)
+        };
+        c.query(
+            "SELECT rust_compliance_search_complete($1,$2,$3,$4)",
+            &[
+                (&actor, Type::INT8),
+                (&id, Type::INT8),
+                (&predicate, Type::TEXT),
+                (&values, Type::TEXT_ARRAY),
+            ],
+        )
+        .await?;
+        Ok::<_, String>(())
+    }
+    .await;
+    if result.is_err() {
+        if let Ok(c) = database.connect().await {
+            let _ = c
+                .execute(
+                    "UPDATE ediscovery_searches SET status='failed',completed_at=now() WHERE id=$1 AND created_by=$2",
+                    &[(&id, Type::INT8), (&actor, Type::INT8)],
+                )
+                .await;
+        }
+    }
+    result
 }
 
 async fn search_fields(r: &mut Request<Body>) -> Result<(crate::chat::Fields, bytes::Bytes), ()> {

@@ -5,15 +5,27 @@ pub use runtime::Runtime;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
+const SCOPED_SECRET_ENV_KEYS: [&str; 6] = [
+    "MAIL_ATTACHMENT_TOKEN_SECRET",
+    "MAIL_ATTACHMENT_TOKEN_PREVIOUS_SECRET",
+    "DRIVE_NATIVE_TOKEN_SECRET",
+    "APPROVAL_LINK_SECRET",
+    "WEBHOOK_SECRET_KEY",
+    "DEVICE_HMAC_KEY",
+];
+
 #[derive(Clone)]
 pub struct Settings {
     values: BTreeMap<String, Value>,
     file_keys: BTreeSet<String>,
+    scoped_secrets: BTreeMap<String, String>,
 }
 impl Settings {
     pub fn load(environment: &BTreeMap<String, String>) -> Result<Self, String> {
-        let ordered: Vec<(String, String)> =
-            environment.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let ordered: Vec<(String, String)> = environment
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         Self::load_ordered(&ordered)
     }
     pub fn load_ordered(environment: &[(String, String)]) -> Result<Self, String> {
@@ -40,8 +52,10 @@ impl Settings {
     }
 
     pub fn parse(yaml: &str, environment: &BTreeMap<String, String>) -> Result<Self, String> {
-        let ordered: Vec<(String, String)> =
-            environment.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let ordered: Vec<(String, String)> = environment
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         Self::parse_ordered(yaml, &ordered)
     }
     pub fn parse_ordered(yaml: &str, environment: &[(String, String)]) -> Result<Self, String> {
@@ -81,7 +95,11 @@ impl Settings {
         }
         let mut file_keys: BTreeSet<String> = file.keys().cloned().collect();
         values.extend(file);
+        let mut scoped_secrets = BTreeMap::new();
         for (name, value) in environment {
+            if SCOPED_SECRET_ENV_KEYS.contains(&name.as_str()) {
+                scoped_secrets.insert(name.clone(), value.clone());
+            }
             let key = transform(name);
             let key = if values.contains_key(&key) {
                 Some(key)
@@ -133,7 +151,11 @@ impl Settings {
                 file_keys.insert("worm.legal_hold_enabled".into());
             }
         }
-        Ok(Self { values, file_keys })
+        Ok(Self {
+            values,
+            file_keys,
+            scoped_secrets,
+        })
     }
     pub fn string(&self, key: &str) -> String {
         match self.values.get(key) {
@@ -149,7 +171,9 @@ impl Settings {
             Some(Value::Number(n)) => {
                 n.as_f64() == Some(1.0) || n.as_i64() == Some(1) || n.as_u64() == Some(1)
             }
-            Some(Value::String(s)) => matches!(s.as_str(), "1" | "t" | "T" | "true" | "TRUE" | "True"),
+            Some(Value::String(s)) => {
+                matches!(s.as_str(), "1" | "t" | "T" | "true" | "TRUE" | "True")
+            }
             _ => false,
         }
     }
@@ -239,7 +263,9 @@ fn parse_go_hex_float64(s: &str) -> Option<f64> {
     } else {
         (false, s)
     };
-    let rest = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X"))?;
+    let rest = rest
+        .strip_prefix("0x")
+        .or_else(|| rest.strip_prefix("0X"))?;
     let p_idx = rest.find(['p', 'P'])?;
     let mant_raw = &rest[..p_idx];
     let exp_raw = &rest[p_idx + 1..];
@@ -258,10 +284,9 @@ fn parse_go_hex_float64(s: &str) -> Option<f64> {
     let (int_hex, frac_hex) = match mant_raw.split_once('.') {
         Some((i, f)) => {
             if !i.is_empty()
-                && !valid_underscore_digits(
-                    i.strip_prefix('_').unwrap_or(i),
-                    |b| b.is_ascii_hexdigit(),
-                )
+                && !valid_underscore_digits(i.strip_prefix('_').unwrap_or(i), |b| {
+                    b.is_ascii_hexdigit()
+                })
             {
                 return None;
             }
@@ -271,10 +296,9 @@ fn parse_go_hex_float64(s: &str) -> Option<f64> {
             (i, f)
         }
         None => {
-            if !valid_underscore_digits(
-                mant_raw.strip_prefix('_').unwrap_or(mant_raw),
-                |b| b.is_ascii_hexdigit(),
-            ) {
+            if !valid_underscore_digits(mant_raw.strip_prefix('_').unwrap_or(mant_raw), |b| {
+                b.is_ascii_hexdigit()
+            }) {
                 return None;
             }
             (mant_raw, "")
@@ -345,7 +369,10 @@ fn parse_go_float64(raw: &str) -> Option<f64> {
 fn normalize_go_yaml_number(raw: &str) -> Option<String> {
     let sign = if raw.starts_with('-') { "-" } else { "" };
     let unsigned = raw.strip_prefix(['+', '-']).unwrap_or(raw);
-    if let Some(hex) = unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
+    if let Some(hex) = unsigned
+        .strip_prefix("0x")
+        .or_else(|| unsigned.strip_prefix("0X"))
+    {
         if !raw.contains('_') {
             return None;
         }
@@ -355,7 +382,10 @@ fn normalize_go_yaml_number(raw: &str) -> Option<String> {
         }
         return None;
     }
-    if let Some(oct) = unsigned.strip_prefix("0o").or_else(|| unsigned.strip_prefix("0O")) {
+    if let Some(oct) = unsigned
+        .strip_prefix("0o")
+        .or_else(|| unsigned.strip_prefix("0O"))
+    {
         if !raw.contains('_') {
             return None;
         }
@@ -365,7 +395,10 @@ fn normalize_go_yaml_number(raw: &str) -> Option<String> {
         }
         return None;
     }
-    if let Some(bin) = unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B")) {
+    if let Some(bin) = unsigned
+        .strip_prefix("0b")
+        .or_else(|| unsigned.strip_prefix("0B"))
+    {
         if !raw.contains('_') {
             return None;
         }
@@ -400,7 +433,10 @@ fn normalize_go_yaml_number(raw: &str) -> Option<String> {
     };
     let int_ok = |part: &str| {
         part == "0"
-            || (part.as_bytes().first().is_some_and(|b| matches!(b, b'1'..=b'9'))
+            || (part
+                .as_bytes()
+                .first()
+                .is_some_and(|b| matches!(b, b'1'..=b'9'))
                 && valid_underscore_digits(part, |b| b.is_ascii_digit()))
     };
     if let Some((int_part, frac_part)) = mantissa.split_once('.') {
@@ -510,9 +546,7 @@ fn canonical_worm_retention_value(value: Option<&Value>) -> Option<String> {
             } else {
                 n.as_f64()
                     .filter(|f| {
-                        f.is_finite()
-                            && *f >= (i64::MIN as f64)
-                            && *f < 9_223_372_036_854_775_808.0
+                        f.is_finite() && *f >= (i64::MIN as f64) && *f < 9_223_372_036_854_775_808.0
                     })
                     .map(|f| (f as i64).to_string())
             }
@@ -588,6 +622,18 @@ impl Settings {
     /// Validation at Go's reload boundary. Required deployment credentials are
     /// checked here even when the front door itself can boot without local routes.
     pub fn validate(&self) -> Result<(), String> {
+        self.validate_for(setjoin_boot::Subsystems::ALL)
+    }
+
+    /// Subsystem-gated configuration validation.
+    ///
+    /// Non-`auth` nodes do not require `JWT_SECRET` or `SM2_PRIVATE_KEY_FILE`;
+    /// `auth`-only / `protocols`-only nodes do not require S3/MinIO storage
+    /// credentials; non-`protocols` nodes do not require SMTP/IMAP listeners.
+    pub fn validate_for(&self, subsystems: setjoin_boot::Subsystems) -> Result<(), String> {
+        if subsystems.is_empty() {
+            return Err("at least one subsystem must be enabled".into());
+        }
         let get = |key| self.string(key);
         let profile = get("crypto.algorithm_profile");
         if get("db.dsn").is_empty() {
@@ -597,7 +643,7 @@ impl Settings {
             return Err("CRYPTO_ALGORITHM_PROFILE must be standard, smx, or hybrid".into());
         }
         let floor = if profile == "smx" { 16 } else { 32 };
-        if get("jwt.secret").len() < floor {
+        if subsystems.auth && get("jwt.secret").len() < floor {
             return Err(format!(
                 "JWT_SECRET must be at least {floor} characters for profile {profile}"
             ));
@@ -611,80 +657,93 @@ impl Settings {
             }
             .into());
         }
-        if profile == "smx" && get("sm2.private_key_file").is_empty() {
+        if subsystems.auth && profile == "smx" && get("sm2.private_key_file").is_empty() {
             return Err("SM2_PRIVATE_KEY_FILE is required for profile smx".into());
         }
         if get("tls.cert").is_empty() != get("tls.key").is_empty() {
             return Err("TLS_CERT and TLS_KEY must both be set or both empty".into());
         }
-        for (name, key) in [
-            ("JWT_MAIL_ATTACHMENT_SECRET", "jwt.mail_attachment_secret"),
-            (
-                "JWT_MAIL_ATTACHMENT_PREVIOUS_SECRET",
-                "jwt.mail_attachment_previous_secret",
-            ),
-            (
-                "JWT_LINK_PROTECT_TOKEN_PREVIOUS_SECRET",
-                "jwt.link_protect_token_previous_secret",
-            ),
-        ] {
-            let secret = get(key);
-            if !secret.is_empty() && secret.len() < floor {
+        if subsystems.http || subsystems.workers {
+            for (name, key) in [
+                ("JWT_MAIL_ATTACHMENT_SECRET", "jwt.mail_attachment_secret"),
+                (
+                    "JWT_MAIL_ATTACHMENT_PREVIOUS_SECRET",
+                    "jwt.mail_attachment_previous_secret",
+                ),
+                (
+                    "JWT_LINK_PROTECT_TOKEN_PREVIOUS_SECRET",
+                    "jwt.link_protect_token_previous_secret",
+                ),
+            ] {
+                let secret = get(key);
+                if !secret.is_empty() && secret.len() < floor {
+                    return Err(format!(
+                        "{name} must be at least {floor} characters for profile {profile}"
+                    ));
+                }
+            }
+            for name in SCOPED_SECRET_ENV_KEYS {
+                if let Some(secret) = self.scoped_secrets.get(name) {
+                    if !secret.is_empty() && secret.len() < floor {
+                        return Err(format!(
+                            "{name} must be at least {floor} characters for profile {profile}"
+                        ));
+                    }
+                }
+            }
+            let raw = get("jwt.link_protect_token_version");
+            let raw = raw.trim();
+            let version = if raw.is_empty() {
+                0
+            } else {
+                raw.parse::<i64>().map_err(|_|format!("JWT_LINK_PROTECT_TOKEN_VERSION: invalid integer {} — it selects the link-protect token key generation (a malformed value must not silently fall back to version 1)",setjoin_contracts::go_quote::quote(raw.as_bytes())))?
+            };
+            if version < 0 {
+                return Err(format!("JWT_LINK_PROTECT_TOKEN_VERSION must be >= 1 (got {version}) — it selects the link-protect token key generation"));
+            }
+            if !get("jwt.link_protect_token_previous_secret").is_empty() && version <= 1 {
+                return Err("JWT_LINK_PROTECT_TOKEN_PREVIOUS_SECRET is set but JWT_LINK_PROTECT_TOKEN_VERSION=1 has no previous generation — bump the version (rotating the gateway secret at the same time) to open the overlap window, or remove the previous secret".into());
+            }
+            if get("s3.access_key").is_empty() || get("s3.secret_key").is_empty() {
+                return Err("MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be set".into());
+            }
+            let mode = get("sandbox.fail_mode");
+            if !matches!(mode.as_str(), "" | "open" | "closed") {
+                return Err(format!("SANDBOX_FAIL_MODE must be \"open\" or \"closed\" (got {}) — an unknown spelling must not fail open",setjoin_contracts::go_quote::quote(mode.as_bytes())));
+            }
+            let algorithm = get("smime.encrypt_algorithm");
+            if !matches!(algorithm.as_str(), "" | "aes-256-gcm" | "aes-256-cbc") {
                 return Err(format!(
-                    "{name} must be at least {floor} characters for profile {profile}"
+                    "SMIME_ENCRYPT_ALGORITHM must be \"aes-256-gcm\" or \"aes-256-cbc\" (got {})",
+                    setjoin_contracts::go_quote::quote(algorithm.as_bytes())
                 ));
             }
         }
-        let raw = get("jwt.link_protect_token_version");
-        let raw = raw.trim();
-        let version = if raw.is_empty() {
-            0
-        } else {
-            raw.parse::<i64>().map_err(|_|format!("JWT_LINK_PROTECT_TOKEN_VERSION: invalid integer {} — it selects the link-protect token key generation (a malformed value must not silently fall back to version 1)",setjoin_contracts::go_quote::quote(raw.as_bytes())))?
-        };
-        if version < 0 {
-            return Err(format!("JWT_LINK_PROTECT_TOKEN_VERSION must be >= 1 (got {version}) — it selects the link-protect token key generation"));
-        }
-        if !get("jwt.link_protect_token_previous_secret").is_empty() && version <= 1 {
-            return Err("JWT_LINK_PROTECT_TOKEN_PREVIOUS_SECRET is set but JWT_LINK_PROTECT_TOKEN_VERSION=1 has no previous generation — bump the version (rotating the gateway secret at the same time) to open the overlap window, or remove the previous secret".into());
-        }
-        if get("s3.access_key").is_empty() || get("s3.secret_key").is_empty() {
-            return Err("MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be set".into());
-        }
-        let mode = get("sandbox.fail_mode");
-        if !matches!(mode.as_str(), "" | "open" | "closed") {
-            return Err(format!("SANDBOX_FAIL_MODE must be \"open\" or \"closed\" (got {}) — an unknown spelling must not fail open",setjoin_contracts::go_quote::quote(mode.as_bytes())));
-        }
-        let algorithm = get("smime.encrypt_algorithm");
-        if !matches!(algorithm.as_str(), "" | "aes-256-gcm" | "aes-256-cbc") {
-            return Err(format!(
-                "SMIME_ENCRYPT_ALGORITHM must be \"aes-256-gcm\" or \"aes-256-cbc\" (got {})",
-                setjoin_contracts::go_quote::quote(algorithm.as_bytes())
-            ));
-        }
-        if get("smtp.inbound_addr").is_empty()
-            && get("smtp.submission_addr").is_empty()
-            && get("imap.addr").is_empty()
-        {
-            return Err(
-                "at least one of SMTP_INBOUND_ADDR, SMTP_SUBMISSION_ADDR, or IMAP_ADDR must be set"
-                    .into(),
-            );
-        }
-        for (key, name, label) in [
-            ("imap.addr", "IMAP_ADDR", "IMAP authentication"),
-            (
-                "smtp.submission_addr",
-                "SMTP_SUBMISSION_ADDR",
-                "submission authentication",
-            ),
-        ] {
-            let address = get(key);
-            if !address.is_empty()
-                && (get("tls.cert").is_empty() || get("tls.key").is_empty())
-                && !loopback_listener(&address)
+        if subsystems.protocols {
+            if get("smtp.inbound_addr").is_empty()
+                && get("smtp.submission_addr").is_empty()
+                && get("imap.addr").is_empty()
             {
-                return Err(format!("TLS_CERT and TLS_KEY are required when {name} listens beyond loopback; {label} must not be exposed without STARTTLS"));
+                return Err(
+                    "at least one of SMTP_INBOUND_ADDR, SMTP_SUBMISSION_ADDR, or IMAP_ADDR must be set"
+                        .into(),
+                );
+            }
+            for (key, name, label) in [
+                ("imap.addr", "IMAP_ADDR", "IMAP authentication"),
+                (
+                    "smtp.submission_addr",
+                    "SMTP_SUBMISSION_ADDR",
+                    "submission authentication",
+                ),
+            ] {
+                let address = get(key);
+                if !address.is_empty()
+                    && (get("tls.cert").is_empty() || get("tls.key").is_empty())
+                    && !loopback_listener(&address)
+                {
+                    return Err(format!("TLS_CERT and TLS_KEY are required when {name} listens beyond loopback; {label} must not be exposed without STARTTLS"));
+                }
             }
         }
         Ok(())
@@ -773,9 +832,11 @@ mod tests {
         let legacy_oct_one = Settings::parse("s3:\n  secure: 0_1\n", &BTreeMap::new()).unwrap();
         assert!(legacy_oct_one.boolean("s3.secure"));
 
-        let verbatim_float =
-            Settings::parse("s3:\n  secure: !<tag:yaml.org,2002:float> 1_0e-1\n", &BTreeMap::new())
-                .unwrap();
+        let verbatim_float = Settings::parse(
+            "s3:\n  secure: !<tag:yaml.org,2002:float> 1_0e-1\n",
+            &BTreeMap::new(),
+        )
+        .unwrap();
         assert!(verbatim_float.boolean("s3.secure"));
 
         let tagged_quoted_float =
@@ -832,5 +893,108 @@ mod tests {
                 .as_deref(),
             Some("9007199254740993")
         );
+    }
+
+    #[test]
+    fn validate_for_gates_auth_storage_and_protocol_requirements_by_subsystem() {
+        use setjoin_boot::Subsystems;
+
+        let http_only = Subsystems {
+            http: true,
+            auth: false,
+            protocols: false,
+            workers: false,
+        };
+        let auth_only = Subsystems {
+            http: false,
+            auth: true,
+            protocols: false,
+            workers: false,
+        };
+        let protocols_only = Subsystems {
+            http: false,
+            auth: false,
+            protocols: true,
+            workers: false,
+        };
+
+        // Non-auth HTTP node validates without JWT_SECRET, SM2_PRIVATE_KEY_FILE,
+        // or protocol TLS certs (even under profile=smx).
+        let mut env = BTreeMap::new();
+        env.insert("DB_DSN".into(), "postgres://mail@127.0.0.1/mail".into());
+        env.insert("CRYPTO_ALGORITHM_PROFILE".into(), "smx".into());
+        env.insert("MINIO_ACCESS_KEY".into(), "ak".into());
+        env.insert("MINIO_SECRET_KEY".into(), "sk".into());
+        let s = Settings::parse("", &env).unwrap();
+        assert!(s.validate_for(http_only).is_ok());
+        assert!(s.validate_for(Subsystems::ALL).is_err());
+        assert!(s.validate().is_err());
+
+        // Auth-only node requires JWT_SECRET + SM2_PRIVATE_KEY_FILE for smx,
+        // but does NOT require MinIO or SMTP/IMAP listeners.
+        let mut auth_env = BTreeMap::new();
+        auth_env.insert("DB_DSN".into(), "postgres://mail@127.0.0.1/mail".into());
+        auth_env.insert("CRYPTO_ALGORITHM_PROFILE".into(), "smx".into());
+        auth_env.insert("JWT_SECRET".into(), "0123456789abcdef".into());
+        let s_auth_missing_sm2 = Settings::parse("", &auth_env).unwrap();
+        assert!(s_auth_missing_sm2
+            .validate_for(auth_only)
+            .unwrap_err()
+            .contains("SM2_PRIVATE_KEY_FILE"));
+        auth_env.insert("SM2_PRIVATE_KEY_FILE".into(), "/etc/mail/sm2.pem".into());
+        let s_auth = Settings::parse("", &auth_env).unwrap();
+        assert!(s_auth.validate_for(auth_only).is_ok());
+        assert!(s_auth.validate_for(http_only).is_err());
+
+        // Protocols-only node does not require JWT_SECRET or MinIO, but does
+        // enforce STARTTLS for non-loopback IMAP/submission.
+        let mut proto_env = BTreeMap::new();
+        proto_env.insert("DB_DSN".into(), "postgres://mail@127.0.0.1/mail".into());
+        proto_env.insert("IMAP_ADDR".into(), "127.0.0.1:143".into());
+        proto_env.insert("SMTP_SUBMISSION_ADDR".into(), "127.0.0.1:587".into());
+        let s_proto = Settings::parse("", &proto_env).unwrap();
+        assert!(s_proto.validate_for(protocols_only).is_ok());
+
+        // Empty subsystem bitset is rejected.
+        assert!(s_proto.validate_for(Subsystems::NONE).is_err());
+
+        // Scoped edge secrets enforce the profile length floor (32 standard, 16 smx).
+        for secret_env in [
+            "MAIL_ATTACHMENT_TOKEN_SECRET",
+            "MAIL_ATTACHMENT_TOKEN_PREVIOUS_SECRET",
+            "DRIVE_NATIVE_TOKEN_SECRET",
+            "APPROVAL_LINK_SECRET",
+            "WEBHOOK_SECRET_KEY",
+            "DEVICE_HMAC_KEY",
+        ] {
+            let mut std_env = BTreeMap::new();
+            std_env.insert("DB_DSN".into(), "postgres://mail@127.0.0.1/mail".into());
+            std_env.insert("MINIO_ACCESS_KEY".into(), "ak".into());
+            std_env.insert("MINIO_SECRET_KEY".into(), "sk".into());
+            std_env.insert(secret_env.into(), "too-short-31-chars-012345678901".into());
+            let bad = Settings::parse("", &std_env).unwrap();
+            let err = bad.validate_for(http_only).unwrap_err();
+            assert!(
+                err.contains(secret_env) && err.contains("32"),
+                "expected floor error for {secret_env}, got {err}"
+            );
+
+            std_env.insert(secret_env.into(), "0123456789abcdef0123456789abcdef".into());
+            assert!(Settings::parse("", &std_env)
+                .unwrap()
+                .validate_for(http_only)
+                .is_ok());
+
+            // Under profile=smx, 16 chars is accepted and 15 chars is rejected.
+            std_env.insert("CRYPTO_ALGORITHM_PROFILE".into(), "smx".into());
+            std_env.insert(secret_env.into(), "0123456789abcde".into());
+            let bad_smx = Settings::parse("", &std_env).unwrap();
+            assert!(bad_smx.validate_for(http_only).unwrap_err().contains("16"));
+            std_env.insert(secret_env.into(), "0123456789abcdef".into());
+            assert!(Settings::parse("", &std_env)
+                .unwrap()
+                .validate_for(http_only)
+                .is_ok());
+        }
     }
 }

@@ -104,9 +104,12 @@ mod tests {
             }
         );
         assert_eq!(
-            classify_call(r#"{"accountId":"12","sinceState":"1","maxChanges":-1}"#, "c1")
-                .unwrap()
-                .args,
+            classify_call(
+                r#"{"accountId":"12","sinceState":"1","maxChanges":-1}"#,
+                "c1"
+            )
+            .unwrap()
+            .args,
             ChangesArgs::Valid {
                 raw_account_id: "12".into(),
                 since_state: "1".into(),

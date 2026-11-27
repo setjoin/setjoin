@@ -10,17 +10,21 @@
 //! checks remain with each route family.
 
 pub mod address;
+pub mod auth_authority;
 pub mod basic;
 pub mod clientip;
 pub mod csrf;
 pub mod es256;
 pub mod gates;
+pub mod groups;
 pub mod jwks;
 pub mod kerberos;
+pub mod legacy_jwt;
 pub mod mailbox;
 pub mod numeric_date;
-pub mod legacy_jwt;
 pub mod password;
+pub mod policy_gate;
+pub mod principals;
 pub mod push;
 pub mod signing_keys;
 pub mod token;
@@ -88,16 +92,20 @@ pub struct AuthContext {
 
 impl AuthContext {
     /// Live satellite-derived account classification; never a request field.
-    pub fn is_guest(&self) -> bool { self.guest }
+    pub fn is_guest(&self) -> bool {
+        self.guest
+    }
     /// Scope for user domains. A mailbox-less proof receives user authority only.
     /// Mailstore callers must continue requiring a real primary MailboxId.
     pub fn database_scope(&self) -> setjoin_pg::MailboxAuthContext {
         use setjoin_pg::MailboxAuthContext;
-        let actor=setjoin_contracts::ids::ActorId::new(self.user_id).expect("verified actor");
-        let generation=setjoin_contracts::ids::Generation(1);
+        let actor = setjoin_contracts::ids::ActorId::new(self.user_id).expect("verified actor");
+        let generation = setjoin_contracts::ids::Generation(1);
         match setjoin_contracts::ids::MailboxId::new(self.mailbox_id) {
-            Ok(mailbox)=>MailboxAuthContext::from_authenticated_session(actor,mailbox,generation),
-            Err(_)=>MailboxAuthContext::from_authenticated_user(actor,generation),
+            Ok(mailbox) => {
+                MailboxAuthContext::from_authenticated_session(actor, mailbox, generation)
+            }
+            Err(_) => MailboxAuthContext::from_authenticated_user(actor, generation),
         }
     }
 
@@ -197,7 +205,18 @@ pub async fn authorize(
     scheme: &str,
     flag: &str,
 ) -> Option<Authorized> {
-    authorize_with_feature(exec, keys, issuer, headers, scheme, Some(flag),false,true,false).await
+    authorize_with_feature(
+        exec,
+        keys,
+        issuer,
+        headers,
+        scheme,
+        Some(flag),
+        false,
+        true,
+        false,
+    )
+    .await
 }
 
 /// Authenticate an inventory-gated route with no Go feature flag. Security
@@ -210,46 +229,101 @@ pub async fn authorize_request(
     headers: &HeaderMap,
     scheme: &str,
 ) -> Option<Authorized> {
-    authorize_with_feature(exec, keys, issuer, headers, scheme, None,false,true,false).await
+    authorize_with_feature(
+        exec, keys, issuer, headers, scheme, None, false, true, false,
+    )
+    .await
 }
 
 /// Mailserver user-domain admission. A verified non-guest with no owned
 /// mailbox can reach its explicit no-mailbox response; it gains user authority
 /// only. Existing mailbox lifecycle failures remain denied.
-pub async fn authorize_mailserver_identity_request(exec:&ScopedExecutor,keys:&impl KeySource,
-    issuer:&str,headers:&HeaderMap,scheme:&str)->Option<Authorized> {
-    authorize_with_feature(exec,keys,issuer,headers,scheme,None,false,true,true).await
+pub async fn authorize_mailserver_identity_request(
+    exec: &ScopedExecutor,
+    keys: &impl KeySource,
+    issuer: &str,
+    headers: &HeaderMap,
+    scheme: &str,
+) -> Option<Authorized> {
+    authorize_with_feature(exec, keys, issuer, headers, scheme, None, false, true, true).await
 }
 
 /// Scoped mirrors authenticate only a Drive path; shared HTTP auth remains unscoped.
-pub async fn authorize_drive_request(exec:&ScopedExecutor,keys:&impl KeySource,issuer:&str,headers:&HeaderMap,scheme:&str,path:&str)->Option<Authorized>{
-    let drive=path=="/drive"||path.starts_with("/drive/")||path=="/api/drive"||path.starts_with("/api/drive/");
-    authorize_with_feature(exec,keys,issuer,headers,scheme,None,drive,true,false).await
+pub async fn authorize_drive_request(
+    exec: &ScopedExecutor,
+    keys: &impl KeySource,
+    issuer: &str,
+    headers: &HeaderMap,
+    scheme: &str,
+    path: &str,
+) -> Option<Authorized> {
+    let drive = path == "/drive"
+        || path.starts_with("/drive/")
+        || path == "/api/drive"
+        || path.starts_with("/api/drive/");
+    authorize_with_feature(
+        exec, keys, issuer, headers, scheme, None, drive, true, false,
+    )
+    .await
 }
 
 /// Console permission resolution owns its live authority read. Role IDs are
 /// unused here; omitting their redundant read preserves Go's error semantics.
-pub async fn authorize_console_request(exec:&ScopedExecutor,keys:&impl KeySource,
-    issuer:&str,headers:&HeaderMap,scheme:&str)->Option<Authorized>{
-    authorize_with_feature(exec,keys,issuer,headers,scheme,None,false,false,false).await
+pub async fn authorize_console_request(
+    exec: &ScopedExecutor,
+    keys: &impl KeySource,
+    issuer: &str,
+    headers: &HeaderMap,
+    scheme: &str,
+) -> Option<Authorized> {
+    authorize_with_feature(
+        exec, keys, issuer, headers, scheme, None, false, false, false,
+    )
+    .await
 }
 
 /// Why [`admit`] produced no [`Authorized`] (#354). Each variant is one frozen-Go
 /// outcome class; the gateway maps it to Go's bytes or to a named owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
-    NoCredential, AlternativeCredential, InvalidToken, Impersonation, MissingIssuedAt,
-    UnservedSubject, GuestInactive, Guest, Revoked, NoPrimaryMailbox, MailboxBlocked, Unavailable,
+    NoCredential,
+    AlternativeCredential,
+    InvalidToken,
+    Impersonation,
+    MissingIssuedAt,
+    UnservedSubject,
+    GuestInactive,
+    Guest,
+    Revoked,
+    NoPrimaryMailbox,
+    MailboxBlocked,
+    Unavailable,
 }
 impl Refusal {
-    pub const ALL: [Refusal; 12] = [Refusal::NoCredential, Refusal::AlternativeCredential, Refusal::InvalidToken,
-        Refusal::Impersonation, Refusal::MissingIssuedAt, Refusal::UnservedSubject, Refusal::GuestInactive,
-        Refusal::Guest, Refusal::Revoked, Refusal::NoPrimaryMailbox, Refusal::MailboxBlocked, Refusal::Unavailable];
+    pub const ALL: [Refusal; 12] = [
+        Refusal::NoCredential,
+        Refusal::AlternativeCredential,
+        Refusal::InvalidToken,
+        Refusal::Impersonation,
+        Refusal::MissingIssuedAt,
+        Refusal::UnservedSubject,
+        Refusal::GuestInactive,
+        Refusal::Guest,
+        Refusal::Revoked,
+        Refusal::NoPrimaryMailbox,
+        Refusal::MailboxBlocked,
+        Refusal::Unavailable,
+    ];
 }
 
 /// The pre-#354 admission rule a call site used.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Scope { Member, User, Drive, DriveUser }
+pub enum Scope {
+    Member,
+    User,
+    Drive,
+    DriveUser,
+}
 
 /// The Drive adapters' surface: Go's Drive handlers see `/drive` or `/drive/...`
 /// ([`go_url::mailserver_handler_path`]). A request Go answers before any handler
@@ -268,15 +342,24 @@ fn alternative(headers: &HeaderMap) -> bool {
 
 /// Only a failed JWT lets Go fall through to its Kerberos/Basic methods.
 fn remap(headers: &HeaderMap, r: Refusal) -> Refusal {
-    if r == Refusal::InvalidToken && alternative(headers) { Refusal::AlternativeCredential } else { r }
+    if r == Refusal::InvalidToken && alternative(headers) {
+        Refusal::AlternativeCredential
+    } else {
+        r
+    }
 }
 
 /// The bearer Go's jwtAuthMethod reads (chain.go:518-533), or why there is none.
 /// A non-empty `Bearer ` first value is final (no cookie fallback), judged by bytes.
 pub fn credential(headers: &HeaderMap) -> Result<String, Refusal> {
-    if let Some(rest) = headers.get(hyper::header::AUTHORIZATION).and_then(|v| v.as_bytes().strip_prefix(b"Bearer ")) {
+    if let Some(rest) = headers
+        .get(hyper::header::AUTHORIZATION)
+        .and_then(|v| v.as_bytes().strip_prefix(b"Bearer "))
+    {
         if !rest.is_empty() {
-            return std::str::from_utf8(rest).map(str::to_owned).map_err(|_| remap(headers, Refusal::InvalidToken));
+            return std::str::from_utf8(rest)
+                .map(str::to_owned)
+                .map_err(|_| remap(headers, Refusal::InvalidToken));
         }
     }
     match token::presented_cookie(headers) {
@@ -318,6 +401,7 @@ pub async fn admit_console(
     admit_inner(exec, keys, issuer, headers, method, path, scope, false).await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn admit_inner(
     exec: &ScopedExecutor,
     keys: &impl KeySource,
@@ -332,14 +416,18 @@ async fn admit_inner(
     let handler_path = handler_path.as_deref();
     let drive = drive_surface(scope, handler_path);
     let token = credential(headers)?;
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| Refusal::Unavailable)?.as_secs_f64();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| Refusal::Unavailable)?
+        .as_secs_f64();
     // Signature + claim rules, bounded: a JWKS fetch stuck in flight is 503; an
     // unknown kid inside the refresh cooldown returns at once and is 401.
-    let claims = match tokio::time::timeout(precheck_timeout(), token::decoded_claims(&token, keys)).await {
-        Err(_) => return Err(Refusal::Unavailable),
-        Ok(None) => return Err(remap(headers, Refusal::InvalidToken)),
-        Ok(Some(claims)) => claims,
-    };
+    let claims =
+        match tokio::time::timeout(precheck_timeout(), token::decoded_claims(&token, keys)).await {
+            Err(_) => return Err(Refusal::Unavailable),
+            Ok(None) => return Err(remap(headers, Refusal::InvalidToken)),
+            Ok(Some(claims)) => claims,
+        };
     if matches!(scope, Scope::User | Scope::DriveUser) {
         // The user scopes accept exactly the tokens Go's chain accepts (scoped on its
         // path, any NumericDate Go decodes), then read the guest status like the push seam.
@@ -356,39 +444,72 @@ async fn admit_inner(
             let class = token::session_detailed(&claims, issuer, now, drive, handler_path).err();
             return Err(remap(headers, class.unwrap_or(Refusal::InvalidToken)));
         }
-        let identity = match tokio::time::timeout(precheck_timeout(), push::identity_from_accepted(exec, claims.clone())).await {
-            Err(_) | Ok(Err(push::PushAuthError::GuestUnavailable)) => return Err(Refusal::Unavailable),
+        let identity = match tokio::time::timeout(
+            precheck_timeout(),
+            push::identity_from_accepted(exec, claims.clone()),
+        )
+        .await
+        {
+            Err(_) | Ok(Err(push::PushAuthError::GuestUnavailable)) => {
+                return Err(Refusal::Unavailable)
+            }
             Ok(Err(push::PushAuthError::GuestInactive)) => return Err(Refusal::GuestInactive),
-            Ok(Err(push::PushAuthError::Invalid)) => return Err(remap(headers, Refusal::InvalidToken)),
+            Ok(Err(push::PushAuthError::Invalid)) => {
+                return Err(remap(headers, Refusal::InvalidToken))
+            }
             Ok(Ok(identity)) => identity,
         };
         if identity.is_guest() {
-            if !identity.has_issued_at() { return Err(Refusal::MissingIssuedAt); }
-            if !tokio::time::timeout(precheck_timeout(), gates::admission_allowed(exec, None)).await.unwrap_or(false) {
+            if !identity.has_issued_at() {
+                return Err(Refusal::MissingIssuedAt);
+            }
+            if !tokio::time::timeout(precheck_timeout(), gates::admission_allowed(exec, None))
+                .await
+                .unwrap_or(false)
+            {
                 return Err(Refusal::Unavailable);
             }
-            match tokio::time::timeout(precheck_timeout(), push::revocation(exec, &identity)).await {
+            match tokio::time::timeout(precheck_timeout(), push::revocation(exec, &identity)).await
+            {
                 Ok(Ok(false)) => {}
                 Ok(Ok(true)) => return Err(Refusal::Revoked),
                 _ => return Err(Refusal::Unavailable),
             }
-            return identity.user_authorization().ok_or(Refusal::UnservedSubject);
+            return identity
+                .user_authorization()
+                .ok_or(Refusal::UnservedSubject);
         }
     }
-    let session = token::session_detailed(&claims, issuer, now, drive, handler_path).map_err(|r| remap(headers, r))?;
-    if !tokio::time::timeout(precheck_timeout(), gates::admission_allowed(exec, None)).await.unwrap_or(false) {
+    let session = token::session_detailed(&claims, issuer, now, drive, handler_path)
+        .map_err(|r| remap(headers, r))?;
+    if !tokio::time::timeout(precheck_timeout(), gates::admission_allowed(exec, None))
+        .await
+        .unwrap_or(false)
+    {
         return Err(Refusal::Unavailable);
     }
-    let caller = tokio::time::timeout(precheck_timeout(), gates::caller(exec, &session)).await.unwrap_or(gates::Caller::Unavailable);
+    let caller = tokio::time::timeout(precheck_timeout(), gates::caller(exec, &session))
+        .await
+        .unwrap_or(gates::Caller::Unavailable);
     let (mailbox, mailbox_blocked, state) = match caller {
-        gates::Caller::Member { mailbox, mailbox_blocked, state } => (mailbox, mailbox_blocked, state),
+        gates::Caller::Member {
+            mailbox,
+            mailbox_blocked,
+            state,
+        } => (mailbox, mailbox_blocked, state),
         gates::Caller::Guest => return Err(Refusal::Guest),
         gates::Caller::Revoked => return Err(Refusal::Revoked),
         gates::Caller::Unavailable => return Err(Refusal::Unavailable),
     };
     let roles = if resolve_roles && session.admin {
-        tokio::time::timeout(precheck_timeout(), gates::roles(exec, session.user_id)).await.ok().flatten().ok_or(Refusal::Unavailable)?
-    } else { Vec::new() };
+        tokio::time::timeout(precheck_timeout(), gates::roles(exec, session.user_id))
+            .await
+            .ok()
+            .flatten()
+            .ok_or(Refusal::Unavailable)?
+    } else {
+        Vec::new()
+    };
     Ok(authorized(session, mailbox, mailbox_blocked, state, roles))
 }
 
@@ -420,12 +541,22 @@ pub async fn authorize_basic_member(
         .await
         .unwrap_or(gates::Caller::Unavailable);
     let (mailbox, mailbox_blocked, state) = match caller {
-        gates::Caller::Member { mailbox, mailbox_blocked, state } => (mailbox, mailbox_blocked, state),
+        gates::Caller::Member {
+            mailbox,
+            mailbox_blocked,
+            state,
+        } => (mailbox, mailbox_blocked, state),
         gates::Caller::Guest => return Err(Refusal::Guest),
         gates::Caller::Revoked => return Err(Refusal::Revoked),
         gates::Caller::Unavailable => return Err(Refusal::Unavailable),
     };
-    Ok(authorized(session, mailbox, mailbox_blocked, state, Vec::new()))
+    Ok(authorized(
+        session,
+        mailbox,
+        mailbox_blocked,
+        state,
+        Vec::new(),
+    ))
 }
 
 fn authorized(
@@ -459,6 +590,7 @@ fn authorized(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn authorize_with_feature(
     exec: &ScopedExecutor,
     keys: &impl KeySource,
@@ -466,9 +598,9 @@ async fn authorize_with_feature(
     headers: &HeaderMap,
     _scheme: &str,
     flag: Option<&str>,
-    drive:bool,
-    resolve_roles:bool,
-    allow_without_mailbox:bool,
+    drive: bool,
+    resolve_roles: bool,
+    allow_without_mailbox: bool,
 ) -> Option<Authorized> {
     if !tokio::time::timeout(precheck_timeout(), gates::admission_allowed(exec, flag))
         .await
@@ -476,19 +608,35 @@ async fn authorize_with_feature(
     {
         return None;
     }
-    let token = if drive{token::presented(headers)}else{token::extract(headers)}?;
+    let token = if drive {
+        token::presented(headers)
+    } else {
+        token::extract(headers)
+    }?;
     let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-    let session = if drive{token::verify_drive(&token,issuer,now.as_secs_f64(),keys).await}else{token::verify(&token, issuer, now.as_secs_f64(), keys).await}?;
+    let session = if drive {
+        token::verify_drive(&token, issuer, now.as_secs_f64(), keys).await
+    } else {
+        token::verify(&token, issuer, now.as_secs_f64(), keys).await
+    }?;
     let caller = tokio::time::timeout(precheck_timeout(), gates::caller(exec, &session))
         .await
         .unwrap_or(gates::Caller::Unavailable);
     let (mailbox, mailbox_blocked, state) = match caller {
-        gates::Caller::Member { mailbox, mailbox_blocked, state } if mailbox > 0 && !mailbox_blocked => {
-            (mailbox, mailbox_blocked, state)
-        }
-        gates::Caller::Member { mailbox: 0, mailbox_blocked: false, .. } if allow_without_mailbox => {
+        gates::Caller::Member {
+            mailbox,
+            mailbox_blocked,
+            state,
+        } if mailbox > 0 && !mailbox_blocked => (mailbox, mailbox_blocked, state),
+        gates::Caller::Member {
+            mailbox: 0,
+            mailbox_blocked: false,
+            ..
+        } if allow_without_mailbox => {
             let iat = session.issued_at as f64;
-            let rows = tokio::time::timeout(precheck_timeout(), exec.read(
+            let actor = setjoin_contracts::ids::ActorId::new(session.user_id).ok()?;
+            let rows = tokio::time::timeout(precheck_timeout(), exec.read_user_scoped(
+                actor,
                 "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1) \
                  AND NOT EXISTS(SELECT 1 FROM mailboxes WHERE user_id=$1) \
                  AND NOT EXISTS(SELECT 1 FROM guest_account_status($1)) \
@@ -498,8 +646,23 @@ async fn authorize_with_feature(
                      OR (r.scope='family' AND $4<>'' AND r.family_id=$4)))",
                 &[(&session.user_id, setjoin_pg::Type::INT8), (&iat, setjoin_pg::Type::FLOAT8), (&session.jti, setjoin_pg::Type::TEXT), (&session.family, setjoin_pg::Type::TEXT)]
             )).await.ok()?.ok()?;
-            if !rows.first()?.try_get::<_, bool>(0).ok()? { return None; }
-            (0, false, gates::SessionState { email: 0, mailbox: 0, thread: 0, tag: 0, calendar: 0, contact: 0, task: 0, identity: 0 })
+            if !rows.first()?.try_get::<_, bool>(0).ok()? {
+                return None;
+            }
+            (
+                0,
+                false,
+                gates::SessionState {
+                    email: 0,
+                    mailbox: 0,
+                    thread: 0,
+                    tag: 0,
+                    calendar: 0,
+                    contact: 0,
+                    task: 0,
+                    identity: 0,
+                },
+            )
         }
         _ => return None,
     };
@@ -536,10 +699,13 @@ pub async fn authorize_attachment(
         .ok()?
         .as_secs_f64();
     let (session, claims) = token::attachment(&token, issuer, now, secrets)?;
-    let gates::Caller::Member { mailbox, mailbox_blocked: false, .. } =
-        tokio::time::timeout(precheck_timeout(), gates::caller(exec, &session))
-            .await
-            .ok()?
+    let gates::Caller::Member {
+        mailbox,
+        mailbox_blocked: false,
+        ..
+    } = tokio::time::timeout(precheck_timeout(), gates::caller(exec, &session))
+        .await
+        .ok()?
     else {
         return None;
     };
@@ -594,7 +760,10 @@ pub async fn admit_attachment(
         gates::Caller::Member { mailbox, .. } if mailbox <= 0 => {
             return Err(Refusal::NoPrimaryMailbox);
         }
-        gates::Caller::Member { mailbox_blocked: true, .. } => {
+        gates::Caller::Member {
+            mailbox_blocked: true,
+            ..
+        } => {
             return Err(Refusal::MailboxBlocked);
         }
         gates::Caller::Member { mailbox, .. } => mailbox,
@@ -637,32 +806,69 @@ pub mod geoip;
 /// unconditional satellite/program/route belt still owns surface containment.
 /// This proof grants no target membership or mailbox authority.
 pub async fn authorize_user_request(
-    exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
-    headers: &HeaderMap, scheme: &str,
+    exec: &ScopedExecutor,
+    keys: &impl KeySource,
+    issuer: &str,
+    headers: &HeaderMap,
+    scheme: &str,
 ) -> Option<Authorized> {
-    let token=token::presented(headers)?;
-    let identity=tokio::time::timeout(precheck_timeout(),
-        push::authenticate_detailed(exec,keys,issuer,&token)).await.ok()?.ok()?;
+    let token = token::presented(headers)?;
+    let identity = tokio::time::timeout(
+        precheck_timeout(),
+        push::authenticate_detailed(exec, keys, issuer, &token),
+    )
+    .await
+    .ok()?
+    .ok()?;
     if !identity.is_guest() {
-        return authorize_request(exec,keys,issuer,headers,scheme).await;
+        return authorize_request(exec, keys, issuer, headers, scheme).await;
     }
-    if !tokio::time::timeout(precheck_timeout(),gates::admission_allowed(exec,None)).await.ok()?
-        || tokio::time::timeout(precheck_timeout(),push::revoked(exec,&identity)).await.ok()? {
+    if !tokio::time::timeout(precheck_timeout(), gates::admission_allowed(exec, None))
+        .await
+        .ok()?
+        || tokio::time::timeout(precheck_timeout(), push::revoked(exec, &identity))
+            .await
+            .ok()?
+    {
         return None;
     }
     identity.user_authorization()
 }
 
 /// Drive user domains retain scope containment and also accept mailbox-less guests.
-pub async fn authorize_drive_user_request(exec:&ScopedExecutor,keys:&impl KeySource,
-    issuer:&str,headers:&HeaderMap,scheme:&str,path:&str)->Option<Authorized>{
-    let drive=path=="/drive"||path.starts_with("/drive/")||path=="/api/drive"||path.starts_with("/api/drive/");
-    if !drive{return authorize_user_request(exec,keys,issuer,headers,scheme).await;}
-    let token=token::presented(headers)?;
-    let identity=tokio::time::timeout(precheck_timeout(),push::authenticate_drive(exec,keys,issuer,&token)).await.ok()?.ok()?;
-    if !identity.is_guest(){return authorize_drive_request(exec,keys,issuer,headers,scheme,path).await;}
-    if !tokio::time::timeout(precheck_timeout(),gates::admission_allowed(exec,None)).await.ok()?
-        || tokio::time::timeout(precheck_timeout(),push::revoked(exec,&identity)).await.ok()? {
+pub async fn authorize_drive_user_request(
+    exec: &ScopedExecutor,
+    keys: &impl KeySource,
+    issuer: &str,
+    headers: &HeaderMap,
+    scheme: &str,
+    path: &str,
+) -> Option<Authorized> {
+    let drive = path == "/drive"
+        || path.starts_with("/drive/")
+        || path == "/api/drive"
+        || path.starts_with("/api/drive/");
+    if !drive {
+        return authorize_user_request(exec, keys, issuer, headers, scheme).await;
+    }
+    let token = token::presented(headers)?;
+    let identity = tokio::time::timeout(
+        precheck_timeout(),
+        push::authenticate_drive(exec, keys, issuer, &token),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if !identity.is_guest() {
+        return authorize_drive_request(exec, keys, issuer, headers, scheme, path).await;
+    }
+    if !tokio::time::timeout(precheck_timeout(), gates::admission_allowed(exec, None))
+        .await
+        .ok()?
+        || tokio::time::timeout(precheck_timeout(), push::revoked(exec, &identity))
+            .await
+            .ok()?
+    {
         return None;
     }
     identity.user_authorization()
@@ -671,9 +877,14 @@ pub async fn authorize_drive_user_request(exec:&ScopedExecutor,keys:&impl KeySou
 impl AuthContext {
     /// Frozen Go resolves governed grants for signed admins on every request;
     /// non-admin signed permissions retain Go's claim semantics.
-    pub async fn has_permission(&self,exec:&ScopedExecutor,permission:&str)
-        ->Result<bool,setjoin_pg::StatementFailure>{
-        if !self.admin{return Ok(self.permissions.iter().any(|p|p==permission));}
+    pub async fn has_permission(
+        &self,
+        exec: &ScopedExecutor,
+        permission: &str,
+    ) -> Result<bool, setjoin_pg::StatementFailure> {
+        if !self.admin {
+            return Ok(self.permissions.iter().any(|p| p == permission));
+        }
         let rows=exec.read("SELECT EXISTS(SELECT 1 FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=$1 AND $2=ANY(rg.permissions) AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND admin_assignment_active(ra.eligible,ra.activated_until))",
             &[(&self.user_id,setjoin_pg::Type::INT8),(&permission,setjoin_pg::Type::TEXT)]).await?;
         Ok(rows[0].get(0))
@@ -704,10 +915,18 @@ mod admit_credential {
     #[test]
     fn drive_surface_follows_the_go_handler_path() {
         let on = |method: &str, raw: &str, scope: Scope| {
-            drive_surface(scope, go_url::mailserver_handler_path(method, raw).as_deref())
+            drive_surface(
+                scope,
+                go_url::mailserver_handler_path(method, raw).as_deref(),
+            )
         };
         for scope in [Scope::Drive, Scope::DriveUser] {
-            for raw in ["/api/drive", "/api/drive/x", "/api/dr%69ve/x", "/api/drive%2Fx"] {
+            for raw in [
+                "/api/drive",
+                "/api/drive/x",
+                "/api/dr%69ve/x",
+                "/api/drive%2Fx",
+            ] {
                 assert!(on("GET", raw, scope), "{scope:?} {raw}");
             }
             for raw in [
@@ -732,29 +951,79 @@ mod admit_credential {
     }
 
     #[test]
+    #[allow(clippy::type_complexity)]
     fn credential_follows_go_first_value_and_cookie_rules() {
         let cases: Vec<(Vec<(&str, &str)>, Result<&str, Refusal>)> = vec![
             (vec![], Err(Refusal::NoCredential)),
-            (vec![("authorization", "Basic Zm9vOmJhcg==")], Err(Refusal::AlternativeCredential)),
-            (vec![("authorization", "Negotiate YII=")], Err(Refusal::AlternativeCredential)),
-            (vec![("authorization", "basic x")], Err(Refusal::NoCredential)),
-            (vec![("authorization", "Bearer "), ("cookie", "access_token=T")], Ok("T")),
-            (vec![("authorization", "Bearer A"), ("cookie", "access_token=B")], Ok("A")),
-            (vec![("authorization", "Bearer A"), ("authorization", "Bearer B")], Ok("A")),
             (
-                vec![("authorization", "Basic x"), ("authorization", "Bearer valid")],
+                vec![("authorization", "Basic Zm9vOmJhcg==")],
                 Err(Refusal::AlternativeCredential),
             ),
-            (vec![("authorization", "Bearer é"), ("cookie", "access_token=valid")], Ok("é")),
-            (vec![("cookie", "access_token=; access_token=B")], Err(Refusal::NoCredential)),
-            (vec![("cookie", "access_token; access_token=B")], Err(Refusal::NoCredential)),
+            (
+                vec![("authorization", "Negotiate YII=")],
+                Err(Refusal::AlternativeCredential),
+            ),
+            (
+                vec![("authorization", "basic x")],
+                Err(Refusal::NoCredential),
+            ),
+            (
+                vec![("authorization", "Bearer "), ("cookie", "access_token=T")],
+                Ok("T"),
+            ),
+            (
+                vec![("authorization", "Bearer A"), ("cookie", "access_token=B")],
+                Ok("A"),
+            ),
+            (
+                vec![("authorization", "Bearer A"), ("authorization", "Bearer B")],
+                Ok("A"),
+            ),
+            (
+                vec![
+                    ("authorization", "Basic x"),
+                    ("authorization", "Bearer valid"),
+                ],
+                Err(Refusal::AlternativeCredential),
+            ),
+            (
+                vec![
+                    ("authorization", "Bearer é"),
+                    ("cookie", "access_token=valid"),
+                ],
+                Ok("é"),
+            ),
+            (
+                vec![("cookie", "access_token=; access_token=B")],
+                Err(Refusal::NoCredential),
+            ),
+            (
+                vec![("cookie", "access_token; access_token=B")],
+                Err(Refusal::NoCredential),
+            ),
             (vec![("cookie", "access_token=\"A\"")], Ok("A")),
-            (vec![("cookie", "access_token=a\\b; access_token=B")], Ok("B")),
-            (vec![("authorization", "Basic x"), ("cookie", "access_token=T")], Ok("T")),
-            (vec![("authorization", "Negotiate x"), ("cookie", "access_token=T")], Ok("T")),
+            (
+                vec![("cookie", "access_token=a\\b; access_token=B")],
+                Ok("B"),
+            ),
+            (
+                vec![("authorization", "Basic x"), ("cookie", "access_token=T")],
+                Ok("T"),
+            ),
+            (
+                vec![
+                    ("authorization", "Negotiate x"),
+                    ("cookie", "access_token=T"),
+                ],
+                Ok("T"),
+            ),
         ];
         for (items, expected) in cases {
-            assert_eq!(credential(&h(&items)).as_deref().map_err(|e| *e), expected, "{items:?}");
+            assert_eq!(
+                credential(&h(&items)).as_deref().map_err(|e| *e),
+                expected,
+                "{items:?}"
+            );
         }
     }
 
@@ -772,7 +1041,10 @@ mod admit_credential {
     #[test]
     fn only_a_failed_jwt_is_remapped_to_the_alternative_method() {
         let basic = h(&[("authorization", "Basic x")]);
-        assert_eq!(remap(&basic, Refusal::InvalidToken), Refusal::AlternativeCredential);
+        assert_eq!(
+            remap(&basic, Refusal::InvalidToken),
+            Refusal::AlternativeCredential
+        );
         for r in [
             Refusal::UnservedSubject,
             Refusal::MissingIssuedAt,

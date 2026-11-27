@@ -19,7 +19,11 @@ pub(super) struct Timezones {
 }
 /// The cache key. The mutant `caldav-tz-global-key` restores frozen Go's TZID-only key.
 fn key(calendar: i64, tzid: &str) -> (i64, String) {
-    let calendar = if setjoin_contracts::mutants::on("caldav-tz-global-key") { 0 } else { calendar };
+    let calendar = if setjoin_contracts::mutants::on("caldav-tz-global-key") {
+        0
+    } else {
+        calendar
+    };
     (calendar, tzid.to_owned())
 }
 impl Timezones {
@@ -29,11 +33,15 @@ impl Timezones {
         cache
     }
     async fn reload(&self, exec: &ScopedExecutor) {
-        let Ok(rows) = setjoin_calendar::dav::timezone_catalog(exec).await else {
-            return;
-        };
+        let rows = exec
+            .read(setjoin_calendar::sql::DAV_TIMEZONE_CATALOG.sql, &[])
+            .await
+            .map(|r| setjoin_calendar::dav::decode_timezone_catalog(&r))
+            .unwrap_or_default();
         let mut values = self.values.write().expect("timezone cache");
-        // Go stores/overwrites rows and never clears keys absent on reload.
+        // Clear cached entries on reload so RLS-scoped `owned_timezone` refreshes
+        // updated definitions when the process runs on `setjoin_app`.
+        values.clear();
         for (calendar, tzid, standard) in rows {
             if !standard.is_empty() {
                 values.insert(key(calendar, &tzid), stored_timezone(&tzid, &standard));
@@ -42,9 +50,9 @@ impl Timezones {
     }
     pub async fn lookup(
         &self,
-        exec: &ScopedExecutor,
+        tx: &setjoin_authz::principals::TxFactory,
+        user: &setjoin_authz::principals::UserPrincipal,
         calendar: i64,
-        user: i64,
         tzid: &str,
     ) -> Option<String> {
         if !tzid.is_empty() && tzid != "UTC" {
@@ -58,7 +66,7 @@ impl Timezones {
                 return Some(value);
             }
         }
-        if let Some(standard) = setjoin_calendar::dav::owned_timezone(exec, calendar, user, tzid)
+        if let Some(standard) = setjoin_calendar::dav::owned_timezone(tx, user, calendar, tzid)
             .await
             .ok()
             .flatten()
@@ -118,6 +126,33 @@ impl Timezones {
                 }
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(Duration::from_secs(30));
+            }
+        }));
+    }
+    pub fn start_with_hub(self: &Arc<Self>, exec: ScopedExecutor, hub: setjoin_pg::ListenHub) {
+        let mut task = self.task.lock().expect("timezone task");
+        if task.is_some() {
+            return;
+        }
+        let cache = Arc::downgrade(self);
+        *task = Some(tokio::spawn(async move {
+            let Ok(mut sub) = hub.subscribe("timezone_changed").await else {
+                return;
+            };
+            if let Some(cache) = cache.upgrade() {
+                cache.listening.store(true, Ordering::SeqCst);
+            } else {
+                return;
+            }
+            while sub.recv().await.is_some() {
+                if let Some(cache) = cache.upgrade() {
+                    cache.reload(&exec).await;
+                } else {
+                    return;
+                }
+            }
+            if let Some(cache) = cache.upgrade() {
+                cache.listening.store(false, Ordering::SeqCst);
             }
         }));
     }

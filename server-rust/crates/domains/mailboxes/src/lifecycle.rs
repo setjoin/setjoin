@@ -1,23 +1,14 @@
 //! Mailbox lifecycle and purge console: Go's `UsersHandler.Mailbox*` routes.
 //!
-//! Every route is one reducer call on the worker credential (Go's `workerPool`);
-//! the reducers own the audit, state and notify effects. Reads return the
-//! reducer's `jsonb` text verbatim, as Go writes the raw bytes. A write runs in
-//! one receipted command, so a refusal (BZ business error) rolls back with no
-//! receipt and an Unknown outcome never reports success.
-use super::{deadline, envelope, invalid, scope, FAMILY};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{
-    CommandOutcome, ReceiptCommand, Rejection, Row, ScopedExecutor, StatementFailure, Type,
-};
+//! Every route is one reducer call on `TxFactory`; the reducers own the audit,
+//! state and notify effects. Reads return the reducer's `jsonb` text verbatim,
+//! as Go writes the raw bytes. A write runs in one receipted command, so a
+//! refusal (BZ business error) rolls back with no receipt and an Unknown
+//! outcome never reports success.
+use super::{command, deadline, envelope, invalid, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, Rejection, Row, StatementFailure};
 use sha2::{Digest as _, Sha256};
-
-fn command(name: &'static str) -> ReceiptCommand {
-    ReceiptCommand {
-        family: FAMILY,
-        command: name,
-    }
-}
 
 fn text(rows: &[Row]) -> Result<String, StatementFailure> {
     match rows {
@@ -28,41 +19,40 @@ fn text(rows: &[Row]) -> Result<String, StatementFailure> {
 
 /// `GET /admin/mailboxes/{id}/lifecycle/preview`.
 pub async fn preview(
-    worker: &ScopedExecutor,
-    actor: i64,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     mailbox: i64,
 ) -> Result<String, StatementFailure> {
+    let actor = proof.actor().get();
     text(
-        &worker
-            .read(
-                "SELECT mailbox_lifecycle_preview($1,$2)::text",
-                &[(&actor, Type::INT8), (&mailbox, Type::INT8)],
-            )
+        &factory
+            .run_admin_read_contract(proof, &sql::LIFECYCLE_PREVIEW, &[&actor, &mailbox])
             .await?,
     )
 }
 
 /// `GET /admin/mailboxes/retained`: Go's fixed page size is 200.
 pub async fn retained(
-    worker: &ScopedExecutor,
-    actor: i64,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     domain_scope: i64,
 ) -> Result<String, StatementFailure> {
+    let actor = proof.actor().get();
     text(
-        &worker
-            .read(
-                "SELECT mailbox_retained_list($1,$2,200)::text",
-                &[(&actor, Type::INT8), (&domain_scope, Type::INT8)],
-            )
+        &factory
+            .run_admin_read_contract(proof, &sql::LIFECYCLE_RETAINED, &[&actor, &domain_scope])
             .await?,
     )
 }
 
 /// `GET /admin/mailboxes/lifecycle/parity`.
-pub async fn parity(worker: &ScopedExecutor) -> Result<String, StatementFailure> {
+pub async fn parity(
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
     text(
-        &worker
-            .read("SELECT mailbox_lifecycle_parity_report()::text", &[])
+        &factory
+            .run_admin_read_contract(proof, &sql::LIFECYCLE_PARITY, &[])
             .await?,
     )
 }
@@ -184,42 +174,42 @@ pub struct Transition<'a> {
 }
 
 pub async fn transition(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     t: &Transition<'_>,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("mailbox.lifecycle.transition"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("{}:{}:{}", t.mailbox, t.key, t.digest),
-        ),
-        &auth,
-        deadline(),
-        "SELECT mailbox_lifecycle_transition($2,$4,$5::text::uuid,$6,$7,$8,$9,$10,$11,$12,$13,$14,\
-         to_timestamp($15::bigint),$16,NULL::text)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&t.mailbox, Type::INT8),
-            (&t.key, Type::TEXT),
-            (&t.action, Type::TEXT),
-            (&t.generation, Type::INT8),
-            (&t.digest, Type::TEXT),
-            (&t.reason, Type::TEXT),
-            (&t.target, Type::INT8),
-            (&t.evidence_kind, Type::TEXT),
-            (&t.link_id, Type::INT8),
-            (&t.link_generation, Type::INT8),
-            (&t.source_key_digest, Type::TEXT),
-            (&t.auth_time, Type::INT8),
-            (&t.delivery, Type::TEXT),
-        ],
-        answer,
-    )
-    .await
+    let env = envelope(
+        proof.actor(),
+        proof.generation(),
+        operation,
+        &format!("{}:{}:{}", t.mailbox, t.key, t.digest),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            proof,
+            &env,
+            deadline(),
+            &sql::LIFECYCLE_TRANSITION,
+            &[
+                &t.mailbox,
+                &t.key,
+                &t.action,
+                &t.generation,
+                &t.digest,
+                &t.reason,
+                &t.target,
+                &t.evidence_kind,
+                &t.link_id,
+                &t.link_generation,
+                &t.source_key_digest,
+                &t.auth_time,
+                &t.delivery,
+            ],
+            Some(command("mailbox.lifecycle.transition")),
+            |rows, _| answer(&rows),
+        )
+        .await
 }
 
 pub struct Purge<'a> {
@@ -233,119 +223,119 @@ pub struct Purge<'a> {
 }
 
 pub async fn purge_schedule(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     p: &Purge<'_>,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("mailbox.purge.schedule"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("{}:{}:{}", p.mailbox, p.key, p.digest),
-        ),
-        &auth,
-        deadline(),
-        "SELECT mailbox_purge_schedule($2,$4,$5::text::uuid,$6,$7,$8,$9,$10)::text \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&p.mailbox, Type::INT8),
-            (&p.key, Type::TEXT),
-            (&p.generation, Type::INT8),
-            (&p.preview_digest, Type::TEXT),
-            (&p.digest, Type::TEXT),
-            (&p.reason, Type::TEXT),
-            (&p.approver, Type::INT8),
-        ],
-        answer,
-    )
-    .await
+    let env = envelope(
+        proof.actor(),
+        proof.generation(),
+        operation,
+        &format!("{}:{}:{}", p.mailbox, p.key, p.digest),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            proof,
+            &env,
+            deadline(),
+            &sql::LIFECYCLE_PURGE_SCHEDULE,
+            &[
+                &p.mailbox,
+                &p.key,
+                &p.generation,
+                &p.preview_digest,
+                &p.digest,
+                &p.reason,
+                &p.approver,
+            ],
+            Some(command("mailbox.purge.schedule")),
+            |rows, _| answer(&rows),
+        )
+        .await
 }
 
 pub async fn purge_approval(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     request: i64,
     decision: &str,
     comment: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("mailbox.purge.approval"),
-        &envelope(&auth, operation, &format!("{request}:{decision}:{comment}")),
-        &auth,
-        deadline(),
-        "SELECT mailbox_purge_approval_apply($4,$2,$5,$6)::text \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&request, Type::INT8),
-            (&decision, Type::TEXT),
-            (&comment, Type::TEXT),
-        ],
-        answer,
-    )
-    .await
+    let actor = user.user().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{request}:{decision}:{comment}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::LIFECYCLE_PURGE_APPROVAL,
+            &[&request, &actor, &decision, &comment],
+            Some(command("mailbox.purge.approval")),
+            |rows| answer(&rows),
+        )
+        .await
 }
 
 pub async fn purge_execute(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     purge: &str,
     key: &str,
     digest: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("mailbox.purge.execute"),
-        &envelope(&auth, operation, &format!("{purge}:{key}:{digest}")),
-        &auth,
-        deadline(),
-        "SELECT mailbox_purge_execute($2,$4::text::uuid,$5::text::uuid,$6)::text \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&purge, Type::TEXT),
-            (&key, Type::TEXT),
-            (&digest, Type::TEXT),
-        ],
-        answer,
-    )
-    .await
+    let env = envelope(
+        proof.actor(),
+        proof.generation(),
+        operation,
+        &format!("{purge}:{key}:{digest}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            proof,
+            &env,
+            deadline(),
+            &sql::LIFECYCLE_PURGE_EXECUTE,
+            &[&purge, &key, &digest],
+            Some(command("mailbox.purge.execute")),
+            |rows, _| answer(&rows),
+        )
+        .await
 }
 
 pub async fn purge_cancel(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     purge: &str,
     key: &str,
     digest: &str,
     reason: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("mailbox.purge.cancel"),
-        &envelope(&auth, operation, &format!("{purge}:{key}:{digest}")),
-        &auth,
-        deadline(),
-        "SELECT mailbox_purge_cancel($2,$4::text::uuid,$5::text::uuid,$6,$7)::text \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&purge, Type::TEXT),
-            (&key, Type::TEXT),
-            (&digest, Type::TEXT),
-            (&reason, Type::TEXT),
-        ],
-        answer,
-    )
-    .await
+    let env = envelope(
+        proof.actor(),
+        proof.generation(),
+        operation,
+        &format!("{purge}:{key}:{digest}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            proof,
+            &env,
+            deadline(),
+            &sql::LIFECYCLE_PURGE_CANCEL,
+            &[&purge, &key, &digest, &reason],
+            Some(command("mailbox.purge.cancel")),
+            |rows, _| answer(&rows),
+        )
+        .await
 }
 
 /// Go's `reducererr` projection of a BZ business error, as the problem fields.

@@ -317,6 +317,7 @@ async fn mutant_database(
         dsn: scoped(&db.dsn)?,
         direct: db.direct.clone(),
         app: Some(scoped(db.app.as_deref().unwrap_or(&db.dsn))?),
+        worker: db.worker.as_deref().map(scoped).transpose()?,
     };
     let mut sql =
         format!("BEGIN; CREATE SCHEMA {schema}; GRANT USAGE ON SCHEMA {schema} TO PUBLIC; ");

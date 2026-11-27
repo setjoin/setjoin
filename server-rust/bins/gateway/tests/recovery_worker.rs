@@ -132,7 +132,10 @@ async fn run_case(executable: bool, protected: bool) {
             .env("GATEWAY_AUTH_UPSTREAM", "http://127.0.0.1:1")
             .env("RUST_WORKERS_ON", "mail-recovery-cleanup")
             .env("AUDIT_HMAC_KEY", if protected { "blobs1-worker-audit-key" } else { "" })
-            .env("DB_DSN", &std::env::var("TEST_DB_DSN").expect("disposable boot database"))
+            .env(
+                "DB_DSN",
+                &std::env::var("DB_APP_DSN").expect("disposable app boot database"),
+            )
             .env("DB_WORKER_DSN", &dsn)
             .env("DB_DIRECT_DSN", &dsn)
             .env("S3_ENDPOINT", format!("http://{endpoint}"))

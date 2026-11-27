@@ -37,7 +37,8 @@ impl Drop for RevocationSnapshotDriver {
                     let _ = tokio::time::timeout(
                         std::time::Duration::from_secs(2),
                         cancel.cancel_query(NoTls),
-                    ).await;
+                    )
+                    .await;
                 });
             }
         }
@@ -194,6 +195,10 @@ impl WorkerRows {
     }
 }
 impl WorkerConnection {
+    pub(crate) fn operator_client(&self) -> &Client {
+        self.inner.client()
+    }
+
     pub async fn rows(
         &self,
         statement: &str,

@@ -179,8 +179,8 @@ async fn bundled_exchange_routes_and_both_kill_switches() -> Result<(), BoxError
                         if mode == "all-go" { "false" } else { "true" },
                     )
                     .env("GATEWAY_ROUTE_INVENTORY", &inventory.0)
-                    .env("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn))
-                    .env("DB_WORKER_DSN", &db.dsn)
+                    .env("DB_DSN", db.app_dsn())
+                    .env("DB_WORKER_DSN", db.worker_dsn())
                     .env("DB_DIRECT_DSN", &db.dsn)
                     .env("DB_ENCRYPTION_KEY", "22".repeat(32))
                     .env("JWT_SECRET", "blobs1-test-jwt-secret-for-recording")

@@ -98,7 +98,7 @@ exclusion precedence, Go condition order and `first_failed` diagnostics. Named l
 parsed IP networks; time windows use IANA zones (unknown zones fall back to UTC). Grant
 combination preserves `all`/`one`, unknown-grant denial, AAL/strength checks, device-bound
 approval and typed terms/risk remediation. Verification: `cargo test -p
-setjoin-conditional-access --test evaluation`. `evaluation_vectors` replays 63 independently recorded Go cases; `policy_store` checks
+setjoin-conditional-access --test evaluation`. `evaluation_vectors` replays 63 independently recorded Go cases; `bins/gateway/tests/policy_store.rs` (`setjoin-gateway`) checks
 real request-credential reads, invalidation and cold failure modes.
 
 `policy::eval::Engine` owns raw policy/location/strength metadata (30 s), independent
@@ -117,7 +117,7 @@ HTTP evidence: [shared corpus](../../../tests/conformance/authzgates/README.md).
 The policy model/store/evaluator lives in `setjoin_authz::policy` (#420) and is
 re-exported at the original `policy` namespace; consumers and tests are unchanged.
 
-Security fixes 2026-11-05 (#499, SECFIX3): `tests/secfix3_policy.rs` covers the invalidate/reload,
+Security fixes 2026-11-05 (#499, SECFIX3): `bins/gateway/tests/secfix3_policy.rs` covers the invalidate/reload,
 legacy step_up and geo-error fixes implemented in `setjoin-authz` `policy/runtime.rs`.
 
 ## Security fix: policies are confined to the caller's reach (#510, #467)

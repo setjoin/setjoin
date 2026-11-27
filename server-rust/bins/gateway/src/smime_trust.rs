@@ -101,4 +101,37 @@ impl SmimeTrustListener {
             _ = self.listen() => {}
         }
     }
+
+    /// Multiplex `smime_trust_changed` over a shared [`setjoin_pg::ListenHub`] (#543).
+    pub async fn run_with_hub(
+        self: Arc<Self>,
+        hub: setjoin_pg::ListenHub,
+        shutdown: impl Future<Output = ()>,
+    ) {
+        tokio::pin!(shutdown);
+        let Ok(mut sub) = hub.subscribe(CHANNEL).await else {
+            shutdown.await;
+            return;
+        };
+        if !mutant("smime-no-reconnect-reload") {
+            self.cache.invalidate();
+        }
+        self.cache.set_cached(true);
+        self.listening.store(true, Ordering::SeqCst);
+        loop {
+            tokio::select! {
+                _ = &mut shutdown => break,
+                event = sub.recv() => {
+                    match event {
+                        Some(_) => self.on_notification(),
+                        None => break,
+                    }
+                }
+            }
+        }
+        self.listening.store(false, Ordering::SeqCst);
+        if !mutant("smime-no-reconnect-reload") {
+            self.cache.set_cached(false);
+        }
+    }
 }

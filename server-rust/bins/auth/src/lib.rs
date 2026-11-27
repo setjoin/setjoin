@@ -1,5 +1,7 @@
 //! HTTP transport for the standalone identity process. See DOX.md.
-mod ca;
+#[cfg(feature = "in-process-authority")]
+pub mod authority;
+pub mod ca;
 mod captcha;
 mod config;
 mod device;
@@ -9,6 +11,7 @@ mod http_threat;
 mod ingress;
 mod issuance;
 mod oidc;
+pub mod policy_composition;
 mod possession;
 mod push;
 mod recovery;
@@ -17,7 +20,10 @@ mod rp;
 mod saml;
 mod totp;
 mod webauthn;
+#[cfg(feature = "in-process-authority")]
+pub use authority::InProcessAuthAuthority;
 use bytes::Bytes;
+pub use ca::CaListener;
 pub use config::Config;
 use http_body_util::{combinators::BoxBody, BodyExt, Full, Limited};
 use hyper::body::Body as _;
@@ -28,6 +34,27 @@ use setjoin_identity::login;
 use std::sync::Arc;
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Body = BoxBody<Bytes, std::io::Error>;
+/// Heap-allocates an async future inside its own non-inlined stack frame so
+/// debug builds (`opt-level=0`) never accumulate sibling branch futures onto
+/// the caller's stack (keeps `setjoin-auth` within 2 MiB Linux thread stacks).
+#[inline(never)]
+pub(crate) fn boxed<'a, T, F>(
+    make: impl FnOnce() -> F,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>
+where
+    F: std::future::Future<Output = T> + Send + 'a,
+{
+    Box::pin(make())
+}
+#[inline(never)]
+fn boxed_local<'a, T, F>(
+    make: impl FnOnce() -> F,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>
+where
+    F: std::future::Future<Output = T> + 'a,
+{
+    Box::pin(make())
+}
 #[path = "../../gateway/src/problem.rs"]
 pub mod problem;
 pub fn body(text: impl Into<Bytes>) -> Body {
@@ -52,6 +79,13 @@ pub struct AuthServer {
     webauthn: Option<setjoin_identity::webauthn::RelyingParty>,
     internal_key: std::sync::RwLock<String>,
     pub exec: setjoin_pg::ScopedExecutor,
+    auth_db: setjoin_pg::AuthDb,
+    /// Strictly request-role (`setjoin_app`, `NOBYPASSRLS`) database handle for
+    /// paths that require zero `BYPASSRLS` authority (org-global feature flags,
+    /// `SECURITY DEFINER` credential lookup reducers, and invoker-rights
+    /// device check-in parity).
+    app_db: setjoin_pg::AuthDb,
+    pre_auth_pool: Option<setjoin_pg::AdminWorkerPool>,
     device_resolver: setjoin_authz::device::DeviceResolver,
     keys: Option<Arc<setjoin_authz::signing_keys::KeySet>>,
     legacy: Option<setjoin_authz::legacy_jwt::LegacyKeys>,
@@ -60,8 +94,8 @@ pub struct AuthServer {
     dpop_replay: setjoin_authz::dpop::ReplayCache,
     forgot_password: bool,
     recovery_ip: setjoin_identity::push::IpBudget,
-    recovery_worker: Option<setjoin_pg::ScopedExecutor>,
-    guest_worker: Option<setjoin_pg::ScopedExecutor>,
+    recovery_worker: Option<setjoin_pg::AuthDb>,
+    guest_worker: Option<setjoin_pg::AuthDb>,
     geo: Option<Arc<setjoin_authz::geoip::CountryDb>>,
     push_ip: setjoin_identity::push::IpBudget,
     native_push: setjoin_identity::push_delivery::Dispatch,
@@ -72,6 +106,10 @@ pub struct AuthServer {
     ca_engine: setjoin_authz::policy::eval::Engine,
     /// Captcha tokens already accepted by this process (#349 single-use).
     captcha_used: captcha::UsedSet,
+    /// True when running in-process alongside `http` inside `setjoind` (#543).
+    unified: bool,
+    /// Startup RLS/PG-version posture (#545). Defaults to `None` in constructors.
+    boot_posture: Option<Arc<setjoin_pg::rls_preflight::BootPosture>>,
 }
 impl AuthServer {
     fn oidc_cors(&self, req: &Request<Body>, mut reply: Response<Body>) -> Response<Body> {
@@ -159,6 +197,9 @@ impl AuthServer {
         reply
     }
     pub fn new(exec: setjoin_pg::ScopedExecutor) -> Self {
+        let auth_db = setjoin_pg::AuthDb::from_executors(exec.clone(), exec.clone());
+        let app_db = auth_db.clone();
+        let pre_auth_pool = exec.try_worker_pool().map(|w| w.admin_pool());
         let device_resolver = setjoin_authz::device::DeviceResolver::new(
             exec.clone(),
             Vec::new(),
@@ -173,6 +214,9 @@ impl AuthServer {
             webauthn: None,
             internal_key: std::sync::RwLock::new(String::new()),
             exec,
+            auth_db,
+            app_db,
+            pre_auth_pool,
             device_resolver,
             keys: None,
             legacy: None,
@@ -189,7 +233,13 @@ impl AuthServer {
             gate: None,
             ca_engine,
             captcha_used: Default::default(),
+            unified: false,
+            boot_posture: None,
         }
+    }
+    /// Contract-gated dual-pool database authority for `setjoin-identity`.
+    pub fn auth_db(&self) -> &setjoin_pg::AuthDb {
+        &self.auth_db
     }
     pub async fn load(exec: setjoin_pg::ScopedExecutor, config: Config) -> Result<Self, String> {
         Self::load_with_rp_http(
@@ -199,11 +249,30 @@ impl AuthServer {
         )
         .await
     }
+    /// Load `AuthServer` with shared `DB_DSN` and `DB_WORKER_DSN` pools (#543).
+    pub async fn load_shared(
+        exec: setjoin_pg::ScopedExecutor,
+        worker_exec: Option<setjoin_pg::ScopedExecutor>,
+        config: Config,
+        unified: bool,
+    ) -> Result<Self, String> {
+        let http = Arc::new(setjoin_identity::rp::SafeHttp::new()?);
+        boxed(|| Self::load_inner(exec, worker_exec, config, http, unified)).await
+    }
     /// Embedding boundary for external IdP HTTPS only; it carries no identity authority.
     pub async fn load_with_rp_http(
         exec: setjoin_pg::ScopedExecutor,
         config: Config,
         http: Arc<dyn setjoin_identity::rp::Http>,
+    ) -> Result<Self, String> {
+        boxed(|| Self::load_inner(exec, None, config, http, false)).await
+    }
+    async fn load_inner(
+        exec: setjoin_pg::ScopedExecutor,
+        shared_worker: Option<setjoin_pg::ScopedExecutor>,
+        config: Config,
+        http: Arc<dyn setjoin_identity::rp::Http>,
+        unified: bool,
     ) -> Result<Self, String> {
         if config.secret.is_empty() || config.issuer.is_empty() {
             return Err("JWT secret and issuer required".into());
@@ -216,11 +285,6 @@ impl AuthServer {
         } else {
             exec
         };
-        let device_resolver = setjoin_authz::device::DeviceResolver::new(
-            exec.clone(),
-            config.secret.as_bytes().to_vec(),
-            config.profile,
-        );
         let pem = if matches!(
             config.profile,
             setjoin_config_secret::CryptoProfile::Smx
@@ -242,7 +306,38 @@ impl AuthServer {
             config.profile,
         )
         .await?;
-        let forgot_password = login::enabled(&exec, "feature.forgot_password")
+        let worker_env = std::env::var("DB_WORKER_DSN")
+            .ok()
+            .filter(|s| !s.trim().is_empty());
+        let resolved_worker_dsn = config
+            .worker_dsn
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or(worker_env.as_deref())
+            .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()));
+        let auth_worker = match resolved_worker_dsn {
+            Some(dsn) => {
+                let mut w = setjoin_pg::ScopedExecutor::from_dsn(dsn, 8).map_err(|e| e.0)?;
+                if !config.db_encryption_key.is_empty() || !config.audit_hmac_key.is_empty() {
+                    w = w.with_audit_keys(
+                        config.db_encryption_key.clone(),
+                        config.audit_hmac_key.clone(),
+                    );
+                }
+                w
+            }
+            None => exec.clone(),
+        };
+        let pre_auth_pool = auth_worker.try_worker_pool().map(|w| w.admin_pool());
+        let device_resolver = setjoin_authz::device::DeviceResolver::new(
+            exec.clone(),
+            config.secret.as_bytes().to_vec(),
+            config.profile,
+        )
+        .with_worker(auth_worker.clone());
+        let auth_db = setjoin_pg::AuthDb::from_executors(exec.clone(), auth_worker);
+        let app_db = setjoin_pg::AuthDb::from_executors(exec.clone(), exec.clone());
+        let forgot_password = login::enabled(&auth_db, "feature.forgot_password")
             .await
             .unwrap_or(false);
         let revocations =
@@ -252,31 +347,43 @@ impl AuthServer {
         } else {
             setjoin_identity::push_delivery::Dispatch::from_env()
         };
-        let recovery_worker = config
-            .worker_dsn
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()))
-            .map(|dsn| setjoin_pg::ScopedExecutor::from_dsn(dsn, 4).map_err(|e| e.0))
-            .transpose()?;
-        // #342: Go's guest-invite workerPool on its own two-connection pool.
-        let guest_worker = config
-            .worker_dsn
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()))
-            .map(|dsn| setjoin_pg::ScopedExecutor::from_dsn(dsn, 2).map_err(|e| e.0))
-            .transpose()?
-            .map(|w| {
-                if !config.db_encryption_key.is_empty() || !config.audit_hmac_key.is_empty() {
-                    w.with_audit_keys(
-                        config.db_encryption_key.clone(),
-                        config.audit_hmac_key.clone(),
-                    )
-                } else {
-                    w
-                }
-            });
+        let recovery_worker = match shared_worker.clone() {
+            Some(w) => Some(setjoin_pg::AuthDb::from_executors(w.clone(), w)),
+            None => config
+                .worker_dsn
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()))
+                .map(|dsn| {
+                    setjoin_pg::ScopedExecutor::from_dsn(dsn, 4)
+                        .map(|w| setjoin_pg::AuthDb::from_executors(w.clone(), w))
+                        .map_err(|e| e.0)
+                })
+                .transpose()?,
+        };
+        // #342: Go's guest-invite workerPool on its own two-connection pool
+        // (or shared worker pool in unified setjoind mode).
+        let guest_worker = match shared_worker {
+            Some(w) => Some(w),
+            None => config
+                .worker_dsn
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()))
+                .map(|dsn| setjoin_pg::ScopedExecutor::from_dsn(dsn, 2).map_err(|e| e.0))
+                .transpose()?,
+        }
+        .map(|w| {
+            let w = if !config.db_encryption_key.is_empty() || !config.audit_hmac_key.is_empty() {
+                w.with_audit_keys(
+                    config.db_encryption_key.clone(),
+                    config.audit_hmac_key.clone(),
+                )
+            } else {
+                w
+            };
+            setjoin_pg::AuthDb::from_executors(w.clone(), w)
+        });
         match &guest_worker {
             Some(w) => {
                 if let Err(e) = setjoin_identity::guest_invite::readiness(w).await {
@@ -312,13 +419,15 @@ impl AuthServer {
             && !config.saml_cert_file.is_empty()
             && !config.saml_key_file.is_empty()
         {
-            match setjoin_identity::saml::Registry::load(
-                exec.clone(),
-                &config.saml_cert_file,
-                &config.saml_key_file,
-                &config.db_encryption_key,
-                http.clone(),
-            )
+            match boxed(|| {
+                setjoin_identity::saml::Registry::load(
+                    auth_db.clone(),
+                    &config.saml_cert_file,
+                    &config.saml_key_file,
+                    &config.db_encryption_key,
+                    http.clone(),
+                )
+            })
             .await
             {
                 Ok(registry) => Some(registry),
@@ -332,8 +441,14 @@ impl AuthServer {
         };
         let rp = if config.oidc_rp_enabled {
             Some(
-                setjoin_identity::rp::Registry::load(exec.clone(), config.secret.as_bytes(), http)
-                    .await,
+                boxed(|| {
+                    setjoin_identity::rp::Registry::load(
+                        auth_db.clone(),
+                        config.secret.as_bytes(),
+                        http,
+                    )
+                })
+                .await,
             )
         } else {
             None
@@ -371,32 +486,47 @@ impl AuthServer {
             gate: None,
             ca_engine,
             captcha_used: Default::default(),
+            boot_posture: None,
             exec,
+            auth_db,
+            app_db,
+            pre_auth_pool,
             device_resolver,
             keys: Some(Arc::new(keys)),
             legacy: Some(legacy),
             config,
+            unified,
         })
     }
     /// Embedding/test seam (#342): replace the guest-invite worker executor; the
     /// configured audit keys are applied. Grants no identity authority.
     pub fn with_guest_worker(mut self, worker: setjoin_pg::ScopedExecutor) -> Self {
-        self.guest_worker = Some(
-            if !self.config.db_encryption_key.is_empty() || !self.config.audit_hmac_key.is_empty() {
-                worker.with_audit_keys(
-                    self.config.db_encryption_key.clone(),
-                    self.config.audit_hmac_key.clone(),
-                )
-            } else {
-                worker
-            },
-        );
+        let w = if !self.config.db_encryption_key.is_empty()
+            || !self.config.audit_hmac_key.is_empty()
+        {
+            worker.with_audit_keys(
+                self.config.db_encryption_key.clone(),
+                self.config.audit_hmac_key.clone(),
+            )
+        } else {
+            worker
+        };
+        self.guest_worker = Some(setjoin_pg::AuthDb::from_executors(w.clone(), w));
         self
     }
     /// Attach the shared threat gate (#349). main.rs passes the gate that the
     /// feature/CA watchers keep fresh.
     pub fn with_gate(mut self, gate: Arc<setjoin_threat::Gate>) -> Self {
         self.gate = Some(gate);
+        self
+    }
+    /// Attach startup RLS/PG-version posture (#545). Defaults to `None` so
+    /// existing unit/oracle harnesses remain untouched.
+    pub fn with_boot_posture(
+        mut self,
+        boot_posture: Arc<setjoin_pg::rls_preflight::BootPosture>,
+    ) -> Self {
+        self.boot_posture = Some(boot_posture);
         self
     }
     /// Embedding/test seam (#349): build and attach a gate from this server's
@@ -421,8 +551,10 @@ impl AuthServer {
                 bytes, false, "",
             )?)
         };
-        let gate =
-            setjoin_threat::Gate::load(request, worker, self.config.threat.clone(), geo).await?;
+        let gate = boxed_local(|| {
+            setjoin_threat::Gate::load(request, worker, self.config.threat.clone(), geo)
+        })
+        .await?;
         Ok(self.with_gate(gate))
     }
     /// Embed a native provider transport without granting it identity authority.
@@ -467,6 +599,12 @@ impl AuthServer {
             .unwrap()
     }
     fn client_ip(&self, req: &Request<Body>) -> std::net::IpAddr {
+        if let Some(meta) = req
+            .extensions()
+            .get::<setjoin_authz::auth_authority::AuthRequestMeta>()
+        {
+            return meta.client_ip;
+        }
         let peer = req.extensions().get::<ConnectionMeta>().map_or(
             std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             |m| {
@@ -563,32 +701,35 @@ impl AuthServer {
         Self::mux_reply(&req, allow)
     }
     pub async fn handle(&self, req: Request<Body>) -> Response<Body> {
+        boxed(|| self.handle_inner(req)).await
+    }
+    async fn handle_inner(&self, req: Request<Body>) -> Response<Body> {
         if req.uri().path() == "/auth/identity-links"
             && matches!(req.method(), &Method::GET | &Method::HEAD)
         {
-            return self.saml_links(req).await;
+            return boxed(|| self.saml_links(req)).await;
         }
         if req.uri().path().starts_with("/auth/identity-links/") && req.method() == Method::DELETE {
-            return self.identity_unlink(req).await;
+            return boxed(|| self.identity_unlink(req)).await;
         }
         if req.uri().path().starts_with("/auth/saml/") {
-            return self.saml_request(req).await;
+            return boxed(|| self.saml_request(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/oidc/link" {
-            return self.rp_link(req).await;
+            return boxed(|| self.rp_link(req)).await;
         }
         if req.method() == Method::GET && req.uri().path() == "/auth/oidc/link/complete" {
-            return self.rp_link_complete(req).await;
+            return boxed(|| self.rp_link_complete(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/oidc/login"
         {
-            return self.rp_login(req).await;
+            return boxed(|| self.rp_login(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/oidc/callback"
         {
-            return self.rp_callback(req).await;
+            return boxed(|| self.rp_callback(req)).await;
         }
         if req.uri().path() == "/oauth" && self.config.oidc_enabled {
             return self.oidc_bare_oauth(&req);
@@ -600,19 +741,19 @@ impl AuthServer {
         if req.uri().path().starts_with("/oauth/")
             || matches!(req.uri().path(), "/userinfo" | "/revoke" | "/end_session")
         {
-            return self.oidc_oauth(req).await;
+            return boxed(|| self.oidc_oauth(req)).await;
         }
         if req.uri().path() == "/authorize/callback" {
-            return self.oidc_callback(req).await;
+            return boxed(|| self.oidc_callback(req)).await;
         }
         if req.uri().path() == "/auth/oidc/op/complete" {
-            return self.oidc_complete(req).await;
+            return boxed(|| self.oidc_complete(req)).await;
         }
         if req.uri().path().starts_with("/auth/oidc/") {
             return Self::rp_namespace(req);
         }
         if req.uri().path() == "/authorize" {
-            return self.oidc_authorize(req).await;
+            return boxed(|| self.oidc_authorize(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/.well-known/oauth-authorization-server"
@@ -684,41 +825,41 @@ impl AuthServer {
         if req.method() == Method::POST
             && req.uri().path() == "/auth/mfa/possession/webauthn/finish"
         {
-            return self.possession_webauthn_finish(req).await;
+            return boxed(|| self.possession_webauthn_finish(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/mfa/possession/webauthn/begin"
         {
-            return self.possession_webauthn_begin(req).await;
+            return boxed(|| self.possession_webauthn_begin(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/forgot-password/verify" {
-            return self.recovery_verify(req).await;
+            return boxed(|| self.recovery_verify(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/forgot-password/begin" {
-            return self.recovery_begin(req).await;
+            return boxed(|| self.recovery_begin(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/mfa/push/send" {
-            return self.push_send(req).await;
+            return boxed(|| self.push_send(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/mfa/approve" {
-            return self.push_approve(req).await;
+            return boxed(|| self.push_approve(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/push/status" {
-            return self.push_status(req).await;
+            return boxed(|| self.push_status(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/push/verify" {
-            return self.push_verify(req).await;
+            return boxed(|| self.push_verify(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/backup-codes/verify" {
-            return self.backup_verify(req).await;
+            return boxed(|| self.backup_verify(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/backup-codes/generate" {
-            return self.generate_backups(req).await;
+            return boxed(|| self.generate_backups(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/mfa/possession/totp" {
-            return self.possession_totp(req).await;
+            return boxed(|| self.possession_totp(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/mfa/reauth" {
-            return self.password_grant(req).await;
+            return boxed(|| self.password_grant(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/push/vapid-key"
@@ -756,13 +897,13 @@ impl AuthServer {
             return Self::mfa_namespace(req);
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/device/register" {
-            return self.webpush(req).await;
+            return boxed(|| self.webpush(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/device/register" {
-            return self.bootstrap(req).await;
+            return boxed(|| self.bootstrap(req)).await;
         }
         if matches!(req.uri().path(), "/device/policy" | "/device/checkin") {
-            return self.device_trust(req).await;
+            return boxed(|| self.device_trust(req)).await;
         }
         if req.method() == Method::POST {
             if let Some(target) = req
@@ -773,28 +914,28 @@ impl AuthServer {
                 .filter(|s| !s.contains('/'))
             {
                 let target = target.to_owned();
-                return self.impersonate(req, target).await;
+                return boxed(|| self.impersonate(req, target)).await;
             }
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/introspect" {
-            return self.introspect(req).await;
+            return boxed(|| self.introspect(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/revoke" {
-            return self.revoke(req).await;
+            return boxed(|| self.revoke(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/terms/pending"
         {
-            return self.pending(req).await;
+            return boxed(|| self.pending(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/terms/accept" {
-            return self.accept(req).await;
+            return boxed(|| self.accept(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/scim/disable" {
-            return self.scim_disable(req).await;
+            return boxed(|| self.scim_disable(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/admin/reload" {
-            return self.reload_http(req).await;
+            return boxed(|| self.reload_http(req)).await;
         }
         if req.method() == Method::DELETE {
             if let Some(id) = req
@@ -804,28 +945,28 @@ impl AuthServer {
                 .filter(|s| !s.is_empty() && !s.contains('/'))
             {
                 let id = id.to_owned();
-                return self.webauthn_revoke(req, id).await;
+                return boxed(|| self.webauthn_revoke(req, id)).await;
             }
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/webauthn/register/finish" {
-            let req = match self.webauthn_ingress(req).await {
+            let req = match boxed(|| self.webauthn_ingress(req)).await {
                 Ok(r) => r,
                 Err(r) => return r,
             };
-            return self.webauthn_register_finish(req).await;
+            return boxed(|| self.webauthn_register_finish(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/webauthn/register/begin"
         {
-            return self.webauthn_register_begin(req).await;
+            return boxed(|| self.webauthn_register_begin(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/webauthn/login/finish" {
-            return self.webauthn_login_finish(req).await;
+            return boxed(|| self.webauthn_login_finish(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/webauthn/login/begin"
         {
-            return self.webauthn_login_begin(req).await;
+            return boxed(|| self.webauthn_login_begin(req)).await;
         }
         if req.method() == Method::PUT {
             if let Some(id) = req
@@ -836,39 +977,39 @@ impl AuthServer {
                 .filter(|s| !s.is_empty() && !s.contains('/'))
             {
                 let id = id.to_owned();
-                return self.webauthn_name(req, id).await;
+                return boxed(|| self.webauthn_name(req, id)).await;
             }
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/webauthn/credentials"
         {
-            return self.webauthn_list(req).await;
+            return boxed(|| self.webauthn_list(req)).await;
         }
         if req.uri().path().starts_with("/auth/webauthn/") {
             return Self::webauthn_mux(req);
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/totp/enroll/confirm" {
-            return self.totp_bootstrap_confirm(req).await;
+            return boxed(|| self.totp_bootstrap_confirm(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/totp/verify" {
-            return self.totp_verify(req).await;
+            return boxed(|| self.totp_verify(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/totp/enroll/setup" {
-            return self.totp_bootstrap_setup(req).await;
+            return boxed(|| self.totp_bootstrap_setup(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/totp/confirm" {
-            return self.totp_confirm(req).await;
+            return boxed(|| self.totp_confirm(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/totp/setup"
         {
-            return self.totp_setup(req).await;
+            return boxed(|| self.totp_setup(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/totp/remove/begin" {
-            return self.totp_begin(req).await;
+            return boxed(|| self.totp_begin(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/totp/remove" {
-            return self.totp_remove(req).await;
+            return boxed(|| self.totp_remove(req)).await;
         }
         if req.uri().path().starts_with("/auth/totp/") {
             let allow = match req.uri().path() {
@@ -884,33 +1025,33 @@ impl AuthServer {
             return Self::mux_reply(&req, allow);
         }
         if req.uri().path() == "/auth/guest-invite/accept" {
-            return self.guest_invite(req).await;
+            return boxed(|| self.guest_invite(req)).await;
         }
         let head = req.method() == Method::HEAD;
         let path = req.uri().path().to_owned();
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && matches!(path.as_str(), "/auth/me" | "/auth/session/token")
         {
-            return self.session_route(req).await;
+            return boxed(|| self.session_route(req)).await;
         }
         // Frozen gateway alias is forwarded unchanged to an unregistered Go path.
         if req.method() == Method::POST && path == "/auth/change-password" {
             return Self::not_found();
         }
         if req.method() == Method::POST && path == "/auth/forgot-password/reset" {
-            return self.reset_password(req).await;
+            return boxed(|| self.reset_password(req)).await;
         }
         if req.method() == Method::POST && path == "/auth/refresh" {
-            return self.refresh(req).await;
+            return boxed(|| self.refresh(req)).await;
         }
         if req.method() == Method::PUT && path == "/auth/password" {
-            return self.session_route(req).await;
+            return boxed(|| self.session_route(req)).await;
         }
         if req.method() == Method::POST && path == "/auth/logout" {
-            return self.session_route(req).await;
+            return boxed(|| self.session_route(req)).await;
         }
         if req.method() == Method::POST && path == "/auth/login" {
-            return self.login(req).await;
+            return boxed(|| self.login(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD) {
             let mut response = match path.as_str() {
@@ -924,7 +1065,7 @@ impl AuthServer {
                     Self::wire_json(
                         200,
                         setjoin_identity::issuance::version(
-                            &self.exec,
+                            &self.auth_db,
                             req.uri().query().unwrap_or(""),
                             host,
                         )
@@ -958,7 +1099,7 @@ impl AuthServer {
                 },
                 "/auth/password-policy" if head => Self::failure(405, "Method not allowed", &path),
                 "/auth/password-policy" => {
-                    match setjoin_identity::password_policy(&self.exec).await {
+                    match setjoin_identity::password_policy(&self.auth_db).await {
                         Ok(p) => {
                             let mut r = Self::json(200, p);
                             r.headers_mut().insert(
@@ -974,10 +1115,18 @@ impl AuthServer {
                         ),
                     }
                 }
-                "/health" => Response::builder()
-                    .header("content-type", "application/json")
-                    .body(body(r#"{"status":"ok"}"#))
-                    .unwrap(),
+                "/health" => {
+                    let overall = self
+                        .boot_posture
+                        .as_deref()
+                        .map_or("ok", |p| p.public_status());
+                    let status = if overall == "error" { 503 } else { 200 };
+                    Response::builder()
+                        .status(status)
+                        .header("content-type", "application/json")
+                        .body(body(format!(r#"{{"status":"{overall}"}}"#)))
+                        .unwrap()
+                }
                 "/ready" => match self.exec.read("SELECT 1", &[]).await {
                     Ok(_) => Response::new(body("")),
                     Err(_) => Response::builder()
@@ -1031,7 +1180,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.reset_admitted(req).await;
+        let reply = boxed(|| self.reset_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     /// Go threat.Middleware(CSRF(ForgotPasswordReset)), inner handler.
@@ -1090,7 +1239,7 @@ impl AuthServer {
         };
         let op = uuid::Uuid::new_v4();
         match setjoin_identity::password::reset(
-            &self.exec,
+            &self.auth_db,
             &proof,
             password,
             self.config.profile,
@@ -1122,7 +1271,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.refresh_admitted(req).await;
+        let reply = boxed(|| self.refresh_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     /// Go CSRF(Refresh) inside the dynamic threat mount. No stamp: the tail keys
@@ -1183,7 +1332,7 @@ impl AuthServer {
         for _ in 0..8 {
             let context = match session
                 .refresh(
-                    &self.exec,
+                    &self.auth_db,
                     &hash,
                     None,
                     None,
@@ -1203,7 +1352,7 @@ impl AuthServer {
                 _ => return Self::failure(401, "invalid or revoked refresh token", &path),
             };
             if risk.is_none() {
-                match session.risk(&self.exec).await {
+                match session.risk(&self.auth_db).await {
                     Ok(read) => risk = Some(read),
                     Err(_) => {
                         let mut r = Self::failure(
@@ -1261,7 +1410,7 @@ impl AuthServer {
             let new_hash = Sha256::digest(refresh.as_bytes()).to_vec();
             match session
                 .refresh(
-                    &self.exec,
+                    &self.auth_db,
                     &hash,
                     Some(&context),
                     Some(&new_hash),
@@ -1393,7 +1542,7 @@ impl AuthServer {
             let new = input.get("new_password").map_or("", String::as_str);
             let op = uuid::Uuid::new_v4();
             return match setjoin_identity::password::change(
-                &self.exec,
+                &self.auth_db,
                 &session,
                 old,
                 new,
@@ -1430,7 +1579,7 @@ impl AuthServer {
             let op = uuid::Uuid::new_v4();
             let result = session
                 .revoke(
-                    &self.exec,
+                    &self.auth_db,
                     setjoin_contracts::ids::OperationId(*op.as_bytes()),
                 )
                 .await;
@@ -1450,7 +1599,7 @@ impl AuthServer {
         let mut response = if recovery {
             Self::json(200, json!({"access_token":presented.unwrap()}))
         } else {
-            match session.me(&self.exec).await {
+            match session.me(&self.auth_db).await {
                 Ok(v) => Self::json(200, v),
                 Err(e) => Self::failure(503, e, path),
             }
@@ -1486,6 +1635,12 @@ impl AuthServer {
     // shared/middleware/csrf.go: malformed proxy values fall back to the
     // actual connection/Host, including a direct TLS deployment.
     fn csrf_context(req: &Request<Body>) -> (hyper::HeaderMap, &'static str) {
+        if let Some(meta) = req
+            .extensions()
+            .get::<setjoin_authz::auth_authority::AuthRequestMeta>()
+        {
+            return (req.headers().clone(), meta.proto);
+        }
         let mut headers = req.headers().clone();
         if let Some(host) = req.headers().get("x-forwarded-host").filter(|v| {
             let b = v.as_bytes();
@@ -1552,7 +1707,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.login_admitted(req, ca_enabled, dt_enabled).await;
+        let reply = boxed(|| self.login_admitted(req, ca_enabled, dt_enabled)).await;
         self.threat_tail(admitted, reply).await
     }
     /// Go CSRF(Login): the handler behind the dynamic threat mount.
@@ -1584,9 +1739,16 @@ impl AuthServer {
                     .iter()
                     .any(|n| n.contains(&m.peer.ip()))
         });
-        let secure = self.config.cookie_secure
-            || meta.is_some_and(|m| m.tls)
-            || ((self.config.trust_proxy || trusted) && scheme == "https");
+        let secure = if let Some(auth_meta) =
+            req.extensions()
+                .get::<setjoin_authz::auth_authority::AuthRequestMeta>()
+        {
+            self.config.cookie_secure || auth_meta.tls || auth_meta.proto == "https"
+        } else {
+            self.config.cookie_secure
+                || meta.is_some_and(|m| m.tls)
+                || ((self.config.trust_proxy || trusted) && scheme == "https")
+        };
         let ip = self.client_ip(&req).to_string();
         let agent = req
             .headers()
@@ -1609,7 +1771,7 @@ impl AuthServer {
             return Self::failure(503, "signing keys unavailable", &path);
         }
         let proof = match login::verify(
-            &self.exec,
+            &self.auth_db,
             &input.email,
             &input.password,
             self.config.profile,
@@ -1618,13 +1780,13 @@ impl AuthServer {
         {
             Ok(Some(p)) => p,
             _ => {
-                login::record_failure(&self.exec, &input.email, &ip).await;
+                login::record_failure(&self.auth_db, &input.email, &ip).await;
                 return Self::failure(401, "invalid credentials", &path);
             }
         };
         // Go resolves guest CA context even when CA policies are disabled.
         // Lookup failure must precede force-password/MFA token minting (Go auth.go:805-822).
-        let is_guest = match login::guest_scope(&self.exec, &proof).await {
+        let is_guest = match login::guest_scope(&self.auth_db, &proof).await {
             Ok(g) => g,
             Err(_) => return Self::failure(503, "conditional access context unavailable", &path),
         };
@@ -1639,8 +1801,15 @@ impl AuthServer {
             )
             .await;
         let cred_fence = proof.credential_fence();
-        let ca_policy_id = match self
-            .evaluate_ca(
+        let pending_mint = ca::PendingMint {
+            user_id: proof.user(),
+            email: proof.email(),
+            amr: &["pwd"],
+            credential_fence: Some(&cred_fence),
+            identity_fence: None,
+        };
+        let ca_policy_id = match boxed(|| {
+            self.evaluate_ca(
                 ca_enabled,
                 self.ca_context(
                     proof.user(),
@@ -1651,16 +1820,11 @@ impl AuthServer {
                     "password",
                 ),
                 false,
-                Some(&ca::PendingMint {
-                    user_id: proof.user(),
-                    email: proof.email(),
-                    amr: &["pwd"],
-                    credential_fence: Some(&cred_fence),
-                    identity_fence: None,
-                }),
+                Some(&pending_mint),
                 &path,
             )
-            .await
+        })
+        .await
         {
             Ok(id) => id,
             Err(reply) => return reply,
@@ -1688,7 +1852,7 @@ impl AuthServer {
                 Err(_) => Self::failure(500, "token issue failed", &path),
             };
         }
-        match login::mfa_policy(&self.exec, &proof).await {
+        match login::mfa_policy(&self.auth_db, &proof).await {
             Ok(policy) => {
                 if policy["status"] == "enrollment_required" {
                     return Self::threat_challenge(
@@ -1713,11 +1877,11 @@ impl AuthServer {
                 )
             }
         }
-        let domain = match login::domain_scope(&self.exec, &proof).await {
+        let domain = match login::domain_scope(&self.auth_db, &proof).await {
             Ok(d) => d,
             Err(_) => return Self::failure(500, "authorization scope resolution failed", &path),
         };
-        let guest = match login::admission(&self.exec, &proof).await {
+        let guest = match login::admission(&self.auth_db, &proof).await {
             Ok((true, guest)) => guest,
             Ok((false, _)) => return Response::builder().status(409).header("cache-control","no-store").header("content-type","application/problem+json").body(body(problem::Problem::new(409,"Sign-in is temporarily fenced while identity transition security effects converge.").kind("https://setjoin.com/errors/conflict").instance(&path).body())).unwrap(),
             Err(login::AdmissionFailure::AccountType(_)) => {
@@ -1746,7 +1910,7 @@ impl AuthServer {
             self.config.access_seconds,
             domain,
         );
-        match login::risk(&self.exec, &proof).await {
+        match login::risk(&self.auth_db, &proof).await {
             Ok(Some(risk)) => access_claims["risk"] = risk,
             Ok(None) => {}
             Err(_) => return Self::failure(500, "token issue failed", &path),
@@ -1785,7 +1949,7 @@ impl AuthServer {
             _ => return Self::failure(500, "token issue failed", &path),
         };
         match login::mint(
-            &self.exec,
+            &self.auth_db,
             &proof,
             &refresh,
             self.config.refresh_seconds,
@@ -1847,7 +2011,7 @@ impl AuthServer {
             }
         }
         login::record_success(
-            &self.exec,
+            &self.auth_db,
             &proof,
             &access,
             &jti,
@@ -1882,33 +2046,95 @@ pub async fn serve_until(
     tls: Option<tokio_rustls::TlsAcceptor>,
     shutdown: impl std::future::Future<Output = ()>,
 ) {
+    serve_until_with_hub(server, listener, tls, None, shutdown).await;
+}
+
+/// Same as [`serve_until`], optionally multiplexing SAML/RP/CA invalidation onto
+/// a shared [`setjoin_pg::ListenHub`] (#543).
+pub async fn serve_until_with_hub(
+    server: Arc<AuthServer>,
+    listener: tokio::net::TcpListener,
+    tls: Option<tokio_rustls::TlsAcceptor>,
+    hub: Option<&setjoin_pg::ListenHub>,
+    shutdown: impl std::future::Future<Output = ()>,
+) {
     // These subscriptions keep the native SSO & CA registries current for this server.
-    let _saml_listener = server.start_saml_listener().await;
-    let _rp_listener = server.start_rp_listener().await;
-    let _ca_listener = server.start_ca_listener();
+    let _saml_listener = match hub {
+        Some(hub) => server.start_saml_listener_with_hub(hub).await,
+        None => server.start_saml_listener().await,
+    };
+    let _rp_listener = match hub {
+        Some(hub) => server.start_rp_listener_with_hub(hub).await,
+        None => server.start_rp_listener().await,
+    };
+    let _ca_listener = match hub {
+        Some(hub) => server.start_ca_listener_with_hub(hub).await,
+        None => server.start_ca_listener(),
+    };
+    serve_http_until(server, listener, tls, shutdown).await;
+}
+
+/// Serve HTTP/TLS connections for an `AuthServer` whose background SAML/RP/CA
+/// invalidation listeners are already owned by the caller (e.g. `setjoind`),
+/// preventing duplicate `LISTEN` subscriptions (#543).
+pub async fn serve_http_until(
+    server: Arc<AuthServer>,
+    listener: tokio::net::TcpListener,
+    tls: Option<tokio_rustls::TlsAcceptor>,
+    shutdown: impl std::future::Future<Output = ()>,
+) {
     let mut tasks = tokio::task::JoinSet::new();
+    let (drain_tx, drain_rx) = tokio::sync::watch::channel(false);
     tokio::pin!(shutdown);
     loop {
         tokio::select! {
-            _=&mut shutdown=>break,
-            accepted=listener.accept()=>{
-                let Ok((stream,peer))=accepted else{break;};let server=server.clone();let tls=tls.clone();
-                tasks.spawn(async move{
-                    let meta=ConnectionMeta{peer,tls:tls.is_some()};
-                    let stream:Box<dyn Io>=if let Some(tls)=tls{match tokio::time::timeout(std::time::Duration::from_secs(30),tls.accept(stream)).await{Ok(Ok(s))=>Box::new(s),_=>return}}else{Box::new(stream)};
-                    let service=hyper::service::service_fn(move|mut req:Request<hyper::body::Incoming>|{
-                        let server=server.clone();req.extensions_mut().insert(meta);
-                        Box::pin(async move{Ok::<_,std::convert::Infallible>(server.handle(req.map(|b|b.map_err(std::io::Error::other).boxed())).await)}) as std::pin::Pin<Box<dyn std::future::Future<Output=Result<Response<Body>,std::convert::Infallible>>+Send>>
+            _ = &mut shutdown => break,
+            accepted = listener.accept() => {
+                let Ok((stream, peer)) = accepted else { break; };
+                let server = server.clone();
+                let tls = tls.clone();
+                let mut drain = drain_rx.clone();
+                tasks.spawn(async move {
+                    let meta = ConnectionMeta { peer, tls: tls.is_some() };
+                    let stream: Box<dyn Io> = if let Some(tls) = tls {
+                        match tokio::time::timeout(std::time::Duration::from_secs(30), tls.accept(stream)).await {
+                            Ok(Ok(s)) => Box::new(s),
+                            _ => return,
+                        }
+                    } else {
+                        Box::new(stream)
+                    };
+                    let service = hyper::service::service_fn(move |mut req: Request<hyper::body::Incoming>| {
+                        let server = server.clone();
+                        req.extensions_mut().insert(meta);
+                        Box::pin(async move {
+                            Ok::<_, std::convert::Infallible>(
+                                server
+                                    .handle(req.map(|b| b.map_err(std::io::Error::other).boxed()))
+                                    .await,
+                            )
+                        }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response<Body>, std::convert::Infallible>> + Send>>
                     });
-                    let builder=hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new());
-                    let _=builder.serve_connection(hyper_util::rt::TokioIo::new(stream),service).await;
+                    let builder = hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new());
+                    let conn = builder.serve_connection(hyper_util::rt::TokioIo::new(stream), service);
+                    tokio::pin!(conn);
+                    tokio::select! {
+                        _ = &mut conn => {}
+                        _ = drain.changed() => {
+                            conn.as_mut().graceful_shutdown();
+                            let _ = conn.await;
+                        }
+                    }
                 });
             },
-            _=tasks.join_next(),if !tasks.is_empty()=>{},
+            _ = tasks.join_next(), if !tasks.is_empty() => {},
         }
     }
     drop(listener);
-    // Go bounds shutdown at 30 seconds. Abort/drop every task after draining.
+    let _ = drain_tx.send(true);
+    // Go bounds shutdown at 30 seconds. Signal graceful shutdown to idle
+    // keep-alive/HTTP2 connections and drain in-flight requests, then abort any
+    // stragglers after the timeout.
     let drain = async { while tasks.join_next().await.is_some() {} };
     let _ = tokio::time::timeout(std::time::Duration::from_secs(30), drain).await;
     tasks.abort_all();

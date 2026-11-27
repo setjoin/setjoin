@@ -8,10 +8,10 @@
 //! the actor followed by ONE `UPDATE` pinned to the exact values read (id + user_id + the
 //! three secret cells): a concurrent rotation turns it into a no-op and the loop re-reads,
 //! so rotations still serialize with no check-then-mutate window.
-use super::{command, deadline, done, envelope, invalid, nano, scope};
+use super::{done, invalid, sql};
 use crate::webhook_secret::{generate_secret, SecretCodec};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::{Row, StatementFailure};
 
 /// `wh.EventCatalog()` in registration order: `(type, category, source)`.
 pub const CATALOG: [(&str, &str, &str); 25] = [
@@ -82,22 +82,19 @@ pub fn event_catalog() -> String {
     done(format!("[{}]", items.join(",")))
 }
 
-/// `GET /admin/webhooks`: every subscription, newest first.
-pub async fn list(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let sql = format!(
-        "SELECT id, user_id, url, event_types::text, scope, is_active, {}, {} \
-         FROM webhook_subscriptions ORDER BY created_at DESC",
-        nano("created_at"),
-        nano("updated_at")
-    );
-    let rows = exec.read(&sql, &[]).await?;
+/// `GET /admin/webhooks`: every subscription, newest first (`AdminReadTx` crosses RLS).
+pub async fn list(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::WEBHOOKS_LIST, &[])
+        .await?;
     let bad = |_| invalid();
     let mut out = Vec::new();
     for row in &rows {
         let user: Option<i64> = row.try_get(1).map_err(bad)?;
         let types: String = row.try_get(3).map_err(bad)?;
-        // `json.Unmarshal` into []string: elements that are not strings keep the zero value,
-        // any other JSON leaves the nil slice, rendered `null`.
         let types = match serde_json::from_str::<serde_json::Value>(&types) {
             Ok(serde_json::Value::Array(list)) => format!(
                 "[{}]",
@@ -124,13 +121,14 @@ pub async fn list(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
 }
 
 /// `GET /admin/webhooks/{id}/deliveries`: the newest 200 attempts of one subscription.
-pub async fn deliveries(exec: &ScopedExecutor, id: i64) -> Result<String, StatementFailure> {
-    let sql = format!(
-        "SELECT id, event_id, event_type, response_code, latency_ms, attempt, status, error_message, {} \
-         FROM webhook_deliveries WHERE subscription_id = $1 ORDER BY created_at DESC LIMIT 200",
-        nano("created_at")
-    );
-    let rows = exec.read(&sql, &[(&id, Type::INT8)]).await?;
+pub async fn deliveries(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    id: i64,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::WEBHOOKS_DELIVERIES, &[&id])
+        .await?;
     let bad = |_| invalid();
     let mut out = Vec::new();
     for row in &rows {
@@ -197,24 +195,26 @@ pub enum Outcome {
     Unknown(setjoin_contracts::ids::OperationId),
 }
 
-/// `POST /admin/webhooks` after validation: the new id and the one-time plaintext secret.
-pub async fn create(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+/// Prepared values for `POST /admin/webhooks` (`sql::WEBHOOKS_CREATE`).
+pub struct PreparedCreate {
+    pub secret: String,
+    pub sealed: Vec<u8>,
+    pub key_id: String,
+    pub types_json: String,
+}
+
+/// Generate & seal the webhook secret and encode `event_types` for `sql::WEBHOOKS_CREATE`.
+pub fn prepare_create(
     codec: &SecretCodec,
-    url: &str,
     event_types: &[String],
-    scope_name: &str,
-    operation: [u8; 16],
-) -> Outcome {
+) -> Result<PreparedCreate, Failure> {
     let Ok(secret) = generate_secret() else {
-        return Outcome::Failed(Failure::Detail("secret generation failed"));
+        return Err(Failure::Detail("secret generation failed"));
     };
     let Ok(sealed) = codec.seal(&secret) else {
-        return Outcome::Failed(Failure::Detail("secret sealing failed"));
+        return Err(Failure::Detail("secret sealing failed"));
     };
-    // `json.Marshal` of []string.
-    let types = format!(
+    let types_json = format!(
         "[{}]",
         event_types
             .iter()
@@ -222,161 +222,106 @@ pub async fn create(
             .collect::<Vec<_>>()
             .join(",")
     );
-    let auth = scope(actor);
-    let key_id = codec.active_key_id();
-    let outcome = setjoin_pg::run_receipted_command(
-        exec,
-        command("webhook_create"),
-        &envelope(&auth, operation, &format!("{url}:{types}:{scope_name}")),
-        &auth,
-        deadline(),
-        "INSERT INTO webhook_subscriptions (user_id, url, secret_enc, secret_key_id, event_types, scope) \
-         SELECT $2::bigint, $4::text, $5::bytea, $6::text, $7::text::jsonb, $8::text \
-         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
-        &[
-            (&url, Type::TEXT),
-            (&sealed, Type::BYTEA),
-            (&key_id, Type::TEXT),
-            (&types, Type::TEXT),
-            (&scope_name, Type::TEXT),
-        ],
-        |rows| match rows {
-            [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
-            _ => Err(invalid()),
-        },
-    )
-    .await;
-    match outcome {
-        CommandOutcome::Committed(id) => Outcome::Done(done(format!(
-            "{{\"id\":{id},\"scope\":{},\"secret\":{},\"url\":{}}}",
-            gs(scope_name),
-            gs(&secret),
-            gs(url)
-        ))),
-        CommandOutcome::RolledBack(_) => Outcome::Failed(Failure::Database),
-        CommandOutcome::Unknown { operation } => Outcome::Unknown(operation),
+    Ok(PreparedCreate {
+        secret,
+        sealed,
+        key_id: codec.active_key_id().to_owned(),
+        types_json,
+    })
+}
+
+/// Decode the `RETURNING id` row of `sql::WEBHOOKS_CREATE`.
+pub fn parse_created_id(rows: &[Row]) -> Result<i64, StatementFailure> {
+    match rows {
+        [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
+        _ => Err(invalid()),
     }
 }
 
-/// `DELETE /admin/webhooks/{id}`: only the creator's own row; true when a row went.
-pub async fn delete(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    id: i64,
-    operation: [u8; 16],
-) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("webhook_delete"),
-        &envelope(&auth, operation, &id.to_string()),
-        &auth,
-        deadline(),
-        "DELETE FROM webhook_subscriptions WHERE id = $4::bigint AND user_id = $2::bigint \
-         AND $1::bigint >= 0 AND $3::text <> '' RETURNING id",
-        &[(&id, Type::INT8)],
-        |rows| Ok(!rows.is_empty()),
-    )
-    .await
+/// Format the 201 JSON response for `POST /admin/webhooks`.
+pub fn format_created(id: i64, scope_name: &str, secret: &str, url: &str) -> String {
+    done(format!(
+        "{{\"id\":{id},\"scope\":{},\"secret\":{},\"url\":{}}}",
+        gs(scope_name),
+        gs(secret),
+        gs(url)
+    ))
 }
 
-/// `POST /admin/webhooks/{id}/rotate-secret`: the new plaintext secret, rendered.
-pub async fn rotate(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    codec: &SecretCodec,
+/// Stored secret cells read before CAS rotation (`sql::WEBHOOKS_ROTATE_READ`).
+pub struct StoredSecret {
+    pub legacy: Option<String>,
+    pub stored: Option<Vec<u8>>,
+    pub key: Option<String>,
+}
+
+/// Read the creator's own webhook secret cells via `AdminReadTx` (crosses `scope='self'` RLS
+/// while preserving `WHERE id = $1 AND user_id = $2`).
+pub async fn rotate_read(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     id: i64,
-    operation: [u8; 16],
-) -> Outcome {
+    owner: i64,
+) -> Result<Option<StoredSecret>, Failure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::WEBHOOKS_ROTATE_READ, &[&id, &owner])
+        .await
+        .map_err(|_| Failure::Database)?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let (Ok(legacy), Ok(stored), Ok(key)) = (
+        row.try_get::<_, Option<String>>(0),
+        row.try_get::<_, Option<Vec<u8>>>(1),
+        row.try_get::<_, Option<String>>(2),
+    ) else {
+        return Err(Failure::Database);
+    };
+    Ok(Some(StoredSecret {
+        legacy,
+        stored,
+        key,
+    }))
+}
+
+/// Generate and seal a new secret for rotation.
+pub fn prepare_rotate_new(codec: &SecretCodec) -> Result<(String, Vec<u8>), Failure> {
     let Ok(secret) = generate_secret() else {
-        return Outcome::Failed(Failure::Detail("secret generation failed"));
+        return Err(Failure::Detail("secret generation failed"));
     };
     let Ok(sealed_new) = codec.seal(&secret) else {
-        return Outcome::Failed(Failure::Detail("secret sealing failed"));
+        return Err(Failure::Detail("secret sealing failed"));
     };
-    let owner = actor.user_id();
-    let auth = scope(actor);
-    // Pinned UPDATE: loses to a concurrent rotation, which makes the loop read again.
-    for attempt in 0u16..5 {
-        let rows = match exec
-            .read(
-                "SELECT secret, secret_enc, secret_key_id FROM webhook_subscriptions \
-                 WHERE id = $1 AND user_id = $2",
-                &[(&id, Type::INT8), (&owner, Type::INT8)],
-            )
-            .await
-        {
-            Ok(rows) => rows,
-            Err(_) => return Outcome::Failed(Failure::Database),
-        };
-        let Some(row) = rows.first() else {
-            return Outcome::Failed(Failure::NotFound);
-        };
-        let (Ok(legacy), Ok(stored), Ok(key)) = (
-            row.try_get::<_, Option<String>>(0),
-            row.try_get::<_, Option<Vec<u8>>>(1),
-            row.try_get::<_, Option<String>>(2),
-        ) else {
-            return Outcome::Failed(Failure::Database);
-        };
-        let sealed_prev: Option<Vec<u8>> = match (&stored, &key, &legacy) {
-            (Some(envelope), Some(key), _) => {
-                let Ok(prev) = codec.open(envelope, key) else {
-                    return Outcome::Failed(Failure::Stored("previous secret cannot be opened"));
-                };
-                match codec.seal(&prev) {
-                    Ok(bytes) => Some(bytes),
-                    Err(_) => return Outcome::Failed(Failure::Detail("secret sealing failed")),
-                }
+    Ok((secret, sealed_new))
+}
+
+/// Re-seal the previous secret cell for `sql::WEBHOOKS_ROTATE_UPDATE`.
+pub fn prepare_rotate_prev(
+    codec: &SecretCodec,
+    current: &StoredSecret,
+) -> Result<Option<Vec<u8>>, Failure> {
+    match (&current.stored, &current.key, &current.legacy) {
+        (Some(envelope), Some(key), _) => {
+            let Ok(prev) = codec.open(envelope, key) else {
+                return Err(Failure::Stored("previous secret cannot be opened"));
+            };
+            match codec.seal(&prev) {
+                Ok(bytes) => Ok(Some(bytes)),
+                Err(_) => Err(Failure::Detail("secret sealing failed")),
             }
-            (Some(_), None, _) => {
-                return Outcome::Failed(Failure::Stored("stored secret has no key id"))
-            }
-            (None, _, Some(plain)) => match codec.seal(plain) {
-                Ok(bytes) => Some(bytes),
-                Err(_) => return Outcome::Failed(Failure::Detail("secret sealing failed")),
-            },
-            (None, _, None) => None,
-        };
-        let key_id = codec.active_key_id();
-        let mut op = operation;
-        op[14..16].copy_from_slice(&attempt.to_be_bytes());
-        let outcome = setjoin_pg::run_receipted_command(
-            exec,
-            command("webhook_rotate_secret"),
-            &envelope(&auth, op, &id.to_string()),
-            &auth,
-            deadline(),
-            "UPDATE webhook_subscriptions \
-                SET prev_secret = NULL, prev_secret_enc = $5::bytea, prev_secret_key_id = $6::text, \
-                    secret = NULL, secret_enc = $7::bytea, secret_key_id = $6::text \
-              WHERE id = $4::bigint AND user_id = $2::bigint AND $1::bigint >= 0 AND $3::text <> '' \
-                AND secret IS NOT DISTINCT FROM $8::text \
-                AND secret_enc IS NOT DISTINCT FROM $9::bytea \
-                AND secret_key_id IS NOT DISTINCT FROM $10::text \
-              RETURNING id",
-            &[
-                (&id, Type::INT8),
-                (&sealed_prev, Type::BYTEA),
-                (&key_id, Type::TEXT),
-                (&sealed_new, Type::BYTEA),
-                (&legacy, Type::TEXT),
-                (&stored, Type::BYTEA),
-                (&key, Type::TEXT),
-            ],
-            |rows| Ok(!rows.is_empty()),
-        )
-        .await;
-        match outcome {
-            CommandOutcome::Committed(true) => {
-                return Outcome::Done(done(format!("{{\"secret\":{}}}", gs(&secret))))
-            }
-            CommandOutcome::Committed(false) => continue,
-            CommandOutcome::RolledBack(_) => return Outcome::Failed(Failure::Database),
-            CommandOutcome::Unknown { operation } => return Outcome::Unknown(operation),
         }
+        (Some(_), None, _) => Err(Failure::Stored("stored secret has no key id")),
+        (None, _, Some(plain)) => match codec.seal(plain) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(_) => Err(Failure::Detail("secret sealing failed")),
+        },
+        (None, _, None) => Ok(None),
     }
-    Outcome::Failed(Failure::Database)
+}
+
+/// Format the 200 JSON response for `POST /admin/webhooks/{id}/rotate-secret`.
+pub fn format_rotated(secret: &str) -> String {
+    done(format!("{{\"secret\":{}}}", gs(secret)))
 }
 
 #[cfg(test)]

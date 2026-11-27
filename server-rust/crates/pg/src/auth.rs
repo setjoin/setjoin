@@ -39,24 +39,34 @@ impl MailboxAuthContext {
 
     /// User-scoped domains must not invent a mailbox for active guests.
     pub fn from_authenticated_user(actor: ActorId, generation: Generation) -> Self {
-        Self { actor, mailbox: None, generation, audit_keys: None }
+        Self {
+            actor,
+            mailbox: None,
+            generation,
+            audit_keys: None,
+        }
     }
 
-    pub fn mailbox_optional(&self) -> Option<MailboxId> { self.mailbox }
+    pub fn mailbox_optional(&self) -> Option<MailboxId> {
+        self.mailbox
+    }
 
     pub fn actor(&self) -> ActorId {
         self.actor
     }
 
     pub fn mailbox(&self) -> MailboxId {
-        self.mailbox.expect("mailbox operation requires real mailbox authority")
+        self.mailbox
+            .expect("mailbox operation requires real mailbox authority")
     }
 
     /// The current authority key the lifecycle compares the envelope against.
     pub fn authority(&self) -> AuthorityKey {
         AuthorityKey {
             actor: self.actor,
-            scope: self.mailbox.map_or(ResourceScope::User(self.actor), ResourceScope::Mailbox),
+            scope: self
+                .mailbox
+                .map_or(ResourceScope::User(self.actor), ResourceScope::Mailbox),
             generation: self.generation,
         }
     }

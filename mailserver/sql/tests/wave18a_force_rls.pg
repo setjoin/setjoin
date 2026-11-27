@@ -1,0 +1,823 @@
+-- pgTAP: wave18a_force_rls.pg
+-- Wave 1.8 Phase 546b (`V286__wave18a_nonauth_force_rls.sql`) proof:
+--   1. All 20 Wave A non-auth tables have BOTH relrowsecurity AND relforcerowsecurity.
+--   2. Divergent user_id != mailbox_id fixtures (`mk_account`) under SET LOCAL ROLE setjoin_app:
+--      - Unset GUCs fail closed (0 rows visible on SELECT across all 20 tables; INSERT denied).
+--      - Tenant A sees ONLY Tenant A rows and CANNOT SELECT, INSERT, UPDATE, or DELETE Tenant B rows
+--        across all 20 tables.
+--      - Mailbox-scoped tables enforce strict mailbox_id isolation when app.current_mailbox_id is set
+--        (passing user_id as mailbox_id sees 0 rows).
+--      - Calendar ACL sharing works without calendars <-> calendar_acls mutual RLS recursion:
+--        grantee sees shared calendar & events; read/freebusy grantee cannot mutate events;
+--        write grantee can update shared events; calendar_effective_acl & calendar_free_busy work
+--        under setjoin_app.
+--      - OOO approval delegation (`approval_active_delegate`) resolves delegator -> delegate even
+--        when called under setjoin_app as requester != delegator.
+
+BEGIN;
+SELECT plan(108);
+
+-- ── 1) Structural check: all 20 tables have ENABLE + FORCE RLS ──────────────
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+    WHERE c.relname IN (
+      'addressbooks','calendar_acls','calendar_events','calendars',
+      'contact_group_members','contact_groups','contacts','event_attendees',
+      'reminders','vt_timezone','blob_user_charges','blob_user_usage',
+      'approval_delegations','signatures','user_imap_settings',
+      'user_notification_prefs','user_signatures','vacation_replies',
+      'vacation_settings','email_templates'
+    )
+      AND c.relrowsecurity = true
+      AND c.relforcerowsecurity = true),
+  20,
+  'V286: all 20 Wave A tables have ENABLE + FORCE ROW LEVEL SECURITY'
+);
+
+-- Verify ARCH-018 helpers exist, are SECURITY DEFINER, and owned by setjoin_worker.
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'public'
+     JOIN pg_authid r ON r.oid = p.proowner
+    WHERE p.proname IN (
+      'rls_caller_is_privileged',
+      'rls_mailbox_in_scope',
+      'rls_calendar_in_scope',
+      'rls_calendar_acl_for_current_user',
+      'rls_calendar_event_in_scope',
+      'rls_calendar_event_acl_for_current_user',
+      'rls_addressbook_in_scope',
+      'rls_contact_group_in_scope',
+      'approval_active_delegate'
+    )
+      AND p.prosecdef = true
+      AND r.rolname = 'setjoin_worker'),
+  9,
+  'V286: all 9 ARCH-018 pure-boolean RLS & OOO helpers are SECURITY DEFINER owned by setjoin_worker'
+);
+
+-- ── 2) Seed two divergent-ID tenants (A & B) plus a requester (C) as superuser ──
+CREATE TEMP TABLE _w18a (
+  k text PRIMARY KEY,
+  v bigint NOT NULL
+);
+
+DO $$
+DECLARE
+  v_mb_a bigint := mk_account('w18a-alice');
+  v_mb_b bigint := mk_account('w18a-bob');
+  v_mb_c bigint := mk_account('w18a-carol');
+  v_u_a  bigint;
+  v_u_b  bigint;
+  v_u_c  bigint;
+  v_cal_a bigint; v_cal_b bigint; v_cal_a_fb bigint;
+  v_ev_a  bigint; v_ev_b  bigint; v_ev_a_fb bigint; v_ev_a_priv bigint;
+  v_att_a bigint; v_att_b bigint; v_att_a_fb bigint; v_att_a_priv bigint;
+  v_tz_a  bigint; v_tz_b  bigint;
+  v_ab_a  bigint; v_ab_b  bigint;
+  v_ct_a  bigint; v_ct_b  bigint;
+  v_cg_a  bigint; v_cg_b  bigint;
+  v_cgm_a bigint; v_cgm_b bigint;
+  v_rem_a bigint; v_rem_b bigint;
+  v_del_a bigint; v_del_b bigint;
+  v_sig_a bigint; v_sig_b bigint;
+  v_unp_a bigint; v_unp_b bigint;
+  v_us_a  bigint; v_us_b  bigint;
+  v_tpl_a bigint; v_tpl_b bigint;
+BEGIN
+  SELECT user_id INTO v_u_a FROM mailboxes WHERE id = v_mb_a;
+  SELECT user_id INTO v_u_b FROM mailboxes WHERE id = v_mb_b;
+  SELECT user_id INTO v_u_c FROM mailboxes WHERE id = v_mb_c;
+
+  -- Confirm divergent user_id != mailbox_id invariant
+  IF v_u_a = v_mb_a OR v_u_b = v_mb_b OR v_u_c = v_mb_c THEN
+    RAISE EXCEPTION 'expected divergent user_id != mailbox_id';
+  END IF;
+
+  -- 1. calendars
+  INSERT INTO calendars (mailbox_id, name, color, is_default)
+  VALUES (v_mb_a, 'Alice Cal', '#111111', true) RETURNING id INTO v_cal_a;
+  INSERT INTO calendars (mailbox_id, name, color, is_default)
+  VALUES (v_mb_a, 'Alice FreeBusy Cal', '#333333', false) RETURNING id INTO v_cal_a_fb;
+  INSERT INTO calendars (mailbox_id, name, color, is_default)
+  VALUES (v_mb_b, 'Bob Cal', '#222222', true) RETURNING id INTO v_cal_b;
+
+  -- 2. calendar_acls (C gets read on cal_a and cal_b, and freebusy-only on cal_a_fb)
+  INSERT INTO calendar_acls (calendar_id, user_id, permission) VALUES (v_cal_a, v_u_c, 'read');
+  INSERT INTO calendar_acls (calendar_id, user_id, permission) VALUES (v_cal_a_fb, v_u_c, 'freebusy');
+  INSERT INTO calendar_acls (calendar_id, user_id, permission) VALUES (v_cal_b, v_u_c, 'read');
+
+  -- 3. calendar_events (PUBLIC on cal_a/cal_b/cal_a_fb, plus PRIVATE on cal_a)
+  INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at, classification)
+  VALUES (v_cal_a, 'w18a-ev-a', 'Alice Public', now(), now() + interval '1 hour', 'PUBLIC') RETURNING id INTO v_ev_a;
+  INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at, classification)
+  VALUES (v_cal_a, 'w18a-ev-a-priv', 'Alice Private Secret', now(), now() + interval '1 hour', 'PRIVATE') RETURNING id INTO v_ev_a_priv;
+  INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at, classification)
+  VALUES (v_cal_a_fb, 'w18a-ev-a-fb', 'Alice FreeBusy Secret', now(), now() + interval '1 hour', 'PUBLIC') RETURNING id INTO v_ev_a_fb;
+  INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at, classification)
+  VALUES (v_cal_b, 'w18a-ev-b', 'Bob Secret', now(), now() + interval '1 hour', 'PUBLIC') RETURNING id INTO v_ev_b;
+
+  -- 4. event_attendees
+  INSERT INTO event_attendees (event_id, email, name)
+  VALUES (v_ev_a, 'alice-guest@mk.test', 'Alice Guest') RETURNING id INTO v_att_a;
+  INSERT INTO event_attendees (event_id, email, name)
+  VALUES (v_ev_a_priv, 'alice-priv-guest@mk.test', 'Alice Priv Guest') RETURNING id INTO v_att_a_priv;
+  INSERT INTO event_attendees (event_id, email, name)
+  VALUES (v_ev_a_fb, 'alice-fb-guest@mk.test', 'Alice FB Guest') RETURNING id INTO v_att_a_fb;
+  INSERT INTO event_attendees (event_id, email, name)
+  VALUES (v_ev_b, 'bob-guest@mk.test', 'Bob Guest') RETURNING id INTO v_att_b;
+
+  -- 5. vt_timezone
+  INSERT INTO vt_timezone (calendar_id, tzid, standard)
+  VALUES (v_cal_a, 'W18A/Alice', '{}'::jsonb) RETURNING id INTO v_tz_a;
+  INSERT INTO vt_timezone (calendar_id, tzid, standard)
+  VALUES (v_cal_b, 'W18A/Bob', '{}'::jsonb) RETURNING id INTO v_tz_b;
+
+  -- 6. addressbooks
+  INSERT INTO addressbooks (mailbox_id, name) VALUES (v_mb_a, 'Alice Book') RETURNING id INTO v_ab_a;
+  INSERT INTO addressbooks (mailbox_id, name) VALUES (v_mb_b, 'Bob Book') RETURNING id INTO v_ab_b;
+
+  -- 7. contacts
+  INSERT INTO contacts (addressbook_id, vcard_uid, display_name)
+  VALUES (v_ab_a, 'w18a-ct-a', 'Alice Contact') RETURNING id INTO v_ct_a;
+  INSERT INTO contacts (addressbook_id, vcard_uid, display_name)
+  VALUES (v_ab_b, 'w18a-ct-b', 'Bob Contact') RETURNING id INTO v_ct_b;
+
+  -- 8. contact_groups
+  INSERT INTO contact_groups (mailbox_id, name) VALUES (v_mb_a, 'Alice Grp') RETURNING id INTO v_cg_a;
+  INSERT INTO contact_groups (mailbox_id, name) VALUES (v_mb_b, 'Bob Grp') RETURNING id INTO v_cg_b;
+
+  -- 9. contact_group_members (cgm_one_target: contact_id XOR email)
+  INSERT INTO contact_group_members (group_id, contact_id)
+  VALUES (v_cg_a, v_ct_a) RETURNING id INTO v_cgm_a;
+  INSERT INTO contact_group_members (group_id, contact_id)
+  VALUES (v_cg_b, v_ct_b) RETURNING id INTO v_cgm_b;
+
+  -- 10. reminders
+  INSERT INTO reminders (mailbox_id, source_type, source_id, fire_at, title)
+  VALUES (v_mb_a, 'event', v_ev_a, now(), 'Alice Rem') RETURNING id INTO v_rem_a;
+  INSERT INTO reminders (mailbox_id, source_type, source_id, fire_at, title)
+  VALUES (v_mb_b, 'event', v_ev_b, now(), 'Bob Rem') RETURNING id INTO v_rem_b;
+
+  -- 11 & 12. blobs + blob_user_usage + blob_user_charges
+  INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
+  VALUES (repeat('a', 64), 'blobs/a', 100, 'text/plain', 0) ON CONFLICT DO NOTHING;
+  INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
+  VALUES (repeat('b', 64), 'blobs/b', 200, 'text/plain', 0) ON CONFLICT DO NOTHING;
+  INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
+  VALUES (repeat('c', 64), 'blobs/c', 64, 'text/plain', 0) ON CONFLICT DO NOTHING;
+  INSERT INTO blob_user_usage (user_id, charged_bytes) VALUES (v_u_a, 0) ON CONFLICT DO NOTHING;
+  INSERT INTO blob_user_usage (user_id, charged_bytes) VALUES (v_u_b, 0) ON CONFLICT DO NOTHING;
+  INSERT INTO blob_user_charges (blob_sha256, user_id, size_bytes) VALUES (repeat('a', 64), v_u_a, 100);
+  INSERT INTO blob_user_charges (blob_sha256, user_id, size_bytes) VALUES (repeat('b', 64), v_u_b, 200);
+
+  -- 13. approval_delegations (A delegates to B? No, A delegates to C; B delegates to A? Keep A->C and B->C? Better: A delegates to C, B delegates to C is visible to C, so keep B delegating to B's own extra delegate D so A cannot see B's row!)
+  DECLARE v_mb_d bigint := mk_account('w18a-dave'); v_u_d bigint;
+  BEGIN
+    SELECT user_id INTO v_u_d FROM mailboxes WHERE id = v_mb_d;
+    INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
+    VALUES (v_u_a, v_u_c, now() - interval '1 hour', now() + interval '1 day') RETURNING id INTO v_del_a;
+    INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
+    VALUES (v_u_b, v_u_d, now() - interval '1 hour', now() + interval '1 day') RETURNING id INTO v_del_b;
+    INSERT INTO _w18a VALUES ('u_d', v_u_d);
+  END;
+
+  -- 14. signatures
+  INSERT INTO signatures (mailbox_id, name, body_text) VALUES (v_mb_a, 'Alice Sig', 'A') RETURNING id INTO v_sig_a;
+  INSERT INTO signatures (mailbox_id, name, body_text) VALUES (v_mb_b, 'Bob Sig', 'B') RETURNING id INTO v_sig_b;
+
+  -- 15. user_imap_settings
+  INSERT INTO user_imap_settings (user_id, expose_all) VALUES (v_u_a, true);
+  INSERT INTO user_imap_settings (user_id, expose_all) VALUES (v_u_b, false);
+
+  -- 16. user_notification_prefs
+  INSERT INTO user_notification_prefs (user_id, push_enabled) VALUES (v_u_a, true) RETURNING id INTO v_unp_a;
+  INSERT INTO user_notification_prefs (user_id, push_enabled) VALUES (v_u_b, false) RETURNING id INTO v_unp_b;
+
+  -- 17. user_signatures
+  INSERT INTO user_signatures (user_id, alias_email, signature_text)
+  VALUES (v_u_a, 'a@mk.test', 'Sig A') RETURNING id INTO v_us_a;
+  INSERT INTO user_signatures (user_id, alias_email, signature_text)
+  VALUES (v_u_b, 'b@mk.test', 'Sig B') RETURNING id INTO v_us_b;
+
+  -- 18. vacation_settings
+  INSERT INTO vacation_settings (mailbox_id, enabled, subject, body_text)
+  VALUES (v_mb_a, true, 'Alice OOO', 'Away');
+  INSERT INTO vacation_settings (mailbox_id, enabled, subject, body_text)
+  VALUES (v_mb_b, true, 'Bob OOO', 'Away');
+
+  -- 19. vacation_replies
+  INSERT INTO vacation_replies (sender_email, mailbox_id, vacation_start)
+  VALUES ('sender@ext.test', v_mb_a, CURRENT_DATE);
+  INSERT INTO vacation_replies (sender_email, mailbox_id, vacation_start)
+  VALUES ('sender@ext.test', v_mb_b, CURRENT_DATE);
+
+  -- 20. email_templates
+  INSERT INTO email_templates (mailbox_id, name, subject, body_html)
+  VALUES (v_mb_a, 'Alice Tpl', 'Hi', '<p>A</p>') RETURNING id INTO v_tpl_a;
+  INSERT INTO email_templates (mailbox_id, name, subject, body_html)
+  VALUES (v_mb_b, 'Bob Tpl', 'Hi', '<p>B</p>') RETURNING id INTO v_tpl_b;
+
+  INSERT INTO _w18a VALUES
+    ('mb_a', v_mb_a), ('mb_b', v_mb_b), ('mb_c', v_mb_c),
+    ('u_a', v_u_a), ('u_b', v_u_b), ('u_c', v_u_c),
+    ('cal_a', v_cal_a), ('cal_b', v_cal_b), ('cal_a_fb', v_cal_a_fb),
+    ('ev_a', v_ev_a), ('ev_b', v_ev_b), ('ev_a_fb', v_ev_a_fb), ('ev_a_priv', v_ev_a_priv),
+    ('att_a', v_att_a), ('att_b', v_att_b), ('att_a_fb', v_att_a_fb), ('att_a_priv', v_att_a_priv),
+    ('tz_a', v_tz_a), ('tz_b', v_tz_b),
+    ('ab_a', v_ab_a), ('ab_b', v_ab_b),
+    ('ct_a', v_ct_a), ('ct_b', v_ct_b),
+    ('cg_a', v_cg_a), ('cg_b', v_cg_b),
+    ('cgm_a', v_cgm_a), ('cgm_b', v_cgm_b),
+    ('rem_a', v_rem_a), ('rem_b', v_rem_b),
+    ('del_a', v_del_a), ('del_b', v_del_b),
+    ('sig_a', v_sig_a), ('sig_b', v_sig_b),
+    ('unp_a', v_unp_a), ('unp_b', v_unp_b),
+    ('us_a', v_us_a), ('us_b', v_us_b),
+    ('tpl_a', v_tpl_a), ('tpl_b', v_tpl_b);
+END $$;
+
+GRANT SELECT ON _w18a TO setjoin_app;
+
+-- ── 3) Switch to setjoin_app (NOSUPERUSER NOBYPASSRLS) with UNSET GUCs ──────
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '', true);
+SELECT set_config('app.current_mailbox_id', '', true);
+
+-- All 20 tables MUST fail closed (0 rows visible) when GUCs are unset.
+SELECT is((SELECT count(*)::int FROM calendars WHERE id IN (SELECT v FROM _w18a WHERE k IN ('cal_a','cal_b'))), 0, 'unset GUC: calendars fail-closed');
+SELECT is((SELECT count(*)::int FROM calendar_acls WHERE calendar_id IN (SELECT v FROM _w18a WHERE k IN ('cal_a','cal_b'))), 0, 'unset GUC: calendar_acls fail-closed');
+SELECT is((SELECT count(*)::int FROM calendar_events WHERE id IN (SELECT v FROM _w18a WHERE k IN ('ev_a','ev_b'))), 0, 'unset GUC: calendar_events fail-closed');
+SELECT is((SELECT count(*)::int FROM event_attendees WHERE id IN (SELECT v FROM _w18a WHERE k IN ('att_a','att_b'))), 0, 'unset GUC: event_attendees fail-closed');
+SELECT is((SELECT count(*)::int FROM vt_timezone WHERE id IN (SELECT v FROM _w18a WHERE k IN ('tz_a','tz_b'))), 0, 'unset GUC: vt_timezone fail-closed');
+SELECT is((SELECT count(*)::int FROM addressbooks WHERE id IN (SELECT v FROM _w18a WHERE k IN ('ab_a','ab_b'))), 0, 'unset GUC: addressbooks fail-closed');
+SELECT is((SELECT count(*)::int FROM contacts WHERE id IN (SELECT v FROM _w18a WHERE k IN ('ct_a','ct_b'))), 0, 'unset GUC: contacts fail-closed');
+SELECT is((SELECT count(*)::int FROM contact_groups WHERE id IN (SELECT v FROM _w18a WHERE k IN ('cg_a','cg_b'))), 0, 'unset GUC: contact_groups fail-closed');
+SELECT is((SELECT count(*)::int FROM contact_group_members WHERE id IN (SELECT v FROM _w18a WHERE k IN ('cgm_a','cgm_b'))), 0, 'unset GUC: contact_group_members fail-closed');
+SELECT is((SELECT count(*)::int FROM reminders WHERE id IN (SELECT v FROM _w18a WHERE k IN ('rem_a','rem_b'))), 0, 'unset GUC: reminders fail-closed');
+SELECT is((SELECT count(*)::int FROM blob_user_usage WHERE user_id IN (SELECT v FROM _w18a WHERE k IN ('u_a','u_b'))), 0, 'unset GUC: blob_user_usage fail-closed');
+SELECT is((SELECT count(*)::int FROM blob_user_charges WHERE user_id IN (SELECT v FROM _w18a WHERE k IN ('u_a','u_b'))), 0, 'unset GUC: blob_user_charges fail-closed');
+SELECT is((SELECT count(*)::int FROM approval_delegations WHERE id IN (SELECT v FROM _w18a WHERE k IN ('del_a','del_b'))), 0, 'unset GUC: approval_delegations fail-closed');
+SELECT is((SELECT count(*)::int FROM signatures WHERE id IN (SELECT v FROM _w18a WHERE k IN ('sig_a','sig_b'))), 0, 'unset GUC: signatures fail-closed');
+SELECT is((SELECT count(*)::int FROM user_imap_settings WHERE user_id IN (SELECT v FROM _w18a WHERE k IN ('u_a','u_b'))), 0, 'unset GUC: user_imap_settings fail-closed');
+SELECT is((SELECT count(*)::int FROM user_notification_prefs WHERE id IN (SELECT v FROM _w18a WHERE k IN ('unp_a','unp_b'))), 0, 'unset GUC: user_notification_prefs fail-closed');
+SELECT is((SELECT count(*)::int FROM user_signatures WHERE id IN (SELECT v FROM _w18a WHERE k IN ('us_a','us_b'))), 0, 'unset GUC: user_signatures fail-closed');
+SELECT is((SELECT count(*)::int FROM vacation_settings WHERE mailbox_id IN (SELECT v FROM _w18a WHERE k IN ('mb_a','mb_b'))), 0, 'unset GUC: vacation_settings fail-closed');
+SELECT is((SELECT count(*)::int FROM vacation_replies WHERE mailbox_id IN (SELECT v FROM _w18a WHERE k IN ('mb_a','mb_b'))), 0, 'unset GUC: vacation_replies fail-closed');
+SELECT is((SELECT count(*)::int FROM email_templates WHERE id IN (SELECT v FROM _w18a WHERE k IN ('tpl_a','tpl_b'))), 0, 'unset GUC: email_templates fail-closed');
+
+-- ── 4) Divergent-ID trap: setting mailbox GUC to user_id sees 0 mailbox rows ──
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18a WHERE k = 'u_a'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18a WHERE k = 'u_a'), true);
+SELECT is((SELECT count(*)::int FROM calendars WHERE id = (SELECT v FROM _w18a WHERE k = 'cal_a')), 0, 'divergent ID: user_id in mailbox GUC sees 0 calendars');
+SELECT is((SELECT count(*)::int FROM reminders WHERE id = (SELECT v FROM _w18a WHERE k = 'rem_a')), 0, 'divergent ID: user_id in mailbox GUC sees 0 reminders');
+SELECT is((SELECT count(*)::int FROM vacation_settings WHERE mailbox_id = (SELECT v FROM _w18a WHERE k = 'mb_a')), 0, 'divergent ID: user_id in mailbox GUC sees 0 vacation_settings');
+
+-- ── 5) Tenant A scope (MailboxTx: both user_id=u_a and mailbox_id=mb_a) ──────
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18a WHERE k = 'u_a'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18a WHERE k = 'mb_a'), true);
+
+-- Tenant A sees ONLY Tenant A rows (never Tenant B) across all 20 tables.
+SELECT is((SELECT count(*)::int FROM calendars WHERE id IN (SELECT v FROM _w18a WHERE k IN ('cal_a','cal_b'))), 1, 'tenant A: sees only own calendar');
+SELECT is((SELECT count(*)::int FROM calendar_acls WHERE calendar_id IN (SELECT v FROM _w18a WHERE k IN ('cal_a','cal_b'))), 1, 'tenant A: sees only own calendar_acls');
+SELECT is((SELECT count(*)::int FROM calendar_events WHERE id IN (SELECT v FROM _w18a WHERE k IN ('ev_a','ev_b'))), 1, 'tenant A: sees only own calendar_events');
+SELECT is((SELECT count(*)::int FROM event_attendees WHERE id IN (SELECT v FROM _w18a WHERE k IN ('att_a','att_b'))), 1, 'tenant A: sees only own event_attendees');
+SELECT is((SELECT count(*)::int FROM vt_timezone WHERE id IN (SELECT v FROM _w18a WHERE k IN ('tz_a','tz_b'))), 1, 'tenant A: sees only own vt_timezone');
+SELECT is((SELECT count(*)::int FROM addressbooks WHERE id IN (SELECT v FROM _w18a WHERE k IN ('ab_a','ab_b'))), 1, 'tenant A: sees only own addressbooks');
+SELECT is((SELECT count(*)::int FROM contacts WHERE id IN (SELECT v FROM _w18a WHERE k IN ('ct_a','ct_b'))), 1, 'tenant A: sees only own contacts');
+SELECT is((SELECT count(*)::int FROM contact_groups WHERE id IN (SELECT v FROM _w18a WHERE k IN ('cg_a','cg_b'))), 1, 'tenant A: sees only own contact_groups');
+SELECT is((SELECT count(*)::int FROM contact_group_members WHERE id IN (SELECT v FROM _w18a WHERE k IN ('cgm_a','cgm_b'))), 1, 'tenant A: sees only own contact_group_members');
+SELECT is((SELECT count(*)::int FROM reminders WHERE id IN (SELECT v FROM _w18a WHERE k IN ('rem_a','rem_b'))), 1, 'tenant A: sees only own reminders');
+SELECT is((SELECT count(*)::int FROM blob_user_usage WHERE user_id IN (SELECT v FROM _w18a WHERE k IN ('u_a','u_b'))), 1, 'tenant A: sees only own blob_user_usage');
+SELECT is((SELECT count(*)::int FROM blob_user_charges WHERE user_id IN (SELECT v FROM _w18a WHERE k IN ('u_a','u_b'))), 1, 'tenant A: sees only own blob_user_charges');
+SELECT is((SELECT count(*)::int FROM approval_delegations WHERE id IN (SELECT v FROM _w18a WHERE k IN ('del_a','del_b'))), 1, 'tenant A: sees only own approval_delegations');
+SELECT is((SELECT count(*)::int FROM signatures WHERE id IN (SELECT v FROM _w18a WHERE k IN ('sig_a','sig_b'))), 1, 'tenant A: sees only own signatures');
+SELECT is((SELECT count(*)::int FROM user_imap_settings WHERE user_id IN (SELECT v FROM _w18a WHERE k IN ('u_a','u_b'))), 1, 'tenant A: sees only own user_imap_settings');
+SELECT is((SELECT count(*)::int FROM user_notification_prefs WHERE id IN (SELECT v FROM _w18a WHERE k IN ('unp_a','unp_b'))), 1, 'tenant A: sees only own user_notification_prefs');
+SELECT is((SELECT count(*)::int FROM user_signatures WHERE id IN (SELECT v FROM _w18a WHERE k IN ('us_a','us_b'))), 1, 'tenant A: sees only own user_signatures');
+SELECT is((SELECT count(*)::int FROM vacation_settings WHERE mailbox_id IN (SELECT v FROM _w18a WHERE k IN ('mb_a','mb_b'))), 1, 'tenant A: sees only own vacation_settings');
+SELECT is((SELECT count(*)::int FROM vacation_replies WHERE mailbox_id IN (SELECT v FROM _w18a WHERE k IN ('mb_a','mb_b'))), 1, 'tenant A: sees only own vacation_replies');
+SELECT is((SELECT count(*)::int FROM email_templates WHERE id IN (SELECT v FROM _w18a WHERE k IN ('tpl_a','tpl_b'))), 1, 'tenant A: sees only own email_templates');
+
+-- ── 6) Cross-tenant INSERT / UPDATE / DELETE denial under Tenant A ──────────
+SELECT throws_ok(
+  $$INSERT INTO calendars (mailbox_id, name) VALUES ((SELECT v FROM _w18a WHERE k = 'mb_b'), 'Injected')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into calendars denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at) VALUES ((SELECT v FROM _w18a WHERE k = 'cal_b'), 'x-inj', 'Injected', now(), now() + interval '1 hour')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into calendar_events denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO calendar_acls (calendar_id, user_id, permission) VALUES ((SELECT v FROM _w18a WHERE k = 'cal_b'), (SELECT v FROM _w18a WHERE k = 'u_a'), 'admin')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into calendar_acls denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO contacts (addressbook_id, vcard_uid, display_name) VALUES ((SELECT v FROM _w18a WHERE k = 'ab_b'), 'x-ct', 'Injected')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into contacts denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO blob_user_charges (blob_sha256, user_id, size_bytes) VALUES (repeat('a', 64), (SELECT v FROM _w18a WHERE k = 'u_b'), 10)$$,
+  '42501', NULL,
+  'cross-tenant INSERT into blob_user_charges denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at) VALUES ((SELECT v FROM _w18a WHERE k = 'u_b'), (SELECT v FROM _w18a WHERE k = 'u_a'), now(), now() + interval '1 day')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into approval_delegations denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO user_signatures (user_id, alias_email, signature_text) VALUES ((SELECT v FROM _w18a WHERE k = 'u_b'), 'evil@mk.test', 'x')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into user_signatures denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO email_templates (mailbox_id, name, subject, body_html) VALUES ((SELECT v FROM _w18a WHERE k = 'mb_b'), 'Evil', 'x', 'x')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into email_templates denied by FORCE RLS'
+);
+
+-- Cross-tenant UPDATE / DELETE affect 0 rows (hidden by USING policy).
+WITH u AS (
+  UPDATE calendar_events SET title = 'Hacked' WHERE id = (SELECT v FROM _w18a WHERE k = 'ev_b') RETURNING id
+)
+SELECT is((SELECT count(*)::int FROM u), 0, 'cross-tenant UPDATE on calendar_events affects 0 rows');
+
+WITH d AS (
+  DELETE FROM contacts WHERE id = (SELECT v FROM _w18a WHERE k = 'ct_b') RETURNING id
+)
+SELECT is((SELECT count(*)::int FROM d), 0, 'cross-tenant DELETE on contacts affects 0 rows');
+
+WITH u AS (
+  UPDATE vacation_settings SET subject = 'Hacked' WHERE mailbox_id = (SELECT v FROM _w18a WHERE k = 'mb_b') RETURNING mailbox_id
+)
+SELECT is((SELECT count(*)::int FROM u), 0, 'cross-tenant UPDATE on vacation_settings affects 0 rows');
+
+WITH d AS (
+  DELETE FROM approval_delegations WHERE id = (SELECT v FROM _w18a WHERE k = 'del_b') RETURNING id
+)
+SELECT is((SELECT count(*)::int FROM d), 0, 'cross-tenant DELETE on approval_delegations affects 0 rows');
+
+WITH u AS (
+  UPDATE reminders SET title = 'Hacked' WHERE id = (SELECT v FROM _w18a WHERE k = 'rem_b') RETURNING id
+)
+SELECT is((SELECT count(*)::int FROM u), 0, 'cross-tenant UPDATE on reminders affects 0 rows');
+
+WITH u AS (
+  UPDATE user_imap_settings SET expose_all = true WHERE user_id = (SELECT v FROM _w18a WHERE k = 'u_b') RETURNING user_id
+)
+SELECT is((SELECT count(*)::int FROM u), 0, 'cross-tenant UPDATE on user_imap_settings affects 0 rows');
+
+WITH d AS (
+  DELETE FROM user_notification_prefs WHERE id = (SELECT v FROM _w18a WHERE k = 'unp_b') RETURNING id
+)
+SELECT is((SELECT count(*)::int FROM d), 0, 'cross-tenant DELETE on user_notification_prefs affects 0 rows');
+
+WITH d AS (
+  DELETE FROM signatures WHERE id = (SELECT v FROM _w18a WHERE k = 'sig_b') RETURNING id
+)
+SELECT is((SELECT count(*)::int FROM d), 0, 'cross-tenant DELETE on signatures affects 0 rows');
+
+WITH d AS (
+  DELETE FROM vacation_replies WHERE mailbox_id = (SELECT v FROM _w18a WHERE k = 'mb_b') RETURNING mailbox_id
+)
+SELECT is((SELECT count(*)::int FROM d), 0, 'cross-tenant DELETE on vacation_replies affects 0 rows');
+
+WITH u AS (
+  UPDATE blob_user_usage SET charged_bytes = 999 WHERE user_id = (SELECT v FROM _w18a WHERE k = 'u_b') RETURNING user_id
+)
+SELECT is((SELECT count(*)::int FROM u), 0, 'cross-tenant UPDATE on blob_user_usage affects 0 rows');
+
+-- ── 7) UserTx multi-mailbox scope (app.current_user_id set, mailbox GUC empty) ─
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18a WHERE k = 'u_a'), true);
+SELECT set_config('app.current_mailbox_id', '', true);
+SELECT is((SELECT count(*)::int FROM calendars WHERE id IN (SELECT v FROM _w18a WHERE k IN ('cal_a','cal_b'))), 1, 'UserTx: Alice sees own calendar without mailbox GUC');
+SELECT is((SELECT count(*)::int FROM addressbooks WHERE id IN (SELECT v FROM _w18a WHERE k IN ('ab_a','ab_b'))), 1, 'UserTx: Alice sees own addressbook without mailbox GUC');
+SELECT is((SELECT count(*)::int FROM contacts WHERE id IN (SELECT v FROM _w18a WHERE k IN ('ct_a','ct_b'))), 1, 'UserTx: Alice sees own contacts without mailbox GUC');
+-- Strict mailbox-only tables stay fail-closed when mailbox GUC is empty!
+SELECT is((SELECT count(*)::int FROM reminders WHERE id = (SELECT v FROM _w18a WHERE k = 'rem_a')), 0, 'UserTx: reminders require explicit mailbox GUC');
+
+-- ── 8) Calendar ACL sharing without recursion (Carol has read on cal_a & cal_b) ─
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18a WHERE k = 'u_c'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18a WHERE k = 'mb_c'), true);
+
+SELECT is(
+  (SELECT count(*)::int FROM calendars WHERE id IN (SELECT v FROM _w18a WHERE k IN ('cal_a','cal_b'))),
+  2,
+  'calendar ACL: Carol sees both shared calendars with zero RLS recursion'
+);
+SELECT is(
+  (SELECT count(*)::int FROM calendar_events WHERE id IN (SELECT v FROM _w18a WHERE k IN ('ev_a','ev_b'))),
+  2,
+  'calendar ACL: Carol sees events on shared calendars'
+);
+SELECT is(
+  (SELECT count(*)::int FROM event_attendees WHERE id IN (SELECT v FROM _w18a WHERE k IN ('att_a','att_b'))),
+  2,
+  'calendar ACL: Carol sees attendees on shared events'
+);
+-- Read grantee cannot mutate shared calendar events!
+WITH u AS (
+  UPDATE calendar_events SET title = 'Carol Edit' WHERE id = (SELECT v FROM _w18a WHERE k = 'ev_a') RETURNING id
+)
+SELECT is((SELECT count(*)::int FROM u), 0, 'calendar ACL: read grantee cannot UPDATE shared event');
+
+SELECT throws_ok(
+  $$INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at) VALUES ((SELECT v FROM _w18a WHERE k = 'cal_a'), 'carol-inj', 'No Write', now(), now() + interval '1 hour')$$,
+  '42501', NULL,
+  'calendar ACL: read grantee cannot INSERT into shared calendar'
+);
+
+-- calendar_effective_acl and calendar_free_busy work cleanly under setjoin_app!
+SELECT is(
+  calendar_effective_acl((SELECT v FROM _w18a WHERE k = 'u_c'), (SELECT v FROM _w18a WHERE k = 'u_a')),
+  'read',
+  'calendar_effective_acl resolves explicit grant under setjoin_app FORCE RLS'
+);
+SELECT is(
+  jsonb_array_length(
+    calendar_free_busy(
+      (SELECT v FROM _w18a WHERE k = 'mb_c'),
+      ARRAY[(SELECT v FROM _w18a WHERE k = 'mb_a')],
+      now() - interval '2 hours',
+      now() + interval '2 hours'
+    )->0->'intervals'
+  ),
+  3,
+  'calendar_free_busy returns Alice busy blocks to Carol under setjoin_app FORCE RLS'
+);
+
+-- ── 9) OOO approval delegation resolution under setjoin_app as unrelated requester ─
+-- Bob (requester != delegator Alice, != delegate Carol) resolves Alice's active delegate!
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18a WHERE k = 'u_b'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18a WHERE k = 'mb_b'), true);
+
+SELECT is(
+  (SELECT count(*)::int FROM approval_delegations WHERE id = (SELECT v FROM _w18a WHERE k = 'del_a')),
+  0,
+  'OOO delegation: Bob cannot directly SELECT Alice approval_delegations row'
+);
+SELECT is(
+  approval_active_delegate((SELECT v FROM _w18a WHERE k = 'u_a')),
+  (SELECT v FROM _w18a WHERE k = 'u_c'),
+  'OOO delegation: approval_active_delegate resolves Alice -> Carol for requester Bob under FORCE RLS'
+);
+SELECT is(
+  approval_active_delegate((SELECT v FROM _w18a WHERE k = 'u_c')),
+  (SELECT v FROM _w18a WHERE k = 'u_c'),
+  'OOO delegation: user without active delegation resolves to self'
+);
+
+-- ── 8b) Freebusy & PRIVATE redaction enforcement under setjoin_app ──────────
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18a WHERE k = 'u_c'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18a WHERE k = 'mb_c'), true);
+
+SELECT is(
+  (SELECT count(*)::int FROM calendars WHERE id = (SELECT v FROM _w18a WHERE k = 'cal_a_fb')),
+  1,
+  'freebusy ACL: Carol sees calendar metadata on freebusy-shared calendar'
+);
+SELECT is(
+  (SELECT count(*)::int FROM calendar_events WHERE id = (SELECT v FROM _w18a WHERE k = 'ev_a_fb')),
+  0,
+  'freebusy ACL: Carol CANNOT directly SELECT calendar_events on freebusy-shared calendar'
+);
+SELECT is(
+  (SELECT count(*)::int FROM event_attendees WHERE id = (SELECT v FROM _w18a WHERE k = 'att_a_fb')),
+  0,
+  'freebusy ACL: Carol CANNOT directly SELECT event_attendees on freebusy-shared calendar'
+);
+SELECT is(
+  (SELECT count(*)::int FROM calendar_events WHERE id = (SELECT v FROM _w18a WHERE k = 'ev_a_priv')),
+  0,
+  'read ACL: Carol CANNOT directly SELECT PRIVATE event on read-shared calendar'
+);
+SELECT is(
+  (SELECT count(*)::int FROM event_attendees WHERE id = (SELECT v FROM _w18a WHERE k = 'att_a_priv')),
+  0,
+  'read ACL: Carol CANNOT directly SELECT attendees of PRIVATE event on read-shared calendar'
+);
+
+-- ── 8c) GUC-binding cross-tenant denial on SECURITY DEFINER reducers ────────
+-- Bob (u_b, mb_b) forging Alice's user_id/mailbox_id under setjoin_app fails closed!
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18a WHERE k = 'u_b'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18a WHERE k = 'mb_b'), true);
+
+SELECT throws_ok(
+  $$SELECT jmap_calendar_get_shared((SELECT v FROM _w18a WHERE k = 'u_a'), 'w18a-alice@mk.test')$$,
+  '42501', NULL,
+  'DEFINER GUC bind: jmap_calendar_get_shared rejects forged p_viewer_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT jmap_calendar_event_get_shared((SELECT v FROM _w18a WHERE k = 'u_a'), 'w18a-alice@mk.test')$$,
+  '42501', NULL,
+  'DEFINER GUC bind: jmap_calendar_event_get_shared rejects forged p_viewer_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT jmap_calendar_share_set((SELECT v FROM _w18a WHERE k = 'mb_a'), (SELECT v FROM _w18a WHERE k = 'cal_a'), '[]'::jsonb, '[]'::jsonb)$$,
+  'BZ001', NULL,
+  'DEFINER GUC bind: jmap_calendar_share_set rejects forged p_mailbox_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT calendar_free_busy((SELECT v FROM _w18a WHERE k = 'mb_a'), ARRAY[(SELECT v FROM _w18a WHERE k = 'mb_b')], now(), now() + interval '1 hour')$$,
+  '42501', NULL,
+  'DEFINER GUC bind: calendar_free_busy rejects forged p_account_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT calendar_free_busy_multi((SELECT v FROM _w18a WHERE k = 'mb_a'), ARRAY[(SELECT v FROM _w18a WHERE k = 'cal_b')], now(), now() + interval '1 hour')$$,
+  '42501', NULL,
+  'DEFINER GUC bind: calendar_free_busy_multi rejects forged p_account_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT calendar_check_conflict((SELECT v FROM _w18a WHERE k = 'mb_a'), (SELECT v FROM _w18a WHERE k = 'cal_b'), now(), now() + interval '1 hour')$$,
+  '42501', NULL,
+  'DEFINER GUC bind: calendar_check_conflict rejects forged p_mailbox_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT calendar_book_resource((SELECT v FROM _w18a WHERE k = 'mb_a'), (SELECT v FROM _w18a WHERE k = 'cal_b'), (SELECT v FROM _w18a WHERE k = 'ev_a'), (SELECT v FROM _w18a WHERE k = 'u_a'))$$,
+  '42501', NULL,
+  'DEFINER GUC bind: calendar_book_resource rejects forged p_mailbox_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT jmap_calendar_resource_list((SELECT v FROM _w18a WHERE k = 'mb_a'))$$,
+  '42501', NULL,
+  'DEFINER GUC bind: jmap_calendar_resource_list rejects forged p_mailbox_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT calendar_effective_acl((SELECT v FROM _w18a WHERE k = 'u_a'), (SELECT v FROM _w18a WHERE k = 'u_b'))$$,
+  '42501', NULL,
+  'DEFINER GUC bind: calendar_effective_acl rejects forged p_viewer_user_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT recipients_ooo_status((SELECT v FROM _w18a WHERE k = 'mb_a'), '["w18a-bob@mk.test"]'::jsonb)$$,
+  '42501', NULL,
+  'DEFINER GUC bind: recipients_ooo_status rejects forged p_mailbox_id under setjoin_app'
+);
+
+-- ── 10) Positive same-tenant INSERT/UPDATE/DELETE ALLOW-flow proofs (all 16) ─
+-- Executed as Alice (u_a, mb_a) under SET LOCAL ROLE setjoin_app!
+-- Each multi-step flow runs distinct INSERT -> UPDATE -> DELETE statements
+-- (separate command snapshots) inside a DO block under setjoin_app.
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18a WHERE k = 'u_a'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18a WHERE k = 'mb_a'), true);
+
+-- 1. calendars ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO calendars (mailbox_id, name, color, is_default)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'Alice Allow Cal', '#aaaaaa', false)
+    RETURNING id INTO v_id;
+    UPDATE calendars SET name = 'Alice Allow Cal v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'calendars UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM calendars WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'calendars DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW calendars: setjoin_app INSERT/UPDATE/DELETE own calendar succeeds');
+
+-- 2. calendar_acls ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_cal bigint; v_usr bigint; v_cnt int;
+  BEGIN
+    SELECT v INTO v_cal FROM _w18a WHERE k = 'cal_a';
+    SELECT v INTO v_usr FROM _w18a WHERE k = 'u_b';
+    INSERT INTO calendar_acls (calendar_id, user_id, permission)
+    VALUES (v_cal, v_usr, 'read');
+    UPDATE calendar_acls SET permission = 'write'
+     WHERE calendar_id = v_cal AND user_id = v_usr;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'calendar_acls UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM calendar_acls WHERE calendar_id = v_cal AND user_id = v_usr;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'calendar_acls DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW calendar_acls: setjoin_app INSERT/UPDATE/DELETE own calendar ACL succeeds');
+
+-- 3. calendar_events ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'cal_a'), 'w18a-allow-ev', 'Allow Event', now(), now() + interval '1 hour')
+    RETURNING id INTO v_id;
+    UPDATE calendar_events SET title = 'Allow Event v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'calendar_events UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM calendar_events WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'calendar_events DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW calendar_events: setjoin_app INSERT/UPDATE/DELETE own event succeeds');
+
+-- 4. event_attendees ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO event_attendees (event_id, email, name)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'ev_a'), 'allow-att@mk.test', 'Allow Attendee')
+    RETURNING id INTO v_id;
+    UPDATE event_attendees SET name = 'Allow Attendee v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'event_attendees UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM event_attendees WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'event_attendees DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW event_attendees: setjoin_app INSERT/UPDATE/DELETE own attendee succeeds');
+
+-- 5. addressbooks ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO addressbooks (mailbox_id, name, is_default)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'Alice Allow AB', false)
+    RETURNING id INTO v_id;
+    UPDATE addressbooks SET name = 'Alice Allow AB v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'addressbooks UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM addressbooks WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'addressbooks DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW addressbooks: setjoin_app INSERT/UPDATE/DELETE own addressbook succeeds');
+
+-- 6. contacts ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO contacts (addressbook_id, vcard_uid, display_name)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'ab_a'), 'w18a-allow-ct', 'Allow Contact')
+    RETURNING id INTO v_id;
+    UPDATE contacts SET display_name = 'Allow Contact v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'contacts UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM contacts WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'contacts DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW contacts: setjoin_app INSERT/UPDATE/DELETE own contact succeeds');
+
+-- 7. contact_groups ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO contact_groups (mailbox_id, name)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'Alice Allow Group')
+    RETURNING id INTO v_id;
+    UPDATE contact_groups SET name = 'Alice Allow Group v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'contact_groups UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM contact_groups WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'contact_groups DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW contact_groups: setjoin_app INSERT/UPDATE/DELETE own group succeeds');
+
+-- 8. contact_group_members ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO contact_group_members (group_id, email)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'cg_a'), 'allow-member@mk.test')
+    RETURNING id INTO v_id;
+    UPDATE contact_group_members SET email = 'allow-member-v2@mk.test' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'contact_group_members UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM contact_group_members WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'contact_group_members DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW contact_group_members: setjoin_app INSERT/UPDATE/DELETE own member succeeds');
+
+-- 9. reminders ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO reminders (mailbox_id, source_type, source_id, fire_at, title)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'event', (SELECT v FROM _w18a WHERE k = 'ev_a'), now() + interval '1 hour', 'Allow Reminder')
+    RETURNING id INTO v_id;
+    UPDATE reminders SET title = 'Allow Reminder v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'reminders UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM reminders WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'reminders DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW reminders: setjoin_app INSERT/UPDATE/DELETE own reminder succeeds');
+
+-- 10. blob_user_usage ALLOW
+WITH upd AS (
+  UPDATE blob_user_usage SET charged_bytes = 256 WHERE user_id = (SELECT v FROM _w18a WHERE k = 'u_a') RETURNING charged_bytes
+)
+SELECT is((SELECT charged_bytes::int FROM upd), 256, 'ALLOW blob_user_usage: setjoin_app UPDATE own usage succeeds');
+
+-- 11. blob_user_charges ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_usr bigint; v_sha text := repeat('c', 64); v_cnt int;
+  BEGIN
+    SELECT v INTO v_usr FROM _w18a WHERE k = 'u_a';
+    INSERT INTO blob_user_charges (blob_sha256, user_id, size_bytes)
+    VALUES (v_sha, v_usr, 64);
+    UPDATE blob_user_charges SET size_bytes = 96
+     WHERE blob_sha256 = v_sha AND user_id = v_usr;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'blob_user_charges UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM blob_user_charges WHERE blob_sha256 = v_sha AND user_id = v_usr;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'blob_user_charges DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW blob_user_charges: setjoin_app INSERT/UPDATE/DELETE own charge succeeds');
+
+-- 12. approval_delegations ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'u_a'), (SELECT v FROM _w18a WHERE k = 'u_b'), now() + interval '2 days', now() + interval '3 days')
+    RETURNING id INTO v_id;
+    UPDATE approval_delegations SET ends_at = now() + interval '4 days' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'approval_delegations UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM approval_delegations WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'approval_delegations DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW approval_delegations: setjoin_app INSERT/UPDATE/DELETE own delegation succeeds');
+
+-- 13. user_signatures ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO user_signatures (user_id, alias_email, signature_text)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'u_a'), 'allow-alias@mk.test', 'Allow Sig')
+    RETURNING id INTO v_id;
+    UPDATE user_signatures SET signature_text = 'Allow Sig v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'user_signatures UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM user_signatures WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'user_signatures DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW user_signatures: setjoin_app INSERT/UPDATE/DELETE own signature succeeds');
+
+-- 14. vacation_settings ALLOW
+WITH upd AS (
+  UPDATE vacation_settings SET subject = 'Allow OOO v2' WHERE mailbox_id = (SELECT v FROM _w18a WHERE k = 'mb_a') RETURNING subject
+)
+SELECT is((SELECT subject FROM upd), 'Allow OOO v2', 'ALLOW vacation_settings: setjoin_app UPDATE own settings succeeds');
+
+-- 15. vacation_replies ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_mb bigint; v_cnt int;
+  BEGIN
+    SELECT v INTO v_mb FROM _w18a WHERE k = 'mb_a';
+    INSERT INTO vacation_replies (mailbox_id, sender_email, vacation_start)
+    VALUES (v_mb, 'allow-reply@mk.test', CURRENT_DATE);
+    DELETE FROM vacation_replies
+     WHERE mailbox_id = v_mb AND sender_email = 'allow-reply@mk.test' AND vacation_start = CURRENT_DATE;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'vacation_replies DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW vacation_replies: setjoin_app INSERT/DELETE own reply succeeds');
+
+-- 16. email_templates ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO email_templates (mailbox_id, name, subject, body_html)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'Allow Template', 'Subj', '<p>Hi</p>')
+    RETURNING id INTO v_id;
+    UPDATE email_templates SET name = 'Allow Template v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'email_templates UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM email_templates WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'email_templates DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW email_templates: setjoin_app INSERT/UPDATE/DELETE own template succeeds');
+
+SELECT * FROM finish();
+ROLLBACK;

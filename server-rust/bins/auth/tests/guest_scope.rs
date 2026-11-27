@@ -76,7 +76,7 @@ fn no_guest_forward_or_406_left_in_auth_src() {
 /// Replace is_guest_account with a call-counting branch. The sequence is
 /// granted to the app role, which runs the lookup.
 async fn install_counting_guest(c: &tokio_postgres::Client, branch: &str) -> Result<(), Err> {
-    c.batch_execute("DROP SEQUENCE IF EXISTS gofree_guest353_calls;CREATE SEQUENCE gofree_guest353_calls;GRANT USAGE ON SEQUENCE gofree_guest353_calls TO setjoin_app").await?;
+    c.batch_execute("DROP SEQUENCE IF EXISTS gofree_guest353_calls;CREATE SEQUENCE gofree_guest353_calls;GRANT USAGE ON SEQUENCE gofree_guest353_calls TO setjoin_app, setjoin_worker").await?;
     c.batch_execute(&format!("CREATE OR REPLACE FUNCTION is_guest_account(p_user_id bigint) RETURNS boolean LANGUAGE plpgsql AS $$BEGIN {branch} END$$")).await?;
     Ok(())
 }

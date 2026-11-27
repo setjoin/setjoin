@@ -28496,10 +28496,10 @@
         "server-rust/bins/gateway/src/directory_sync_input.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/admin.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/client.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/engine.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_engine.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/filter.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/normalized.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/runtime.rs"
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_normalized.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_runtime.rs"
       ],
       "cases": [
         {
@@ -28641,10 +28641,10 @@
         "server-rust/bins/gateway/src/directory_sync_input.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/admin.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/client.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/engine.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_engine.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/filter.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/normalized.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/runtime.rs"
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_normalized.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_runtime.rs"
       ],
       "cases": [
         {
@@ -28825,10 +28825,10 @@
         "server-rust/bins/gateway/src/directory_sync_input.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/admin.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/client.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/engine.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_engine.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/filter.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/normalized.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/runtime.rs"
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_normalized.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_runtime.rs"
       ],
       "cases": [
         {
@@ -28912,10 +28912,10 @@
         "server-rust/bins/gateway/src/directory_sync_input.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/admin.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/client.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/engine.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_engine.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/filter.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/normalized.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/runtime.rs"
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_normalized.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_runtime.rs"
       ],
       "cases": [
         {
@@ -28999,10 +28999,10 @@
         "server-rust/bins/gateway/src/directory_sync_input.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/admin.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/client.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/engine.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_engine.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/filter.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/normalized.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/runtime.rs"
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_normalized.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_runtime.rs"
       ],
       "cases": [
         {
@@ -36652,13 +36652,12 @@
         "server-rust/bins/gateway/src/directory_sync.rs",
         "server-rust/bins/gateway/src/directory_sync_input.rs",
         "server-rust/crates/domains/directory-sync/src/ad/client.rs",
-        "server-rust/crates/domains/directory-sync/src/ad/mod.rs",
-        "server-rust/crates/domains/directory-sync/src/ad/runtime.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ad_runtime.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/admin.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/client.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/filter.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/normalized.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/runtime.rs"
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_normalized.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_runtime.rs"
       ],
       "cases": [
         {
@@ -36818,13 +36817,12 @@
         "server-rust/bins/gateway/src/directory_sync.rs",
         "server-rust/bins/gateway/src/directory_sync_input.rs",
         "server-rust/crates/domains/directory-sync/src/ad/client.rs",
-        "server-rust/crates/domains/directory-sync/src/ad/mod.rs",
-        "server-rust/crates/domains/directory-sync/src/ad/runtime.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ad_runtime.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/admin.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/client.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/filter.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/normalized.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/runtime.rs"
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_normalized.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_runtime.rs"
       ],
       "cases": [
         {
@@ -36935,13 +36933,12 @@
         "server-rust/bins/gateway/src/directory_sync.rs",
         "server-rust/bins/gateway/src/directory_sync_input.rs",
         "server-rust/crates/domains/directory-sync/src/ad/client.rs",
-        "server-rust/crates/domains/directory-sync/src/ad/mod.rs",
-        "server-rust/crates/domains/directory-sync/src/ad/runtime.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ad_runtime.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/admin.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/client.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/filter.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/normalized.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/runtime.rs"
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_normalized.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_runtime.rs"
       ],
       "cases": [
         {
@@ -37121,13 +37118,12 @@
         "server-rust/bins/gateway/src/directory_sync.rs",
         "server-rust/bins/gateway/src/directory_sync_input.rs",
         "server-rust/crates/domains/directory-sync/src/ad/client.rs",
-        "server-rust/crates/domains/directory-sync/src/ad/mod.rs",
-        "server-rust/crates/domains/directory-sync/src/ad/runtime.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ad_runtime.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/admin.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/client.rs",
         "server-rust/crates/domains/directory-sync/src/ldap/filter.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/normalized.rs",
-        "server-rust/crates/domains/directory-sync/src/ldap/runtime.rs"
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_normalized.rs",
+        "server-rust/bins/gateway/src/directory_sync_workers/ldap_runtime.rs"
       ],
       "cases": [
         {
@@ -48636,8 +48632,7 @@
       "handler_sources": [
         "server-rust/bins/gateway/src/compliance.rs",
         "server-rust/crates/domains/compliance/src/lib.rs",
-        "server-rust/crates/domains/compliance/src/kql.rs",
-        "server-rust/crates/domains/compliance/src/search.rs"
+        "server-rust/crates/domains/compliance/src/kql.rs"
       ],
       "cases": [
         {
@@ -64468,7 +64463,6 @@
         "server-rust/crates/domains/mail-security/src/lib.rs",
         "server-rust/crates/domains/mail-security/src/tls.rs",
         "server-rust/bins/gateway/src/mail_security_tls.rs",
-        "server-rust/crates/domains/mail-security/src/tls.rs",
         "server-rust/crates/certificates/src/certificate.rs"
       ],
       "cases": [
@@ -64606,8 +64600,7 @@
         "server-rust/bins/gateway/src/mail_security.rs",
         "server-rust/crates/domains/mail-security/src/lib.rs",
         "server-rust/crates/domains/mail-security/src/tls.rs",
-        "server-rust/bins/gateway/src/mail_security_tls.rs",
-        "server-rust/crates/domains/mail-security/src/tls.rs"
+        "server-rust/bins/gateway/src/mail_security_tls.rs"
       ],
       "cases": [
         {
@@ -64673,8 +64666,7 @@
         "server-rust/bins/gateway/src/mail_security.rs",
         "server-rust/crates/domains/mail-security/src/lib.rs",
         "server-rust/crates/domains/mail-security/src/tls.rs",
-        "server-rust/bins/gateway/src/mail_security_tls.rs",
-        "server-rust/crates/domains/mail-security/src/tls.rs"
+        "server-rust/bins/gateway/src/mail_security_tls.rs"
       ],
       "cases": [
         {
@@ -64895,8 +64887,7 @@
         "server-rust/bins/gateway/src/mail_security.rs",
         "server-rust/crates/domains/mail-security/src/lib.rs",
         "server-rust/crates/domains/mail-security/src/tls.rs",
-        "server-rust/bins/gateway/src/mail_security_tls.rs",
-        "server-rust/crates/domains/mail-security/src/tls.rs"
+        "server-rust/bins/gateway/src/mail_security_tls.rs"
       ],
       "cases": [
         {
@@ -65076,8 +65067,7 @@
         "server-rust/bins/gateway/src/mail_security.rs",
         "server-rust/crates/domains/mail-security/src/lib.rs",
         "server-rust/crates/domains/mail-security/src/tls.rs",
-        "server-rust/bins/gateway/src/mail_security_tls.rs",
-        "server-rust/crates/domains/mail-security/src/tls.rs"
+        "server-rust/bins/gateway/src/mail_security_tls.rs"
       ],
       "cases": [
         {
@@ -65188,8 +65178,7 @@
         "server-rust/bins/gateway/src/mail_security.rs",
         "server-rust/crates/domains/mail-security/src/lib.rs",
         "server-rust/crates/domains/mail-security/src/tls.rs",
-        "server-rust/bins/gateway/src/mail_security_tls.rs",
-        "server-rust/crates/domains/mail-security/src/tls.rs"
+        "server-rust/bins/gateway/src/mail_security_tls.rs"
       ],
       "cases": [
         {
@@ -106594,7 +106583,6 @@
       "command": "device-proof",
       "handler_sources": [
         "server-rust/bins/gateway/src/telemetry.rs",
-        "server-rust/crates/domains/static/src/telemetry.rs",
         "server-rust/crates/authz/src/device.rs"
       ],
       "mutant": {

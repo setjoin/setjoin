@@ -85,29 +85,32 @@ SELECT is(
   2,
   'jmap_email_get / setjoin_app GUC=A p=A: fetches A''s 2 own messages');
 
--- ── THE LOAD-BEARING RLS PROOF: desync p=A, GUC=B. App filter says A's rows;
--- RLS (GUC=B) makes only B's rows visible; intersection empty → 0. RLS overrides
--- the reducer's own predicate (catches the fail-open wrong-predicate class). ──
+-- ── THE LOAD-BEARING RLS PROOF: desync p=A, GUC=B. Under V288 FORCE RLS on
+-- mailboxes, jmap_email_query and jmap_email_get fail closed at the account gate
+-- (BZ006 Account not found) before even touching messages. ──────────────────
 SELECT set_config('app.current_mailbox_id', :mbb::text, true);  -- GUC = B, but ask for A
-SELECT is(
-  jsonb_array_length((jmap_email_query(:mba, NULL, NULL, 0, 50)::jsonb) -> 'ids'),
-  0,
-  'RLS LOAD-BEARING: setjoin_app desync jmap_email_query(p=A, GUC=B) → 0 ids (RLS denies what the app filter would allow)');
-SELECT is(
-  jsonb_array_length((jmap_email_get(:mba, ARRAY[781001,781002]::bigint[], NULL)::jsonb) -> 'list'),
-  0,
-  'RLS LOAD-BEARING: setjoin_app desync jmap_email_get(p=A, GUC=B) → 0 rows (RLS denies A''s rows under B''s GUC)');
+SELECT throws_ok(
+  format($$ SELECT jmap_email_query(%s, NULL, NULL, 0, 50) $$, :mba),
+  'BZ006',
+  'Account not found',
+  'RLS LOAD-BEARING: setjoin_app desync jmap_email_query(p=A, GUC=B) → BZ006 Account not found (V288 mailboxes FORCE RLS denies foreign account)');
+SELECT throws_ok(
+  format($$ SELECT jmap_email_get(%s, ARRAY[781001,781002]::bigint[], NULL) $$, :mba),
+  'BZ006',
+  'Account not found',
+  'RLS LOAD-BEARING: setjoin_app desync jmap_email_get(p=A, GUC=B) → BZ006 Account not found (V288 mailboxes FORCE RLS denies foreign account)');
 
--- ── Mirror: GUC=B p=B agrees → B's 1 id; GUC=A p=B desync → 0. ──────────────
+-- ── Mirror: GUC=B p=B agrees → B's 1 id; GUC=A p=B desync → BZ006. ──────────
 SELECT is(
   jsonb_array_length((jmap_email_query(:mbb, NULL, NULL, 0, 50)::jsonb) -> 'ids'),
   1,
   'jmap_email_query / setjoin_app GUC=B p=B: returns exactly B''s 1 id (mirror agree)');
 SELECT set_config('app.current_mailbox_id', :mba::text, true);  -- GUC = A, ask for B
-SELECT is(
-  jsonb_array_length((jmap_email_query(:mbb, NULL, NULL, 0, 50)::jsonb) -> 'ids'),
-  0,
-  'RLS LOAD-BEARING mirror: setjoin_app desync jmap_email_query(p=B, GUC=A) → 0 ids');
+SELECT throws_ok(
+  format($$ SELECT jmap_email_query(%s, NULL, NULL, 0, 50) $$, :mbb),
+  'BZ006',
+  'Account not found',
+  'RLS LOAD-BEARING mirror: setjoin_app desync jmap_email_query(p=B, GUC=A) → BZ006 Account not found');
 
 RESET ROLE;
 

@@ -13,8 +13,8 @@ fn gateway(db: &Db, rust_on: &str, go_off: &str) -> std::io::Result<crate::commo
     command.env_clear().stdout(Stdio::null()).stderr(Stdio::piped());
     for (k, v) in [
         ("GATEWAY_LISTEN", "127.0.0.1:0"),
-        ("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn)),
-        ("DB_WORKER_DSN", db.dsn.as_str()),
+        ("DB_DSN", db.app_dsn()),
+        ("DB_WORKER_DSN", db.worker_dsn()),
         ("DB_DIRECT_DSN", db.dsn.as_str()),
         ("JWT_SECRET", "gofree-startup-master-32-bytes-ok"),
         ("RUST_WORKERS_ON", rust_on),

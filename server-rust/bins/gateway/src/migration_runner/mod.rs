@@ -574,11 +574,23 @@ impl Orchestrator {
     }
 
     /// Store raw migration inputs; the HTTP caller first proves job ownership.
-    pub async fn store_upload(&self,id:i64,ics:Option<&[u8]>,vcf:Option<&[u8]>)->Result<(),String> {
-        for (suffix,data) in [("ics",ics),("vcf",vcf)] {
-            if let Some(data)=data.filter(|bytes|!bytes.is_empty()) {
-                self.0.store.put(&format!("migration/upload/{id}/{suffix}"),data,"application/octet-stream").await
-                    .map_err(|error|format!("store {suffix} upload: {error}"))?;
+    pub async fn store_upload(
+        &self,
+        id: i64,
+        ics: Option<&[u8]>,
+        vcf: Option<&[u8]>,
+    ) -> Result<(), String> {
+        for (suffix, data) in [("ics", ics), ("vcf", vcf)] {
+            if let Some(data) = data.filter(|bytes| !bytes.is_empty()) {
+                self.0
+                    .store
+                    .put(
+                        &format!("migration/upload/{id}/{suffix}"),
+                        data,
+                        "application/octet-stream",
+                    )
+                    .await
+                    .map_err(|error| format!("store {suffix} upload: {error}"))?;
             }
         }
         Ok(())
@@ -1003,7 +1015,9 @@ impl Inner {
             // caller's. Frozen Go inherited it for every job, letting a user reach any internal
             // host the admin had allowlisted.
             let admin_job = job.get("self_service").and_then(Value::as_bool) == Some(false);
-            if !admin_job && !setjoin_contracts::mutants::on("self-service-inherits-private-allowlist") {
+            if !admin_job
+                && !setjoin_contracts::mutants::on("self-service-inherits-private-allowlist")
+            {
                 cfg.private_hosts.clear();
                 cfg.private_cidrs.clear();
             }
@@ -1025,7 +1039,10 @@ impl Inner {
             if !cfg.private_hosts.is_empty() || !cfg.private_cidrs.is_empty() {
                 return Err("migration private-network policy is administrator-owned; per-job privateHosts/privateCIDRs are not accepted".into());
             }
-            refuse_plaintext(&cfg, job.get("self_service").and_then(Value::as_bool) == Some(false))?;
+            refuse_plaintext(
+                &cfg,
+                job.get("self_service").and_then(Value::as_bool) == Some(false),
+            )?;
             cfg
         };
         Ok(cfg)

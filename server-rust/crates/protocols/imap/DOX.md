@@ -212,3 +212,7 @@ IMAP attempts. Append-only audit cleanup is owner-only, transaction-local replic
 mode with exact user/event predicates; user/FK cleanup keeps normal triggers.
 
 Security (#449, owner-approved 2026-11-05): a disconnect during IDLE ends the session and frees its slots; test `extra.rs::disconnect_during_idle_frees_the_connection_slot`, mutant `imap-idle-spins-on-close`.
+
+Wave 1.4 (`#542`): IMAP routes password verification through `ProtocolSurface::Imap.basic_policy()` (`GuestAppPasswords::Refuse`, `TotpAccountPassword::Refuse`, constant-time dummy hash) and post-auth checks through `setjoin_authz::policy_gate::check_protocol_post_auth` (durable `session_revocations`, `feature.device_lockdown`, `check_user_app_entitlement('mail')`, and `mailbox_lifecycle_access_allowed`). Recorded in `oracle/divergences.json`.
+
+Wave 1.8 Phase `546c`: `Server` holds a `TxFactory` (auto-derived from `ScopedExecutor::try_app_pool()` in `Server::new` and explicitly injectable via `with_tx_factory`, wired from `DB_DSN` in `imap_runtime.rs`). Post-auth LOGIN/AUTHENTICATE PLAIN mints a sealed `UserPrincipal` (`user_imap_settings`) and primary `MailboxPrincipal`; read-only commands (`SELECT`, `EXAMINE`, `LIST`, `STATUS`, `FETCH`, `SEARCH`, `APPEND` destination lookup) require `ReadCapability` (`MailboxTx<ReadOnly>`), and mutating commands (`STORE`, `COPY`, `MOVE`, `EXPUNGE`, `CLOSE`, `APPEND`, `CREATE`, `DELETE`, `RENAME`, `audit`) require `MutateCapability` (`MailboxTx<ReadWrite>`).

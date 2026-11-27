@@ -13,8 +13,9 @@ fn gateway(db: &Db, go_off: bool) -> std::io::Result<crate::common::boot::Child>
         .stderr(Stdio::piped());
     for (k, v) in [
         ("GATEWAY_LISTEN", "127.0.0.1:0"),
-        ("DB_DSN", db.dsn.as_str()),
-        ("DB_DIRECT_DSN", db.dsn.as_str()),
+        ("DB_DSN", db.app_dsn()),
+        ("DB_DIRECT_DSN", db.app_dsn()),
+        ("DB_WORKER_DSN", db.worker_dsn()),
         ("RUST_WORKERS_ON", "calendar-subscription-sync"),
     ] {
         command.env(k, v);

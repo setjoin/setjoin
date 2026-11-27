@@ -4,9 +4,11 @@ use super::{
     eval::{evaluate, text, Context, Result, Snapshot},
     store,
 };
+use crate::groups::GroupResolver;
 use setjoin_pg::ScopedExecutor;
 use std::{
     collections::HashMap,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::sync::Mutex;
@@ -17,19 +19,30 @@ struct State {
     open: bool,
     break_glass: Vec<i64>,
     loaded: bool,
-    cache: Option<(Instant, Snapshot)>,
-    scopes: HashMap<i64, (Instant, Vec<i64>, Vec<i64>)>,
+    cache: Option<(Instant, Arc<Snapshot>)>,
+    roles: HashMap<i64, (Instant, Vec<i64>)>,
 }
 pub struct Engine {
     exec: ScopedExecutor,
+    groups: Arc<GroupResolver>,
     state: Mutex<State>,
 }
 impl Engine {
     pub fn new(exec: ScopedExecutor) -> Self {
+        let groups = Arc::new(GroupResolver::from_executor(exec.clone()));
+        Self::with_group_resolver(exec, groups)
+    }
+
+    pub fn with_group_resolver(exec: ScopedExecutor, groups: Arc<GroupResolver>) -> Self {
         Self {
             exec,
+            groups,
             state: Mutex::new(State::default()),
         }
+    }
+
+    pub fn group_resolver(&self) -> &Arc<GroupResolver> {
+        &self.groups
     }
     async fn initialize_state(&self, s: &mut State) {
         if s.initialized {
@@ -94,61 +107,83 @@ impl Engine {
     }
     /// Clear one user's cached group/role membership (e.g. after SSO group settlement).
     pub async fn invalidate_user_scope(&self, user_id: i64) {
-        self.state.lock().await.scopes.remove(&user_id);
+        self.groups.invalidate_user(user_id);
+        self.state.lock().await.roles.remove(&user_id);
     }
     pub async fn evaluate(&self, mut c: Context) -> Result {
-        let mut s = self.state.lock().await;
-        self.initialize_state(&mut s).await;
-        // This must precede every policy/scope/error branch.
-        if s.break_glass.contains(&c.user_id) {
-            return Result {
-                reason: "break-glass exempt".into(),
-                ..Default::default()
-            };
-        }
-        if s.cache
-            .as_ref()
-            .is_none_or(|(at, _)| at.elapsed() >= Duration::from_secs(30))
-        {
-            let policies = match store::policies(&self.exec).await {
-                Ok(p) => p,
-                Err(_) => return failure(&s),
-            };
-            let locations = store::locations(&self.exec)
-                .await
-                .ok()
-                .or_else(|| s.cache.as_ref().and_then(|(_, v)| v.locations.clone()));
-            let strengths = store::strengths(&self.exec).await.unwrap_or_else(|_| {
-                s.cache
-                    .as_ref()
-                    .map_or_else(Vec::new, |(_, v)| v.strengths.clone())
-            });
-            let snapshot = Snapshot {
-                policies,
-                locations,
-                strengths,
-                break_glass: s.break_glass.clone(),
-            };
-            s.cache = Some((Instant::now(), snapshot));
-            s.loaded = true;
-        }
-        if c.user_id > 0 {
-            if s.scopes
-                .get(&c.user_id)
-                .is_none_or(|(at, _, _)| at.elapsed() >= Duration::from_secs(60))
-            {
-                match store::resolve_scope(&self.exec, c.user_id).await {
-                    Ok((groups, roles)) => {
-                        s.scopes.insert(c.user_id, (Instant::now(), groups, roles));
-                    }
-                    Err(_) => return failure(&s),
-                }
+        // Hold `self.state` only to read/refresh the shared policy snapshot and
+        // check break-glass; release it before per-user DB I/O (groups, roles,
+        // trust, geo) so concurrent CA evaluations never serialize on DB queries.
+        let (snapshot, cached_roles) = {
+            let mut s = self.state.lock().await;
+            self.initialize_state(&mut s).await;
+            // This must precede every policy/scope/error branch.
+            if s.break_glass.contains(&c.user_id) {
+                return Result {
+                    reason: "break-glass exempt".into(),
+                    ..Default::default()
+                };
             }
-            let (_, groups, roles) = s.scopes.get(&c.user_id).expect("successful scope load");
-            c.group_ids = groups.clone();
-            c.role_group_ids = roles.clone();
+            if s.cache
+                .as_ref()
+                .is_none_or(|(at, _)| at.elapsed() >= Duration::from_secs(30))
+            {
+                let policies = match store::policies(&self.exec).await {
+                    Ok(p) => p,
+                    Err(_) => return failure(&s),
+                };
+                let locations = store::locations(&self.exec)
+                    .await
+                    .ok()
+                    .or_else(|| s.cache.as_ref().and_then(|(_, v)| v.locations.clone()));
+                let strengths = store::strengths(&self.exec).await.unwrap_or_else(|_| {
+                    s.cache
+                        .as_ref()
+                        .map_or_else(Vec::new, |(_, v)| v.strengths.clone())
+                });
+                let snapshot = Arc::new(Snapshot {
+                    policies,
+                    locations,
+                    strengths,
+                    break_glass: s.break_glass.clone(),
+                });
+                s.cache = Some((Instant::now(), snapshot));
+                s.loaded = true;
+            }
+            let snapshot = Arc::clone(&s.cache.as_ref().expect("loaded policy snapshot").1);
+            let cached_roles = if c.user_id > 0 {
+                s.roles
+                    .get(&c.user_id)
+                    .filter(|(at, _)| at.elapsed() < Duration::from_secs(60))
+                    .map(|(_, r)| r.clone())
+            } else {
+                None
+            };
+            (snapshot, cached_roles)
+        };
+
+        if c.user_id > 0 {
+            let membership = match self.groups.resolve(c.user_id).await {
+                Ok(m) => m,
+                Err(_) => return failure(&*self.state.lock().await),
+            };
+            let roles = match cached_roles {
+                Some(roles) => roles,
+                None => match store::resolve_active_roles(&self.exec, c.user_id).await {
+                    Ok(roles) => {
+                        self.state
+                            .lock()
+                            .await
+                            .roles
+                            .insert(c.user_id, (Instant::now(), roles.clone()));
+                        roles
+                    }
+                    Err(_) => return failure(&*self.state.lock().await),
+                },
+            };
+            c.group_ids = membership.ca_group_ids();
+            c.role_group_ids = roles;
         }
-        let snapshot = &s.cache.as_ref().expect("loaded policy snapshot").1;
         if snapshot.locations.is_none()
             && snapshot.policies.iter().any(|p| {
                 ["location_in", "location_trusted"].iter().any(|k| {
@@ -157,7 +192,7 @@ impl Engine {
                 })
             })
         {
-            return failure(&s);
+            return failure(&*self.state.lock().await);
         }
         if c.trust_tier.is_empty() {
             c.trust_tier = store::resolve_trust(&self.exec, &c).await;
@@ -167,10 +202,10 @@ impl Engine {
         c.geo_tier = match store::resolve_geo(&self.exec, &c.country).await {
             Ok(tier) => tier,
             Err(_) if setjoin_contracts::mutants::on("geo-error-is-low-risk") => "low".into(),
-            Err(_) => return failure(&s),
+            Err(_) => return failure(&*self.state.lock().await),
         };
         c.score_band = risk_score(&c.geo_tier, c.feed_hits, c.vpn_score).1.into();
-        let mut result = evaluate(snapshot, &c);
+        let mut result = evaluate(&snapshot, &c);
         stamp_correlation(&mut result);
         result
     }

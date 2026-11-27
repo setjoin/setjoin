@@ -23,7 +23,11 @@ fn fixture() -> Value {
 }
 
 async fn registry() -> Arc<Registry> {
-    let exec = setjoin_pg::ScopedExecutor::from_dsn(&std::env::var("DB_APP_DSN").unwrap(), 4).unwrap();
+    let app_dsn = std::env::var("DB_APP_DSN").unwrap();
+    let worker_dsn = std::env::var("DB_WORKER_DSN").unwrap_or_else(|_| app_dsn.clone());
+    let app = setjoin_pg::ScopedExecutor::from_dsn(&app_dsn, 4).unwrap();
+    let worker = setjoin_pg::ScopedExecutor::from_dsn(&worker_dsn, 4).unwrap();
+    let exec = setjoin_pg::AuthDb::from_executors(app, worker);
     Registry::load(
         exec,
         fixture()["secret"].as_str().unwrap().as_bytes(),
@@ -56,7 +60,10 @@ where
 #[tokio::test]
 async fn discovered_token_and_jwks_endpoints_must_be_https() {
     library(|env| async move {
-        assert!(registry().await.provider("idfed2").is_some(), "control: https endpoints load");
+        assert!(
+            registry().await.provider("idfed2").is_some(),
+            "control: https endpoints load"
+        );
         for key in ["token_endpoint", "jwks_uri"] {
             patch(&env, json!({key: "http://idp.idfed2.test:19440/plain"}));
             assert!(
@@ -73,16 +80,31 @@ async fn discovered_token_and_jwks_endpoints_must_be_https() {
 #[tokio::test]
 async fn id_token_alg_is_pinned_to_the_discovery_list_asymmetric_only() {
     library(|env| async move {
-        patch(&env, json!({"id_token_signing_alg_values_supported": ["ES256"]}));
-        let provider = registry().await.provider("idfed2").expect("ES256 provider loads");
+        patch(
+            &env,
+            json!({"id_token_signing_alg_values_supported": ["ES256"]}),
+        );
+        let provider = registry()
+            .await
+            .provider("idfed2")
+            .expect("ES256 provider loads");
         let (claims, _) = exchange(&env, &provider, json!({"email_verified": true})).await;
-        assert!(claims.is_err(), "an RS256 token must not pass a provider that advertises only ES256");
-        patch(&env, json!({"id_token_signing_alg_values_supported": ["RS256"]}));
+        assert!(
+            claims.is_err(),
+            "an RS256 token must not pass a provider that advertises only ES256"
+        );
+        patch(
+            &env,
+            json!({"id_token_signing_alg_values_supported": ["RS256"]}),
+        );
         let provider = registry().await.provider("idfed2").unwrap();
         let (claims, _) = exchange(&env, &provider, json!({"email_verified": true})).await;
         assert!(claims.is_ok(), "control: the advertised algorithm verifies");
         for symmetric in [json!(["HS256"]), json!(["none"]), json!(["HS512", "none"])] {
-            patch(&env, json!({"id_token_signing_alg_values_supported": symmetric}));
+            patch(
+                &env,
+                json!({"id_token_signing_alg_values_supported": symmetric}),
+            );
             assert!(
                 registry().await.provider("idfed2").is_none(),
                 "a provider with no asymmetric algorithm must be refused: {symmetric}"
@@ -91,7 +113,10 @@ async fn id_token_alg_is_pinned_to_the_discovery_list_asymmetric_only() {
         patch(&env, json!({}));
         let provider = registry().await.provider("idfed2").unwrap();
         let (claims, _) = exchange(&env, &provider, json!({"email_verified": true})).await;
-        assert!(claims.is_ok(), "control: an absent list defaults to RS256 (OIDC Discovery 3)");
+        assert!(
+            claims.is_ok(),
+            "control: an absent list defaults to RS256 (OIDC Discovery 3)"
+        );
         env.close().await
     })
     .await;
@@ -113,11 +138,22 @@ async fn idp_response_bodies_are_capped() {
     library(|env| async move {
         let provider = registry().await.provider("idfed2").unwrap();
         let (claims, _) = exchange(&env, &provider, json!({"email_verified": true})).await;
-        assert!(claims.is_ok(), "control: a normal token response is accepted");
-        let (claims, _) = exchange(&env, &provider, json!({"email_verified": true, "_oracle_pad": 2_000_000})).await;
+        assert!(
+            claims.is_ok(),
+            "control: a normal token response is accepted"
+        );
+        let (claims, _) = exchange(
+            &env,
+            &provider,
+            json!({"email_verified": true, "_oracle_pad": 2_000_000}),
+        )
+        .await;
         assert!(claims.is_err(), "a 2 MB token response must be refused");
         patch(&env, json!({"padding": "a".repeat(2_000_000)}));
-        assert!(registry().await.provider("idfed2").is_none(), "a 2 MB discovery document must be refused");
+        assert!(
+            registry().await.provider("idfed2").is_none(),
+            "a 2 MB discovery document must be refused"
+        );
         patch(&env, json!({}));
         env.close().await
     })
@@ -153,16 +189,35 @@ async fn only_the_verified_email_claim_is_an_email() {
 async fn an_empty_or_missing_nonce_never_matches() {
     library(|env| async move {
         let provider = registry().await.provider("idfed2").unwrap();
-        let (claims, nonce) = exchange(&env, &provider, json!({"email_verified": true, "nonce": ""})).await;
+        let (claims, nonce) = exchange(
+            &env,
+            &provider,
+            json!({"email_verified": true, "nonce": ""}),
+        )
+        .await;
         let claims = claims.unwrap();
-        assert!(!claims.nonce_matches(Some("")), "empty cookie against an empty claim");
+        assert!(
+            !claims.nonce_matches(Some("")),
+            "empty cookie against an empty claim"
+        );
         assert!(!claims.nonce_matches(None));
         assert!(!claims.nonce_matches(Some(&nonce)));
-        let (claims, _) = exchange(&env, &provider, json!({"email_verified": true, "nonce": null})).await;
+        let (claims, _) = exchange(
+            &env,
+            &provider,
+            json!({"email_verified": true, "nonce": null}),
+        )
+        .await;
         let claims = claims.unwrap();
-        assert!(!claims.nonce_matches(Some("")), "empty cookie against a nonce-less token");
+        assert!(
+            !claims.nonce_matches(Some("")),
+            "empty cookie against a nonce-less token"
+        );
         let (claims, nonce) = exchange(&env, &provider, json!({"email_verified": true})).await;
-        assert!(claims.unwrap().nonce_matches(Some(&nonce)), "control: the real nonce matches");
+        assert!(
+            claims.unwrap().nonce_matches(Some(&nonce)),
+            "control: the real nonce matches"
+        );
         env.close().await
     })
     .await;
@@ -197,59 +252,116 @@ impl World {
         let b = fx::account(c, "idfed2-foreign").await.unwrap();
         let receipts = common::receipt_ids(c).await;
         let old_identity = c
-            .query_opt("SELECT enabled FROM feature_toggles WHERE key='feature.identity_model_v2'", &[])
+            .query_opt(
+                "SELECT enabled FROM feature_toggles WHERE key='feature.identity_model_v2'",
+                &[],
+            )
             .await
             .unwrap()
             .map(|r| r.get::<_, bool>(0));
         let old_mode = c
-            .query_opt("SELECT read_mode FROM identity_sources WHERE provider_key='oidc:idfed2'", &[])
+            .query_opt(
+                "SELECT read_mode FROM identity_sources WHERE provider_key='oidc:idfed2'",
+                &[],
+            )
             .await
             .unwrap()
             .map(|r| r.get::<_, String>(0));
-        let email: String = c.query_one("SELECT email FROM users WHERE id=$1", &[&a.user]).await.unwrap().get(0);
-        c.execute("UPDATE users SET oidc_subject='actor-subject',oidc_issuer=$2 WHERE id=$1", &[&a.user, &idp::ISSUER])
+        let email: String = c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
             .await
-            .unwrap();
+            .unwrap()
+            .get(0);
+        c.execute(
+            "UPDATE users SET oidc_subject='actor-subject',oidc_issuer=$2 WHERE id=$1",
+            &[&a.user, &idp::ISSUER],
+        )
+        .await
+        .unwrap();
         let mut group = None;
         if groups {
             let g: i64 = c
-                .query_one("INSERT INTO distribution_groups(mailbox_id) VALUES($1) RETURNING id", &[&b.mailbox])
+                .query_one(
+                    "INSERT INTO distribution_groups(mailbox_id) VALUES($1) RETURNING id",
+                    &[&b.mailbox],
+                )
                 .await
                 .unwrap()
                 .get(0);
             group = Some(g);
-            env.configure(json!({"group_mappings":[{"idp_group":"engineering","distribution_group_id":g}]}))
-                .await
-                .unwrap();
+            env.configure(
+                json!({"group_mappings":[{"idp_group":"engineering","distribution_group_id":g}]}),
+            )
+            .await
+            .unwrap();
         }
         if normalized {
             c.execute("INSERT INTO feature_toggles(key,enabled) VALUES('feature.identity_model_v2',true) ON CONFLICT(key) DO UPDATE SET enabled=true", &[]).await.unwrap();
             c.query_one("SELECT identity_auth_link($1,$1,'oidc',$2,'actor-subject','oidc:idfed2','IDFED2 fixture')", &[&a.user, &idp::ISSUER]).await.unwrap();
             c.execute("UPDATE identity_sources SET read_mode='normalized' WHERE provider_key='oidc:idfed2'", &[]).await.unwrap();
         }
-        World { env, a, b, email, receipts, group, old_identity, old_mode, normalized }
+        World {
+            env,
+            a,
+            b,
+            email,
+            receipts,
+            group,
+            old_identity,
+            old_mode,
+            normalized,
+        }
     }
     async fn callback(&self, extra: Value) -> (u16, Value, String) {
-        let response = request(self.env.gw.addr, "GET", "/auth/oidc/login?provider=idfed2", String::new(), &[]).await.unwrap();
+        let response = request(
+            self.env.gw.addr,
+            "GET",
+            "/auth/oidc/login?provider=idfed2",
+            String::new(),
+            &[],
+        )
+        .await
+        .unwrap();
         let (_, flow) = flows::normalize_flow(response).unwrap();
-        let cookie = flow.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; ");
+        let cookie = flow
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("; ");
         let mut claims = json!({"email": self.email, "email_verified": true});
         for (k, v) in extra.as_object().unwrap() {
             claims[k] = v.clone();
         }
-        let code = self.env.idp.state.code(&flow["oidc_verifier"], &flow["oidc_nonce"], claims);
+        let code = self
+            .env
+            .idp
+            .state
+            .code(&flow["oidc_verifier"], &flow["oidc_nonce"], claims);
         let path = setjoin_identity::oidc::query_response(
             "/auth/oidc/callback",
             &[("state", &flow["oidc_state"]), ("code", &code)],
             false,
         );
-        request(self.env.gw.addr, "GET", &path, String::new(), &[("cookie", &cookie)]).await.unwrap()
+        request(
+            self.env.gw.addr,
+            "GET",
+            &path,
+            String::new(),
+            &[("cookie", &cookie)],
+        )
+        .await
+        .unwrap()
     }
     async fn finish(self) {
         let c = &self.env.c;
         if self.normalized {
             if let Some(mode) = &self.old_mode {
-                c.execute("UPDATE identity_sources SET read_mode=$1 WHERE provider_key='oidc:idfed2'", &[mode]).await.unwrap();
+                c.execute(
+                    "UPDATE identity_sources SET read_mode=$1 WHERE provider_key='oidc:idfed2'",
+                    &[mode],
+                )
+                .await
+                .unwrap();
             }
             match self.old_identity {
                 Some(old) => c.execute("UPDATE feature_toggles SET enabled=$1 WHERE key='feature.identity_model_v2'", &[&old]).await.unwrap(),
@@ -258,7 +370,9 @@ impl World {
         }
         common::restore_receipts(c, &self.receipts).await;
         if let Some(g) = self.group {
-            c.execute("DELETE FROM distribution_groups WHERE id=$1", &[&g]).await.unwrap();
+            c.execute("DELETE FROM distribution_groups WHERE id=$1", &[&g])
+                .await
+                .unwrap();
         }
         settlement::cleanup_identity(c, self.a.user).await.unwrap();
         fx::remove(c, &self.a).await.unwrap();
@@ -282,10 +396,18 @@ async fn the_first_group_grant_records_provider_provenance_so_an_idp_removal_rev
     };
     let first = w.callback(json!({})).await;
     assert_eq!(first.0, 200, "{}", first.2);
-    assert_eq!(probe().await, (true, true), "the first grant must carry provenance");
+    assert_eq!(
+        probe().await,
+        (true, true),
+        "the first grant must carry provenance"
+    );
     let second = w.callback(json!({"groups": []})).await;
     assert_eq!(second.0, 200, "{}", second.2);
-    assert_eq!(probe().await, (false, false), "the IdP no longer asserts the group: the grant is revoked");
+    assert_eq!(
+        probe().await,
+        (false, false),
+        "the IdP no longer asserts the group: the grant is revoked"
+    );
     w.finish().await;
 }
 
@@ -296,10 +418,17 @@ async fn a_successful_callback_clears_the_flow_cookies_normalized_or_not() {
         let w = World::start(normalized, false).await;
         let (status, headers, text) = w.callback(json!({})).await;
         assert_eq!(status, 200, "{text}");
-        let cookies = headers["set-cookie"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
+        let cookies = headers["set-cookie"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
         for name in ["oidc_state", "oidc_verifier", "oidc_nonce", "oidc_provider"] {
             assert!(
-                cookies.iter().any(|c| c.starts_with(&format!("{name}=;")) && c.contains("Max-Age=0")),
+                cookies
+                    .iter()
+                    .any(|c| c.starts_with(&format!("{name}=;")) && c.contains("Max-Age=0")),
                 "normalized={normalized}: {name} must be cleared on success: {cookies:?}"
             );
         }

@@ -300,3 +300,11 @@ The Go copy `mailserver/internal/smime/cacert.pem` must stay byte-identical whil
 Refresh both together: `curl -fsS https://curl.se/ca/cacert.pem -o server-rust/crates/protocols/smtp/src/inbound/cacert.pem && cp server-rust/crates/protocols/smtp/src/inbound/cacert.pem mailserver/internal/smime/cacert.pem`.
 Refresh at least every release. The `smime::tests` in `src/inbound/smime.rs` enforce the parse (root count
 equals PEM blocks and exceeds 100), a 30-day notAfter window per root, and a 183-day age limit from the header date.
+
+## Wave 1.4 PolicyGate submission alignment (`#542`)
+
+SMTP submission (`src/submission.rs`) uses `setjoin_authz::basic::PasswordCache` for constant-time dummy-hash verification (`dummy_verifications()`), fixes the re-AUTH `ConnTracker` slot leak by releasing any prior slot before `try_acquire`, refuses guest app passwords and TOTP account passwords, and enforces durable `session_revocations`, `feature.device_lockdown`, `check_user_app_entitlement('mail')`, and `mailbox_lifecycle_access_allowed`. Recorded in `oracle/divergences.json`.
+
+## Wave 1.8 Phase `546c` Submission `PolicyGate` + `TxFactory` + `SubmitCapability`
+
+Inbound MTA (`delivery.rs`, `inbound/*`) and outbound MTA (`outbound/*`) remain cross-tenant transport workers on `WorkerDatabase` (`setjoin_worker`). SMTP Submission (`src/submission.rs`, wired via `with_app_executor` / `with_tx_factory` from `DB_DSN` in `smtp_runtime.rs`) routes post-auth enforcement through `setjoin_authz::policy_gate::check_protocol_post_auth`, mints sealed `UserPrincipal` and `MailboxPrincipal` via `TxFactory`, proves live `SubmitCapability` (`require_submit()`) at `AUTH` and `MAIL FROM:`, and runs authenticated sender/user lookups on `UserTx<ReadOnly>` (`setjoin_app`); only the cross-mailbox `smtp_submission_send` reducer (`REVOKE ALL FROM setjoin_app; GRANT EXECUTE TO setjoin_worker`) executes on `WorkerDatabase`.

@@ -2,23 +2,18 @@
 //! M365 consent start. Go's `user.MigrationHandler` / `migration` package.
 //!
 //! The native job runner and provider I/O live in the gateway's migration_runner;
-//! this module owns the administrator database commands and consent transactions. `migration_jobs` and `system_config` carry no
-//! RLS and are installation-wide admin resources; the gateway admits only
-//! organization-wide admins with the required grant, as Go's chain does.
-use super::{deadline, envelope, invalid, s, scope, FAMILY};
+//! this module owns the administrator database commands and consent transactions.
+//! `system_config` mutations flow through the owning `rust_system_config_upsert`
+//! / `rust_system_config_delete` reducers; `migration_jobs` reads execute under
+//! `AdminRead` (`AdminPermissionProof`) and job creation is bound to the
+//! verified `UserPrincipal`.
+use super::{command, deadline, envelope, invalid, s, sql};
 use ring::{aead, hkdf, rand::SecureRandom};
 use serde_json::Value;
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ReceiptCommand, Row, ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, Row, StatementFailure};
 
 pub const PIPELINE: [&str; 1] = ["mail.pipeline"];
-
-fn command(name: &'static str) -> ReceiptCommand {
-    ReceiptCommand {
-        family: FAMILY,
-        command: name,
-    }
-}
 
 /// `system_config` key of a source type, as Go's `keyMap`.
 pub fn config_key(source: &str) -> Option<&'static str> {
@@ -28,15 +23,6 @@ pub fn config_key(source: &str) -> Option<&'static str> {
         "m365" => Some("m365.app"),
         _ => None,
     }
-}
-
-const STAMP: &str = "'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'";
-
-fn columns() -> String {
-    format!(
-        "id, user_id, source_type, status, conflict_strategy, progress::text, error_log::text, \
-         to_char(started_at, {STAMP}), to_char(completed_at, {STAMP}), to_char(created_at, {STAMP})"
-    )
 }
 
 /// encoding/json's `compact`: whitespace outside strings goes, nothing else changes.
@@ -97,25 +83,17 @@ fn opt(v: &Option<String>) -> String {
 
 /// `GET /admin/migration/jobs`: Go's struct order; rows it cannot scan are skipped.
 pub async fn list(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     status: &str,
     user: &str,
 ) -> Result<String, StatementFailure> {
-    let mut sql = format!("SELECT {} FROM migration_jobs WHERE 1=1", columns());
-    let mut params: Vec<setjoin_pg::Param<'_>> = Vec::new();
-    if !status.is_empty() {
-        params.push((&status, Type::TEXT));
-        sql.push_str(&format!(" AND status = ${}", params.len()));
-    }
-    if !user.is_empty() {
-        params.push((&user, Type::TEXT));
-        // pgx sends the string as the text form of the bigint parameter.
-        sql.push_str(&format!(" AND user_id = ${}::text::bigint", params.len()));
-    }
-    sql.push_str(" ORDER BY created_at DESC LIMIT 100");
     // pgx reports a text that is not a bigint while iterating the rows, which Go's
     // handler never checks: the answer is an empty list.
-    let rows = match exec.read(&sql, &params).await {
+    let rows = match factory
+        .run_admin_read_contract(proof, &sql::MIGRATION_JOBS_LIST, &[&status, &user])
+        .await
+    {
         Ok(rows) => rows,
         Err(e) if matches!(e.sqlstate.as_deref(), Some("22P02" | "22003")) => Vec::new(),
         Err(e) => return Err(e),
@@ -135,12 +113,9 @@ pub async fn list(
 }
 
 /// `GET /admin/migration/jobs/{id}`: a Go `map`, so keys are sorted. Any failure is "not found".
-pub async fn get(exec: &ScopedExecutor, id: i64) -> Option<String> {
-    let rows = exec
-        .read(
-            &format!("SELECT {} FROM migration_jobs WHERE id = $1", columns()),
-            &[(&id, Type::INT8)],
-        )
+pub async fn get(factory: &TxFactory, proof: &AdminPermissionProof, id: i64) -> Option<String> {
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::MIGRATION_JOB_GET, &[&id])
         .await
         .ok()?;
     let j = job(rows.first()?)?;
@@ -151,7 +126,7 @@ pub async fn get(exec: &ScopedExecutor, id: i64) -> Option<String> {
     )))
 }
 
-fn count(rows: &[Row]) -> Result<bool, StatementFailure> {
+pub fn affected_any(rows: &[Row]) -> Result<bool, StatementFailure> {
     match rows {
         [row] => row
             .try_get::<_, i64>(0)
@@ -161,197 +136,110 @@ fn count(rows: &[Row]) -> Result<bool, StatementFailure> {
     }
 }
 
-/// `DELETE /admin/migration/jobs/{id}`; `false` when no row matched.
-pub async fn delete(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    id: i64,
-    operation: [u8; 16],
-) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("migration.job.delete"),
-        &envelope(&auth, operation, &format!("job:{id}")),
-        &auth,
-        deadline(),
-        "WITH d AS (DELETE FROM migration_jobs WHERE id = $4 \
-         AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM d",
-        &[(&id, Type::INT8)],
-        count,
-    )
-    .await
-}
-
 /// `AdminAPI.hasGlobalSourceConfig`: whether a global profile row exists for the source.
-pub async fn has_global(exec: &ScopedExecutor, source: &str) -> bool {
+pub async fn has_global(factory: &TxFactory, source: &str) -> bool {
     let Some(key) = config_key(source) else {
         return false;
     };
-    exec.read(
-        "SELECT EXISTS(SELECT 1 FROM system_config WHERE key = $1)",
-        &[(&key, Type::TEXT)],
-    )
-    .await
-    .ok()
-    .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
-    .unwrap_or(false)
+    factory
+        .run_public_read_contract(&sql::MIGRATION_HAS_GLOBAL, &[&key])
+        .await
+        .ok()
+        .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
+        .unwrap_or(false)
 }
 
 /// The first mailbox of the user with this e-mail address (Go's `LIMIT 1`, no order).
-pub async fn mailbox_for_email(exec: &ScopedExecutor, email: &str) -> Option<i64> {
-    let rows = exec
-        .read(
-            "SELECT m.id FROM mailboxes m JOIN users u ON m.user_id = u.id WHERE u.email = $1 LIMIT 1",
-            &[(&email, Type::TEXT)],
-        )
+pub async fn mailbox_for_email(
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
+    email: &str,
+) -> Option<i64> {
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::MIGRATION_MAILBOX_FOR_EMAIL, &[&email])
         .await
         .ok()?;
     rows.first()?.try_get::<_, i64>(0).ok()
 }
 
 /// One pending job owned by the verified actor (Go's `AdminAPI.Start` insert); the
-/// owner is the auth context's user, never a request field. The per-user
+/// owner is the verified principal's user, never a request field. The per-user
 /// one-active-job index may refuse it.
 pub async fn insert_job(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     source: &str,
     config_enc: &[u8],
     mailbox: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    let auth = scope(actor);
-    let owner = actor.user_id();
+    let owner = user.user().get();
     let payload = format!("job:{source}:{mailbox}");
     let config: &[u8] = config_enc;
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("migration.job.start"),
-        &envelope(&auth, operation, &payload),
-        &auth,
-        deadline(),
-        "WITH i AS (INSERT INTO migration_jobs (user_id, source_type, source_config_enc, target_mailbox_id, conflict_strategy, status) \
-         SELECT $4::bigint, $5::text, $6::bytea, $7::bigint, 'skip', 'pending' \
-         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id) SELECT id FROM i",
-        &[
-            (&owner, Type::INT8),
-            (&source, Type::TEXT),
-            (&config, Type::BYTEA),
-            (&mailbox, Type::INT8),
-        ],
-        |rows| match rows {
-            [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
-            _ => Err(invalid()),
-        },
-    )
-    .await
+    let env = envelope(user.user(), user.generation(), operation, &payload);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MIGRATION_INSERT_JOB,
+            &[&owner, &source, &config, &mailbox],
+            Some(command("migration.job.start")),
+            |rows| match rows.as_slice() {
+                [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
+                _ => Err(invalid()),
+            },
+        )
+        .await
 }
 
 /// A `system_config` row: the jsonb text and the `encrypted` flag. `None` on a miss or any error.
-pub async fn config(exec: &ScopedExecutor, key: &str) -> Option<(String, bool)> {
-    let rows = exec
-        .read(
-            "SELECT value::text, encrypted FROM system_config WHERE key = $1",
-            &[(&key, Type::TEXT)],
-        )
+pub async fn config(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    key: &str,
+) -> Option<(String, bool)> {
+    let rows = factory
+        .run_user_read_contract(user, &sql::MIGRATION_CONFIG_GET, &[&key])
         .await
         .ok()?;
     let row = rows.first()?;
     Some((row.try_get(0).ok()?, row.try_get(1).ok()?))
 }
 
-/// Upsert of a global source profile. IMAP stores plain jsonb and leaves `encrypted`
-/// alone; EWS and M365 store the sealed wrapper and set it.
-pub async fn put_config(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    key: &str,
-    value: &str,
-    sealed: bool,
-    operation: [u8; 16],
-) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    let sql = if sealed {
-        "WITH w AS (INSERT INTO system_config (key, value, encrypted) \
-         SELECT $4::text, $5::text::jsonb, TRUE WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' \
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, encrypted = TRUE, updated_at = now() RETURNING 1) \
-         SELECT count(*)::bigint FROM w"
-    } else {
-        "WITH w AS (INSERT INTO system_config (key, value) \
-         SELECT $4::text, $5::text::jsonb WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' \
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now() RETURNING 1) \
-         SELECT count(*)::bigint FROM w"
-    };
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("migration.source.save"),
-        &envelope(&auth, operation, &format!("source:{key}")),
-        &auth,
-        deadline(),
-        sql,
-        &[(&key, Type::TEXT), (&value, Type::TEXT)],
-        count,
-    )
-    .await
-}
-
-/// `DELETE /admin/migration/source/{type}` (also succeeds when nothing is stored).
-pub async fn delete_config(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    key: &str,
-    operation: [u8; 16],
-) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("migration.source.delete"),
-        &envelope(&auth, operation, &format!("source:{key}")),
-        &auth,
-        deadline(),
-        "WITH d AS (DELETE FROM system_config WHERE key = $4 \
-         AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM d",
-        &[(&key, Type::TEXT)],
-        |rows| count(rows).map(|_| ()),
-    )
-    .await
-}
-
 /// `m365_consent_state_mint` for the verified actor (Go's `RunUserScoped` call).
 pub async fn mint_consent(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     token: &str,
     cloud: &str,
     ttl_seconds: i32,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    let user = actor.user_id();
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("migration.m365.consent"),
-        &envelope(&auth, operation, &format!("consent:{user}")),
-        &auth,
-        deadline(),
-        "SELECT m365_consent_state_mint($4, $5, $6, $7)::text \
-         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
-        &[
-            (&user, Type::INT8),
-            (&token, Type::TEXT),
-            (&cloud, Type::TEXT),
-            (&ttl_seconds, Type::INT4),
-        ],
-        |rows| {
-            if rows.len() == 1 {
-                Ok(())
-            } else {
-                Err(invalid())
-            }
-        },
-    )
-    .await
+    let uid = user.user().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("consent:{uid}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MIGRATION_MINT_CONSENT,
+            &[&uid, &token, &cloud, &ttl_seconds],
+            Some(command("migration.m365.consent")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 // ---- sealed profiles: Go `migration.DeriveKey` / `EncryptConfigAny` ----
@@ -636,6 +524,65 @@ impl M365 {
     }
 }
 
+/// Spend one actor-bound consent authorization before any outbound verification.
+pub async fn consume_consent(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    token: &str,
+    operation: [u8; 16],
+) -> CommandOutcome<String, StatementFailure> {
+    let uid = user.user().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("consent:{uid}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MIGRATION_CONSUME_CONSENT,
+            &[&uid, &token],
+            Some(command("migration.m365.consume")),
+            |rows| match rows.as_slice() {
+                [row] => row.try_get::<_, String>(0).map_err(|_| invalid()),
+                _ => Err(invalid()),
+            },
+        )
+        .await
+}
+
+/// The verified tenant binding and its audit commit together, after verification.
+pub async fn complete_consent(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    wrapped: &str,
+    notes: &str,
+    operation: [u8; 16],
+) -> CommandOutcome<(), StatementFailure> {
+    let uid = user.user().get();
+    let env = envelope(user.user(), user.generation(), operation, "m365.app");
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MIGRATION_COMPLETE_CONSENT,
+            &[&uid, &wrapped, &notes],
+            Some(command("migration.m365.complete")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -688,42 +635,4 @@ mod tests {
         };
         assert_eq!(e.json(), "{\"serverURL\":\"u\",\"username\":\"n\",\"password\":\"\",\"authMode\":\"per_user\",\"insecureSkipVerify\":false}");
     }
-}
-
-/// Spend one actor-bound consent authorization before any outbound verification.
-pub async fn consume_consent(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    token: &str,
-    operation: [u8; 16],
-) -> CommandOutcome<String, StatementFailure> {
-    let auth = scope(actor);
-    let user = actor.user_id();
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("migration.m365.consume"),
-        &envelope(&auth, operation, &format!("consent:{user}")),
-        &auth,
-        deadline(),
-        "SELECT m365_consent_state_consume($2,$4)::text WHERE $1::bigint>=0 AND $3::text<>''",
-        &[(&token, Type::TEXT)],
-        |rows| match rows {
-            [row] => row.try_get::<_, String>(0).map_err(|_| invalid()),
-            _ => Err(invalid()),
-        },
-    )
-    .await
-}
-/// The verified tenant binding and its audit commit together, after verification.
-pub async fn complete_consent(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    wrapped: &str,
-    notes: &str,
-    operation: [u8; 16],
-) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(exec,command("migration.m365.complete"),&envelope(&auth,operation,"m365.app"),&auth,deadline(),
-        "SELECT m365_consent_complete($2,$4,$5,'routine')::text WHERE $1::bigint>=0 AND $3::text<>''",&[(&wrapped,Type::TEXT),(&notes,Type::TEXT)],
-        |rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
 }

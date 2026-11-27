@@ -1,0 +1,28 @@
+{
+  "description": "Monotonic legacy SQL baseline for pre-Wave-1.8 domain crates (#541). Wave 1.8d (#546d) reached 0 legacy format_sql and 0 uncataloged_sql with all 21 DB domain crates enforced.",
+  "catalog_enforced_crates": [
+    "admin-identity",
+    "approvals",
+    "blobs",
+    "calendar",
+    "chat",
+    "compliance",
+    "conditional-access",
+    "devices",
+    "directory-sync",
+    "drive",
+    "guests",
+    "identity",
+    "jmap",
+    "mail-security",
+    "mailboxes",
+    "meet",
+    "office",
+    "platform",
+    "rules",
+    "static",
+    "user-settings"
+  ],
+  "format_sql": {},
+  "uncataloged_sql": {}
+}

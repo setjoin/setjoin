@@ -1,27 +1,19 @@
 //! F17 slice `contacts` (#297): the statements of the contacts CSV/vCard import
 //! and export, one function per frozen-Go statement.
-//!
-//! Frozen Go runs every statement of an import as its own autocommit call on the
-//! request pool with no tenant GUC (partial imports are possible by design); each
-//! write here is the same single statement as one autocommit reducer call. Ownership is the
-//! mailbox the gate proved belongs to the verified user, carried into every write's
-//! WHERE (R3); reads carry the verified user in the same statement (R1).
-use crate::invalid;
-use setjoin_pg::{ScopedExecutor, StatementFailure, Type};
+use crate::{deadline, invalid, user_envelope};
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
+use setjoin_contracts::ids::OperationId;
+use setjoin_pg::{CommandOutcome, Row, StatementFailure};
 
 /// The mailbox that owns `book` and belongs to `user` (Go's `ownedMailboxForBook`).
 pub async fn owned_mailbox_for_book(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     book: i64,
-    user: i64,
 ) -> Result<Option<i64>, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT mb.id FROM addressbooks ab \
-               JOIN mailboxes mb ON mb.id = ab.mailbox_id \
-              WHERE ab.id = $1 AND mb.user_id = $2",
-            &[(&book, Type::INT8), (&user, Type::INT8)],
-        )
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &crate::sql::OWNED_MAILBOX_FOR_BOOK, &[&book, &uid])
         .await?;
     match rows.first() {
         Some(row) => Ok(Some(row.try_get(0).map_err(|_| invalid())?)),
@@ -31,39 +23,31 @@ pub async fn owned_mailbox_for_book(
 
 /// Whether `contact` sits in an address book of a mailbox of `user`.
 pub async fn owns_contact(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     contact: i64,
-    user: i64,
 ) -> Result<bool, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT true FROM contacts c \
-               JOIN addressbooks ab ON ab.id = c.addressbook_id \
-               JOIN mailboxes mb ON mb.id = ab.mailbox_id \
-              WHERE c.id = $1 AND mb.user_id = $2",
-            &[(&contact, Type::INT8), (&user, Type::INT8)],
-        )
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &crate::sql::OWNS_CONTACT, &[&contact, &uid])
         .await?;
     Ok(!rows.is_empty())
 }
 
 /// Go's `contactStore.exists`; a failed read counts as "absent", as in Go.
-pub async fn exists(exec: &ScopedExecutor, book: i64, uid: &str, owner: i64) -> bool {
-    exec.read(
-        "SELECT EXISTS(\
-           SELECT 1 FROM contacts c \
-             JOIN addressbooks ab ON ab.id = c.addressbook_id \
-            WHERE c.addressbook_id = $1 AND c.vcard_uid = $2 AND ab.mailbox_id = $3)",
-        &[
-            (&book, Type::INT8),
-            (&uid, Type::TEXT),
-            (&owner, Type::INT8),
-        ],
-    )
-    .await
-    .ok()
-    .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
-    .unwrap_or(false)
+pub async fn exists(
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+    book: i64,
+    uid: &str,
+    owner: i64,
+) -> bool {
+    tx_factory
+        .run_user_read_contract(user, &crate::sql::CONTACT_EXISTS, &[&book, &uid, &owner])
+        .await
+        .ok()
+        .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
+        .unwrap_or(false)
 }
 
 /// The contacts columns an import writes, already in the stored shapes.
@@ -85,100 +69,137 @@ pub struct NewContact<'a> {
 }
 
 /// Go's `contactStore.insert`, or `upsert` (`ON CONFLICT DO UPDATE`), as the
-/// reducer `rust_contacts_import_write`: one `INSERT .. SELECT .. WHERE EXISTS(owned
-/// book)` on the request credential without a tenant GUC and without a receipt,
-/// exactly Go's pool call. `Ok(rows)` is Go's `RowsAffected`, 0 meaning the book
-/// is not owned by `owner`.
+/// reducer `rust_contacts_import_write`.
 pub async fn write_contact(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     owner: i64,
     book: i64,
     contact: &NewContact<'_>,
     upsert: bool,
 ) -> Result<i64, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT rust_contacts_import_write($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)",
+    let tag = format!("write_contact:{owner}:{book}:{}:{upsert}", contact.uid);
+    let mut op_bytes = [0u8; 16];
+    op_bytes.copy_from_slice(&<sha2::Sha256 as sha2::Digest>::digest(tag.as_bytes())[..16]);
+    op_bytes[0] |= 1;
+    let env = user_envelope(user, OperationId(op_bytes), &tag);
+    match tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::WRITE_CONTACT,
             &[
-                (&owner, Type::INT8),
-                (&book, Type::INT8),
-                (&contact.uid, Type::TEXT),
-                (&contact.display_name, Type::TEXT),
-                (&contact.first_name, Type::TEXT),
-                (&contact.last_name, Type::TEXT),
-                (&contact.company, Type::TEXT),
-                (&contact.job_title, Type::TEXT),
-                (&contact.emails, Type::TEXT),
-                (&contact.phones, Type::TEXT),
-                (&contact.urls, Type::TEXT),
-                (&contact.instant_msgs, Type::TEXT),
-                (&contact.addresses, Type::TEXT),
-                (&contact.notes, Type::TEXT),
-                (&contact.birthday, Type::TEXT),
-                (&contact.anniversary, Type::TEXT),
-                (&upsert, Type::BOOL),
+                &owner,
+                &book,
+                &contact.uid,
+                &contact.display_name,
+                &contact.first_name,
+                &contact.last_name,
+                &contact.company,
+                &contact.job_title,
+                &contact.emails,
+                &contact.phones,
+                &contact.urls,
+                &contact.instant_msgs,
+                &contact.addresses,
+                &contact.notes,
+                &contact.birthday,
+                &contact.anniversary,
+                &upsert,
             ],
+            None,
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get::<_, i64>(0).ok())
+                    .ok_or_else(invalid)
+            },
         )
-        .await?;
-    rows.first()
-        .and_then(|r| r.try_get::<_, i64>(0).ok())
-        .ok_or_else(invalid)
+        .await
+    {
+        CommandOutcome::Committed(n) => Ok(n),
+        CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e))
+        | CommandOutcome::RolledBack(setjoin_pg::Rejection::Body(e)) => Err(e),
+        _ => Err(invalid()),
+    }
 }
 
 /// Go's `contactStore.remove`: one `DELETE` with the ownership join in its WHERE.
 pub async fn remove_contact(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     owner: i64,
     book: i64,
     uid: &str,
 ) -> Result<i64, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT rust_contacts_import_remove($1,$2,$3)",
-            &[
-                (&owner, Type::INT8),
-                (&book, Type::INT8),
-                (&uid, Type::TEXT),
-            ],
+    let tag = format!("remove_contact:{owner}:{book}:{uid}");
+    let mut op_bytes = [0u8; 16];
+    op_bytes.copy_from_slice(&<sha2::Sha256 as sha2::Digest>::digest(tag.as_bytes())[..16]);
+    op_bytes[0] |= 1;
+    let env = user_envelope(user, OperationId(op_bytes), &tag);
+    match tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::REMOVE_CONTACT,
+            &[&owner, &book, &uid],
+            None,
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get::<_, i64>(0).ok())
+                    .ok_or_else(invalid)
+            },
         )
-        .await?;
-    rows.first()
-        .and_then(|r| r.try_get::<_, i64>(0).ok())
-        .ok_or_else(invalid)
+        .await
+    {
+        CommandOutcome::Committed(n) => Ok(n),
+        CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e))
+        | CommandOutcome::RolledBack(setjoin_pg::Rejection::Body(e)) => Err(e),
+        _ => Err(invalid()),
+    }
 }
 
 /// Go's `notify_contact_state(mailbox, 'contact_created', NULL)`: the state bump
 /// and push fan-out of a finished import, one reducer call.
-pub async fn notify_import(exec: &ScopedExecutor, owner: i64) -> Result<(), StatementFailure> {
-    exec.read(
-        "SELECT notify_contact_state($1, 'contact_created', NULL)",
-        &[(&owner, Type::INT8)],
-    )
-    .await
-    .map(|_| ())
+pub async fn notify_import(
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+    owner: i64,
+) -> Result<(), StatementFailure> {
+    let tag = format!("notify_import:{owner}");
+    let mut op_bytes = [0u8; 16];
+    op_bytes.copy_from_slice(&<sha2::Sha256 as sha2::Digest>::digest(tag.as_bytes())[..16]);
+    op_bytes[0] |= 1;
+    let env = user_envelope(user, OperationId(op_bytes), &tag);
+    match tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &crate::sql::NOTIFY_IMPORT,
+            &[&owner],
+            None,
+            |_| Ok(()),
+        )
+        .await
+    {
+        CommandOutcome::Committed(()) => Ok(()),
+        CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e))
+        | CommandOutcome::RolledBack(setjoin_pg::Rejection::Body(e)) => Err(e),
+        _ => Err(invalid()),
+    }
 }
 
-/// The CSV export rows of an owned book, in Go's order. The ownership of `user`
-/// is in the same statement (R1). Columns: first, last, display, company, job
-/// title, emails (jsonb text), phones (jsonb text), notes.
+/// The CSV export rows of an owned book, in Go's order.
 pub async fn export_csv_rows(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     book: i64,
-    user: i64,
 ) -> Result<Vec<[String; 8]>, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT COALESCE(first_name,''), COALESCE(last_name,''), COALESCE(display_name,''), \
-                    COALESCE(company,''), COALESCE(job_title,''), \
-                    COALESCE(emails,'[]'::jsonb)::text, COALESCE(phones,'[]'::jsonb)::text, \
-                    COALESCE(notes,'') \
-               FROM contacts \
-              WHERE addressbook_id = $1 \
-                AND EXISTS (SELECT 1 FROM addressbooks ab JOIN mailboxes mb ON mb.id = ab.mailbox_id \
-                             WHERE ab.id = $1 AND mb.user_id = $2) \
-              ORDER BY display_name",
-            &[(&book, Type::INT8), (&user, Type::INT8)],
-        )
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &crate::sql::EXPORT_CSV_ROWS, &[&book, &uid])
         .await?;
     rows.iter()
         .map(|row| {
@@ -216,13 +237,7 @@ pub struct ContactRow {
     pub updated_at: String,
 }
 
-pub(crate) const CONTACT_COLUMNS: &str = "c.vcard_uid, c.display_name, c.first_name, c.last_name, c.company, \
-     c.job_title, c.department, c.emails::text, c.phones::text, c.addresses::text, c.urls::text, \
-     c.instant_msgs::text, c.notes, to_char(c.birthday,'YYYYMMDD'), to_char(c.anniversary,'YYYYMMDD'), \
-     c.avatar_sha256, to_jsonb(c.categories)::text, \
-     to_char(c.updated_at AT TIME ZONE 'UTC','YYYYMMDD\"T\"HH24MISS\"Z\"')";
-
-pub(crate) fn contact_row(row: &setjoin_pg::Row) -> Result<ContactRow, StatementFailure> {
+pub(crate) fn contact_row(row: &Row) -> Result<ContactRow, StatementFailure> {
     let get = |i: usize| row.try_get::<_, String>(i).map_err(|_| invalid());
     let maybe = |i: usize| row.try_get::<_, Option<String>>(i).map_err(|_| invalid());
     Ok(ContactRow {
@@ -249,37 +264,26 @@ pub(crate) fn contact_row(row: &setjoin_pg::Row) -> Result<ContactRow, Statement
 
 /// Go's `carddav.ExportVCards` read: the user's ownership is in the statement.
 pub async fn export_vcard_rows(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     book: i64,
-    user: i64,
 ) -> Result<Vec<ContactRow>, StatementFailure> {
-    let sql = format!(
-        "SELECT {CONTACT_COLUMNS} FROM contacts c \
-           JOIN addressbooks ab ON ab.id = c.addressbook_id \
-           JOIN mailboxes mb ON mb.id = ab.mailbox_id \
-          WHERE c.addressbook_id = $1 AND mb.user_id = $2 \
-          ORDER BY c.display_name"
-    );
-    let rows = exec
-        .read(&sql, &[(&book, Type::INT8), (&user, Type::INT8)])
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &crate::sql::EXPORT_VCARD_ROWS, &[&book, &uid])
         .await?;
     rows.iter().map(contact_row).collect()
 }
 
 /// Go's `carddav.ExportVCard` read; `None` is `pgx.ErrNoRows` (missing or foreign).
 pub async fn export_vcard_row(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     contact: i64,
-    user: i64,
 ) -> Result<Option<ContactRow>, StatementFailure> {
-    let sql = format!(
-        "SELECT {CONTACT_COLUMNS} FROM contacts c \
-           JOIN addressbooks ab ON ab.id = c.addressbook_id \
-           JOIN mailboxes mb ON mb.id = ab.mailbox_id \
-          WHERE c.id = $1 AND mb.user_id = $2"
-    );
-    let rows = exec
-        .read(&sql, &[(&contact, Type::INT8), (&user, Type::INT8)])
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &crate::sql::EXPORT_VCARD_ROW, &[&contact, &uid])
         .await?;
     rows.first().map(contact_row).transpose()
 }

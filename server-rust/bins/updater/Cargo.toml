@@ -13,6 +13,7 @@ serde_json = { version = "=1.0.145", features = ["raw_value"] }
 setjoin-release-format = { path = "../../crates/release-format" }
 
 setjoin-schema = { path = "../../crates/schema" }
+setjoin-pg = { path = "../../crates/pg" }
 setjoin-backup = { path = "../../crates/backup" }
 base64 = "=0.22.1"
 libc = "=0.2.191"

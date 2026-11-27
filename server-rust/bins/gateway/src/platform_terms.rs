@@ -22,14 +22,14 @@ mod monitor;
 
 /// What a group handler needs once the gate has admitted the request.
 pub(crate) struct Env<'a> {
-    pub exec: &'a ScopedExecutor,
-    pub worker: &'a ScopedExecutor,
+    pub factory: &'a setjoin_authz::principals::TxFactory,
+    pub user: &'a setjoin_authz::principals::UserPrincipal,
+    pub admin: &'a setjoin_authz::principals::AdminPermissionProof,
+    pub domain_scope: i64,
     /// `FEDERATION_LOCAL_DOMAIN`, lower-cased and trimmed; empty when unset.
     pub local_domain: &'a str,
     pub resolver: &'a setjoin_platform::dns::Resolver,
     pub store: Option<&'a Arc<crate::recovery_worker::S3Store>>,
-    pub actor: &'a setjoin_authz::AuthContext,
-    pub authority: &'a setjoin_platform::Authority,
     pub c: &'a RequestContext,
     pub id: &'a str,
     pub operation: [u8; 16],
@@ -398,43 +398,71 @@ impl<K: KeySource + 'static> Intercept for PlatformTermsRoute<K> {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(500, "database error", &c, &id);
+            };
             let actor = auth.context();
             let go_path = segment_path(r.uri().path());
             let required = gate(what);
-            let authority = match setjoin_platform::authority(&exec, actor).await {
-                Ok(authority) if authority.allows_any(required) => authority,
-                _ => {
-                    let _ = setjoin_platform::console_denied(
-                        &exec,
-                        actor,
-                        &go_path,
-                        &required.join("|"),
-                        operation,
-                    )
-                    .await;
-                    return bare(403, "Forbidden", &c, &id);
-                }
+            let admin_opt = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
             };
-            if authority.refused_for_scope(required) {
+            let Some(admin_principal) = admin_opt.filter(|a| a.allows_any(required)) else {
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
+            let domain_scope = admin_principal.enforced_domain_scope().unwrap_or(0);
+            if admin_principal.refused_for_scope(required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
                     required.join("|"),
-                    authority.domain_scope()
+                    domain_scope
                 );
-                let _ =
-                    setjoin_platform::console_denied(&exec, actor, &go_path, &detail, operation)
-                        .await;
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &detail,
+                    operation,
+                )
+                .await;
                 return bare(403, "Forbidden", &c, &id);
             }
+            let Ok(admin) = admin_principal.require_any_permission(required) else {
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
             let head = r.method() == Method::HEAD;
             let env = Env {
-                exec: &exec,
-                worker: &worker,
+                factory: &factory,
+                user: &user_principal,
+                admin: &admin,
+                domain_scope,
                 local_domain: &local_domain,
                 resolver: &resolver,
                 store: store.as_ref(),
-                actor,
-                authority: &authority,
                 c: &c,
                 id: &id,
                 operation,
@@ -466,8 +494,6 @@ impl<K: KeySource + 'static> Intercept for PlatformTermsRoute<K> {
                 _ => {}
             }
             let reply = |body: String, status: u16| {
-                // net/http buffers 2 KiB of a handler's output; a larger single write
-                // is flushed before the handler returns and sent chunked.
                 let chunked = body.len() > 2048 && !head;
                 let mut response = crate::jmap::reply::response(body, c.identity.proto, id.clone());
                 *response.status_mut() = hyper::StatusCode::from_u16(status).expect("status");
@@ -484,7 +510,6 @@ impl<K: KeySource + 'static> Intercept for PlatformTermsRoute<K> {
                 response.headers_mut().remove("content-type");
                 response
             };
-            let ip = c.identity.client_ip.to_string();
             match what {
                 Action::DomainList
                 | Action::DomainGet
@@ -513,7 +538,7 @@ impl<K: KeySource + 'static> Intercept for PlatformTermsRoute<K> {
                     let limit = terms::limit(
                         crate::admin_identity_input::query(r.uri(), "limit").as_deref(),
                     );
-                    match terms::list(&exec, limit).await {
+                    match terms::list(&factory, &admin, limit).await {
                         Ok(body) => reply(body, 200),
                         Err(_) => bare(500, "database error", &c, &id),
                     }
@@ -526,7 +551,7 @@ impl<K: KeySource + 'static> Intercept for PlatformTermsRoute<K> {
                     if !doc.valid() {
                         return bare(400, "name, body_md, and version >= 1 are required", &c, &id);
                     }
-                    match terms::create(&exec, actor, &doc, &ip, operation).await {
+                    match terms::create(&factory, &admin, &doc, &ip, operation).await {
                         CommandOutcome::Committed(Done::Created(new)) => {
                             reply(setjoin_platform::done(format!("{{\"id\":{new}}}")), 201)
                         }
@@ -549,7 +574,7 @@ impl<K: KeySource + 'static> Intercept for PlatformTermsRoute<K> {
                     if !doc.valid() {
                         return bare(400, "name, body_md, and version >= 1 are required", &c, &id);
                     }
-                    match terms::update(&exec, actor, target, &doc, &ip, operation).await {
+                    match terms::update(&factory, &admin, target, &doc, &ip, operation).await {
                         CommandOutcome::Committed(Done::Updated) => no_content(),
                         CommandOutcome::Committed(Done::NotFound) => {
                             bare(404, "terms_of_use not found", &c, &id)
@@ -566,14 +591,14 @@ impl<K: KeySource + 'static> Intercept for PlatformTermsRoute<K> {
                     let Some(target) = path_id(r.uri().path(), 4) else {
                         return bare(400, "invalid ToU ID", &c, &id);
                     };
-                    match terms::delete(&exec, actor, target, &ip, operation).await {
+                    match terms::delete(&factory, &admin, target, &ip, operation).await {
                         CommandOutcome::Committed(Done::Updated) => no_content(),
                         CommandOutcome::Committed(Done::NotFound) => {
                             bare(404, "terms_of_use not found", &c, &id)
                         }
-                        CommandOutcome::Committed(_) => bare(500, "request failed", &c, &id),
-                        // Go answers 500 with the reducer detail for a failed DELETE.
-                        CommandOutcome::RolledBack(_) => bare(500, "request failed", &c, &id),
+                        CommandOutcome::Committed(_) | CommandOutcome::RolledBack(_) => {
+                            bare(500, "request failed", &c, &id)
+                        }
                         CommandOutcome::Unknown { operation } => {
                             unknown_outcome(operation, &c, &id)
                         }

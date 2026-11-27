@@ -8,8 +8,8 @@ use hyper::{Request, Response};
 use serde_json::{json, Value};
 use setjoin_conformance::{fixture, golden, harness::Db};
 use setjoin_gateway::{
-    platform_jobs::PlatformJobsRoute, Body, BoxFuture, Config, Gateway, Intercept,
-    RequestContext, RouteTable, TrustedProxies,
+    platform_jobs::PlatformJobsRoute, Body, BoxFuture, Config, Gateway, Intercept, RequestContext,
+    RouteTable, TrustedProxies,
 };
 use setjoin_pg::ScopedExecutor;
 use std::sync::Arc;
@@ -27,7 +27,8 @@ impl Intercept for Probe {
         self.inner.admits_member(h, s)
     }
     fn handle(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let changed=self.changed_status&&(!self.cancel_only||r.uri().path().ends_with("/cancel"));
+        let changed =
+            self.changed_status && (!self.cancel_only || r.uri().path().ends_with("/cancel"));
         let future = self.inner.handle(r, c);
         Box::pin(async move {
             let mut response = future.await;
@@ -87,11 +88,26 @@ fn specs(action: &str, label: &str, user: i64, mailbox: i64) -> Option<Case> {
         "jobs-list" => base("GET", "/admin/jobs/{queue}", "queue.read", 200),
         "jobs-journal-retry" => base("POST", "/admin/jobs/journal/{id}/retry", "queue.write", 204),
         "jobs-bulk-detail" => base("GET", "/admin/jobs/bulk_role/{id}", "roles.manage", 200),
-        "jobs-bulk-retry" => base("POST", "/admin/jobs/bulk_role/{id}/retry", "roles.manage", 204),
-        "storage-migration-cancel" => base("POST", "/admin/storage/migrate/{id}/cancel", "system.config", 200),
+        "jobs-bulk-retry" => base(
+            "POST",
+            "/admin/jobs/bulk_role/{id}/retry",
+            "roles.manage",
+            204,
+        ),
+        "storage-migration-cancel" => base(
+            "POST",
+            "/admin/storage/migrate/{id}/cancel",
+            "system.config",
+            200,
+        ),
         "storage-migration-start" => base("POST", "/admin/storage/migrate", "system.config", 202),
         "storage-dr-start" => base("POST", "/admin/storage/dr-scan", "system.config", 202),
-        "storage-reconcile" => base("POST", "/admin/storage/dr-scan/{id}/reconcile", "system.config", 200),
+        "storage-reconcile" => base(
+            "POST",
+            "/admin/storage/dr-scan/{id}/reconcile",
+            "system.config",
+            200,
+        ),
         "storage-status" => base("GET", "/admin/storage/status", "domains.read", 200),
         "storage-dr-list" => base("GET", "/admin/storage/dr-scan", "domains.read", 200),
         "storage-dr-get" => base("GET", "/admin/storage/dr-scan/{id}", "reports.read", 200),
@@ -101,7 +117,9 @@ fn specs(action: &str, label: &str, user: i64, mailbox: i64) -> Option<Case> {
     };
     queues(&mut c, action, label, user, mailbox);
     storage(&mut c, action, label);
-    if action=="storage-status" && label=="cluster-error" {c.status=503;}
+    if action == "storage-status" && label == "cluster-error" {
+        c.status = 503;
+    }
     if label == "denied" {
         c.status = 403;
     }
@@ -135,7 +153,13 @@ fn queues(c: &mut Case, action: &str, label: &str, user: i64, mailbox: i64) {
         mailbox,
         &[
             (9301, "pending", 0, "2026-10-01T10:01:00Z", ""),
-            (9302, "deferred", 2, "2026-10-01T10:02:00Z", "temporary <failure> & retry"),
+            (
+                9302,
+                "deferred",
+                2,
+                "2026-10-01T10:02:00Z",
+                "temporary <failure> & retry",
+            ),
             (9303, "failed", 5, "2026-10-01T10:03:00Z", "boom"),
             (9304, "dead", 9, "2026-10-01T10:04:00Z", "gave up"),
             (9305, "delivered", 1, "2026-10-01T10:05:00Z", ""),
@@ -160,7 +184,8 @@ fn queues(c: &mut Case, action: &str, label: &str, user: i64, mailbox: i64) {
         (9333,'assign',9,{user},'{{5,6}}','done',2,2,'[{{\"user\":5,\"ok\":true}},{{\"user\":6,\"ok\":true}}]'::jsonb,NULL,'2026-10-01T10:03:00Z','2026-10-01T10:03:00Z'),\
         (9334,'assign',10,{user},'{{7,8}}','error',2,1,'[{{\"user\":7,\"ok\":true}}]'::jsonb,'worker <crashed> & stopped','2026-10-01T10:04:00Z','2026-10-01T10:04:00Z')"
     );
-    c.cleanup.push("DELETE FROM admin_audit_log WHERE action='bulk_role_job_retry' AND false".into());
+    c.cleanup
+        .push("DELETE FROM admin_audit_log WHERE action='bulk_role_job_retry' AND false".into());
     let all = |c: &mut Case| {
         c.seed.push(journal.clone());
         c.seed.push(outbound.to_string());
@@ -185,7 +210,8 @@ fn queues(c: &mut Case, action: &str, label: &str, user: i64, mailbox: i64) {
             // The outbound rows' trigger queued a `dsn` action with a random id; the list
             // shows ids, so that run-specific row is removed for this case.
             if action == "jobs-list" && label == "scheduled" {
-                c.seed.push("DELETE FROM scheduled_actions WHERE action_kind = 'dsn'".into());
+                c.seed
+                    .push("DELETE FROM scheduled_actions WHERE action_kind = 'dsn'".into());
             }
             c.fill = vec![queue_label(label).into()];
             if label == "unknown" {
@@ -262,62 +288,127 @@ fn storage(c: &mut Case, action: &str, label: &str) {
         c.table = "storage-reconcile";
         c.effects = "SELECT jsonb_build_object('scans',(SELECT jsonb_agg(jsonb_build_object('id',id,'status',status,'reimported',reimported_count) ORDER BY id) FROM storage_dr_scans),'blobs',(SELECT jsonb_agg(jsonb_build_object('sha',sha256,'ref',minio_ref,'size',size_bytes,'type',content_type,'count',ref_count) ORDER BY sha256) FROM blobs WHERE sha256=repeat('a',64)))::text";
         c.seed.push(format!("DELETE FROM blobs WHERE sha256='{sha}'; INSERT INTO storage_dr_scans(id,status,details) VALUES(9601,'completed','[{{\"sha256\":\"{sha}\",\"issue\":\"orphaned\"}}]'::jsonb)"));
-        c.cleanup.push(format!("DELETE FROM blobs WHERE sha256='{sha}'"));
+        c.cleanup
+            .push(format!("DELETE FROM blobs WHERE sha256='{sha}'"));
         match label {
-            "bad-id" => { c.fill = vec!["abc".into()]; c.status = 400; },
-            "missing" => { c.fill = vec!["9999".into()]; c.status = 404; },
-            "running" => { c.seed.push("UPDATE storage_dr_scans SET status='running'".into()); c.status = 409; },
-            "bad-details" => { c.seed.push("UPDATE storage_dr_scans SET details='[42]'::jsonb".into()); c.status = 500; },
-            "null-details" => { c.seed.push("UPDATE storage_dr_scans SET details='null'::jsonb".into()); },
-            _ => {},
+            "bad-id" => {
+                c.fill = vec!["abc".into()];
+                c.status = 400;
+            }
+            "missing" => {
+                c.fill = vec!["9999".into()];
+                c.status = 404;
+            }
+            "running" => {
+                c.seed
+                    .push("UPDATE storage_dr_scans SET status='running'".into());
+                c.status = 409;
+            }
+            "bad-details" => {
+                c.seed
+                    .push("UPDATE storage_dr_scans SET details='[42]'::jsonb".into());
+                c.status = 500;
+            }
+            "null-details" => {
+                c.seed
+                    .push("UPDATE storage_dr_scans SET details='null'::jsonb".into());
+            }
+            _ => {}
         }
         return;
     }
-    if matches!(action,"storage-migration-start"|"storage-migration-cancel") {
-        if action=="storage-migration-start" { c.query="?target=posix".into(); } else { c.fill=vec!["9700".into()]; }
-        c.body="{\"actor_id\":196,\"mailbox_id\":196}".into();
-        c.seed.push("SELECT setval('storage_migrations_id_seq',9700,false)".into());
-        let sha=setjoin_backup::digest(b"blob");
-        c.seed.push(format!("DELETE FROM blobs WHERE sha256='{sha}'; INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES('{sha}','mailblobs/{sha}',4,'text/plain',1)"));
-        c.cleanup.push(format!("DELETE FROM blobs WHERE sha256='{sha}'"));
-        if action=="storage-migration-cancel" && label=="drain-timeout" {c.status=503;}
-        if action=="storage-migration-start" {
-            match label {
-                "no-target"=>{c.query=String::new();c.status=400;},
-                "same-target"=>{c.query="?target=s3".into();c.status=400;},
-                "unknown-target"=>{c.query="?target=other%3Cdriver%3E".into();c.status=500;},
-                "invalid-utf8-target"=>{c.query="?target=%FF".into();c.status=500;},
-                "backup-s3"|"backup-s3-http-io"|"backup-s3-env-region"=>c.query="?target=backup_s3".into(),
-                "oss"|"oss-scope"=>c.query="?target=oss".into(),
-                _=>{},
-            }
-        } else if !matches!(label,"success"|"scoped"|"repeat"|"drain-timeout") {
-            let state=match label {"terminal"=>"completed","cutover"=>"cutover",_=>"backfill"};
-            c.seed.push(format!("INSERT INTO storage_migrations(id,source_driver,target_driver,status) VALUES(9700,'s3','posix','{state}')"));
-            c.status=match label {"denied"=>403,"bad-id"=>400,"missing"=>404,_=>409};
-            if label=="bad-id"{c.fill=vec!["abc".into()];}
-            if label=="missing"{c.fill=vec!["9999".into()];}
+    if matches!(
+        action,
+        "storage-migration-start" | "storage-migration-cancel"
+    ) {
+        if action == "storage-migration-start" {
+            c.query = "?target=posix".into();
+        } else {
+            c.fill = vec!["9700".into()];
         }
-        if label=="native-closed"{c.status=503;}
-        if action=="storage-migration-cancel"&&label=="repeat" {c.status=409;}
-        c.table="storage_migrations";
+        c.body = "{\"actor_id\":196,\"mailbox_id\":196}".into();
+        c.seed
+            .push("SELECT setval('storage_migrations_id_seq',9700,false)".into());
+        let sha = setjoin_backup::digest(b"blob");
+        c.seed.push(format!("DELETE FROM blobs WHERE sha256='{sha}'; INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES('{sha}','mailblobs/{sha}',4,'text/plain',1)"));
+        c.cleanup
+            .push(format!("DELETE FROM blobs WHERE sha256='{sha}'"));
+        if action == "storage-migration-cancel" && label == "drain-timeout" {
+            c.status = 503;
+        }
+        if action == "storage-migration-start" {
+            match label {
+                "no-target" => {
+                    c.query = String::new();
+                    c.status = 400;
+                }
+                "same-target" => {
+                    c.query = "?target=s3".into();
+                    c.status = 400;
+                }
+                "unknown-target" => {
+                    c.query = "?target=other%3Cdriver%3E".into();
+                    c.status = 500;
+                }
+                "invalid-utf8-target" => {
+                    c.query = "?target=%FF".into();
+                    c.status = 500;
+                }
+                "backup-s3" | "backup-s3-http-io" | "backup-s3-env-region" => {
+                    c.query = "?target=backup_s3".into()
+                }
+                "oss" | "oss-scope" => c.query = "?target=oss".into(),
+                _ => {}
+            }
+        } else if !matches!(label, "success" | "scoped" | "repeat" | "drain-timeout") {
+            let state = match label {
+                "terminal" => "completed",
+                "cutover" => "cutover",
+                _ => "backfill",
+            };
+            c.seed.push(format!("INSERT INTO storage_migrations(id,source_driver,target_driver,status) VALUES(9700,'s3','posix','{state}')"));
+            c.status = match label {
+                "denied" => 403,
+                "bad-id" => 400,
+                "missing" => 404,
+                _ => 409,
+            };
+            if label == "bad-id" {
+                c.fill = vec!["abc".into()];
+            }
+            if label == "missing" {
+                c.fill = vec!["9999".into()];
+            }
+        }
+        if label == "native-closed" {
+            c.status = 503;
+        }
+        if action == "storage-migration-cancel" && label == "repeat" {
+            c.status = 409;
+        }
+        c.table = "storage_migrations";
         c.effects="SELECT jsonb_build_object('id',id,'source',source_driver,'target',target_driver,'status',status,'total',total_blobs,'migrated',migrated,'last',last_key,'error',error_message,'started',started_at IS NOT NULL,'completed',completed_at IS NOT NULL)::text FROM storage_migrations ORDER BY id";
         return;
     }
     if action == "storage-dr-start" {
-        c.seed.push("SELECT setval('storage_dr_scans_id_seq',9600,false)".into());
+        c.seed
+            .push("SELECT setval('storage_dr_scans_id_seq',9600,false)".into());
         c.seed.push("DELETE FROM blobs WHERE sha256 IN(repeat('b',64),repeat('c',64)); INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES(repeat('b',64),'mailblobs/b',4,'text/plain',1),(repeat('c',64),'mailblobs/c',4,'text/plain',0)".into());
-        c.cleanup.push("DELETE FROM blobs WHERE sha256 IN(repeat('b',64),repeat('c',64))".into());
-        if label=="list-error" {c.seed.push("DELETE FROM blobs WHERE sha256=repeat('c',64)".into());}
-        if label=="cursor-error" {
+        c.cleanup
+            .push("DELETE FROM blobs WHERE sha256 IN(repeat('b',64),repeat('c',64))".into());
+        if label == "list-error" {
+            c.seed
+                .push("DELETE FROM blobs WHERE sha256=repeat('c',64)".into());
+        }
+        if label == "cursor-error" {
             c.seed.push("ALTER TABLE public.blobs RENAME TO gofree_plat3b_blobs; CREATE FUNCTION public.gofree_plat3b_scan_key(text) RETURNS text LANGUAGE plpgsql VOLATILE AS $$BEGIN IF $1=repeat('c',64) THEN RAISE EXCEPTION 'late storage catalog cursor failure'; END IF; RETURN $1; END$$; CREATE VIEW public.blobs AS SELECT public.gofree_plat3b_scan_key(b.sha256) AS sha256,b.minio_ref,b.size_bytes,b.content_type,b.ref_count,b.created_at FROM public.gofree_plat3b_blobs b ORDER BY b.sha256; GRANT SELECT ON public.blobs TO setjoin_app,setjoin_worker".into());
             c.cleanup.insert(0,"DO $$BEGIN IF to_regclass('public.gofree_plat3b_blobs') IS NOT NULL THEN DROP VIEW IF EXISTS public.blobs; ALTER TABLE public.gofree_plat3b_blobs RENAME TO blobs; END IF; END$$; DROP FUNCTION IF EXISTS public.gofree_plat3b_scan_key(text)".into());
         }
 
-        if label=="insert-error" {
+        if label == "insert-error" {
             c.seed.push("CREATE FUNCTION public.gofree_plat3b_scan_refuse() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION 'storage scan insert refused'; END$$; CREATE TRIGGER gofree_plat3b_scan_refuse BEFORE INSERT ON storage_dr_scans FOR EACH ROW EXECUTE FUNCTION public.gofree_plat3b_scan_refuse()".into());
             c.cleanup.push("DROP TRIGGER IF EXISTS gofree_plat3b_scan_refuse ON storage_dr_scans; DROP FUNCTION IF EXISTS public.gofree_plat3b_scan_refuse()".into());
-            c.status=500;
+            c.status = 500;
         }
         c.table = "storage_dr_scans";
         c.effects = "SELECT jsonb_build_object('id',id,'status',status,'total',total_scanned,'orphaned',orphaned_count,'missing',missing_count,'drift',refcount_drift_count,'reimported',reimported_count,'details',details,'completed',completed_at IS NOT NULL)::text FROM storage_dr_scans ORDER BY id";
@@ -397,7 +488,6 @@ fn storage(c: &mut Case, action: &str, label: &str) {
     }
 }
 
-
 /// Replace run-time ISO timestamps in a document with `<timestamp>`; the fixed `2026-10-0x`
 /// seeds stay readable.
 fn scrub_times(text: &str) -> String {
@@ -438,7 +528,11 @@ fn scrub_times(text: &str) -> String {
         }
         if b.get(end) == Some(&b'Z') {
             end += 1;
-        } else if matches!(b.get(end), Some(b'+' | b'-')) && digit(end + 1) && digit(end + 2) && b.get(end + 3) == Some(&b':') {
+        } else if matches!(b.get(end), Some(b'+' | b'-'))
+            && digit(end + 1)
+            && digit(end + 2)
+            && b.get(end + 3) == Some(&b':')
+        {
             end += 6;
         }
         if text[i..].starts_with("2026-10-0") {
@@ -465,16 +559,27 @@ pub async fn run(action: &str, kind: &str) -> Result<(), BoxError> {
     let domain_of = |id: i64| {
         let owner = &owner;
         async move {
-            Ok::<String, BoxError>(owner.query_one("SELECT name FROM domains WHERE id=$1", &[&id]).await?.get(0))
+            Ok::<String, BoxError>(
+                owner
+                    .query_one("SELECT name FROM domains WHERE id=$1", &[&id])
+                    .await?
+                    .get(0),
+            )
         }
     };
-    let domain_names = [(domain_of(a.domain).await?, "host-a.test"), (domain_of(b.domain).await?, "host-b.test")];
+    let domain_names = [
+        (domain_of(a.domain).await?, "host-a.test"),
+        (domain_of(b.domain).await?, "host-b.test"),
+    ];
     let names = |text: &str| {
         let mut out = text.to_owned();
         for (domain, name) in &domain_names {
             out = out.replace(domain.as_str(), name);
         }
-        out = out.replace(&format!("\"actor_id\":{}", a.user), "\"actor_id\":\"<admin>\"");
+        out = out.replace(
+            &format!("\"actor_id\":{}", a.user),
+            "\"actor_id\":\"<admin>\"",
+        );
         scrub_times(&out)
     };
     let sent_body = case.body.clone();
@@ -484,27 +589,52 @@ pub async fn run(action: &str, kind: &str) -> Result<(), BoxError> {
         _ => (vec![case.perm], None),
     };
     let role = format!("plat3-role-{}", a.user);
-    owner.execute("INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES($1,$2,$3)", &[&role, &permissions, &scope]).await?;
+    owner
+        .execute(
+            "INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES($1,$2,$3)",
+            &[&role, &permissions, &scope],
+        )
+        .await?;
     owner.execute("INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by,eligible) SELECT $1,id,$1,false FROM admin_role_groups WHERE name=$2", &[&a.user, &role]).await?;
-    let audit_start: i64 = owner.query_one("SELECT COALESCE(max(id),0) FROM admin_audit_log", &[]).await?.get(0);
+    let audit_start: i64 = owner
+        .query_one("SELECT COALESCE(max(id),0) FROM admin_audit_log", &[])
+        .await?
+        .get(0);
     let receipts = owner
-        .query("SELECT operation_id::text FROM rust_operation_receipts WHERE family='F08'", &[])
+        .query(
+            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F08'",
+            &[],
+        )
         .await?
         .iter()
         .map(|r| r.get::<_, String>(0))
         .collect::<Vec<_>>();
     let users: Vec<(i64, &str)> = vec![(a.user, "<admin>"), (b.user, "<other>")];
-    let migration_target = if matches!(action,"storage-migration-start"|"storage-migration-cancel") { Some(MigrationTarget::new(a.user)?) } else { None };
-    if let Some(target)=&migration_target {
-        if action=="storage-migration-start"&&matches!(label,"skip"|"repair") {target.seed(if label=="skip"{b"blob"}else{b"oops"})?;}
+    let migration_target = if matches!(
+        action,
+        "storage-migration-start" | "storage-migration-cancel"
+    ) {
+        Some(MigrationTarget::new(a.user)?)
+    } else {
+        None
+    };
+    if let Some(target) = &migration_target {
+        if action == "storage-migration-start" && matches!(label, "skip" | "repair") {
+            target.seed(if label == "skip" { b"blob" } else { b"oops" })?;
+        }
     }
-    let blocked_target=if action=="storage-migration-cancel" && label=="drain-timeout" {Some(BlockedTarget::new(migration_target.as_ref().unwrap())?)}else{None};
-    let runtime_to_stop = std::sync::Mutex::new(None::<Arc<setjoin_gateway::platform_storage::Runtime>>);
-    let source_release=Arc::new(tokio::sync::Notify::new());
-    let source_waiting=Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let wire=Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
-    let wire_errors=Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
-    let capture=Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let blocked_target = if action == "storage-migration-cancel" && label == "drain-timeout" {
+        Some(BlockedTarget::new(migration_target.as_ref().unwrap())?)
+    } else {
+        None
+    };
+    let runtime_to_stop =
+        std::sync::Mutex::new(None::<Arc<setjoin_gateway::platform_storage::Runtime>>);
+    let source_release = Arc::new(tokio::sync::Notify::new());
+    let source_waiting = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let wire = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+    let wire_errors = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let capture = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let result = async {
         let scan_start = action == "storage-dr-start";
         let migration=matches!(action,"storage-migration-start"|"storage-migration-cancel");
@@ -933,15 +1063,26 @@ pub async fn run(action: &str, kind: &str) -> Result<(), BoxError> {
     }
     .await;
     source_release.notify_waiters();
-    if let Some(blocked)=&blocked_target {blocked.release()?;}
+    if let Some(blocked) = &blocked_target {
+        blocked.release()?;
+    }
     let runtime = runtime_to_stop.lock().unwrap().take();
-    if let Some(runtime) = runtime { runtime.shutdown().await; }
+    if let Some(runtime) = runtime {
+        runtime.shutdown().await;
+    }
     for statement in &case.cleanup {
         owner.batch_execute(statement).await?;
     }
     owner.execute("DELETE FROM rust_operation_receipts WHERE family='F08' AND operation_id::text<>ALL($1)", &[&receipts]).await?;
-    owner.execute("DELETE FROM admin_role_assignments WHERE user_id=$1", &[&a.user]).await?;
-    owner.execute("DELETE FROM admin_role_groups WHERE name=$1", &[&role]).await?;
+    owner
+        .execute(
+            "DELETE FROM admin_role_assignments WHERE user_id=$1",
+            &[&a.user],
+        )
+        .await?;
+    owner
+        .execute("DELETE FROM admin_role_groups WHERE name=$1", &[&role])
+        .await?;
     for account in [&a, &b] {
         common::remove_blob_account(&owner, account).await?;
     }
@@ -952,53 +1093,84 @@ pub async fn run(action: &str, kind: &str) -> Result<(), BoxError> {
 async fn wait_scans(owner: &tokio_postgres::Client) -> Result<(), BoxError> {
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
-            let active: bool = owner.query_one("SELECT EXISTS(SELECT 1 FROM storage_dr_scans WHERE status='running')", &[]).await?.get(0);
-            if !active { return Ok::<_, BoxError>(()); }
+            let active: bool = owner
+                .query_one(
+                    "SELECT EXISTS(SELECT 1 FROM storage_dr_scans WHERE status='running')",
+                    &[],
+                )
+                .await?
+                .get(0);
+            if !active {
+                return Ok::<_, BoxError>(());
+            }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-    }).await.map_err(|_| "storage scan did not finish")?
+    })
+    .await
+    .map_err(|_| "storage scan did not finish")?
 }
 
 struct MigrationTarget(std::path::PathBuf);
 impl MigrationTarget {
-    fn new(user:i64) -> Result<Self,BoxError> {
+    fn new(user: i64) -> Result<Self, BoxError> {
         use std::os::unix::fs::DirBuilderExt;
-        let path=std::env::temp_dir().join(format!("gofree-plat3b-target-{}-{user}",std::process::id()));
-        if let Ok(ledger)=std::env::var("GOFREE_RESOURCE_LEDGER") {
+        let path = std::env::temp_dir().join(format!(
+            "gofree-plat3b-target-{}-{user}",
+            std::process::id()
+        ));
+        if let Ok(ledger) = std::env::var("GOFREE_RESOURCE_LEDGER") {
             use std::io::Write;
-            writeln!(std::fs::OpenOptions::new().append(true).open(ledger)?,"Planned owned migration target {} (remove on Drop)",path.display())?;
+            writeln!(
+                std::fs::OpenOptions::new().append(true).open(ledger)?,
+                "Planned owned migration target {} (remove on Drop)",
+                path.display()
+            )?;
         }
         std::fs::DirBuilder::new().mode(0o700).create(&path)?;
         Ok(Self(path))
     }
-    fn seed(&self,bytes:&[u8])->Result<(),BoxError> {
-        use std::os::unix::fs::OpenOptionsExt;
+    fn seed(&self, bytes: &[u8]) -> Result<(), BoxError> {
         use std::io::Write;
-        let key=setjoin_backup::digest(b"blob");
-        let root=self.0.join("mailblobs").join(&key[..2]);
+        use std::os::unix::fs::OpenOptionsExt;
+        let key = setjoin_backup::digest(b"blob");
+        let root = self.0.join("mailblobs").join(&key[..2]);
         std::fs::create_dir_all(&root)?;
-        let mut file=std::fs::OpenOptions::new().create_new(true).write(true).mode(0o600).open(root.join(key))?;
+        let mut file = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(root.join(key))?;
         file.write_all(bytes)?;
         Ok(())
     }
     fn has_staged_temp(&self) -> bool {
-        let Ok(shards)=std::fs::read_dir(self.0.join("mailblobs")) else {return false};
-        shards.flatten().any(|shard| std::fs::read_dir(shard.path()).is_ok_and(|entries| entries.flatten().any(|e| e.file_name().to_string_lossy().starts_with(".tmp-"))))
+        let Ok(shards) = std::fs::read_dir(self.0.join("mailblobs")) else {
+            return false;
+        };
+        shards.flatten().any(|shard| {
+            std::fs::read_dir(shard.path()).is_ok_and(|entries| {
+                entries
+                    .flatten()
+                    .any(|e| e.file_name().to_string_lossy().starts_with(".tmp-"))
+            })
+        })
     }
-    fn snapshot(&self) -> Result<Value,BoxError> {
+    fn snapshot(&self) -> Result<Value, BoxError> {
         use std::os::unix::fs::PermissionsExt;
-        let mut objects=vec![];
-        let root=self.0.join("mailblobs");
-        if !root.exists() {return Ok(json!([]));}
+        let mut objects = vec![];
+        let root = self.0.join("mailblobs");
+        if !root.exists() {
+            return Ok(json!([]));
+        }
         for shard in std::fs::read_dir(root)? {
             for entry in std::fs::read_dir(shard?.path())? {
-                let path=entry?.path();
+                let path = entry?.path();
                 use std::os::unix::fs::FileTypeExt;
                 if std::fs::metadata(&path)?.file_type().is_fifo() {
                     objects.push(json!({"key":path.file_name().unwrap().to_str().unwrap(),"kind":"fifo","mode":std::fs::metadata(&path)?.permissions().mode()&0o777}));
                     continue;
                 }
-                let bytes=std::fs::read(&path)?;
+                let bytes = std::fs::read(&path)?;
                 objects.push(json!({"key":path.file_name().unwrap().to_str().unwrap(),"bytes":String::from_utf8(bytes)?,"mode":std::fs::metadata(&path)?.permissions().mode()&0o777}));
             }
         }
@@ -1006,8 +1178,12 @@ impl MigrationTarget {
         Ok(json!(objects))
     }
 }
-impl Drop for MigrationTarget { fn drop(&mut self) { let _=std::fs::remove_dir_all(&self.0); } }
-async fn wait_migrations(owner:&tokio_postgres::Client) -> Result<(),BoxError> {
+impl Drop for MigrationTarget {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+async fn wait_migrations(owner: &tokio_postgres::Client) -> Result<(), BoxError> {
     tokio::time::timeout(std::time::Duration::from_secs(20),async {
         loop {
             let active:bool=owner.query_one("SELECT EXISTS(SELECT 1 FROM storage_migrations WHERE status IN('dual_write','backfill'))",&[]).await?.get(0);
@@ -1018,49 +1194,88 @@ async fn wait_migrations(owner:&tokio_postgres::Client) -> Result<(),BoxError> {
 }
 
 struct BlockedTarget {
-    path:std::path::PathBuf,
-    container_path:String,
-    anchor:std::sync::Mutex<Option<std::fs::File>>,
+    path: std::path::PathBuf,
+    container_path: String,
+    anchor: std::sync::Mutex<Option<std::fs::File>>,
 }
 impl BlockedTarget {
-    fn new(target:&MigrationTarget)->Result<Self,BoxError> {
+    fn new(target: &MigrationTarget) -> Result<Self, BoxError> {
         use std::os::unix::process::CommandExt;
-        let key=setjoin_backup::digest(b"blob");
-        let root=target.0.join("mailblobs").join(&key[..2]);
+        let key = setjoin_backup::digest(b"blob");
+        let root = target.0.join("mailblobs").join(&key[..2]);
         std::fs::create_dir_all(&root)?;
-        let path=root.join(&key);
-        let status=std::process::Command::new("mkfifo").arg0("gofree-plat3b-mkfifo").args(["-m","600"]).arg(&path).status()?;
-        if !status.success(){return Err("could not create owned FIFO".into());}
-        let anchor=std::fs::OpenOptions::new().read(true).write(true).open(&path)?;
-        Ok(Self{path,container_path:format!("/gofree-plat3b-target/mailblobs/{}/{key}",&key[..2]),anchor:std::sync::Mutex::new(Some(anchor))})
+        let path = root.join(&key);
+        let status = std::process::Command::new("mkfifo")
+            .arg0("gofree-plat3b-mkfifo")
+            .args(["-m", "600"])
+            .arg(&path)
+            .status()?;
+        if !status.success() {
+            return Err("could not create owned FIFO".into());
+        }
+        let anchor = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)?;
+        Ok(Self {
+            path,
+            container_path: format!("/gofree-plat3b-target/mailblobs/{}/{key}", &key[..2]),
+            anchor: std::sync::Mutex::new(Some(anchor)),
+        })
     }
-    fn reader_present(&self)->Result<bool,BoxError> {
-        let count=std::fs::read_dir("/proc/self/fd")?.filter_map(Result::ok)
-            .filter(|fd|std::fs::read_link(fd.path()).is_ok_and(|path|path==self.path)).count();
-        Ok(count>=2)
+    fn reader_present(&self) -> Result<bool, BoxError> {
+        let count = std::fs::read_dir("/proc/self/fd")?
+            .filter_map(Result::ok)
+            .filter(|fd| std::fs::read_link(fd.path()).is_ok_and(|path| path == self.path))
+            .count();
+        Ok(count >= 2)
     }
-    fn release(&self)->Result<(),BoxError> {
+    fn release(&self) -> Result<(), BoxError> {
         use std::io::Write;
-        if let Some(mut file)=self.anchor.lock().unwrap().take(){file.write_all(b"blob")?;}
+        if let Some(mut file) = self.anchor.lock().unwrap().take() {
+            file.write_all(b"blob")?;
+        }
         Ok(())
     }
 }
-impl Drop for BlockedTarget {fn drop(&mut self){let _=self.release();}}
+impl Drop for BlockedTarget {
+    fn drop(&mut self) {
+        let _ = self.release();
+    }
+}
 
-fn order_review(observation:&mut Value)->Result<(),BoxError> {
-    let review:Value=serde_json::from_str(include_str!("../../../../tests/conformance/platform/storage-order-review.json"))?;
-    if review["reviewed"]!=true||review["route"]!="GET /admin/storage/status"||review["case"]!="multi" {
+fn order_review(observation: &mut Value) -> Result<(), BoxError> {
+    let review: Value = serde_json::from_str(include_str!(
+        "../../../../tests/conformance/platform/storage-order-review.json"
+    ))?;
+    if review["reviewed"] != true
+        || review["route"] != "GET /admin/storage/status"
+        || review["case"] != "multi"
+    {
         return Err("storage topology order comparison has no reviewed authority".into());
     }
-    let raw=observation["response"]["body"].as_str().ok_or("missing status body")?;
-    let mut body:Value=serde_json::from_str(raw)?;
-    if format!("{}\n",setjoin_platform::config::go_any(&body))!=raw {return Err("status JSON encoding changed beyond array ordering".into());}
-    let topology=body["topology"].as_array_mut().ok_or("missing topology entries")?;
+    let raw = observation["response"]["body"]
+        .as_str()
+        .ok_or("missing status body")?;
+    let mut body: Value = serde_json::from_str(raw)?;
+    if format!("{}\n", setjoin_platform::config::go_any(&body)) != raw {
+        return Err("status JSON encoding changed beyond array ordering".into());
+    }
+    let topology = body["topology"]
+        .as_array_mut()
+        .ok_or("missing topology entries")?;
     for center in topology.iter_mut() {
-        center["racks"].as_array_mut().ok_or("missing racks")?.sort_by_key(Value::to_string);
+        center["racks"]
+            .as_array_mut()
+            .ok_or("missing racks")?
+            .sort_by_key(Value::to_string);
     }
     topology.sort_by_key(Value::to_string);
-    body["volumes"].as_array_mut().ok_or("missing volumes")?.sort_by_key(Value::to_string);
-    observation["response"]["body"]=json!(format!("{}\n",setjoin_platform::config::go_any(&body)));
+    body["volumes"]
+        .as_array_mut()
+        .ok_or("missing volumes")?
+        .sort_by_key(Value::to_string);
+    observation["response"]["body"] =
+        json!(format!("{}\n", setjoin_platform::config::go_any(&body)));
     Ok(())
 }

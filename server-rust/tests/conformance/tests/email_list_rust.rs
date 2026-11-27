@@ -6,21 +6,22 @@
 //! session's actor.
 use setjoin_conformance::email_list::{self, ListEmails, ListQuery, Page};
 use setjoin_conformance::harness::{BoxError, Db};
-use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
-use setjoin_jmap::{query_email_list, EmailListQuery, Focus};
-use setjoin_pg::{MailboxAuthContext, ScopedExecutor};
+use setjoin_contracts::ids::ActorId;
+use setjoin_jmap::{query_email_list, EmailListQuery, Focus, TxFactory};
+use setjoin_pg::ScopedExecutor;
 use tokio_postgres::types::Type;
 use tokio_postgres::Client;
 
 pub struct RustRead {
-    exec: ScopedExecutor,
+    tx: TxFactory,
 }
 
 impl RustRead {
     pub fn new(db: &Db) -> Self {
         let dsn = db.app.as_deref().unwrap_or(&db.dsn);
+        let exec = ScopedExecutor::from_dsn(dsn, 2).expect("read pool");
         Self {
-            exec: ScopedExecutor::from_dsn(dsn, 2).expect("read pool"),
+            tx: TxFactory::new(exec.try_app_pool().expect("app pool")),
         }
     }
 }
@@ -37,19 +38,32 @@ impl ListEmails for RustRead {
         q: ListQuery,
     ) -> Result<Page, BoxError> {
         // Plays the authentication boundary: the session's actor is the
-        // mailbox's bound user.
-        let user: i64 = client
+        // mailbox's bound user. Under V288 FORCE RLS on `mailboxes`, scope the
+        // lookup transaction to `mailbox` so `setjoin_app` can read the row.
+        let tx = client.transaction().await?;
+        tx.query_typed(
+            "SELECT set_config('app.current_mailbox_id', $1, true)",
+            &[(&mailbox.to_string(), Type::TEXT)],
+        )
+        .await?;
+        let user: i64 = tx
             .query_typed(
                 "SELECT user_id FROM mailboxes WHERE id = $1",
                 &[(&mailbox, Type::INT8)],
             )
             .await?[0]
             .get(0);
-        let auth = MailboxAuthContext::from_authenticated_session(
-            ActorId::new(user).map_err(|_| "actor id")?,
-            MailboxId::new(mailbox).map_err(|_| "mailbox id")?,
-            Generation(1),
-        );
+        tx.commit().await?;
+        let principal = self
+            .tx
+            .mint_capability_primary_mailbox(
+                ActorId::new(user).map_err(|_| "actor id")?,
+                "",
+                "127.0.0.1",
+            )
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        let cap = principal.require_read().map_err(|e| format!("{e:?}"))?;
         let query = EmailListQuery {
             tag: q.tag,
             focus: match q.focus {
@@ -63,7 +77,7 @@ impl ListEmails for RustRead {
             position: q.position,
             limit: q.limit,
         };
-        let page = query_email_list(&self.exec, &auth, &query)
+        let page = query_email_list(&self.tx, &cap, &query)
             .await
             .map_err(|e| format!("{e:?}"))?;
         Ok(Page {

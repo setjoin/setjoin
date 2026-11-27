@@ -24,10 +24,10 @@ foundation's opaque F11 recovery receipt; Unknown returns 503 and X-Operation-ID
 never success or forwarding after an attempted write. Business-effect recordings
 exclude only that foundation metadata. Audit keys come from trusted configuration.
 
-Guest list/detail and sponsor reads retain frozen Go's worker-pool SQL, with
+Guest list/detail and sponsor reads run through `TxFactory` (`AdminReadTx` over
+the worker pool) using static `SqlContract` definitions in `src/sql.rs`, with
 same-statement live guest permission, immutable host-domain and scoped target
-predicates. `src/{guest_list,guest_get,sponsors}.sql` are request SELECTs, not
-installed reducers. Domain/OU/set reach stays coupled to the permission-bearing
+predicates. Domain/OU/set reach stays coupled to the permission-bearing
 assignment. An inaccessible detail is Go's plain `guest not found` 404; an
 inaccessible collection/sponsor selection is empty.
 

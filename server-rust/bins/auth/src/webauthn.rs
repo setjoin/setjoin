@@ -7,7 +7,7 @@ impl AuthServer {
             Ok(s) => s,
             Err(r) => return r,
         };
-        let mut response = match webauthn::list(&self.exec, &session).await {
+        let mut response = match webauthn::list(&self.auth_db, &session).await {
             Ok(raw) => Response::builder()
                 .status(200)
                 .header("content-type", "application/json")
@@ -74,7 +74,7 @@ impl AuthServer {
         if id.is_empty() {
             return Self::failure(400, "invalid credential id", &path);
         }
-        match webauthn::name(&self.exec, &session, &id, name).await {
+        match webauthn::name(&self.auth_db, &session, &id, name).await {
             setjoin_pg::CommandOutcome::Committed(()) => {
                 Response::builder().status(200).body(body("")).unwrap()
             }
@@ -110,7 +110,7 @@ impl AuthServer {
             return Self::not_found();
         };
         let email = form_urlencoded_query(req.uri().query().unwrap_or(""), "email");
-        let Ok(begin) = rp.begin_login(&self.exec, &email).await else {
+        let Ok(begin) = rp.begin_login(&self.auth_db, &email).await else {
             return Self::failure(500, "internal error", req.uri().path());
         };
         let (Ok(session), Ok(uid)) = (
@@ -195,7 +195,7 @@ impl AuthServer {
             Ok(jkt) => jkt,
             Err(reply) => return reply,
         };
-        let proof = match rp.finish_login(&self.exec, &transport, &raw).await {
+        let proof = match rp.finish_login(&self.auth_db, &transport, &raw).await {
             Ok(p) => p,
             Err(webauthn::LoginFailure::Refused(detail)) => {
                 let _=self.exec.protocol_statement("INSERT INTO auth_event_log(event,provider,ip_address) VALUES('login_failed','webauthn',NULLIF($1,'')::inet)",&[(&ip,setjoin_pg::Type::TEXT)]).await;
@@ -205,12 +205,12 @@ impl AuthServer {
                 return Self::webauthn_unknown(operation, "Passkey assertion", &path)
             }
         };
-        let user = match proof.completion(&self.exec).await {
+        let user = match proof.completion(&self.auth_db).await {
             Ok(Some(u)) => u,
             Ok(None) => return Self::failure(401, "user not found", &path),
             Err(_) => return Self::failure(500, "internal error", &path),
         };
-        let (totp, push) = match proof.factors(&self.exec).await {
+        let (totp, push) = match proof.factors(&self.auth_db).await {
             Ok(factors) => factors,
             Err(_) => return Self::failure(500, "internal error", &path),
         };
@@ -232,8 +232,15 @@ impl AuthServer {
             .await;
         // Fresh passwordless WebAuthn enforces CA before EITHER a second-factor
         // challenge or final session issuance.
-        let ca_policy_id = match self
-            .evaluate_ca(
+        let pending_mint = super::ca::PendingMint {
+            user_id: user.user(),
+            email: user.email(),
+            amr: &["hwk"],
+            credential_fence: None,
+            identity_fence: None,
+        };
+        let ca_policy_id = match boxed(|| {
+            self.evaluate_ca(
                 ca_enabled,
                 self.ca_context(
                     user.user(),
@@ -244,16 +251,11 @@ impl AuthServer {
                     "webauthn",
                 ),
                 false,
-                Some(&super::ca::PendingMint {
-                    user_id: user.user(),
-                    email: user.email(),
-                    amr: &["hwk"],
-                    credential_fence: None,
-                    identity_fence: None,
-                }),
+                Some(&pending_mint),
                 &path,
             )
-            .await
+        })
+        .await
         {
             Ok(id) => id,
             Err(reply) => return reply,
@@ -283,12 +285,12 @@ impl AuthServer {
                 Err(_) => return Self::failure(500, "internal error", &path),
             };
             if push && !self.config.vapid_private_key.is_empty() {
-                match proof.push_challenge(&self.exec).await {
+                match proof.push_challenge(&self.auth_db).await {
                     setjoin_pg::CommandOutcome::Committed(
                         setjoin_identity::push::Generated::Created(challenge),
                     ) => {
                         let nonce = challenge.nonce().to_owned();
-                        self.native_push.enqueue(self.exec.clone(), challenge);
+                        self.native_push.enqueue(self.auth_db.clone(), challenge);
                         return Self::json(
                             200,
                             json!({"mfa_required":true,"mfa_method":"push","mfa_token":token,"nonce":nonce,"ttl_seconds":120,"fallback":["totp","backup_codes"]}),
@@ -308,11 +310,11 @@ impl AuthServer {
                 json!({"mfa_required":true,"mfa_method":"totp","mfa_token":token,"fallback":["backup_codes"]}),
             );
         }
-        let scope = match user.scope(&self.exec).await {
+        let scope = match user.scope(&self.auth_db).await {
             Ok(s) => s,
             Err(_) => return Self::failure(500, "authorization scope resolution failed", &path),
         };
-        let guest = match user.admission(&self.exec).await {
+        let guest = match user.admission(&self.auth_db).await {
             Ok((true, guest)) => guest,
             Ok((false, _)) => return Response::builder().status(409).header("content-type","application/problem+json").header("cache-control","no-store").body(body(problem::Problem::new(409,"Sign-in is temporarily fenced while identity transition security effects converge.").kind("https://setjoin.com/errors/conflict").instance(&path).body())).unwrap(),
             Err(login::AdmissionFailure::AccountType(_)) => {
@@ -341,7 +343,7 @@ impl AuthServer {
             scope,
             &factors,
         );
-        match user.risk(&self.exec).await {
+        match user.risk(&self.auth_db).await {
             Ok(Some(risk)) => claims["risk"] = risk,
             Ok(None) => {}
             Err(_) => return Self::failure(500, "token issue failed", &path),
@@ -380,7 +382,12 @@ impl AuthServer {
             return Self::failure(500, "token issue failed", &path);
         };
         match proof
-            .mint(&self.exec, &refresh, self.config.refresh_seconds, &family)
+            .mint(
+                &self.auth_db,
+                &refresh,
+                self.config.refresh_seconds,
+                &family,
+            )
             .await
         {
             setjoin_pg::CommandOutcome::Committed(v) if v["status"] == "minted" => {}
@@ -390,7 +397,7 @@ impl AuthServer {
             _ => return Self::failure(500, "An internal error occurred. Please try again.", &path),
         }
         user.record(
-            &self.exec,
+            &self.auth_db,
             &access,
             &jti,
             self.config.access_seconds,
@@ -455,7 +462,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.webauthn_register_begin_admitted(req).await;
+        let reply = boxed(|| self.webauthn_register_begin_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn webauthn_register_begin_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -486,7 +493,7 @@ impl AuthServer {
                 }
             }
         }
-        let mut response = match rp.begin_registration(&self.exec, &session, &token).await {
+        let mut response = match rp.begin_registration(&self.auth_db, &session, &token).await {
             setjoin_pg::CommandOutcome::Committed(v) => match v.outcome["status"].as_str() {
                 Some("created") => {
                     let enc = match rp.cookies.seal(v.session.as_deref().unwrap_or_default()) {
@@ -521,7 +528,7 @@ impl AuthServer {
                 ),
                 Some("reauth") => {
                     setjoin_identity::totp::audit(
-                        &self.exec,
+                        &self.auth_db,
                         &session,
                         &ip,
                         "mfa_reauth_refused",
@@ -592,7 +599,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.webauthn_register_finish_admitted(req).await;
+        let reply = boxed(|| self.webauthn_register_finish_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn webauthn_register_finish_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -645,7 +652,7 @@ impl AuthServer {
                 .unwrap_or_default()
         };
         match rp
-            .finish_registration(&self.exec, &session, &cookie, &raw, &token, &ip)
+            .finish_registration(&self.auth_db, &session, &cookie, &raw, &token, &ip)
             .await
         {
             setjoin_pg::CommandOutcome::Committed(v) => match v["status"].as_str() {
@@ -659,7 +666,7 @@ impl AuthServer {
                         "webauthn register finish without a valid possession proof"
                     };
                     setjoin_identity::totp::audit(
-                        &self.exec,
+                        &self.auth_db,
                         &session,
                         &ip,
                         "mfa_reauth_refused",
@@ -748,7 +755,7 @@ impl AuthServer {
         } else {
             header
         };
-        match webauthn::revoke(&self.exec, &session, &id, &token, &ip).await {
+        match webauthn::revoke(&self.auth_db, &session, &id, &token, &ip).await {
             setjoin_pg::CommandOutcome::Committed(v) => match v["status"].as_str() {
                 Some("revoked_credential") => {
                     Response::builder().status(204).body(body("")).unwrap()
@@ -772,7 +779,7 @@ impl AuthServer {
                         "webauthn revoke without a valid possession proof"
                     };
                     setjoin_identity::totp::audit(
-                        &self.exec,
+                        &self.auth_db,
                         &session,
                         &ip,
                         "mfa_reauth_refused",

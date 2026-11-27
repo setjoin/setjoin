@@ -1,7 +1,23 @@
 //! Rules and templates (F09). Frozen Go is authoritative; see DOX.md.
 #![forbid(unsafe_code)]
-use setjoin_authz::AuthContext;
-use setjoin_pg::{Row, ScopedExecutor, StatementFailure, Type};
+pub mod authority;
+pub mod input;
+pub mod sql;
+pub mod templates;
+pub use sql::SQL_CONTRACTS;
+
+use setjoin_authz::principals::{
+    AdminPermissionProof, MutateCapability, ReadCapability, TxFactory, UserPrincipal,
+};
+use setjoin_contracts::{
+    authority::{AuthorityKey, ResourceScope},
+    command::CommandEnvelope,
+    ids::{Digest, Generation, OperationId},
+};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, Row, StatementFailure, ToSql};
+use setjoin_sql_catalog::SqlContract;
+use sha2::{Digest as _, Sha256};
+
 fn invalid() -> StatementFailure {
     StatementFailure {
         sqlstate: None,
@@ -9,9 +25,11 @@ fn invalid() -> StatementFailure {
         message: "invalid rules result".into(),
     }
 }
+
 fn s(v: &str) -> String {
     serde_json::to_string(v).expect("string")
 }
+
 fn done(v: String) -> String {
     v.replace('&', "\\u0026")
         .replace('<', "\\u003c")
@@ -20,149 +38,182 @@ fn done(v: String) -> String {
         .replace('\u{2029}', "\\u2029")
         + "\n"
 }
-fn nano(column: &str) -> String {
-    format!("to_char({column} AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS') || CASE WHEN date_part('microseconds', {column} AT TIME ZONE 'UTC')::bigint % 1000000 = 0 THEN '' ELSE regexp_replace(to_char({column} AT TIME ZONE 'UTC','.US'),'0+$','') END || 'Z'")
+
+fn deadline() -> std::time::Instant {
+    std::time::Instant::now() + std::time::Duration::from_secs(30)
 }
-fn columns() -> String {
-    format!("id,mailbox_id,name,enabled,priority,run_on,is_transport_rule,conditions::text,actions::text,stop_processing,{},{}",nano("created_at"),nano("updated_at"))
-}
+
 fn rule(r: &Row) -> Result<String, StatementFailure> {
     let id: i64 = r.try_get(0).map_err(|_| invalid())?;
     let mb: Option<i64> = r.try_get(1).map_err(|_| invalid())?;
     let mailbox = mb
         .map(|m| format!(",\"mailboxId\":{m}"))
         .unwrap_or_default();
-    Ok(format!("{{\"id\":{id}{mailbox},\"name\":{},\"enabled\":{},\"priority\":{},\"runOn\":{},\"isTransportRule\":{},\"conditions\":{},\"actions\":{},\"stopProcessing\":{},\"createdAt\":{},\"updatedAt\":{}}}",s(r.try_get(2).map_err(|_|invalid())?),r.try_get::<_,bool>(3).map_err(|_|invalid())?,r.try_get::<_,i32>(4).map_err(|_|invalid())?,s(r.try_get(5).map_err(|_|invalid())?),r.try_get::<_,bool>(6).map_err(|_|invalid())?,templates::raw(r.try_get(7).map_err(|_|invalid())?),templates::raw(r.try_get(8).map_err(|_|invalid())?),r.try_get::<_,bool>(9).map_err(|_|invalid())?,s(r.try_get(10).map_err(|_|invalid())?),s(r.try_get(11).map_err(|_|invalid())?)))
+    Ok(format!(
+        "{{\"id\":{id}{mailbox},\"name\":{},\"enabled\":{},\"priority\":{},\"runOn\":{},\"isTransportRule\":{},\"conditions\":{},\"actions\":{},\"stopProcessing\":{},\"createdAt\":{},\"updatedAt\":{}}}",
+        s(r.try_get(2).map_err(|_| invalid())?),
+        r.try_get::<_, bool>(3).map_err(|_| invalid())?,
+        r.try_get::<_, i32>(4).map_err(|_| invalid())?,
+        s(r.try_get(5).map_err(|_| invalid())?),
+        r.try_get::<_, bool>(6).map_err(|_| invalid())?,
+        templates::raw(r.try_get(7).map_err(|_| invalid())?),
+        templates::raw(r.try_get(8).map_err(|_| invalid())?),
+        r.try_get::<_, bool>(9).map_err(|_| invalid())?,
+        s(r.try_get(10).map_err(|_| invalid())?),
+        s(r.try_get(11).map_err(|_| invalid())?)
+    ))
 }
-pub async fn personal_list(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    let rows=exec.read_iterated(&format!("SELECT {} FROM rules WHERE mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$1) AND is_transport_rule=FALSE ORDER BY priority,id",columns()),&[(&user,Type::INT8)]).await?;
-    Ok(done(format!(
+
+/// Format rows produced by `sql::ADMIN_LIST_*` or `sql::PERSONAL_LIST` into Go wire JSON.
+pub fn format_rules_json(rows: &[Row]) -> String {
+    done(format!(
         "[{}]",
         rows.iter()
             .filter_map(|r| rule(r).ok())
             .collect::<Vec<_>>()
             .join(",")
-    )))
+    ))
 }
 
-pub mod input;
-use setjoin_contracts::{
-    command::CommandEnvelope,
-    ids::{Digest, OperationId},
-};
-use setjoin_pg::{CommandOutcome, MailboxAuthContext, Param, ReceiptCommand};
-use sha2::{Digest as _, Sha256};
-fn scope(a: &AuthContext) -> MailboxAuthContext {
-    a.database_scope()
-}
-pub async fn write(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+fn mailbox_envelope(
+    mutate: &MutateCapability,
     op: [u8; 16],
     name: &'static str,
-    sql: &str,
-    params: &[Param<'_>],
-) -> CommandOutcome<String, StatementFailure> {
-    let auth = scope(a);
-    let envelope = CommandEnvelope {
+    digest_input: &str,
+) -> CommandEnvelope<()> {
+    CommandEnvelope {
         operation: OperationId(op),
-        authority: auth.authority(),
+        authority: AuthorityKey {
+            actor: mutate.actor(),
+            scope: ResourceScope::Mailbox(mutate.mailbox()),
+            generation: Generation(1),
+        },
         binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(
-            Sha256::digest(format!("{name}:{sql}:{params:?}").as_bytes()).into(),
-        ),
+        payload_digest: Digest(Sha256::digest(format!("{name}:{digest_input}").as_bytes()).into()),
         command: (),
-    };
-    setjoin_pg::run_receipted_command(
-        exec,
-        ReceiptCommand {
-            family: "F09",
-            command: name,
-        },
-        &envelope,
-        &auth,
-        std::time::Instant::now() + std::time::Duration::from_secs(30),
-        sql,
-        params,
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get::<_, String>(0).ok())
-                .ok_or_else(invalid)
-        },
-    )
-    .await
+    }
 }
+
+pub(crate) fn user_envelope(
+    user: &UserPrincipal,
+    op: [u8; 16],
+    name: &'static str,
+    digest_input: &str,
+) -> CommandEnvelope<()> {
+    CommandEnvelope {
+        operation: OperationId(op),
+        authority: AuthorityKey {
+            actor: user.user(),
+            scope: ResourceScope::User(user.user()),
+            generation: Generation(1),
+        },
+        binding: setjoin_db::lifecycle::accepted_contract(),
+        payload_digest: Digest(Sha256::digest(format!("{name}:{digest_input}").as_bytes()).into()),
+        command: (),
+    }
+}
+
+pub(crate) fn admin_envelope(
+    proof: &AdminPermissionProof,
+    op: [u8; 16],
+    name: &'static str,
+    digest_input: &str,
+) -> CommandEnvelope<()> {
+    CommandEnvelope {
+        operation: OperationId(op),
+        authority: AuthorityKey {
+            actor: proof.actor(),
+            scope: ResourceScope::User(proof.actor()),
+            generation: Generation(1),
+        },
+        binding: setjoin_db::lifecycle::accepted_contract(),
+        payload_digest: Digest(Sha256::digest(format!("{name}:{digest_input}").as_bytes()).into()),
+        command: (),
+    }
+}
+
+fn project_text0(rows: Vec<Row>) -> Result<String, StatementFailure> {
+    rows.first()
+        .and_then(|r| r.try_get::<_, String>(0).ok())
+        .ok_or_else(invalid)
+}
+
+pub async fn personal_list(
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+) -> Result<String, StatementFailure> {
+    let uid = user.user().get();
+    let mut tx = tx_factory.begin_user_read(user).await?;
+    let rows = tx
+        .query_iterated_contract(&sql::PERSONAL_LIST, &[&uid])
+        .await?;
+    tx.finish().await?;
+    Ok(format_rules_json(&rows))
+}
+
 pub async fn personal_count(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    tx_factory: &TxFactory,
+    read: &ReadCapability,
 ) -> Result<i64, StatementFailure> {
-    let mb = actor.mailbox_id();
-    exec.read(
-        "SELECT count(*) FROM rules WHERE mailbox_id=$1",
-        &[(&mb, Type::INT8)],
-    )
-    .await?
-    .first()
-    .and_then(|r| r.try_get(0).ok())
-    .ok_or_else(invalid)
+    let mb = read.mailbox().get();
+    tx_factory
+        .run_mailbox_read_contract(read, &sql::PERSONAL_COUNT, &[&mb])
+        .await?
+        .first()
+        .and_then(|r| r.try_get(0).ok())
+        .ok_or_else(invalid)
 }
+
 pub const PERSONAL_RULE_CAP: i64 = 100;
 pub const ACTIVE_SWEEP_CAP: i64 = 3;
-/// A command capped per mailbox: the mailbox row is locked and the count and the
-/// write are separate statements of one transaction (`run_receipted_command_capped`),
-/// so concurrent requests on any replica cannot both pass the cap.
+
+#[allow(clippy::too_many_arguments)]
 async fn write_capped(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+    tx_factory: &TxFactory,
+    mutate: &MutateCapability,
     op: [u8; 16],
     name: &'static str,
-    count_sql: &str,
+    count_contract: &'static SqlContract,
     cap: i64,
-    sql: &str,
-    params: &[Param<'_>],
+    write_contract: &'static SqlContract,
+    values: &[&(dyn ToSql + Sync)],
+    digest_input: &str,
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = scope(a);
-    let envelope = CommandEnvelope {
-        operation: OperationId(op),
-        authority: auth.authority(),
-        binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(
-            Sha256::digest(format!("{name}:{sql}:{params:?}").as_bytes()).into(),
-        ),
-        command: (),
-    };
-    setjoin_pg::run_receipted_command_capped(
-        exec,
-        ReceiptCommand {
-            family: "F09",
-            command: name,
-        },
-        &envelope,
-        &auth,
-        std::time::Instant::now() + std::time::Duration::from_secs(30),
-        count_sql,
-        cap,
-        sql,
-        params,
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get::<_, String>(0).ok())
-                .ok_or_else(invalid)
-        },
-        || "cap".to_owned(),
-    )
-    .await
+    let mb = mutate.mailbox().get();
+    let envelope = mailbox_envelope(mutate, op, name, digest_input);
+    tx_factory
+        .run_mailbox_locked_tx(mutate, &envelope, deadline(), async move |tx| {
+            tx.query_contract(&sql::LOCK_MAILBOX, &[&mb]).await?;
+            let counted = tx.query_contract(count_contract, &[&mb]).await?;
+            let n: i64 = counted
+                .first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(invalid)?;
+            let value = if n >= cap {
+                "cap".to_owned()
+            } else {
+                let rows = tx.query_contract(write_contract, values).await?;
+                project_text0(rows)?
+            };
+            tx.record_receipt(
+                OperationId(op),
+                ReceiptCommand {
+                    family: "F09",
+                    command: name,
+                },
+            )
+            .await?;
+            Ok(value)
+        })
+        .await
 }
+
 /// `Committed("cap")` means the mailbox is at its personal-rule cap and nothing was
 /// written. Owner-approved security fix 2026-11-05 (#484): the cap is enforced in the
 /// database under a mailbox row lock (Go counted in a separate, unlocked statement).
 pub async fn personal_create(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+    tx_factory: &TxFactory,
+    mutate: &MutateCapability,
     r: &input::Rule,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
@@ -171,38 +222,116 @@ pub async fn personal_create(
     } else {
         PERSONAL_RULE_CAP
     };
-    write_capped(exec,a,op,"personal.create","SELECT count(*) FROM rules WHERE mailbox_id=$1",cap,"INSERT INTO rules(mailbox_id,name,enabled,priority,run_on,is_transport_rule,conditions,actions,stop_processing) SELECT $1,$4,$5,$6::bigint::int,$7,FALSE,$8::text::jsonb,$9::text::jsonb,$10 WHERE $2::bigint>0 AND $3::text<>'' RETURNING id::text",&[(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
+    let mb = mutate.mailbox().get();
+    let digest = format!(
+        "{mb}:{}:{}:{}:{}:{:?}:{:?}:{}",
+        r.name, r.enabled, r.priority, r.run_on, r.conditions.0, r.actions.0, r.stop
+    );
+    write_capped(
+        tx_factory,
+        mutate,
+        op,
+        "personal.create",
+        &sql::PERSONAL_COUNT,
+        cap,
+        &sql::PERSONAL_CREATE,
+        &[
+            &mb,
+            &r.name,
+            &r.enabled,
+            &r.priority,
+            &r.run_on,
+            &r.conditions.0,
+            &r.actions.0,
+            &r.stop,
+        ],
+        &digest,
+    )
+    .await
 }
+
 pub async fn personal_update(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+    tx_factory: &TxFactory,
+    mutate: &MutateCapability,
     id: i64,
     r: &input::Rule,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    write(exec,a,op,"personal.update","WITH changed AS(UPDATE rules SET name=COALESCE(NULLIF($5,''),name),enabled=$6,priority=$7::bigint::int,run_on=$8,conditions=COALESCE($9::text::jsonb,conditions),actions=COALESCE($10::text::jsonb,actions),stop_processing=$11,updated_at=now() WHERE id=$4 AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2) AND is_transport_rule=FALSE AND $1::bigint>=0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8),(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
+    let uid = mutate.actor().get();
+    let digest = format!(
+        "{id}:{uid}:{}:{}:{}:{}:{:?}:{:?}:{}",
+        r.name, r.enabled, r.priority, r.run_on, r.conditions.0, r.actions.0, r.stop
+    );
+    let envelope = mailbox_envelope(mutate, op, "personal.update", &digest);
+    tx_factory
+        .run_mailbox_write_contract_pipelined(
+            mutate,
+            &envelope,
+            deadline(),
+            &sql::PERSONAL_UPDATE,
+            &[
+                &id,
+                &uid,
+                &r.name,
+                &r.enabled,
+                &r.priority,
+                &r.run_on,
+                &r.conditions.0,
+                &r.actions.0,
+                &r.stop,
+            ],
+            Some(ReceiptCommand {
+                family: "F09",
+                command: "personal.update",
+            }),
+            project_text0,
+        )
+        .await
 }
+
 pub async fn personal_delete(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+    tx_factory: &TxFactory,
+    mutate: &MutateCapability,
     id: i64,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    write(exec,a,op,"personal.delete","WITH changed AS(DELETE FROM rules WHERE id=$4 AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2) AND is_transport_rule=FALSE AND $1::bigint>=0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8)]).await
+    let uid = mutate.actor().get();
+    let envelope = mailbox_envelope(mutate, op, "personal.delete", &format!("{id}:{uid}"));
+    tx_factory
+        .run_mailbox_write_contract_pipelined(
+            mutate,
+            &envelope,
+            deadline(),
+            &sql::PERSONAL_DELETE,
+            &[&id, &uid],
+            Some(ReceiptCommand {
+                family: "F09",
+                command: "personal.delete",
+            }),
+            project_text0,
+        )
+        .await
 }
+
 pub async fn active_sweeps(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+    tx_factory: &TxFactory,
+    read: &ReadCapability,
 ) -> Result<i64, StatementFailure> {
-    let mb = a.mailbox_id();
-    exec.read("SELECT count(*) FROM scheduled_actions WHERE mailbox_id=$1 AND action_kind='rules_retro' AND status IN('pending','processing')",&[(&mb,Type::INT8)]).await?.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)
+    let mb = read.mailbox().get();
+    tx_factory
+        .run_mailbox_read_contract(read, &sql::ACTIVE_SWEEPS, &[&mb])
+        .await?
+        .first()
+        .and_then(|r| r.try_get(0).ok())
+        .ok_or_else(invalid)
 }
+
 /// `Committed("cap")` means the mailbox already has [`ACTIVE_SWEEP_CAP`] sweeps in
 /// progress and nothing was enqueued (security fix 2026-11-05, #484: counted under the
 /// mailbox row lock in the same transaction as the enqueue).
 pub async fn apply(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+    tx_factory: &TxFactory,
+    mutate: &MutateCapability,
     id: i64,
     window: &str,
     op: [u8; 16],
@@ -212,29 +341,35 @@ pub async fn apply(
     } else {
         ACTIVE_SWEEP_CAP
     };
+    let mb = mutate.mailbox().get();
     write_capped(
-        exec,
-        a,
+        tx_factory,
+        mutate,
         op,
         "personal.apply",
-        "SELECT count(*) FROM scheduled_actions WHERE mailbox_id=$1 AND action_kind='rules_retro' AND status IN('pending','processing')",
+        &sql::ACTIVE_SWEEPS,
         cap,
-        "SELECT rules_apply_retroactive($1,$4,$5)::text WHERE $2::bigint>0 AND $3::text<>''",
-        &[(&id, Type::INT8), (&window, Type::TEXT)],
+        &sql::APPLY_RETROACTIVE,
+        &[&mb, &id, &window],
+        &format!("{mb}:{id}:{window}"),
     )
     .await
 }
+
 pub async fn apply_status(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     id: &str,
 ) -> Result<Option<String>, StatementFailure> {
-    let user = a.user_id();
-    let rows=exec.read("SELECT status,(payload->>'processed')::bigint,(payload->>'truncated')::boolean FROM scheduled_actions WHERE id=$1::text::uuid AND action_kind='rules_retro' AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2)",&[(&id,Type::TEXT),(&user,Type::INT8)]).await?;
+    let uid = user.user().get();
+    let rows = tx_factory
+        .run_user_read_contract(user, &sql::APPLY_STATUS, &[&id, &uid])
+        .await?;
     let Some(row) = rows.first() else {
         return Ok(None);
     };
-    let mut out = serde_json::json!({"status":row.try_get::<_,String>(0).map_err(|_|invalid())?});
+    let mut out =
+        serde_json::json!({"status": row.try_get::<_, String>(0).map_err(|_| invalid())?});
     if let Some(v) = row.try_get::<_, Option<i64>>(1).map_err(|_| invalid())? {
         out["processed"] = serde_json::json!(v)
     }
@@ -244,104 +379,174 @@ pub async fn apply_status(
     Ok(Some(done(out.to_string())))
 }
 
-pub mod authority;
 pub async fn admin_list(
-    exec: &ScopedExecutor,
+    tx_factory: &TxFactory,
+    proof: &AdminPermissionProof,
     mailbox: Option<i64>,
 ) -> Result<String, StatementFailure> {
+    let mut tx = tx_factory.begin_admin_read(proof).await?;
     let rows = if let Some(mb) = mailbox {
-        exec.read_iterated(
-            &format!(
-                "SELECT {} FROM rules WHERE mailbox_id=$1 ORDER BY priority,id",
-                columns()
-            ),
-            &[(&mb, Type::INT8)],
-        )
-        .await?
+        tx.query_iterated_contract(&sql::ADMIN_LIST_BY_MAILBOX, &[&mb])
+            .await?
     } else {
-        exec.read_iterated(
-            &format!(
-                "SELECT {} FROM rules ORDER BY is_transport_rule DESC,priority,id",
-                columns()
-            ),
-            &[],
-        )
-        .await?
+        tx.query_iterated_contract(&sql::ADMIN_LIST_ALL, &[])
+            .await?
     };
-    Ok(done(format!(
-        "[{}]",
-        rows.iter()
-            .filter_map(|r| rule(r).ok())
-            .collect::<Vec<_>>()
-            .join(",")
-    )))
+    tx.finish().await?;
+    Ok(format_rules_json(&rows))
 }
-pub async fn admin_get(exec: &ScopedExecutor, id: i64) -> Result<Option<String>, StatementFailure> {
-    let rows = exec
-        .read(
-            &format!("SELECT {} FROM rules WHERE id=$1", columns()),
-            &[(&id, Type::INT8)],
-        )
+
+pub async fn admin_get(
+    tx_factory: &TxFactory,
+    proof: &AdminPermissionProof,
+    id: i64,
+) -> Result<Option<String>, StatementFailure> {
+    let rows = tx_factory
+        .run_admin_read_contract(proof, &sql::ADMIN_GET, &[&id])
         .await?;
     rows.first().map(|r| rule(r).map(done)).transpose()
 }
-pub async fn mailbox_exists(exec: &ScopedExecutor, id: i64) -> bool {
-    exec.read(
-        "SELECT EXISTS(SELECT 1 FROM mailboxes WHERE id=$1)",
-        &[(&id, Type::INT8)],
-    )
-    .await
-    .ok()
-    .and_then(|r| r.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
-    .unwrap_or(false)
+
+pub async fn mailbox_exists(tx_factory: &TxFactory, proof: &AdminPermissionProof, id: i64) -> bool {
+    tx_factory
+        .run_admin_read_contract(proof, &sql::MAILBOX_EXISTS, &[&id])
+        .await
+        .ok()
+        .and_then(|r| r.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
+        .unwrap_or(false)
 }
+
 pub async fn admin_create(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+    tx_factory: &TxFactory,
+    proof: &AdminPermissionProof,
     r: &input::Rule,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    write(exec,a,op,"admin.create","SELECT rule_config_create($2,$4,$5,$6,$7::bigint::int,$8,$9,$10::text::jsonb,$11::text::jsonb,$12)::text WHERE $1::bigint>=0 AND $3::text<>''",&[(&r.mailbox_id,Type::INT8),(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.transport,Type::BOOL),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
+    let digest = format!(
+        "{:?}:{}:{}:{}:{}:{}:{:?}:{:?}:{}",
+        r.mailbox_id,
+        r.name,
+        r.enabled,
+        r.priority,
+        r.run_on,
+        r.transport,
+        r.conditions.0,
+        r.actions.0,
+        r.stop
+    );
+    let envelope = admin_envelope(proof, op, "admin.create", &digest);
+    tx_factory
+        .run_admin_audited_reducer_contract(
+            proof,
+            &envelope,
+            deadline(),
+            &sql::ADMIN_CREATE,
+            &[
+                &r.mailbox_id,
+                &r.name,
+                &r.enabled,
+                &r.priority,
+                &r.run_on,
+                &r.transport,
+                &r.conditions.0,
+                &r.actions.0,
+                &r.stop,
+            ],
+            Some(ReceiptCommand {
+                family: "F09",
+                command: "admin.create",
+            }),
+            |rows, _| project_text0(rows),
+        )
+        .await
 }
+
 pub async fn admin_update(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+    tx_factory: &TxFactory,
+    proof: &AdminPermissionProof,
     id: i64,
     r: &input::Rule,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    write(exec,a,op,"admin.update","SELECT rule_config_update($2,$4,$5,$6,$7,$8::bigint::int,$9,$10,$11::text::jsonb,$12::text::jsonb,$13)::text WHERE $1::bigint>=0 AND $3::text<>''",&[(&id,Type::INT8),(&r.mailbox_id,Type::INT8),(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.transport,Type::BOOL),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
+    let digest = format!(
+        "{id}:{:?}:{}:{}:{}:{}:{}:{:?}:{:?}:{}",
+        r.mailbox_id,
+        r.name,
+        r.enabled,
+        r.priority,
+        r.run_on,
+        r.transport,
+        r.conditions.0,
+        r.actions.0,
+        r.stop
+    );
+    let envelope = admin_envelope(proof, op, "admin.update", &digest);
+    tx_factory
+        .run_admin_audited_reducer_contract(
+            proof,
+            &envelope,
+            deadline(),
+            &sql::ADMIN_UPDATE,
+            &[
+                &id,
+                &r.mailbox_id,
+                &r.name,
+                &r.enabled,
+                &r.priority,
+                &r.run_on,
+                &r.transport,
+                &r.conditions.0,
+                &r.actions.0,
+                &r.stop,
+            ],
+            Some(ReceiptCommand {
+                family: "F09",
+                command: "admin.update",
+            }),
+            |rows, _| project_text0(rows),
+        )
+        .await
 }
+
 pub async fn admin_delete(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+    tx_factory: &TxFactory,
+    proof: &AdminPermissionProof,
     id: i64,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    write(
-        exec,
-        a,
-        op,
-        "admin.delete",
-        "SELECT rule_config_delete($2,$4)::text WHERE $1::bigint>=0 AND $3::text<>''",
-        &[(&id, Type::INT8)],
-    )
-    .await
+    let envelope = admin_envelope(proof, op, "admin.delete", &id.to_string());
+    tx_factory
+        .run_admin_audited_reducer_contract(
+            proof,
+            &envelope,
+            deadline(),
+            &sql::ADMIN_DELETE,
+            &[&id],
+            Some(ReceiptCommand {
+                family: "F09",
+                command: "admin.delete",
+            }),
+            |rows, _| project_text0(rows),
+        )
+        .await
 }
+
 /// Frozen Go's prepared SET LOCAL + SELECT batch always fails (42601) after
 /// finding the rule. Keep the same request outcome; do not redesign its preview.
-pub async fn admin_test(exec: &ScopedExecutor, id: i64) -> Result<bool, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT mailbox_id,conditions::text,actions::text FROM rules WHERE id=$1",
-            &[(&id, Type::INT8)],
-        )
+pub async fn admin_test(
+    tx_factory: &TxFactory,
+    proof: &AdminPermissionProof,
+    id: i64,
+) -> Result<bool, StatementFailure> {
+    let rows = tx_factory
+        .run_admin_read_contract(proof, &sql::ADMIN_TEST_LOOKUP, &[&id])
         .await?;
-    let Some(row) = rows.first() else {
+    let Some(_row) = rows.first() else {
         return Ok(false);
     };
-    let mailbox: Option<i64> = row.try_get(0).map_err(|_| invalid())?;
-    exec.read("SET LOCAL statement_timeout = '5s'; SELECT DISTINCT m.id,m.received_at,m.message_id,m.from_addr,m.subject FROM messages m JOIN message_tags mt ON mt.message_id=m.id AND mt.received_at=m.received_at JOIN tags t ON t.id=mt.tag_id WHERE t.mailbox_id=COALESCE($1,t.mailbox_id) AND m.received_at>now()-interval '7 days' ORDER BY m.received_at DESC LIMIT 20",&[(&mailbox,Type::INT8)]).await?;
-    Err(invalid())
+    Err(StatementFailure {
+        sqlstate: Some("42601".into()),
+        hint: None,
+        message: "cannot insert multiple commands into a prepared statement".into(),
+    })
 }
-pub mod templates;

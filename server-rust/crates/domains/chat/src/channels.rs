@@ -1,201 +1,8 @@
 //! User-scoped Chat reducers. Membership is the authority; mailbox is independent.
-use setjoin_authz::AuthContext;
-use setjoin_pg::{MailboxAuthContext, ScopedExecutor, StatementFailure, Type};
+use crate::{deadline, envelope, receipt, sql};
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, Row, SqlContract, StatementFailure, ToSql};
 
-fn scope(actor: &AuthContext) -> MailboxAuthContext {
-    actor.database_scope()
-}
-
-pub async fn enabled(exec: &ScopedExecutor) -> Result<bool, StatementFailure> {
-    Ok(exec
-        .read(
-            "SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.chat'),false)",
-            &[],
-        )
-        .await?[0]
-        .get(0))
-}
-
-pub async fn browse(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    let rows = exec
-        .read_scoped(
-            &scope(actor),
-            "SELECT chat_browse_channels($1)::text",
-            &[(&user, Type::INT8)],
-        )
-        .await?;
-    Ok(rows[0].get(0))
-}
-
-pub async fn conversations(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    Ok(exec
-        .read_scoped(
-            &scope(actor),
-            "SELECT chat_conversation_list($1)::text",
-            &[(&user, Type::INT8)],
-        )
-        .await?[0]
-        .get(0))
-}
-
-pub async fn drive_enabled(exec: &ScopedExecutor) -> Result<bool, StatementFailure> {
-    Ok(exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.drive'),false)",&[]).await?[0].get(0))
-}
-
-pub async fn roster(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    channel: i64,
-) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    Ok(exec
-        .read_scoped(
-            &scope(actor),
-            "SELECT chat_channel_roster($1,$2)::text",
-            &[(&user, Type::INT8), (&channel, Type::INT8)],
-        )
-        .await?[0]
-        .get(0))
-}
-
-pub async fn mention_search(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    channel: i64,
-    query: &str,
-) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    Ok(exec
-        .read_scoped(
-            &scope(actor),
-            "SELECT chat_mention_search($1,$2,$3)::text",
-            &[
-                (&user, Type::INT8),
-                (&channel, Type::INT8),
-                (&query, Type::TEXT),
-            ],
-        )
-        .await?[0]
-        .get(0))
-}
-
-pub async fn pins(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    channel: i64,
-) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    Ok(exec
-        .read_scoped(
-            &scope(actor),
-            "SELECT chat_pins_list($1,$2)::text",
-            &[(&user, Type::INT8), (&channel, Type::INT8)],
-        )
-        .await?[0]
-        .get(0))
-}
-
-pub async fn readers(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    channel: i64,
-) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    Ok(exec
-        .read_scoped(
-            &scope(actor),
-            "SELECT chat_channel_readers($1,$2)::text",
-            &[(&user, Type::INT8), (&channel, Type::INT8)],
-        )
-        .await?[0]
-        .get(0))
-}
-
-pub async fn messages(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    channel: i64,
-    before: Option<i64>,
-    limit: Option<i64>,
-    around: Option<i64>,
-) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    Ok(exec
-        .read_scoped(
-            &scope(actor),
-            "SELECT chat_messages_list($1,$2,$3,$4::bigint::integer,$5)::text",
-            &[
-                (&user, Type::INT8),
-                (&channel, Type::INT8),
-                (&before, Type::INT8),
-                (&limit, Type::INT8),
-                (&around, Type::INT8),
-            ],
-        )
-        .await?[0]
-        .get(0))
-}
-
-/// Rows and high-water mark share one MVCC snapshot, including hidden edits.
-pub async fn since(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    channel: i64,
-    seq: Option<i64>,
-) -> Result<(String, i64), StatementFailure> {
-    let user = actor.user_id();
-    let rows=exec.read_scoped(&scope(actor),"SELECT chat_messages_since($1,$2,$3)::text,coalesce((SELECT change_seq FROM chat_channels c WHERE c.id=$2 AND EXISTS(SELECT 1 FROM chat_channel_members m WHERE m.channel_id=c.id AND m.user_id=$1)),0)",&[(&user,Type::INT8),(&channel,Type::INT8),(&seq,Type::INT8)]).await?;
-    Ok((rows[0].get(0), rows[0].get(1)))
-}
-
-async fn mutate<T, D>(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    operation: [u8; 16],
-    name: &'static str,
-    sql: &'static str,
-    params: &[setjoin_pg::Param<'_>],
-    decode: D,
-) -> setjoin_pg::CommandOutcome<T, StatementFailure>
-where
-    D: FnOnce(&[setjoin_pg::Row]) -> Result<T, StatementFailure>,
-{
-    use setjoin_contracts::{
-        command::CommandEnvelope,
-        ids::{Digest, OperationId},
-    };
-    use sha2::{Digest as _, Sha256};
-    let auth = scope(actor);
-    let envelope = CommandEnvelope {
-        operation: OperationId(operation),
-        authority: auth.authority(),
-        binding: setjoin_db::lifecycle::accepted_contract(),
-        payload_digest: Digest(Sha256::digest(name.as_bytes()).into()),
-        command: (),
-    };
-    setjoin_pg::run_receipted_command(
-        exec,
-        setjoin_pg::ReceiptCommand {
-            family: "F12",
-            command: name,
-        },
-        &envelope,
-        &auth,
-        std::time::Instant::now() + std::time::Duration::from_secs(30),
-        sql,
-        params,
-        decode,
-    )
-    .await
-}
 fn invalid_result() -> StatementFailure {
     StatementFailure {
         hint: None,
@@ -203,25 +10,180 @@ fn invalid_result() -> StatementFailure {
         message: "invalid chat reducer result".into(),
     }
 }
+
+fn first_bool(rows: &[Row]) -> Result<bool, StatementFailure> {
+    rows.first()
+        .and_then(|r| r.try_get(0).ok())
+        .ok_or_else(invalid_result)
+}
+
+fn first_string(rows: &[Row]) -> Result<String, StatementFailure> {
+    rows.first()
+        .and_then(|r| r.try_get(0).ok())
+        .ok_or_else(invalid_result)
+}
+
+pub async fn enabled(factory: &TxFactory) -> Result<bool, StatementFailure> {
+    let rows = factory
+        .run_public_read_contract(&sql::CHAT_ENABLED, &[])
+        .await?;
+    first_bool(&rows)
+}
+
+pub async fn browse(factory: &TxFactory, user: &UserPrincipal) -> Result<String, StatementFailure> {
+    let actor = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &sql::BROWSE_CHANNELS, &[&actor])
+        .await?;
+    first_string(&rows)
+}
+
+pub async fn conversations(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+) -> Result<String, StatementFailure> {
+    let actor = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &sql::CONVERSATION_LIST, &[&actor])
+        .await?;
+    first_string(&rows)
+}
+
+pub async fn drive_enabled(factory: &TxFactory) -> Result<bool, StatementFailure> {
+    let rows = factory
+        .run_public_read_contract(&sql::DRIVE_ENABLED, &[])
+        .await?;
+    first_bool(&rows)
+}
+
+pub async fn roster(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    channel: i64,
+) -> Result<String, StatementFailure> {
+    let actor = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &sql::CHANNEL_ROSTER, &[&actor, &channel])
+        .await?;
+    first_string(&rows)
+}
+
+pub async fn mention_search(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    channel: i64,
+    query: &str,
+) -> Result<String, StatementFailure> {
+    let actor = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &sql::MENTION_SEARCH, &[&actor, &channel, &query])
+        .await?;
+    first_string(&rows)
+}
+
+pub async fn pins(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    channel: i64,
+) -> Result<String, StatementFailure> {
+    let actor = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &sql::PINS_LIST, &[&actor, &channel])
+        .await?;
+    first_string(&rows)
+}
+
+pub async fn readers(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    channel: i64,
+) -> Result<String, StatementFailure> {
+    let actor = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &sql::CHANNEL_READERS, &[&actor, &channel])
+        .await?;
+    first_string(&rows)
+}
+
+pub async fn messages(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    channel: i64,
+    before: Option<i64>,
+    limit: Option<i64>,
+    around: Option<i64>,
+) -> Result<String, StatementFailure> {
+    let actor = user.user().get();
+    let rows = factory
+        .run_user_read_contract(
+            user,
+            &sql::MESSAGES_LIST,
+            &[&actor, &channel, &before, &limit, &around],
+        )
+        .await?;
+    first_string(&rows)
+}
+
+/// Rows and high-water mark share one MVCC snapshot, including hidden edits.
+pub async fn since(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    channel: i64,
+    seq: Option<i64>,
+) -> Result<(String, i64), StatementFailure> {
+    let actor = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &sql::MESSAGES_SINCE, &[&actor, &channel, &seq])
+        .await?;
+    let row = rows.first().ok_or_else(invalid_result)?;
+    Ok((
+        row.try_get(0).map_err(|_| invalid_result())?,
+        row.try_get(1).map_err(|_| invalid_result())?,
+    ))
+}
+
+async fn mutate<T, D>(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    operation: [u8; 16],
+    name: &'static str,
+    contract: &'static SqlContract,
+    values: &[&(dyn ToSql + Sync)],
+    decode: D,
+) -> CommandOutcome<T, StatementFailure>
+where
+    D: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
+{
+    let env = envelope(user.user(), user.generation(), operation, name);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            contract,
+            values,
+            Some(receipt(name)),
+            decode,
+        )
+        .await
+}
+
 pub async fn create(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     name: &str,
     topic: Option<String>,
     visibility: &str,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<i64, StatementFailure> {
+) -> CommandOutcome<i64, StatementFailure> {
+    let actor = user.user().get();
     mutate(
-        exec,
-        actor,
+        factory,
+        user,
         operation,
         "chat_channel_create",
-        "SELECT chat_channel_create($2,$4,$5,$6) WHERE $2::bigint>0 AND $3::text<>''",
-        &[
-            (&name, Type::TEXT),
-            (&topic, Type::TEXT),
-            (&visibility, Type::TEXT),
-        ],
+        &sql::CHANNEL_CREATE,
+        &[&actor, &name, &topic, &visibility],
         |rows| {
             rows.first()
                 .and_then(|r| r.try_get(0).ok())
@@ -232,18 +194,19 @@ pub async fn create(
 }
 
 pub async fn join(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
+) -> CommandOutcome<(), StatementFailure> {
+    let actor = user.user().get();
     mutate(
-        exec,
-        actor,
+        factory,
+        user,
         operation,
         "chat_channel_join",
-        "SELECT chat_channel_join($2,$4) WHERE $2::bigint>0 AND $3::text<>''",
-        &[(&channel, Type::INT8)],
+        &sql::CHANNEL_JOIN,
+        &[&actor, &channel],
         |rows| {
             if rows.is_empty() {
                 Err(invalid_result())
@@ -256,18 +219,19 @@ pub async fn join(
 }
 
 pub async fn typing(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
+) -> CommandOutcome<(), StatementFailure> {
+    let actor = user.user().get();
     mutate(
-        exec,
-        actor,
+        factory,
+        user,
         operation,
         "chat_typing_signal",
-        "SELECT chat_typing_signal($2,$4) WHERE $2::bigint>0 AND $3::text<>''",
-        &[(&channel, Type::INT8)],
+        &sql::TYPING_SIGNAL,
+        &[&actor, &channel],
         |rows| {
             if rows.is_empty() {
                 Err(invalid_result())
@@ -280,19 +244,20 @@ pub async fn typing(
 }
 
 pub async fn mark_read(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     value: i64,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
+) -> CommandOutcome<(), StatementFailure> {
+    let actor = user.user().get();
     mutate(
-        exec,
-        actor,
+        factory,
+        user,
         operation,
         "chat_mark_read",
-        "SELECT chat_mark_read($2,$4,$5) WHERE $2::bigint>0 AND $3::text<>''",
-        &[(&channel, Type::INT8), (&value, Type::INT8)],
+        &sql::MARK_READ,
+        &[&actor, &channel, &value],
         |rows| {
             if rows.is_empty() {
                 Err(invalid_result())
@@ -305,19 +270,20 @@ pub async fn mark_read(
 }
 
 pub async fn notif(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     value: String,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
+) -> CommandOutcome<(), StatementFailure> {
+    let actor = user.user().get();
     mutate(
-        exec,
-        actor,
+        factory,
+        user,
         operation,
         "chat_member_set_notif",
-        "SELECT chat_member_set_notif($2,$4,$5) WHERE $2::bigint>0 AND $3::text<>''",
-        &[(&channel, Type::INT8), (&value, Type::TEXT)],
+        &sql::MEMBER_SET_NOTIF,
+        &[&actor, &channel, &value],
         |rows| {
             if rows.is_empty() {
                 Err(invalid_result())
@@ -330,19 +296,20 @@ pub async fn notif(
 }
 
 pub async fn add_member(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     value: i64,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
+) -> CommandOutcome<(), StatementFailure> {
+    let actor = user.user().get();
     mutate(
-        exec,
-        actor,
+        factory,
+        user,
         operation,
         "chat_member_add",
-        "SELECT chat_member_add($2,$4,$5) WHERE $2::bigint>0 AND $3::text<>''",
-        &[(&channel, Type::INT8), (&value, Type::INT8)],
+        &sql::MEMBER_ADD,
+        &[&actor, &channel, &value],
         |rows| {
             if rows.is_empty() {
                 Err(invalid_result())
@@ -361,26 +328,29 @@ pub struct ChannelPatch {
     pub post_permission: Option<String>,
     pub broadcast_permission: Option<String>,
 }
+
 pub async fn update(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     patch: ChannelPatch,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
+) -> CommandOutcome<(), StatementFailure> {
+    let actor = user.user().get();
     mutate(
-        exec,
-        actor,
+        factory,
+        user,
         operation,
         "chat_channel_update",
-        "SELECT chat_channel_update($2,$4,$5,$6,$7,$8,$9) WHERE $2::bigint>0 AND $3::text<>''",
+        &sql::CHANNEL_UPDATE,
         &[
-            (&channel, Type::INT8),
-            (&patch.name, Type::TEXT),
-            (&patch.topic, Type::TEXT),
-            (&patch.archived, Type::BOOL),
-            (&patch.post_permission, Type::TEXT),
-            (&patch.broadcast_permission, Type::TEXT),
+            &actor,
+            &channel,
+            &patch.name,
+            &patch.topic,
+            &patch.archived,
+            &patch.post_permission,
+            &patch.broadcast_permission,
         ],
         |rows| {
             if rows.is_empty() {
@@ -394,19 +364,20 @@ pub async fn update(
 }
 
 pub async fn remove_member(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     target: i64,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
+) -> CommandOutcome<(), StatementFailure> {
+    let actor = user.user().get();
     mutate(
-        exec,
-        actor,
+        factory,
+        user,
         operation,
         "chat_member_remove",
-        "SELECT chat_member_remove($2,$4,$5) WHERE $2::bigint>0 AND $3::text<>''",
-        &[(&channel, Type::INT8), (&target, Type::INT8)],
+        &sql::MEMBER_REMOVE,
+        &[&actor, &channel, &target],
         |rows| {
             if rows.is_empty() {
                 Err(invalid_result())
@@ -419,18 +390,19 @@ pub async fn remove_member(
 }
 
 pub async fn dm(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     others: Option<Vec<i64>>,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<i64, StatementFailure> {
+) -> CommandOutcome<i64, StatementFailure> {
+    let actor = user.user().get();
     mutate(
-        exec,
-        actor,
+        factory,
+        user,
         operation,
         "chat_dm_open",
-        "SELECT chat_dm_open($2,$4) WHERE $2::bigint>0 AND $3::text<>''",
-        &[(&others, Type::INT8_ARRAY)],
+        &sql::DM_OPEN,
+        &[&actor, &others],
         |rows| {
             rows.first()
                 .and_then(|r| r.try_get(0).ok())
@@ -441,18 +413,19 @@ pub async fn dm(
 }
 
 pub async fn space(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<i64, StatementFailure> {
+) -> CommandOutcome<i64, StatementFailure> {
+    let actor = user.user().get();
     mutate(
-        exec,
-        actor,
+        factory,
+        user,
         operation,
         "chat_space_ensure",
-        "SELECT chat_space_ensure($2,$4) WHERE $2::bigint>0 AND $3::text<>''",
-        &[(&channel, Type::INT8)],
+        &sql::SPACE_ENSURE,
+        &[&actor, &channel],
         |rows| {
             rows.first()
                 .and_then(|r| r.try_get(0).ok())
@@ -463,30 +436,22 @@ pub async fn space(
 }
 
 pub async fn preview(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     email: &str,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    Ok(exec
-        .read_scoped(
-            &scope(actor),
-            "SELECT chat_guest_preview($1,$2,$3)::text",
-            &[
-                (&user, Type::INT8),
-                (&channel, Type::INT8),
-                (&email, Type::TEXT),
-            ],
-        )
-        .await?[0]
-        .get(0))
+    let actor = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &sql::GUEST_PREVIEW, &[&actor, &channel, &email])
+        .await?;
+    first_string(&rows)
 }
 
 #[allow(clippy::too_many_arguments)]
 pub async fn send(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     body: String,
     parent: Option<i64>,
@@ -496,28 +461,66 @@ pub async fn send(
     msg_type: String,
     payload: Option<String>,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    mutate(exec,actor,operation,"chat_message_send","SELECT chat_message_send($2,$4,$5,$6,$7,$8,$9::text::jsonb,$10,$11::text::jsonb)::text WHERE $2::bigint>0 AND $3::text<>''",&[(&channel,Type::INT8),(&body,Type::TEXT),(&parent,Type::INT8),(&mentions,Type::INT8_ARRAY),(&broadcast,Type::TEXT),(&attachments,Type::TEXT),(&msg_type,Type::TEXT),(&payload,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid_result)).await
+) -> CommandOutcome<String, StatementFailure> {
+    let actor = user.user().get();
+    mutate(
+        factory,
+        user,
+        operation,
+        "chat_message_send",
+        &sql::MESSAGE_SEND,
+        &[
+            &actor,
+            &channel,
+            &body,
+            &parent,
+            &mentions,
+            &broadcast,
+            &attachments,
+            &msg_type,
+            &payload,
+        ],
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(invalid_result)
+        },
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
 pub async fn poll(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     question: String,
     options: Option<Vec<String>>,
     multi: bool,
     closes: Option<String>,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    mutate(exec,actor,operation,"chat_poll_create","SELECT chat_poll_create($2,$4,$5,$6,$7,$8::text::timestamptz)::text WHERE $2::bigint>0 AND $3::text<>''",&[(&channel,Type::INT8),(&question,Type::TEXT),(&options,Type::TEXT_ARRAY),(&multi,Type::BOOL),(&closes,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid_result)).await
+) -> CommandOutcome<String, StatementFailure> {
+    let actor = user.user().get();
+    mutate(
+        factory,
+        user,
+        operation,
+        "chat_poll_create",
+        &sql::POLL_CREATE,
+        &[&actor, &channel, &question, &options, &multi, &closes],
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(invalid_result)
+        },
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
 pub async fn schedule(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     body: String,
     parent: Option<i64>,
@@ -525,26 +528,47 @@ pub async fn schedule(
     broadcast: Option<String>,
     fire: Option<String>,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    mutate(exec,actor,operation,"chat_schedule_message","SELECT jsonb_build_object('actionId',chat_schedule_message($2,$4,$5,$6,$7,$8,$9::text::timestamptz))::text WHERE $2::bigint>0 AND $3::text<>''",&[(&channel,Type::INT8),(&body,Type::TEXT),(&parent,Type::INT8),(&mentions,Type::INT8_ARRAY),(&broadcast,Type::TEXT),(&fire,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid_result)).await
+) -> CommandOutcome<String, StatementFailure> {
+    let actor = user.user().get();
+    mutate(
+        factory,
+        user,
+        operation,
+        "chat_schedule_message",
+        &sql::SCHEDULE_MESSAGE,
+        &[
+            &actor, &channel, &body, &parent, &mentions, &broadcast, &fire,
+        ],
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(invalid_result)
+        },
+    )
+    .await
 }
 
-pub async fn federation_enabled(exec: &ScopedExecutor) -> Result<bool, StatementFailure> {
-    Ok(exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.federation'),false)",&[]).await?[0].get(0))
+pub async fn federation_enabled(factory: &TxFactory) -> Result<bool, StatementFailure> {
+    let rows = factory
+        .run_public_read_contract(&sql::FEDERATION_ENABLED, &[])
+        .await?;
+    first_bool(&rows)
 }
+
 pub async fn federated_dm(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     remote: String,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<i64, StatementFailure> {
+) -> CommandOutcome<i64, StatementFailure> {
+    let actor = user.user().get();
     mutate(
-        exec,
-        actor,
+        factory,
+        user,
         operation,
         "federation_dm_ensure",
-        "SELECT federation_dm_ensure($2,$4) WHERE $2::bigint>0 AND $3::text<>''",
-        &[(&remote, Type::TEXT)],
+        &sql::FEDERATION_DM_ENSURE,
+        &[&actor, &remote],
         |rows| {
             rows.first()
                 .and_then(|r| r.try_get(0).ok())
@@ -555,50 +579,57 @@ pub async fn federated_dm(
 }
 
 pub async fn federation_bind(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     domain: String,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    mutate(exec,actor,operation,"federation_room_create","SELECT jsonb_build_object('roomId',federation_room_create($2,$4,$5))::text WHERE $2::bigint>0 AND $3::text<>''",&[(&channel,Type::INT8),(&domain,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid_result)).await
+) -> CommandOutcome<String, StatementFailure> {
+    let actor = user.user().get();
+    mutate(
+        factory,
+        user,
+        operation,
+        "federation_room_create",
+        &sql::FEDERATION_ROOM_CREATE,
+        &[&actor, &channel, &domain],
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(invalid_result)
+        },
+    )
+    .await
 }
 
 pub async fn federation_roster(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    Ok(exec
-        .read_scoped(
-            &scope(actor),
-            "SELECT federation_room_roster($1,$2)::text",
-            &[(&user, Type::INT8), (&channel, Type::INT8)],
-        )
-        .await?[0]
-        .get(0))
+    let actor = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &sql::FEDERATION_ROOM_ROSTER, &[&actor, &channel])
+        .await?;
+    first_string(&rows)
 }
 
 pub async fn federation_invite(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     domain: String,
     contact: String,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
+) -> CommandOutcome<(), StatementFailure> {
+    let actor = user.user().get();
     mutate(
-        exec,
-        actor,
+        factory,
+        user,
         operation,
         "federation_room_invite",
-        "SELECT federation_room_invite($2,$4,$5,$6) WHERE $2::bigint>0 AND $3::text<>''",
-        &[
-            (&channel, Type::INT8),
-            (&domain, Type::TEXT),
-            (&contact, Type::TEXT),
-        ],
+        &sql::FEDERATION_ROOM_INVITE,
+        &[&actor, &channel, &domain, &contact],
         |rows| {
             if rows.is_empty() {
                 Err(invalid_result())
@@ -611,19 +642,20 @@ pub async fn federation_invite(
 }
 
 pub async fn federation_remove(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     channel: i64,
     domain: String,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
+) -> CommandOutcome<(), StatementFailure> {
+    let actor = user.user().get();
     mutate(
-        exec,
-        actor,
+        factory,
+        user,
         operation,
         "federation_room_remove",
-        "SELECT federation_room_remove($2,$4,$5) WHERE $2::bigint>0 AND $3::text<>''",
-        &[(&channel, Type::INT8), (&domain, Type::TEXT)],
+        &sql::FEDERATION_ROOM_REMOVE,
+        &[&actor, &channel, &domain],
         |rows| {
             if rows.is_empty() {
                 Err(invalid_result())

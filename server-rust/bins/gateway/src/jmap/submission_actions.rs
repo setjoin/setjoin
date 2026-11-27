@@ -88,6 +88,7 @@ impl<K: KeySource> JmapCommands<K> {
             return self
                 .recall_action(
                     &auth,
+                    authorized,
                     identity.email(),
                     email_id,
                     envelope,
@@ -96,9 +97,21 @@ impl<K: KeySource> JmapCommands<K> {
                 )
                 .await;
         }
+        let Some(tx) = self.tx_factory() else {
+            return crate::mailboxes::bare(500, "undo failed", ctx, &request_id);
+        };
+        let Ok(mb) = tx
+            .mint_primary_mailbox_from_authorized(authorized, &ctx.identity.client_ip.to_string())
+            .await
+        else {
+            return crate::mailboxes::bare(404, "mailbox not found", ctx, &request_id);
+        };
+        let Ok(submit_cap) = mb.require_submit() else {
+            return crate::mailboxes::bare(403, "forbidden", ctx, &request_id);
+        };
         match setjoin_jmap::submission::undo(
-            &self.exec,
-            &auth,
+            &tx,
+            &submit_cap,
             &envelope,
             std::time::Instant::now() + super::COMMAND_DEADLINE,
             email_id,
@@ -125,22 +138,39 @@ impl<K: KeySource> JmapCommands<K> {
             }
         }
     }
+    #[allow(clippy::too_many_arguments)]
     async fn recall_action(
         &self,
         primary: &MailboxAuthContext,
+        authorized: &setjoin_authz::Authorized,
         email: &str,
         id: i64,
         mut envelope: CommandEnvelope<setjoin_jmap::submission::Submission>,
         ctx: &RequestContext,
         request_id: &str,
     ) -> Response<Body> {
-        let exec = self.worker.as_ref().unwrap_or(&self.exec);
-        let source = match setjoin_jmap::submission::recall_source(exec, primary, id).await {
+        let worker = self.worker.as_ref().unwrap_or(&self.exec);
+        let actor_id = primary.actor().get();
+        let source = match super::worker_read_contract(
+            worker,
+            &setjoin_jmap::sql::SUBMISSION_RECALL_SOURCE,
+            &[&id, &actor_id],
+        )
+        .await
+        .and_then(|rows| setjoin_jmap::submission::decode_recall_source(&rows))
+        {
             Ok(Some(source)) => source,
             _ => return crate::mailboxes::bare(404, "message not found", ctx, request_id),
         };
+        let Some(tx) = self.tx_factory() else {
+            return crate::mailboxes::bare(500, "database error", ctx, request_id);
+        };
+        let client_ip = ctx.identity.client_ip.to_string();
+        let Ok(user) = tx.mint_user_from_authorized(authorized, &client_ip).await else {
+            return crate::mailboxes::bare(500, "database error", ctx, request_id);
+        };
         if source.from != email
-            && !setjoin_jmap::submission::sender_alias(exec, primary, &source.from).await
+            && !setjoin_jmap::submission::sender_alias(&tx, &user, &source.from).await
         {
             return crate::mailboxes::bare(
                 403,
@@ -158,21 +188,74 @@ impl<K: KeySource> JmapCommands<K> {
         let Ok(mailbox) = MailboxId::new(source.mailbox) else {
             return crate::mailboxes::bare(500, "database error", ctx, request_id);
         };
-        let scope = MailboxAuthContext::from_authenticated_session(
-            primary.actor(),
-            mailbox,
-            super::REQUEST_AUTHORITY_GENERATION,
-        );
-        envelope.authority = scope.authority();
-        match setjoin_jmap::submission::recall(
-            exec,
-            &scope,
-            &envelope,
-            std::time::Instant::now() + super::COMMAND_DEADLINE,
-            &source.message_id,
-        )
-        .await
+        let Ok(mb) = tx
+            .mint_mailbox_from_authorized(authorized, mailbox, &client_ip)
+            .await
+        else {
+            return crate::mailboxes::bare(404, "message not found", ctx, request_id);
+        };
+        let Ok(owner_cap) = mb.require_owner() else {
+            return crate::mailboxes::bare(
+                403,
+                "only the sender can recall this message",
+                ctx,
+                request_id,
+            );
+        };
+        let recall_actor = owner_cap.actor().get();
+        let recall_mailbox = owner_cap.mailbox().get();
+        let op = envelope.operation;
+        let _ = &mut envelope;
+        let outcome: CommandOutcome<String, setjoin_pg::StatementFailure> = match worker
+            .try_worker_pool()
         {
+            Some(pool) => match pool.begin_read_write().await {
+                Ok(mut wtx) => {
+                    let op_hex = setjoin_pg::operation_hex(op);
+                    let body: Result<String, setjoin_pg::StatementFailure> = async {
+                            let rows = wtx
+                                .query_contract(
+                                    &setjoin_jmap::sql::SUBMISSION_RECALL,
+                                    &[&source.message_id, &recall_actor, &recall_mailbox],
+                                )
+                                .await?;
+                            let raw = rows
+                                .first()
+                                .and_then(|r| r.try_get::<_, String>(0).ok())
+                                .ok_or_else(|| setjoin_pg::StatementFailure {
+                                    hint: None,
+                                    sqlstate: None,
+                                    message: "recall reducer returned no row".into(),
+                                })?;
+                            wtx.execute(
+                                "INSERT INTO public.rust_operation_receipts(operation_id, family, command) \
+                                 VALUES ($1::text::uuid, $2, $3)",
+                                &[
+                                    (&op_hex, setjoin_pg::Type::TEXT),
+                                    (&"jmap", setjoin_pg::Type::TEXT),
+                                    (&"email_submission.recall", setjoin_pg::Type::TEXT),
+                                ],
+                            )
+                            .await?;
+                            Ok(raw)
+                        }
+                        .await;
+                    match body {
+                        Ok(raw) => match wtx.commit().await {
+                            Ok(()) => CommandOutcome::Committed(raw),
+                            Err(_) => CommandOutcome::Unknown { operation: op },
+                        },
+                        Err(e) => {
+                            let _ = wtx.rollback().await;
+                            CommandOutcome::RolledBack(Rejection::Statement(e))
+                        }
+                    }
+                }
+                Err(e) => CommandOutcome::RolledBack(Rejection::Statement(e)),
+            },
+            None => CommandOutcome::RolledBack(Rejection::Unavailable),
+        };
+        match outcome {
             CommandOutcome::Committed(raw) => {
                 #[derive(serde::Deserialize)]
                 struct Verdict {

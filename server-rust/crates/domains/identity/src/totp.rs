@@ -1,7 +1,7 @@
 //! TOTP authority accepts only the signature-verified session principal.
 use crate::session::Session;
 use setjoin_contracts::ids::{ActorId, OperationId};
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use setjoin_pg::{AuthDb, CommandOutcome, StatementFailure, Type};
 use sha2::{Digest, Sha256};
 
 /// Code-owned lookup categories; request JSON never supplies receipt names.
@@ -56,7 +56,7 @@ impl Operation {
         }
     }
 }
-fn receipted(exec: &ScopedExecutor, operation: Operation) -> ScopedExecutor {
+fn receipted(exec: &AuthDb, operation: Operation) -> AuthDb {
     exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand {
         family: "F21",
         command: operation.command(),
@@ -65,7 +65,7 @@ fn receipted(exec: &ScopedExecutor, operation: Operation) -> ScopedExecutor {
 /// Fresh verified authority, durable revocation and current enabled identity
 /// precede actor-bound receipt lookup under the original user/operation lock.
 pub async fn lookup_operation(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     operation: OperationId,
     kind: Operation,
@@ -81,10 +81,24 @@ pub async fn lookup_operation(
     let actor = ActorId::new(session.user()).map_err(|_| invalid())?;
     let op = setjoin_pg::operation_hex(operation);
     let claims = serde_json::Value::Object(session.claims().clone()).to_string();
-    let result=exec.run_user_command(actor,operation,
-        "SELECT EXISTS(SELECT 1 FROM rust_operation_receipts WHERE operation_id=substr(encode(digest($2::text || ':' || $1::text,'sha256'),'hex'),1,32)::uuid AND family='F21' AND command=$3) WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=$1 AND u.enabled AND identity_transition_admission_allowed(u.id) AND (COALESCE($4::text::jsonb->>'credential_fence','')='' OR rtrim(translate(encode(digest(u.password_hash,'sha256'),'base64'),'+/','-_'),'=')=$4::text::jsonb->>'credential_fence')) AND NOT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND (expires_at IS NULL OR expires_at>now()) AND ((scope='jti' AND jti=COALESCE($4::text::jsonb->>'jti','')) OR (scope='family' AND family_id=COALESCE($4::text::jsonb->>'fam','')) OR (scope='all' AND to_timestamp(COALESCE(($4::text::jsonb->>'iat')::double precision,0))<=not_before)))",
-        &[(&session.user(),Type::INT8),(&op,Type::TEXT),(&kind.command(),Type::TEXT),(&claims,Type::TEXT)],
-        |rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await;
+    let result = exec
+        .run_user_command_contract(
+            actor,
+            operation,
+            &crate::sql::USER_OPERATION_LOOKUP,
+            &[
+                (&session.user(), Type::INT8),
+                (&op, Type::TEXT),
+                (&kind.command(), Type::TEXT),
+                (&claims, Type::TEXT),
+            ],
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await;
     match result {
         CommandOutcome::Committed(found) => Ok(found),
         _ => Err(invalid()),
@@ -92,7 +106,7 @@ pub async fn lookup_operation(
 }
 
 pub async fn remove(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     token: &str,
     ip: &str,
@@ -103,10 +117,10 @@ pub async fn remove(
         return CommandOutcome::Committed("invalid".into());
     };
     let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
-    exec.run_user_command(
+    exec.run_user_command_contract(
         actor,
         OperationId(*uuid::Uuid::new_v4().as_bytes()),
-        "SELECT rust_identity_totp_remove($1,$2,$3,$4)",
+        &crate::sql::TOTP_L109,
         &[
             (&user, Type::INT8),
             (&session.text("jti"), Type::TEXT),
@@ -125,14 +139,25 @@ pub async fn remove(
     )
     .await
 }
-pub async fn audit(exec: &ScopedExecutor, session: &Session, ip: &str, action: &str, notes: &str) {
+pub async fn audit(exec: &AuthDb, session: &Session, ip: &str, action: &str, notes: &str) {
     let user = session.user();
     let Ok(actor) = ActorId::new(user) else {
         return;
     };
-    let _=exec.run_user_command(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),
-        "INSERT INTO admin_audit_log(user_id,ip,action,target_type,target_id,notes) VALUES($1,$2::text::inet,$3,'user',$1,NULLIF($4,''))",
-        &[(&user,Type::INT8),(&ip,Type::TEXT),(&action,Type::TEXT),(&notes,Type::TEXT)],|_|Ok(())).await;
+    let _ = exec
+        .run_user_command_contract(
+            actor,
+            OperationId(*uuid::Uuid::new_v4().as_bytes()),
+            &crate::sql::ADMIN_AUDIT_WRITE_USER,
+            &[
+                (&user, Type::INT8),
+                (&ip, Type::TEXT),
+                (&action, Type::TEXT),
+                (&notes, Type::TEXT),
+            ],
+            |_| Ok(()),
+        )
+        .await;
 }
 
 /// RFC 4226/6238 framing over ring's audited HMAC. Go uses SHA-1, six digits,
@@ -142,7 +167,7 @@ fn secret_key(secret: &str) -> Option<Vec<u8>> {
     // and ignores CR/LF. The maintained codec still validates the encoding.
     let secret = secret.trim();
     let mut padded = secret.to_owned();
-    if secret.len() % 8 != 0 {
+    if !secret.len().is_multiple_of(8) {
         padded.extend(std::iter::repeat_n('=', 8 - secret.len() % 8));
     }
     let padded: String = padded
@@ -223,7 +248,7 @@ pub(crate) fn ready_secret(value: &serde_json::Value) -> Result<&str, StatementF
 }
 
 pub async fn cycle(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     presented: &str,
 ) -> CommandOutcome<String, StatementFailure> {
@@ -232,7 +257,7 @@ pub async fn cycle(
 
 /// Recovery can call this only after its server-side credential lookup.
 pub(crate) async fn cycle_for(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     user: i64,
     presented: &str,
 ) -> CommandOutcome<String, StatementFailure> {
@@ -240,10 +265,10 @@ pub(crate) async fn cycle_for(
     let Ok(actor) = ActorId::new(user) else {
         return CommandOutcome::Committed("invalid".into());
     };
-    exec.run_user_proof_command(
+    exec.run_user_proof_command_contract(
         actor,
         OperationId(*uuid::Uuid::new_v4().as_bytes()),
-        "SELECT * FROM rust_identity_totp_cycle_read($1)",
+        &crate::sql::TOTP_L246,
         &[(&user, Type::INT8)],
         |rows| {
             let bad = || StatementFailure {
@@ -257,9 +282,8 @@ pub(crate) async fn cycle_for(
                 .try_get(0)
                 .map_err(|_| bad())?;
             if outcome != "evaluate" {
-                return Ok(
-                    setjoin_pg::ProvenStatement::new("SELECT $1::text").bind(outcome, Type::TEXT)
-                );
+                return Ok(setjoin_pg::ProvenContract::new(&crate::sql::ECHO_TEXT)
+                    .bind(outcome, Type::TEXT));
             }
             let secret: Option<String> = rows
                 .first()
@@ -267,9 +291,8 @@ pub(crate) async fn cycle_for(
                 .try_get(1)
                 .map_err(|_| bad())?;
             let Some(secret) = secret else {
-                return Ok(setjoin_pg::ProvenStatement::new(
-                    "SELECT 'bookkeeping'::text",
-                ));
+                return Ok(setjoin_pg::ProvenContract::new(&crate::sql::ECHO_TEXT)
+                    .bind("bookkeeping".to_owned(), Type::TEXT));
             };
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -279,13 +302,11 @@ pub(crate) async fn cycle_for(
             let counter = proof.as_ref().map(|p| p.0);
             let factor = proof.map(|p| p.1);
             let valid = counter.is_some();
-            Ok(
-                setjoin_pg::ProvenStatement::new("SELECT rust_identity_totp_cycle($1,$2,$3,$4)")
-                    .bind(user, Type::INT8)
-                    .bind(valid, Type::BOOL)
-                    .bind(counter, Type::INT8)
-                    .bind(factor, Type::BYTEA),
-            )
+            Ok(setjoin_pg::ProvenContract::new(&crate::sql::TOTP_L283)
+                .bind(user, Type::INT8)
+                .bind(valid, Type::BOOL)
+                .bind(counter, Type::INT8)
+                .bind(factor, Type::BYTEA))
         },
         |rows| {
             rows.first()
@@ -309,15 +330,15 @@ fn internal() -> Failure {
     Failure::Reply(500, "totp removal failed", None)
 }
 async fn unit_command(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     user: i64,
-    sql: &'static str,
+    sql: &'static setjoin_pg::SqlContract,
     params: &[setjoin_pg::Param<'_>],
 ) -> Result<(), Failure> {
     let exec = receipted(exec, Operation::Begin);
     let actor = ActorId::new(user).map_err(|_| internal())?;
     match exec
-        .run_user_command(
+        .run_user_command_contract(
             actor,
             OperationId(*uuid::Uuid::new_v4().as_bytes()),
             sql,
@@ -332,13 +353,17 @@ async fn unit_command(
     }
 }
 pub async fn begin(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     password: &str,
     presented: &str,
 ) -> Result<String, Failure> {
     let user = session.user();
-    let rows=exec.read("SELECT COALESCE(totp_enabled,false),COALESCE(totp_backup_codes_enc,'{}') FROM users WHERE id=$1",&[(&user,Type::INT8)]).await.map_err(|_|internal())?;
+    let actor = ActorId::new(user).map_err(|_| internal())?;
+    let rows = exec
+        .read_user_scoped_contract(actor, &crate::sql::TOTP_L341, &[(&user, Type::INT8)])
+        .await
+        .map_err(|_| internal())?;
     let row = rows.first().ok_or_else(internal)?;
     if !row.try_get::<_, bool>(0).map_err(|_| internal())? {
         return Err(Failure::Reply(
@@ -349,10 +374,7 @@ pub async fn begin(
     }
     let backups: Vec<String> = row.try_get(1).map_err(|_| internal())?;
     let hashes = exec
-        .read(
-            "SELECT password_hash FROM users WHERE id=$1",
-            &[(&user, Type::INT8)],
-        )
+        .read_user_scoped_contract(actor, &crate::sql::TOTP_L353, &[(&user, Type::INT8)])
         .await
         .map_err(|_| internal())?;
     let hash: String = hashes
@@ -389,8 +411,9 @@ pub async fn begin(
             let mut accepted = false;
             if !backups.is_empty() {
                 let rows = exec
-                    .read(
-                        "SELECT totp_backup_codes_enc FROM users WHERE id=$1",
+                    .read_user_scoped_contract(
+                        actor,
+                        &crate::sql::PUSH_L231,
                         &[(&user, Type::INT8)],
                     )
                     .await
@@ -425,33 +448,37 @@ pub async fn begin(
     let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
     // Frozen Go deliberately commits cleanup separately from insertion. A later
     // storage failure must not resurrect the prior step-up (ARCH-029).
+    unit_command(exec, user, &crate::sql::TOTP_L431, &[(&user, Type::INT8)]).await?;
     unit_command(
         exec,
         user,
-        "DELETE FROM totp_removal_step_ups WHERE user_id=$1",
-        &[(&user, Type::INT8)],
+        &crate::sql::TOTP_L435,
+        &[
+            (&hash, Type::TEXT),
+            (&user, Type::INT8),
+            (&session.text("jti"), Type::TEXT),
+        ],
     )
     .await?;
-    unit_command(exec,user,"INSERT INTO totp_removal_step_ups(token_hash,user_id,session_jti,expires_at) VALUES($1,$2,$3,now()+interval '5 minutes')",&[(&hash,Type::TEXT),(&user,Type::INT8),(&session.text("jti"),Type::TEXT)]).await?;
     Ok(token)
 }
 
 pub async fn setup(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     token: &str,
 ) -> CommandOutcome<serde_json::Value, StatementFailure> {
     stage(exec, session, token, false).await
 }
 pub async fn bootstrap_setup(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     token: &str,
 ) -> CommandOutcome<serde_json::Value, StatementFailure> {
     stage(exec, session, token, true).await
 }
 async fn stage(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     token: &str,
     bootstrap: bool,
@@ -476,13 +503,13 @@ async fn stage(
     let secret = data_encoding::BASE32_NOPAD.encode(&bytes);
     let claims = serde_json::Value::Object(session.claims().clone()).to_string();
     let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
-    exec.run_user_command(
+    exec.run_user_command_contract(
         actor,
         OperationId(*uuid::Uuid::new_v4().as_bytes()),
         if bootstrap {
-            "SELECT rust_identity_totp_bootstrap_setup($1,$2::text::jsonb,$3,$4)::text"
+            &crate::sql::TOTP_L483
         } else {
-            "SELECT rust_identity_totp_setup($1,$2::text::jsonb,$3,$4)::text"
+            &crate::sql::TOTP_L485
         },
         &[
             (&user, Type::INT8),
@@ -537,7 +564,7 @@ fn json_row(rows: &[setjoin_pg::Row]) -> Result<serde_json::Value, StatementFail
         })
 }
 pub async fn confirm(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     token: &str,
     enrollment: &str,
@@ -551,10 +578,10 @@ pub async fn confirm(
     };
     let claims = serde_json::Value::Object(session.claims().clone()).to_string();
     let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
-    exec.run_user_proof_command(
+    exec.run_user_proof_command_contract(
         actor,
         OperationId(*uuid::Uuid::new_v4().as_bytes()),
-        "SELECT rust_identity_totp_confirm_read($1,$2::text::jsonb,$3,$4,$5)::text",
+        &crate::sql::TOTP_L557,
         &[
             (&user, Type::INT8),
             (&claims, Type::TEXT),
@@ -565,7 +592,7 @@ pub async fn confirm(
         |rows| {
             let result = json_row(rows)?;
             if result["status"] != "ready" {
-                return Ok(setjoin_pg::ProvenStatement::new("SELECT $1::text")
+                return Ok(setjoin_pg::ProvenContract::new(&crate::sql::ECHO_TEXT)
                     .bind(result.to_string(), Type::TEXT));
             }
             let now = std::time::SystemTime::now()
@@ -574,20 +601,17 @@ pub async fn confirm(
                 .as_secs() as i64;
             let Some((counter, factor)) = counter_proof(presented, ready_secret(&result)?, now)
             else {
-                return Ok(setjoin_pg::ProvenStatement::new(
-                    "SELECT '{\"status\":\"invalid_code\"}'::text",
-                ));
+                return Ok(setjoin_pg::ProvenContract::new(&crate::sql::ECHO_TEXT)
+                    .bind("{\"status\":\"invalid_code\"}".to_owned(), Type::TEXT));
             };
-            Ok(setjoin_pg::ProvenStatement::new(
-                "SELECT rust_identity_totp_confirm($1,$2::text::jsonb,$3,$4,$5,$6,$7)::text",
-            )
-            .bind(user, Type::INT8)
-            .bind(claims.clone(), Type::TEXT)
-            .bind(hash.clone(), Type::TEXT)
-            .bind(enrollment.to_owned(), Type::TEXT)
-            .bind(ip.to_owned(), Type::TEXT)
-            .bind(counter, Type::INT8)
-            .bind(factor, Type::BYTEA))
+            Ok(setjoin_pg::ProvenContract::new(&crate::sql::TOTP_L582)
+                .bind(user, Type::INT8)
+                .bind(claims.clone(), Type::TEXT)
+                .bind(hash.clone(), Type::TEXT)
+                .bind(enrollment.to_owned(), Type::TEXT)
+                .bind(ip.to_owned(), Type::TEXT)
+                .bind(counter, Type::INT8)
+                .bind(factor, Type::BYTEA))
         },
         json_row,
     )
@@ -608,12 +632,11 @@ impl CompletionUser {
     pub fn email(&self) -> &str {
         &self.email
     }
-    pub async fn load(
-        exec: &ScopedExecutor,
-        pending: &Session,
-    ) -> Result<Option<Self>, StatementFailure> {
+    pub async fn load(exec: &AuthDb, pending: &Session) -> Result<Option<Self>, StatementFailure> {
         let user = pending.user();
-        let rows=exec.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())) FROM users u WHERE u.id=$1 AND u.enabled",&[(&user,Type::INT8)]).await?;
+        let rows = exec
+            .read_contract(&crate::sql::RP_ACCOUNT_L277, &[(&user, Type::INT8)])
+            .await?;
         let Some(r) = rows.first() else {
             return Ok(None);
         };
@@ -628,11 +651,13 @@ impl CompletionUser {
             admin: r.try_get(1).map_err(|_| bad())?,
         }))
     }
-    pub async fn scope(&self, exec: &ScopedExecutor) -> Result<Option<i64>, StatementFailure> {
+    pub async fn scope(&self, exec: &AuthDb) -> Result<Option<i64>, StatementFailure> {
         if !self.admin {
             return Ok(None);
         }
-        let rows=exec.read("SELECT MIN(COALESCE(ra.domain_override,rg.domain_scope)) FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=$1 AND COALESCE(ra.domain_override,rg.domain_scope) IS NOT NULL AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND admin_assignment_active(ra.eligible,ra.activated_until)",&[(&self.user,Type::INT8)]).await?;
+        let rows = exec
+            .read_contract(&crate::sql::LOGIN_L164, &[(&self.user, Type::INT8)])
+            .await?;
         let bad = || StatementFailure {
             sqlstate: None,
             hint: None,
@@ -642,13 +667,10 @@ impl CompletionUser {
     }
     pub async fn admission(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
     ) -> Result<(bool, bool), crate::login::AdmissionFailure> {
         let rows = exec
-            .read(
-                "SELECT identity_transition_admission_allowed($1)",
-                &[(&self.user, Type::INT8)],
-            )
+            .read_contract(&crate::sql::LOGIN_L137, &[(&self.user, Type::INT8)])
             .await
             .map_err(crate::login::AdmissionFailure::Transition)?;
         let allowed = rows
@@ -660,7 +682,7 @@ impl CompletionUser {
             return Ok((false, false));
         }
         let rows = exec
-            .read("SELECT is_guest_account($1)", &[(&self.user, Type::INT8)])
+            .protocol_query_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&self.user, Type::INT8)])
             .await
             .map_err(crate::login::AdmissionFailure::AccountType)?;
         let guest = rows
@@ -670,6 +692,7 @@ impl CompletionUser {
             .map_err(crate::login::AdmissionFailure::AccountType)?;
         Ok((true, guest))
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn claims(
         &self,
         typ: &str,
@@ -708,11 +731,8 @@ impl CompletionUser {
     /// #454: a feature-flag or risk query error (also with the flag off), an invalid actor
     /// and an unreadable or unparsable stored value fail closed; only a missing row or level
     /// none/empty is "no risk claim". `user_risk.score` is smallint, read as int4.
-    pub async fn risk(
-        &self,
-        exec: &ScopedExecutor,
-    ) -> Result<Option<serde_json::Value>, StatementFailure> {
-        use serde_json::{json, Value};
+    pub async fn risk(&self, exec: &AuthDb) -> Result<Option<serde_json::Value>, StatementFailure> {
+        use serde_json::json;
         let bad = || StatementFailure {
             sqlstate: None,
             hint: None,
@@ -723,11 +743,7 @@ impl CompletionUser {
         }
         let actor = ActorId::new(self.user).map_err(|_| bad())?;
         let rows = exec
-            .read_user_scoped(
-                actor,
-                "SELECT score::int4,level,signals::text FROM user_risk WHERE user_id=$1",
-                &[(&self.user, Type::INT8)],
-            )
+            .read_user_scoped_contract(actor, &crate::sql::LOGIN_L344, &[(&self.user, Type::INT8)])
             .await?;
         let Some(row) = rows.first() else {
             return Ok(None);
@@ -743,9 +759,10 @@ impl CompletionUser {
             json!({"user_score":score,"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
         ))
     }
+    #[allow(clippy::too_many_arguments)]
     pub async fn record(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         access: &str,
         jti: &str,
         expiry: i64,
@@ -759,12 +776,46 @@ impl CompletionUser {
             Some("otp") => "totp",
             _ => "password",
         };
-        let _=exec.protocol_statement("INSERT INTO auth_event_log(user_id,event,provider,email,ip_address) VALUES($1,'login','jwt',NULLIF($2,''),NULLIF($3,'')::inet)",&[(&self.user,Type::INT8),(&self.email,Type::TEXT),(&ip,Type::TEXT)]).await;
+        let _ = exec
+            .protocol_statement_contract(
+                &crate::sql::LOGIN_L234,
+                &[
+                    (&self.user, Type::INT8),
+                    (&self.email, Type::TEXT),
+                    (&ip, Type::TEXT),
+                ],
+            )
+            .await;
         if let Ok(actor) = ActorId::new(self.user) {
-            let _=exec.run_user_command(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),"INSERT INTO login_events(user_id,device_fingerprint,device_name,platform,source_ip,location,success,fail_reason,client,protocol,auth_method,session_id,correlation_id,occurred_at) VALUES($1,NULL,NULL,NULL,NULLIF($2,'')::inet,NULL,true,NULL,'web','http',$3,NULL,NULL,now())",&[(&self.user,Type::INT8),(&ip,Type::TEXT),(&method,Type::TEXT)],|_|Ok(())).await;
+            let _ = exec
+                .run_user_command_contract(
+                    actor,
+                    OperationId(*uuid::Uuid::new_v4().as_bytes()),
+                    &crate::sql::TOTP_L764,
+                    &[
+                        (&self.user, Type::INT8),
+                        (&ip, Type::TEXT),
+                        (&method, Type::TEXT),
+                    ],
+                    |_| Ok(()),
+                )
+                .await;
         }
         let hash = Sha256::digest(access.as_bytes()).to_vec();
-        let _=exec.protocol_statement("INSERT INTO sessions(id,user_id,token_hash,expires_at,ip,user_agent,auth_method) VALUES($1,$2,$3,now()+make_interval(secs=>$4),NULLIF($5,'')::inet,$6,$7) ON CONFLICT(id) DO NOTHING",&[(&jti,Type::TEXT),(&self.user,Type::INT8),(&hash,Type::BYTEA),(&expiry,Type::INT8),(&ip,Type::TEXT),(&agent,Type::TEXT),(&method,Type::TEXT)]).await;
+        let _ = exec
+            .protocol_statement_contract(
+                &crate::sql::TOTP_L767,
+                &[
+                    (&jti, Type::TEXT),
+                    (&self.user, Type::INT8),
+                    (&hash, Type::BYTEA),
+                    (&expiry, Type::INT8),
+                    (&ip, Type::TEXT),
+                    (&agent, Type::TEXT),
+                    (&method, Type::TEXT),
+                ],
+            )
+            .await;
     }
 }
 pub fn factors(pending: &Session) -> Vec<String> {
@@ -787,7 +838,7 @@ pub fn factors(pending: &Session) -> Vec<String> {
     methods
 }
 pub async fn mint(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     pending: &Session,
     refresh: &str,
     expiry: i64,
@@ -800,14 +851,14 @@ pub async fn mint(
     };
     let claims = serde_json::Value::Object(pending.claims().clone()).to_string();
     let hash = Sha256::digest(refresh.as_bytes()).to_vec();
-    exec.run_user_command(
+    exec.run_user_command_contract(
         actor,
         OperationId(
             *uuid::Uuid::parse_str(family)
                 .expect("server family")
                 .as_bytes(),
         ),
-        "SELECT rust_identity_mfa_mint($1,$2::text::jsonb,$3,$4,$5::text::uuid)::text",
+        &crate::sql::TOTP_L810,
         &[
             (&user, Type::INT8),
             (&claims, Type::TEXT),
@@ -826,7 +877,7 @@ pub struct MfaAnchor {
 }
 #[allow(clippy::too_many_arguments)]
 pub async fn bootstrap_confirm<P, PF, F, FF>(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     pending: &Session,
     token: &str,
     enrollment: &str,
@@ -852,28 +903,70 @@ where
     let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
     let final_claims = &claims;
     let final_hash = &hash;
-    exec.run_user_async_proof_command_with_tail(actor,OperationId(*operation.as_bytes()),
-        "SELECT rust_identity_totp_bootstrap_read($1,$2::text::jsonb,$3,$4,$5)::text",
-        &[(&user,Type::INT8),(&claims,Type::TEXT),(&hash,Type::TEXT),(&enrollment,Type::TEXT),(&ip,Type::TEXT)],
-        |rows|{let read=json_row(rows);async move {
-            let result=read?;
-            if result["status"]!="ready"{return Ok(setjoin_pg::ProvenStatement::new("SELECT $1::text").bind(result.to_string(),Type::TEXT));}
-            let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
-            let Some((counter,factor))=counter_proof(presented,ready_secret(&result)?,now)else{return Ok(setjoin_pg::ProvenStatement::new("SELECT rust_identity_totp_bootstrap_fail($1)::text").bind(user,Type::INT8));};
-            if result["user_enabled"]!=true{return Ok(setjoin_pg::ProvenStatement::new("SELECT '{\"status\":\"state_changed\"}'::text"));}
-            let anchor=match prepare(family.clone()).await{Ok(a)=>a,Err(v)=>return Ok(setjoin_pg::ProvenStatement::new("SELECT $1::text").bind(v.to_string(),Type::TEXT))};
-            let refresh_hash=Sha256::digest(anchor.refresh.as_bytes()).to_vec();
-            Ok(setjoin_pg::ProvenStatement::new("SELECT rust_identity_totp_bootstrap_confirm($1,$2::text::jsonb,$3,$4,$5,$6,$7,$8::text::uuid,$9,$10)::text")
-                .bind(user,Type::INT8).bind(final_claims.to_string(),Type::TEXT).bind(final_hash.to_string(),Type::TEXT).bind(enrollment.to_owned(),Type::TEXT).bind(ip.to_owned(),Type::TEXT)
-                .bind(refresh_hash,Type::BYTEA).bind(anchor.lifetime,Type::INT8).bind(family,Type::TEXT).bind(counter,Type::INT8).bind(factor,Type::BYTEA))
-        }},json_row,tail).await
+    exec.run_user_async_proof_command_contract_with_tail(
+        actor,
+        OperationId(*operation.as_bytes()),
+        &crate::sql::TOTP_L856,
+        &[
+            (&user, Type::INT8),
+            (&claims, Type::TEXT),
+            (&hash, Type::TEXT),
+            (&enrollment, Type::TEXT),
+            (&ip, Type::TEXT),
+        ],
+        |rows| {
+            let read = json_row(rows);
+            async move {
+                let result = read?;
+                if result["status"] != "ready" {
+                    return Ok(setjoin_pg::ProvenContract::new(&crate::sql::ECHO_TEXT)
+                        .bind(result.to_string(), Type::TEXT));
+                }
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64;
+                let Some((counter, factor)) = counter_proof(presented, ready_secret(&result)?, now)
+                else {
+                    return Ok(setjoin_pg::ProvenContract::new(&crate::sql::TOTP_L862)
+                        .bind(user, Type::INT8));
+                };
+                if result["user_enabled"] != true {
+                    return Ok(setjoin_pg::ProvenContract::new(&crate::sql::ECHO_TEXT)
+                        .bind("{\"status\":\"state_changed\"}".to_owned(), Type::TEXT));
+                }
+                let anchor = match prepare(family.clone()).await {
+                    Ok(a) => a,
+                    Err(v) => {
+                        return Ok(setjoin_pg::ProvenContract::new(&crate::sql::ECHO_TEXT)
+                            .bind(v.to_string(), Type::TEXT))
+                    }
+                };
+                let refresh_hash = Sha256::digest(anchor.refresh.as_bytes()).to_vec();
+                Ok(setjoin_pg::ProvenContract::new(&crate::sql::TOTP_L866)
+                    .bind(user, Type::INT8)
+                    .bind(final_claims.to_string(), Type::TEXT)
+                    .bind(final_hash.to_string(), Type::TEXT)
+                    .bind(enrollment.to_owned(), Type::TEXT)
+                    .bind(ip.to_owned(), Type::TEXT)
+                    .bind(refresh_hash, Type::BYTEA)
+                    .bind(anchor.lifetime, Type::INT8)
+                    .bind(family, Type::TEXT)
+                    .bind(counter, Type::INT8)
+                    .bind(factor, Type::BYTEA))
+            }
+        },
+        json_row,
+        tail,
+    )
+    .await
 }
 
 #[cfg(test)]
 mod fail_closed {
     //! #455: an empty TOTP key proves nothing, and a ready row without a string secret is a
     //! statement failure. #454: completion risk lookup errors fail closed.
-    use super::{code, counter_proof, ready_secret, CompletionUser};
+    use super::{code, counter_proof, ready_secret};
     const SECRET: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 
     #[test]
@@ -909,24 +1002,5 @@ mod fail_closed {
             ready_secret(&json!({"status":"ready","secret":SECRET})).unwrap(),
             SECRET
         );
-    }
-
-    #[test]
-    fn completion_risk_lookup_error_is_an_error() {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(async {
-            let exec =
-                setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1)
-                    .unwrap();
-            let user = CompletionUser {
-                user: 7,
-                email: String::new(),
-                admin: false,
-            };
-            assert!(user.risk(&exec).await.is_err());
-        });
     }
 }

@@ -103,32 +103,40 @@ impl<K: KeySource + 'static> Intercept for ChatRoute<K> {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
-            let scope = match setjoin_chat::authority(
-                &exec,
-                auth.context(),
-                !(is_list || is_audit || is_verify),
-            )
-            .await
-            {
-                Ok(Some(s)) => s,
-                Ok(None) | Err(_) => {
-                    let mut operation = [0; 16];
-                    if getrandom::getrandom(&mut operation).is_ok() {
-                        setjoin_chat::denied(
-                            &exec,
-                            auth.context(),
-                            &path,
-                            !(is_list || is_audit || is_verify),
-                            operation,
-                        )
-                        .await;
-                    }
-                    let mut response = problem(403, "Forbidden", "", &c, request_id);
-                    response.headers_mut().remove("content-language");
-                    return response;
-                }
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return crate::mailboxes::bare(503, "service unavailable", &c, &request_id);
             };
-            match setjoin_chat::enabled(&exec).await {
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(principal) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return problem(500, "database error", &path, &c, request_id);
+            };
+            let manage = !(is_list || is_audit || is_verify);
+            let required: &[&str] = if manage {
+                &[setjoin_chat::MANAGE]
+            } else {
+                &[setjoin_chat::MANAGE, setjoin_chat::VIEW]
+            };
+            let proof = if auth.context().signed_admin() {
+                factory
+                    .mint_admin_from_authorized(&auth, &client_ip)
+                    .await
+                    .ok()
+                    .and_then(|admin| admin.require_any_permission(required).ok())
+            } else {
+                None
+            };
+            let Some(proof) = proof else {
+                let mut operation = [0; 16];
+                if getrandom::getrandom(&mut operation).is_ok() {
+                    setjoin_chat::denied(&factory, &principal, &path, manage, operation).await;
+                }
+                let mut response = problem(403, "Forbidden", "", &c, request_id);
+                response.headers_mut().remove("content-language");
+                return response;
+            };
+            match setjoin_chat::enabled(&factory).await {
                 Ok(true) => {}
                 Ok(false) | Err(_) => {
                     let mut response = problem(404, "not found", "", &c, request_id);
@@ -157,18 +165,18 @@ impl<K: KeySource + 'static> Intercept for ChatRoute<K> {
                     Err(_) => return problem(500, "database error", &path, &c, request_id),
                 };
                 let rows =
-                    match setjoin_chat::list(&worker, &scope, user, search, limit, offset).await {
+                    match setjoin_chat::list(&factory, &proof, user, search, limit, offset).await {
                         Ok(v) => v,
                         Err(_) => return problem(500, "database error", &path, &c, request_id),
                     };
                 let mut operation = [0; 16];
                 if getrandom::getrandom(&mut operation).is_ok() {
                     setjoin_chat::audit_read(
-                        &exec,
-                        &scope,
+                        &factory,
+                        &principal,
                         "chat_channel_admin_list",
                         None,
-                        &c.identity.client_ip.to_string(),
+                        &client_ip,
                         operation,
                     )
                     .await;
@@ -183,7 +191,7 @@ impl<K: KeySource + 'static> Intercept for ChatRoute<K> {
                 return problem(400, "invalid channel id", &path, &c, request_id);
             };
             if is_verify {
-                let mut value = match setjoin_chat::verify(&worker, &scope, id).await {
+                let mut value = match setjoin_chat::verify(&factory, &proof, id).await {
                     Ok(v) => v,
                     Err(_) => return problem(500, "database error", &path, &c, request_id),
                 };
@@ -206,24 +214,24 @@ impl<K: KeySource + 'static> Intercept for ChatRoute<K> {
                     Err(_) => return problem(400, "invalid beforeId", &path, &c, request_id),
                 };
                 let (limit, _) = page(&r, 100, 1000);
-                let rows = match setjoin_chat::audit(&worker, &scope, id, before, limit).await {
+                let rows = match setjoin_chat::audit(&factory, &proof, id, before, limit).await {
                     Ok(v) => v,
                     Err(_) => return problem(500, "database error", &path, &c, request_id),
                 };
                 let mut operation = [0; 16];
                 if getrandom::getrandom(&mut operation).is_ok() {
                     setjoin_chat::audit_read(
-                        &exec,
-                        &scope,
+                        &factory,
+                        &principal,
                         "chat_channel_audit_read",
                         Some(id),
-                        &c.identity.client_ip.to_string(),
+                        &client_ip,
                         operation,
                     )
                     .await;
                 }
                 if query(&r, "format").as_deref() == Some("csv") {
-                    let summary = setjoin_chat::chain_summary(&worker, &scope, id).await;
+                    let summary = setjoin_chat::chain_summary(&factory, &proof, id).await;
                     return csv_response(id, &rows, summary, &c, request_id);
                 }
                 return crate::jmap::reply::response(
@@ -284,9 +292,9 @@ impl<K: KeySource + 'static> Intercept for ChatRoute<K> {
                     Ok(v) => v,
                     Err(_) => return problem(500, "database error", &path, &c, request_id),
                 };
-                match setjoin_chat::classification_knobs(
+                match run_classification_knobs(
                     &worker,
-                    &scope,
+                    &proof,
                     id,
                     days,
                     &body.worm_mode,
@@ -309,12 +317,28 @@ impl<K: KeySource + 'static> Intercept for ChatRoute<K> {
                 Err(_) => return problem(500, "database error", &path, &c, request_id),
             };
             let outcome = if action == "classification" {
-                setjoin_chat::classification(&exec, &scope, id, &body.classification, operation)
-                    .await
+                setjoin_chat::classification(
+                    &factory,
+                    &principal,
+                    &proof,
+                    id,
+                    &body.classification,
+                    operation,
+                )
+                .await
             } else if action == "retention" {
-                setjoin_chat::retention(&exec, &scope, id, days, operation).await
+                setjoin_chat::retention(&factory, &principal, &proof, id, days, operation).await
             } else {
-                setjoin_chat::hold(&exec, &scope, id, body.on, body.reason, operation).await
+                setjoin_chat::hold(
+                    &factory,
+                    &principal,
+                    &proof,
+                    id,
+                    body.on,
+                    body.reason,
+                    operation,
+                )
+                .await
             };
             match outcome {
                 setjoin_pg::CommandOutcome::Committed(()) => {
@@ -335,6 +359,79 @@ impl<K: KeySource + 'static> Intercept for ChatRoute<K> {
         })
     }
 }
+/// Go commits this one-statement knob preset independently of classification
+/// on the cross-tenant worker pool (without a separate `admin_audit_log` row).
+/// A missing channel is still a successful zero-row preset, as in frozen Go.
+async fn run_classification_knobs(
+    worker: &ScopedExecutor,
+    proof: &setjoin_authz::principals::AdminPermissionProof,
+    channel: i64,
+    days: i32,
+    worm: &str,
+    operation: [u8; 16],
+) -> setjoin_pg::CommandOutcome<(), setjoin_pg::StatementFailure> {
+    let op = setjoin_contracts::ids::OperationId(operation);
+    let Some(pool) = worker.try_worker_pool() else {
+        return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
+    };
+    let mut tx = match pool.begin_read_write().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e));
+        }
+    };
+    let actor = proof.actor().get();
+    let op_hex = setjoin_pg::operation_hex(op);
+    let body: Result<(), setjoin_pg::StatementFailure> = async {
+        let rows = tx
+            .query_contract(
+                &setjoin_chat::sql::CLASSIFICATION_KNOBS,
+                &[&channel, &days, &worm, &actor],
+            )
+            .await?;
+        if rows.is_empty() {
+            return Err(setjoin_pg::StatementFailure {
+                hint: None,
+                sqlstate: Some("42501".into()),
+                message: "compliance authority changed".into(),
+            });
+        }
+        tx.execute(
+            "INSERT INTO public.rust_operation_receipts(operation_id, family, command) \
+             VALUES ($1::text::uuid, $2, $3)",
+            &[
+                (&op_hex, setjoin_pg::Type::TEXT),
+                (&"F12", setjoin_pg::Type::TEXT),
+                (&"classification.knobs", setjoin_pg::Type::TEXT),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
+    match body {
+        Ok(()) => match tx.commit().await {
+            Ok(()) => setjoin_pg::CommandOutcome::Committed(()),
+            Err(e) => {
+                if let Some(code) = e.sqlstate.as_deref() {
+                    if setjoin_pg::commit_failure_observation(Some(code))
+                        == setjoin_contracts::command::CommitObservation::RolledBack
+                    {
+                        return setjoin_pg::CommandOutcome::RolledBack(
+                            setjoin_pg::Rejection::CommitRefused(code.to_owned()),
+                        );
+                    }
+                }
+                setjoin_pg::CommandOutcome::Unknown { operation: op }
+            }
+        },
+        Err(e) => {
+            let _ = tx.rollback().await;
+            setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e))
+        }
+    }
+}
+
 fn channel(path: &str, action: &str) -> Option<String> {
     let mut parts: Vec<_> = path.split('/').collect();
     if parts

@@ -42,7 +42,7 @@
 source "$(dirname "$0")/_base.sh"
 
 REDUCER_FILE="${REDUCER_FILE:-$ROOT/mailserver/sql/reducers/resolve_identity.sql}"
-CONNECTOR_FILE="${CONNECTOR_FILE:-$ROOT/server-rust/crates/domains/identity/src/rp/account.rs}"
+CONNECTOR_FILE="${CONNECTOR_FILE:-$ROOT/server-rust/crates/domains/identity/src/sql.rs}"
 
 echo "==> identity-predicate definition guard (resolve_identity twins, ADR-004)"
 

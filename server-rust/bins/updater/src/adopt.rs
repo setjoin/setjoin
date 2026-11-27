@@ -1,6 +1,8 @@
 //! Initial immutable cohort capture; orphaned flat *.prev files are evidence only.
 use crate::{files::*, stage};
-use anyhow::{ensure, Context, Result};
+#[cfg(not(feature = "oracle-mutants"))]
+use anyhow::Context;
+use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
 use setjoin_release_format::{hash_artifact, sha256};
 use std::{
@@ -23,18 +25,39 @@ fn inspect(root: &Path) -> Result<BTreeMap<String, String>> {
             .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
     };
     let mut artifacts = BTreeMap::new();
-    if exists("setjoin-server") {
+    let has_setjoind = exists("setjoind");
+    let has_server = exists("setjoin-server");
+    let has_auth = exists("setjoin-auth");
+    if has_setjoind || has_server {
         for legacy in ["authserverd", "mailserverd", "setjoin-gateway"] {
             ensure!(
                 !exists(legacy),
-                "mixed legacy ({legacy}) and post-#142 (setjoin-server) binaries in install root"
+                "mixed legacy ({legacy}) and post-#142 binaries in install root"
             );
         }
-        for name in ["mailctl", "setjoin-auth", "setjoin-server"] {
-            artifacts.insert(
-                name.into(),
-                hash_artifact(open(&root.join(name), false)?)?.1,
+        if has_setjoind {
+            ensure!(
+                has_server == has_auth,
+                "half-shim install root: setjoind requires both setjoin-server and setjoin-auth or neither"
             );
+            let names: &[&str] = if has_server {
+                &["mailctl", "setjoin-auth", "setjoin-server", "setjoind"]
+            } else {
+                &["mailctl", "setjoind"]
+            };
+            for name in names {
+                artifacts.insert(
+                    (*name).into(),
+                    hash_artifact(open(&root.join(name), false)?)?.1,
+                );
+            }
+        } else {
+            for name in ["mailctl", "setjoin-auth", "setjoin-server"] {
+                artifacts.insert(
+                    name.into(),
+                    hash_artifact(open(&root.join(name), false)?)?.1,
+                );
+            }
         }
     } else {
         for name in [
@@ -73,6 +96,7 @@ fn quarantine(root: &Path, dir: &Path) -> Result<()> {
         "setjoin-auth.prev",
         "setjoin-gateway.prev",
         "setjoin-server.prev",
+        "setjoind.prev",
         "webmail.prev",
     ] {
         let path = root.join(name);
@@ -152,8 +176,9 @@ pub fn execute(mut flags: BTreeMap<String, String>) -> Result<()> {
                     // installed.evidence.json content digest. A tampered managed
                     // `current` aborts before any `*.prev` is quarantined.
                     #[cfg(not(feature = "oracle-mutants"))]
-                    stage::validate_managed(&root, &id)
-                        .context("managed current release failed content verification; refusing to adopt")?;
+                    stage::validate_managed(&root, &id).context(
+                        "managed current release failed content verification; refusing to adopt",
+                    )?;
                     #[cfg(not(feature = "oracle-mutants"))]
                     stage::verify_authentic(&dir, &id, &roots)
                         .context("managed current release is not authenticated by the signed manifest; refusing to adopt")?;
@@ -265,7 +290,10 @@ mod tests {
 
         let inspected = inspect(&root).expect("post-#142 inspect passes");
         let keys: Vec<_> = inspected.keys().map(String::as_str).collect();
-        assert_eq!(keys, vec!["mailctl", "setjoin-auth", "setjoin-server", "webmail"]);
+        assert_eq!(
+            keys,
+            vec!["mailctl", "setjoin-auth", "setjoin-server", "webmail"]
+        );
 
         // Quarantine moves setjoin-server.prev and setjoin-auth.prev.
         write_file(&root.join("setjoin-server.prev"), b"prev-server", 0o500);
@@ -281,5 +309,60 @@ mod tests {
         write_file(&root.join("setjoin-gateway"), b"legacy", 0o500);
         let err = inspect(&root).unwrap_err().to_string();
         assert!(err.contains("mixed legacy"), "{err}");
+    }
+
+    #[test]
+    fn setjoind_expand_contract_half_shim_and_quarantine() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::set_permissions(tmp.path(), fs::Permissions::from_mode(0o755)).unwrap();
+
+        // 1. Release N expand (setjoind + both shims + mailctl + webmail)
+        let expand = tmp.path().join("expand");
+        write_file(&expand.join("setjoind"), b"setjoind", 0o500);
+        write_file(&expand.join("setjoin-server"), b"server-shim", 0o500);
+        write_file(&expand.join("setjoin-auth"), b"auth-shim", 0o500);
+        write_file(&expand.join("mailctl"), b"mailctl", 0o500);
+        write_file(&expand.join("webmail/index.html"), b"webmail", 0o400);
+        let keys: Vec<_> = inspect(&expand)
+            .expect("Release N expand inspect passes")
+            .into_keys()
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                "mailctl",
+                "setjoin-auth",
+                "setjoin-server",
+                "setjoind",
+                "webmail"
+            ]
+        );
+
+        // 2. Release N+1 unified contract (setjoind + mailctl + webmail)
+        let unified = tmp.path().join("unified");
+        write_file(&unified.join("setjoind"), b"setjoind", 0o500);
+        write_file(&unified.join("mailctl"), b"mailctl", 0o500);
+        write_file(&unified.join("webmail/index.html"), b"webmail", 0o400);
+        let keys: Vec<_> = inspect(&unified)
+            .expect("Release N+1 unified inspect passes")
+            .into_keys()
+            .collect();
+        assert_eq!(keys, vec!["mailctl", "setjoind", "webmail"]);
+
+        // 3. Quarantine moves setjoind.prev
+        write_file(&unified.join("setjoind.prev"), b"prev-setjoind", 0o500);
+        let qdir = tmp.path().join("quarantine");
+        quarantine(&unified, &qdir).expect("quarantine setjoind.prev passes");
+        assert!(!unified.join("setjoind.prev").exists());
+        assert!(qdir.join("setjoind.prev").exists());
+
+        // 4. Half-shim layout MUST fail closed
+        let half = tmp.path().join("half");
+        write_file(&half.join("setjoind"), b"setjoind", 0o500);
+        write_file(&half.join("setjoin-server"), b"server-shim", 0o500);
+        write_file(&half.join("mailctl"), b"mailctl", 0o500);
+        write_file(&half.join("webmail/index.html"), b"webmail", 0o400);
+        let err = inspect(&half).unwrap_err().to_string();
+        assert!(err.contains("half-shim"), "{err}");
     }
 }

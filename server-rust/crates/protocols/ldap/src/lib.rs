@@ -6,6 +6,7 @@ mod filter;
 mod wire;
 use futures_util::{SinkExt, StreamExt};
 use ldap3_proto::{proto::*, LdapCodec};
+use setjoin_authz::principals::{MailboxPrincipal, PrincipalError, TxFactory, UserPrincipal};
 use std::{io, sync::Arc};
 use tokio_util::codec::Framed;
 pub(crate) fn result(code: LdapResultCode) -> LdapResult {
@@ -17,6 +18,13 @@ pub(crate) fn result(code: LdapResultCode) -> LdapResult {
     }
 }
 use tokio::{net::TcpListener, sync::watch};
+
+#[derive(Clone)]
+pub(crate) struct BoundPrincipal {
+    pub(crate) user: UserPrincipal,
+    pub(crate) mailbox: Option<MailboxPrincipal>,
+}
+
 /// Disabled is an explicit unwired configuration; listeners refuse to serve it.
 #[derive(Clone, Default)]
 pub enum ThreatPolicy {
@@ -29,10 +37,14 @@ pub struct Server {
     tls: Option<Arc<tokio_rustls::rustls::ServerConfig>>,
     threat: ThreatPolicy,
     db: Option<setjoin_pg::ScopedExecutor>,
+    auth_db: Option<setjoin_pg::ScopedExecutor>,
+    tx_factory: Option<TxFactory>,
     domain: String,
     starttls: bool,
     max_connections: Option<usize>,
     inflight: Arc<tokio::sync::Semaphore>,
+    passwords: Arc<setjoin_authz::basic::PasswordCache>,
+    registry: Option<Arc<setjoin_threat::registry::ProtocolSessionRegistry>>,
 }
 impl Default for Server {
     fn default() -> Self {
@@ -40,15 +52,47 @@ impl Default for Server {
             tls: None,
             threat: ThreatPolicy::Disabled,
             db: None,
+            auth_db: None,
+            tx_factory: None,
             domain: String::new(),
             starttls: false,
             max_connections: None,
             inflight: Arc::new(tokio::sync::Semaphore::new(128)),
+            passwords: Arc::new(setjoin_authz::basic::PasswordCache::new()),
+            registry: None,
         }
     }
 }
 impl Server {
-    pub fn with_threat_gate(mut self,gate:Arc<dyn setjoin_threat::ThreatGate>)->Self{self.threat=ThreatPolicy::Enforced(gate);self}
+    /// Attach the dedicated pre-auth credential-lookup executor (`DB_WORKER_DSN`
+    /// / `setjoin_worker`, `BYPASSRLS`) for `users` password verification under
+    /// `V288` `FORCE RLS`. Post-bind LDAP checks and directory searches stay on
+    /// `self.db` / `self.tx_factory` (`setjoin_app`, `NOBYPASSRLS`).
+    pub fn with_auth_db(mut self, auth_db: setjoin_pg::ScopedExecutor) -> Self {
+        self.auth_db = Some(auth_db);
+        self
+    }
+    pub fn with_threat_gate(mut self, gate: Arc<dyn setjoin_threat::ThreatGate>) -> Self {
+        self.threat = ThreatPolicy::Enforced(gate);
+        self
+    }
+
+    pub fn with_tx_factory(mut self, tx_factory: TxFactory) -> Self {
+        self.tx_factory = Some(tx_factory);
+        self
+    }
+
+    pub fn tx_factory_wired(&self) -> bool {
+        self.tx_factory.is_some()
+    }
+
+    pub fn with_session_registry(
+        mut self,
+        registry: Arc<setjoin_threat::registry::ProtocolSessionRegistry>,
+    ) -> Self {
+        self.registry = Some(registry);
+        self
+    }
 
     pub fn with_threat_policy(mut self, policy: ThreatPolicy) -> Self {
         self.threat = policy;
@@ -76,8 +120,10 @@ impl Server {
     }
 
     pub fn new(db: setjoin_pg::ScopedExecutor, domain: impl Into<String>) -> Self {
+        let tx_factory = db.try_app_pool().map(TxFactory::new);
         Self {
             db: Some(db),
+            tx_factory,
             domain: domain.into(),
             ..Self::default()
         }
@@ -92,8 +138,10 @@ impl Server {
         mut stop: watch::Receiver<bool>,
     ) -> io::Result<()> {
         if !matches!(self.threat, ThreatPolicy::Enforced(_)) {
-            return Err(io::Error::new(io::ErrorKind::PermissionDenied,
-                "LDAP listener requires ThreatPolicy::Enforced"));
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "LDAP listener requires ThreatPolicy::Enforced",
+            ));
         }
         let mut sessions = tokio::task::JoinSet::new();
         let cap = self.max_connections.unwrap_or(100);
@@ -120,17 +168,21 @@ impl Server {
                     )
                     .await
                     {
-                        let _ = server.session(socket, true, &peer.ip().to_canonical().to_string()).await;
+                        let _ = server
+                            .session(socket, true, &peer.ip().to_canonical().to_string())
+                            .await;
                     }
                 } else {
-                    let _ = server.session(socket, false, &peer.ip().to_canonical().to_string()).await;
+                    let _ = server
+                        .session(socket, false, &peer.ip().to_canonical().to_string())
+                        .await;
                 }
             });
         }
         sessions.shutdown().await;
         Ok(())
     }
-    fn normalize(&self,email:&str)->String{
+    fn normalize(&self, email: &str) -> String {
         let mut email = email.to_string();
         if email.contains('=') {
             let first = email.split(',').next().unwrap_or_default();
@@ -142,65 +194,84 @@ impl Server {
         }
         email
     }
-    async fn authenticate(&self,email:&str,password:String,peer:&str)->Option<i64>{
-        use setjoin_threat::{ConnectionMeta,ThreatAction};
-        let email=self.normalize(email);
-        let mut meta=ConnectionMeta{source_ip:peer.into(),username:email.clone(),protocol:"ldap".into(),..Default::default()};
-        if let ThreatPolicy::Enforced(gate)=&self.threat{
-            let(action,delay)=gate.intercept(&meta).await;
-            if action!=ThreatAction::Allow{
-                if matches!(action,ThreatAction::Reject|ThreatAction::Tarpitted)&&!delay.is_zero(){tokio::time::sleep(delay).await;}
+    async fn authenticate(
+        &self,
+        email: &str,
+        password: String,
+        peer: &str,
+    ) -> Option<BoundPrincipal> {
+        use setjoin_threat::{ConnectionMeta, ThreatAction};
+        let email = self.normalize(email);
+        let mut meta = ConnectionMeta {
+            source_ip: peer.into(),
+            username: email.clone(),
+            protocol: "ldap".into(),
+            ..Default::default()
+        };
+        if let ThreatPolicy::Enforced(gate) = &self.threat {
+            let (action, delay) = gate.intercept(&meta).await;
+            if action != ThreatAction::Allow {
+                if matches!(action, ThreatAction::Reject | ThreatAction::Tarpitted)
+                    && !delay.is_zero()
+                {
+                    tokio::time::sleep(delay).await;
+                }
                 return None;
             }
         }
-        let result=self.credential(&email,password).await;
-        if let ThreatPolicy::Enforced(gate)=&self.threat{
-            gate.record_result(&meta,result.is_some(),result.unwrap_or(0)).await;
+        let result = self.credential(&email, password).await;
+        if let ThreatPolicy::Enforced(gate) = &self.threat {
+            gate.record_result(&meta, result.is_some(), result.unwrap_or(0))
+                .await;
             #[cfg(not(feature = "oracle-mutants"))]
-            if let Some(user)=result {
-                meta.user_id=user;
-                if gate.evaluate_post_auth(&mut meta).await.0==ThreatAction::Reject{return None}
+            if let Some(user) = result {
+                meta.user_id = user;
+                if gate.evaluate_post_auth(&mut meta).await.0 == ThreatAction::Reject {
+                    return None;
+                }
             }
         }
-        result
-    }
-    async fn credential(&self,email:&str,password:String)->Option<i64>{
+        let user = result?;
         let db = self.db.as_ref()?;
-        let rows=db.read("SELECT u.id,u.password_hash FROM users u JOIN domains d ON d.id=u.domain_id WHERE u.email=$1 AND u.enabled=TRUE", &[(&email,setjoin_pg::Type::TEXT)]).await.ok()?;
-        let row = rows.first()?;
-        let id: i64 = row.get(0);
-        let hash: String = row.try_get(1).ok()?;
-        let verified_hash = hash.clone();
-        let (valid, upgrade) = tokio::task::spawn_blocking(move || {
-            let valid = setjoin_authz::password::verify(&hash, &password);
-            let upgrade = if valid {
-                setjoin_authz::password::standard_upgrade(&hash, &password)
-            } else {
-                None
-            };
-            (valid, upgrade)
-        })
+        let tx_factory = self.tx_factory.as_ref()?;
+        setjoin_authz::policy_gate::check_protocol_post_auth(
+            db,
+            setjoin_authz::policy_gate::ProtocolSurface::Ldap,
+            user,
+        )
         .await
         .ok()?;
-        if !valid {
-            return None;
-        }
-        if let Some(upgrade) = upgrade {
-            let _ = db
-                .upgrade_legacy_protocol_password(id, &email, &verified_hash, &upgrade)
-                .await;
-        }
-        let guest = db
-            .read(
-                "SELECT is_guest_account($1)",
-                &[(&id, setjoin_pg::Type::INT8)],
-            )
+        let authorized = setjoin_authz::authorize_basic_member(db, user, email)
             .await
             .ok()?;
-        if guest.first()?.get::<_, bool>(0) {
-            return None;
+        let user_principal = tx_factory
+            .mint_user_from_authorized(&authorized, peer)
+            .await
+            .ok()?;
+        let mailbox = match tx_factory
+            .mint_primary_mailbox_from_authorized(&authorized, peer)
+            .await
+        {
+            Ok(mb) => Some(mb),
+            Err(PrincipalError::Forbidden("no primary mailbox")) => None,
+            Err(_) => return None,
+        };
+        Some(BoundPrincipal {
+            user: user_principal,
+            mailbox,
+        })
+    }
+    async fn credential(&self, email: &str, password: String) -> Option<i64> {
+        let auth_db = self.auth_db.as_ref().or(self.db.as_ref())?;
+        let policy = setjoin_authz::policy_gate::ProtocolSurface::Ldap
+            .basic_policy()
+            .expect("ldap basic policy");
+        match setjoin_authz::basic::verify(auth_db, &self.passwords, email, &password, policy).await
+        {
+            setjoin_authz::basic::Verdict::AccountPassword(verified) => Some(verified.user_id),
+            setjoin_authz::basic::Verdict::AppPassword(_)
+            | setjoin_authz::basic::Verdict::Refused => None,
         }
-        Some(id)
     }
     async fn session<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
         &self,
@@ -209,7 +280,6 @@ impl Server {
         peer: &str,
     ) -> io::Result<()> {
         use futures_util::{stream::FuturesUnordered, FutureExt};
-        use std::sync::atomic::AtomicI64;
         type Batch = (
             Vec<wire::Response>,
             tokio::sync::OwnedSemaphorePermit,
@@ -234,14 +304,25 @@ impl Server {
             Ok::<_, io::Error>(())
         };
         let reader = async {
-            let bound = AtomicI64::new(0);
+            let bound = std::sync::RwLock::<Option<BoundPrincipal>>::new(None);
+            let (evict_tx, mut evict_rx) = watch::channel(false);
+            let closer: setjoin_threat::registry::Closer = Arc::new(evict_tx);
+            let mut _session_release: Option<setjoin_threat::registry::SessionRelease> = None;
             let registry = Arc::new(cancel::Registry::default());
             let slots = Arc::new(tokio::sync::Semaphore::new(16));
             let mut pending = FuturesUnordered::new();
             let mut held: Option<LdapMsg> = None;
             let mut binding = false;
+            let mut bind_started_at = std::time::SystemTime::now();
             loop {
                 tokio::select! {
+                    _=async {
+                        while !*evict_rx.borrow() {
+                            if evict_rx.changed().await.is_err() {
+                                std::future::pending::<()>().await;
+                            }
+                        }
+                    } => return Ok(()),
                     _=tx.closed()=>return Err(io::Error::new(io::ErrorKind::BrokenPipe,"LDAP writer closed")),
                     permit=slots.clone().acquire_owned(),if !binding && held.as_ref().is_some_and(|m| !matches!(m.op,LdapOp::BindRequest(_)) || pending.is_empty())=>{
                         let message=held.take().expect("held frame");let permit=permit.expect("connection admission open");
@@ -250,8 +331,9 @@ impl Server {
                             // disconnect/Unbind drops its future and admission permits.
                             // Clear again after draining a previous Bind, even if
                             // global admission will reject this one as Busy.
-                            bound.store(0,std::sync::atomic::Ordering::SeqCst);
+                            *bound.write().unwrap_or_else(|e| e.into_inner()) = None;
                             binding = true;
+                            bind_started_at = std::time::SystemTime::now();
                             pending.push(self.admitted(message,secure,&bound,permit,&registry,peer).boxed());
                         } else if matches!(message.op,LdapOp::AbandonRequest(_)){release_abandon(permit);}else{pending.push(self.admitted(message,secure,&bound,permit,&registry,peer).boxed());}
                     }
@@ -260,7 +342,7 @@ impl Server {
                         if matches!(message.op,LdapOp::UnbindRequest){return Ok(())}
                         if matches!(message.op,LdapOp::BindRequest(_)) && !cfg!(feature = "oracle-mutants") {
                             // Invalidate even if global admission returns Busy.
-                            bound.store(0,std::sync::atomic::Ordering::SeqCst);
+                            *bound.write().unwrap_or_else(|e| e.into_inner()) = None;
                             held=Some(message);
                             continue;
                         }
@@ -281,7 +363,24 @@ impl Server {
                     }
                     responses=pending.next(),if !pending.is_empty()=>{
                         // An active Bind is the only outstanding operation.
-                        binding = false;
+                        if binding {
+                            binding = false;
+                            _session_release = None;
+                            let uid = bound
+                                .read()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .as_ref()
+                                .map_or(0, |bp| bp.user.user().get());
+                            if uid > 0 {
+                                if let Some(reg) = &self.registry {
+                                    _session_release = Some(reg.register(
+                                        uid,
+                                        bind_started_at,
+                                        closer.clone(),
+                                    ));
+                                }
+                            }
+                        }
                         tx.send(responses.expect("nonempty operations")).await.map_err(|_|io::Error::new(io::ErrorKind::BrokenPipe,"LDAP writer closed"))?;
                     }
                 }
@@ -293,7 +392,7 @@ impl Server {
         &self,
         message: LdapMsg,
         secure: bool,
-        bound: &std::sync::atomic::AtomicI64,
+        bound: &std::sync::RwLock<Option<BoundPrincipal>>,
         connection: tokio::sync::OwnedSemaphorePermit,
         registry: &Arc<cancel::Registry>,
         peer: &str,
@@ -324,12 +423,11 @@ impl Server {
         &self,
         message: LdapMsg,
         secure: bool,
-        bound: &std::sync::atomic::AtomicI64,
+        bound: &std::sync::RwLock<Option<BoundPrincipal>>,
         registry: &Arc<cancel::Registry>,
         peer: &str,
     ) -> Vec<wire::Response> {
-        use std::sync::atomic::Ordering;
-        let principal = bound.load(Ordering::SeqCst);
+        let principal = bound.read().unwrap_or_else(|e| e.into_inner()).clone();
         let mut generic = false;
         let op = match message.op {
             LdapOp::UnbindRequest | LdapOp::AbandonRequest(_) => return vec![],
@@ -337,15 +435,17 @@ impl Server {
                 // A Bind starts a fresh authentication exchange. Retaining the
                 // previous user on failure leaks their directory (Go bug).
                 #[cfg(not(feature = "oracle-mutants"))]
-                bound.store(0, Ordering::SeqCst);
+                {
+                    *bound.write().unwrap_or_else(|e| e.into_inner()) = None;
+                }
                 let password = match request.cred {
                     LdapBindCred::Simple(p) => p,
                     _ => String::new(),
                 };
                 let code = if request.dn.is_empty() && password.is_empty() || !secure {
                     LdapResultCode::InappropriateAuthentication
-                } else if let Some(user) = self.authenticate(&request.dn, password, peer).await {
-                    bound.store(user, Ordering::SeqCst);
+                } else if let Some(bp) = self.authenticate(&request.dn, password, peer).await {
+                    *bound.write().unwrap_or_else(|e| e.into_inner()) = Some(bp);
                     LdapResultCode::Success
                 } else {
                     LdapResultCode::InvalidCredentials
@@ -355,29 +455,30 @@ impl Server {
                     saslcreds: None,
                 })
             }
-            LdapOp::SearchRequest(request) if principal > 0 => {
-                return self
-                    .search(principal, request, &message.ctrl)
-                    .await
-                    .into_iter()
-                    .map(|op| wire::Response {
-                        message: LdapMsg {
-                            msgid: message.msgid,
-                            op,
-                            ctrl: vec![],
-                        },
-                        generic: false,
-                    })
-                    .collect()
-            }
-            LdapOp::SearchRequest(_) => {
+            LdapOp::SearchRequest(request) => {
+                if let Some(principal) = principal.as_ref() {
+                    return self
+                        .search(principal, request, &message.ctrl)
+                        .await
+                        .into_iter()
+                        .map(|op| wire::Response {
+                            message: LdapMsg {
+                                msgid: message.msgid,
+                                op,
+                                ctrl: vec![],
+                            },
+                            generic: false,
+                        })
+                        .collect();
+                }
                 LdapOp::SearchResultDone(result(LdapResultCode::InsufficentAccessRights))
             }
-            LdapOp::CompareRequest(request) if principal > 0 => {
-                LdapOp::CompareResult(result(self.compare(principal, &request).await))
-            }
-            LdapOp::CompareRequest(_) => {
-                LdapOp::CompareResult(result(LdapResultCode::InsufficentAccessRights))
+            LdapOp::CompareRequest(request) => {
+                if let Some(principal) = principal.as_ref() {
+                    LdapOp::CompareResult(result(self.compare(principal, &request).await))
+                } else {
+                    LdapOp::CompareResult(result(LdapResultCode::InsufficentAccessRights))
+                }
             }
             LdapOp::AddRequest(_) | LdapOp::DelRequest(_) | LdapOp::ModifyRequest(_) => {
                 generic = true;
@@ -472,7 +573,7 @@ fn busy(message: LdapMsg) -> wire::Response {
     }
 }
 
-fn release_abandon(permit:tokio::sync::OwnedSemaphorePermit){
+fn release_abandon(permit: tokio::sync::OwnedSemaphorePermit) {
     #[cfg(feature = "oracle-mutants")]
     permit.forget();
     #[cfg(not(feature = "oracle-mutants"))]

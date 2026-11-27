@@ -21,7 +21,8 @@ impl Intercept for Namespace {
             );
             r.headers_mut()
                 .insert("x-content-type-options", "nosniff".parse().unwrap());
-            r.headers_mut().insert("cache-control","no-store".parse().unwrap());
+            r.headers_mut()
+                .insert("cache-control", "no-store".parse().unwrap());
             r
         })
     }

@@ -12,7 +12,7 @@ pub async fn reseal(dsn: &str, master: &[u8], profile: CryptoProfile) -> Result<
         let connection=OperatorConnection::connect(dsn).await?;
         connection.batch("BEGIN").await?;
         let result=async{
-            let rows=connection.query("SELECT key,value::text,encrypted FROM system_config WHERE key LIKE 'oidc_provider_%_config' ORDER BY key FOR UPDATE",&[]).await?;
+            let rows=connection.query(crate::sql::RP_SECRET_L15.sql,&[]).await?;
             let mut candidates=Vec::new();
             // Validate every existing envelope/type before sealing/writing any row.
             for row in rows{
@@ -33,7 +33,7 @@ pub async fn reseal(dsn: &str, master: &[u8], profile: CryptoProfile) -> Result<
                 let sealed=setjoin_config_secret::seal_column(plain.as_bytes(),master,profile).map_err(|_|"OIDC secret sealing failed")?;
                 changes.push(json!({"key":key,"before":before,"encrypted":encrypted,"sealed":URL_SAFE_NO_PAD.encode(sealed)}));
             }
-            let rows=connection.query("SELECT rust_identity_rp_reseal($1::text::jsonb)",&[(&json!(changes).to_string(),Type::TEXT)]).await?;
+            let rows=connection.query(crate::sql::RP_SECRET_L36.sql,&[(&json!(changes).to_string(),Type::TEXT)]).await?;
             rows.first().and_then(|r|r.try_get::<_,i32>(0).ok()).ok_or_else(||"OIDC reseal result".to_owned())
         }.await;
         match result{Ok(count)=>{connection.batch("COMMIT").await?;Ok(count)},Err(error)=>{let _=connection.batch("ROLLBACK").await;Err(error)}}

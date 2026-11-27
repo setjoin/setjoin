@@ -22,7 +22,7 @@ DSN = os.environ["TEST_DB_DSN"]
 
 AUTH = ("setjoin-auth", "secfix3")
 GATE = ("setjoin-gateway", "secfix3_rules")
-CA = ("setjoin-conditional-access", "secfix3_policy")
+CA = ("setjoin-gateway", "secfix3_policy")
 AUTHZ_G = ("setjoin-authz", "runtime_gates")
 AUTHZ_D = ("setjoin-authz", "device_credential")
 TICKET = ("setjoin-gateway", "ticket_worker")

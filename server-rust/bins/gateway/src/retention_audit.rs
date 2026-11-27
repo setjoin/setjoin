@@ -45,6 +45,15 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                 return crate::compliance::problem(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), op);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return crate::compliance::problem(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return crate::compliance::problem(500, "database error", &c, &id);
+            };
             let update = *r.method() == hyper::Method::PUT;
             let delete = *r.method() == hyper::Method::DELETE;
             let write = *r.method() == hyper::Method::POST || update || delete;
@@ -60,14 +69,42 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                 &setjoin_compliance::MAIL_CONSOLE
             };
             let actor = auth.context();
-            let Some(authority) = setjoin_compliance::authority(&exec, actor)
-                .await
-                .ok()
-                .filter(|authority| authority.allows_any(required))
-            else {
+            let admin_opt = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
+            };
+            let Some(admin_principal) = admin_opt.filter(|a| a.allows_any(required)) else {
                 let _ = setjoin_compliance::console_denied(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user_principal,
+                    r.uri().path().trim_start_matches("/api"),
+                    &required.join("|"),
+                    op,
+                )
+                .await;
+                return crate::compliance::problem(403, "Forbidden", &c, &id);
+            };
+            let domain_scope = admin_principal.enforced_domain_scope().unwrap_or(0);
+            if admin_principal.refused_for_scope(required) {
+                let detail = format!(
+                    "{} (domain-scoped principal; org-wide-only surface, domain={domain_scope})",
+                    required.join("|"),
+                );
+                let _ = setjoin_compliance::console_denied(
+                    &factory,
+                    &user_principal,
+                    r.uri().path().trim_start_matches("/api"),
+                    &detail,
+                    op,
+                )
+                .await;
+                return crate::compliance::problem(403, "Forbidden", &c, &id);
+            }
+            let Ok(admin) = admin_principal.require_any_permission(required) else {
+                let _ = setjoin_compliance::console_denied(
+                    &factory,
+                    &user_principal,
                     r.uri().path().trim_start_matches("/api"),
                     &required.join("|"),
                     op,
@@ -76,14 +113,13 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                 return crate::compliance::problem(403, "Forbidden", &c, &id);
             };
             if r.uri().path().starts_with("/api/admin/content-search/") {
-                if authority.domain_scope() > 0 {
+                if domain_scope > 0 {
                     let detail = format!(
-                        "org-wide-only surface (domain-scoped principal; domain={})",
-                        authority.domain_scope()
+                        "org-wide-only surface (domain-scoped principal; domain={domain_scope})"
                     );
                     let _ = setjoin_compliance::console_denied(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user_principal,
                         r.uri().path().trim_start_matches("/api"),
                         &detail,
                         op,
@@ -118,7 +154,12 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                         );
                     }
                     return match setjoin_compliance::content::purge(
-                        &worker, actor, &ids, &reason, op,
+                        &factory,
+                        &admin,
+                        actor.email(),
+                        &ids,
+                        &reason,
+                        op,
                     )
                     .await
                     {
@@ -160,7 +201,7 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                     mailboxes: mailboxes
                         .map(|xs| xs.into_iter().map(Option::unwrap_or_default).collect()),
                 };
-                return match setjoin_compliance::content::search(&worker, &query).await {
+                return match setjoin_compliance::content::search(&factory, &admin, &query).await {
                     Ok(body) => crate::compliance::json_response(200, body, &c, id),
                     Err(e) if e.hint.as_deref() == Some("kql-validation") => {
                         crate::compliance::problem(400, &e.message, &c, &id)
@@ -168,15 +209,14 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                     Err(_) => crate::compliance::problem(500, "search failed", &c, &id),
                 };
             }
-            if r.uri().path().starts_with("/api/admin/audit") && authority.domain_scope() > 0 {
+            if r.uri().path().starts_with("/api/admin/audit") && domain_scope > 0 {
                 let detail = format!(
-                    "{} (domain-scoped principal; org-wide-only surface, domain={})",
+                    "{} (domain-scoped principal; org-wide-only surface, domain={domain_scope})",
                     required.join("|"),
-                    authority.domain_scope()
                 );
                 let _ = setjoin_compliance::console_denied(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user_principal,
                     r.uri().path().trim_start_matches("/api"),
                     &detail,
                     op,
@@ -190,8 +230,8 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                         .and_then(|s| s.parse::<i64>().ok())
                 };
                 return match setjoin_compliance::audit::verify(
-                    &exec,
-                    actor,
+                    &factory,
+                    &admin,
                     value("from_id"),
                     value("to_id"),
                 )
@@ -202,7 +242,7 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                 };
             }
             if r.uri().path() == "/api/admin/audit/csv" {
-                let body = setjoin_compliance::audit::csv(&exec).await;
+                let body = setjoin_compliance::audit::csv(&factory, &admin).await;
                 let mut response = crate::compliance::json_response(200, body, &c, id);
                 response
                     .headers_mut()
@@ -247,22 +287,23 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                     limit,
                     offset,
                 };
-                return match setjoin_compliance::audit::list(&exec, &query).await {
+                return match setjoin_compliance::audit::list(&factory, &admin, &query).await {
                     Ok(body) => crate::compliance::json_response(200, body, &c, id),
                     Err(_) => crate::compliance::problem(500, "database error", &c, &id),
                 };
             }
             if r.uri().path() == "/api/admin/audit/policy" {
                 if update {
-                    if setjoin_compliance::audit::reason_required(&exec).await
+                    if setjoin_compliance::audit::reason_required(&factory, &admin).await
                         && r.headers()
                             .get("x-audit-reason")
                             .is_none_or(|v| v.as_bytes().is_empty())
                     {
                         let _ = setjoin_compliance::audit::missing_reason(
-                            &exec,
-                            actor,
-                            &c.identity.client_ip.to_string(),
+                            &factory,
+                            &user_principal,
+                            &admin,
+                            &ip,
                             op,
                         )
                         .await;
@@ -303,13 +344,7 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                         .map(|v| v.unwrap_or_default())
                         .collect::<Vec<_>>();
                     return match setjoin_compliance::audit::put(
-                        &exec,
-                        actor,
-                        &level,
-                        &areas,
-                        &reason,
-                        &c.identity.client_ip.to_string(),
-                        op,
+                        &factory, &admin, &level, &areas, &reason, &ip, op,
                     )
                     .await
                     {
@@ -327,7 +362,7 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                         _ => crate::compliance::problem(500, "database error", &c, &id),
                     };
                 }
-                return match setjoin_compliance::audit::policy(&exec).await {
+                return match setjoin_compliance::audit::policy(&factory, &admin).await {
                     Ok(body) => crate::compliance::json_response(200, body, &c, id),
                     Err(_) => crate::compliance::problem(500, "database error", &c, &id),
                 };
@@ -352,8 +387,14 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                         };
                         values.push(value.unwrap_or(0).max(0));
                     }
-                    return match setjoin_compliance::retention::log_set(&exec, actor, &values, op)
-                        .await
+                    return match setjoin_compliance::retention::log_set(
+                        &factory,
+                        &user_principal,
+                        &admin,
+                        &values,
+                        op,
+                    )
+                    .await
                     {
                         setjoin_pg::CommandOutcome::Committed(()) => {
                             let mut r =
@@ -369,13 +410,20 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                         }
                     };
                 }
-                return match setjoin_compliance::retention::log_get(&exec).await {
+                return match setjoin_compliance::retention::log_get(&factory, &admin).await {
                     Ok(body) => crate::compliance::json_response(200, body, &c, id),
                     Err(_) => request_problem(500, "database error", &r, &c, &id),
                 };
             }
             if r.uri().path() == "/api/admin/retention/prune" {
-                return match setjoin_compliance::retention::prune(&exec, actor, op).await {
+                return match setjoin_compliance::retention::prune(
+                    &factory,
+                    &user_principal,
+                    &admin,
+                    op,
+                )
+                .await
+                {
                     setjoin_pg::CommandOutcome::Committed(body) => {
                         crate::compliance::json_response(200, body, &c, id)
                     }
@@ -397,11 +445,11 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                     return request_problem(400, "invalid policy id", &r, &c, &id);
                 };
                 return match setjoin_compliance::retention::delete(
-                    &exec,
-                    actor,
-                    authority.domain_scope(),
+                    &factory,
+                    &admin,
+                    domain_scope,
                     target,
-                    &c.identity.client_ip.to_string(),
+                    &ip,
                     op,
                 )
                 .await
@@ -448,9 +496,7 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                 ) else {
                     return request_problem(400, "invalid JSON", &r, &c, &id);
                 };
-                if authority.domain_scope() > 0
-                    && domain.is_some_and(|n| n != authority.domain_scope())
-                {
+                if domain_scope > 0 && domain.is_some_and(|n| n != domain_scope) {
                     return request_problem(
                         403,
                         "cannot retarget a retention policy to another domain",
@@ -460,17 +506,19 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                     );
                 }
                 let mut patch = serde_json::json!({"name":name,"description":description,"retainDays":days,"action":action,"isDefault":default,"domainId":domain});
-                patch.as_object_mut().unwrap().retain(|_, v| !v.is_null());
-                if patch.as_object().unwrap().is_empty() {
-                    return request_problem(400, "no fields to update", &r, &c, &id);
+                if let Some(obj) = patch.as_object_mut() {
+                    obj.retain(|_, v| !v.is_null());
+                    if obj.is_empty() {
+                        return request_problem(400, "no fields to update", &r, &c, &id);
+                    }
                 }
                 return match setjoin_compliance::retention::update(
-                    &exec,
-                    actor,
-                    authority.domain_scope(),
+                    &factory,
+                    &admin,
+                    domain_scope,
                     target,
                     &patch.to_string(),
-                    &c.identity.client_ip.to_string(),
+                    &ip,
                     op,
                 )
                 .await
@@ -518,9 +566,7 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                 if action != "delete" && action != "hold" {
                     return request_problem(400, "action must be delete or hold", &r, &c, &id);
                 }
-                if authority.domain_scope() > 0
-                    && domain.is_some_and(|n| n != authority.domain_scope())
-                {
+                if domain_scope > 0 && domain.is_some_and(|n| n != domain_scope) {
                     return request_problem(
                         403,
                         "cannot create a retention policy for another domain",
@@ -531,11 +577,11 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                 }
                 let patch=serde_json::json!({"name":name,"description":description,"retainDays":days,"action":action,"isDefault":default,"domainId":domain}).to_string();
                 return match setjoin_compliance::retention::create(
-                    &exec,
-                    actor,
-                    authority.domain_scope(),
+                    &factory,
+                    &admin,
+                    domain_scope,
                     &patch,
-                    &c.identity.client_ip.to_string(),
+                    &ip,
                     op,
                 )
                 .await
@@ -551,7 +597,7 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                     }
                 };
             }
-            match setjoin_compliance::retention::policies(&exec, authority.domain_scope()).await {
+            match setjoin_compliance::retention::policies(&factory, &admin, domain_scope).await {
                 Ok(body) => crate::compliance::json_response(200, body, &c, id),
                 Err(_) => request_problem(500, "database error", &r, &c, &id),
             }

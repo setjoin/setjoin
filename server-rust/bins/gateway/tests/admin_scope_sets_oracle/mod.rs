@@ -422,8 +422,11 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
         let exec = ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?
             .with_audit_keys("22".repeat(32), String::new());
+        let worker = ScopedExecutor::from_dsn(&db.dsn, 4)
+            .map_err(|e| e.0)?
+            .with_audit_keys("22".repeat(32), String::new());
         let adapter = Probe {
-            inner: AdminScopeSetsRoute { exec, keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
+            inner: AdminScopeSetsRoute { exec, worker: Some(worker), keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
             changed_status: mutant,
         };
         let mut inventory: Value = serde_json::from_str(include_str!("../../route-inventory.json"))?;

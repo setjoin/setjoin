@@ -1,61 +1,77 @@
-//! Scoped PostgreSQL executor (RP07, ticket #213): one transaction per
-//! command, scoped to the authenticated mailbox, over `tokio-postgres` +
-//! `deadpool-postgres`, wired to the `setjoin-db` lifecycle model.
+//! Scoped PostgreSQL executor (RP07, ticket #213; Wave 1.2, ticket #540):
+//! compile-time typed capability handles, `RecyclingMethod::Fast` (0-RTT
+//! checkout), 1-RTT `tokio::join!(biased; ...)` pipelining, PgBouncer-safe
+//! `CancelRequest` drop, and opt-in CVE-2026-14666-guarded prepared LRU.
 //!
 //! # PgBouncer transaction pool (`DB_DSN`)
 //!
-//! No named prepared statement is ever created:
-//! - command statements go through [`ScopedTx::query`] / [`ScopedTx::execute`],
-//!   which use `tokio_postgres::Client::query_typed_raw`: Parse/Bind/Describe/
-//!   Execute/Sync on the *unnamed* statement with explicitly typed parameters,
-//!   one round trip, nothing left on the server connection afterwards;
+//! By default (`PreparedStatementMode::Unnamed`), no named prepared statement
+//! is ever created:
+//! - command statements use `tokio_postgres::Client::query_typed` /
+//!   `query_typed_raw`: Parse/Bind/Describe/Execute/Sync on the *unnamed*
+//!   statement with explicitly typed parameters, nothing left on the server
+//!   connection afterwards;
 //! - `BEGIN`, `COMMIT` and `ROLLBACK` use the simple-query protocol
 //!   (`batch_execute`);
-//! - deadpool's statement cache (`prepare_cached`) is never used.
+//! - deadpool's unbounded statement cache (`prepare_cached`) is never used.
 //!
 //! Keep result columns to built-in types (cast custom enums/domains to
 //! `text`): the driver resolves an unknown result type OID with its own named
-//! type-info statement.
+//! type-info statement (`TYPEINFO_QUERY` `s0`).
 //!
-//! # Tenant scope
+//! # Capability Handles & Type-State
 //!
-//! Mirrors the Go seam `shared/dbscope.RunScoped` / `reducercall.CallScoped`:
-//! `BEGIN` → `SELECT set_config('app.current_mailbox_id', $1, true)` (the
-//! `setjoin-contracts` `InfrastructureStatement::MailboxScope` text; bound
-//! parameter, transaction-local so it dies with the transaction and never
-//! reaches the next pooled request) → command statements → `COMMIT`. The
-//! mailbox comes only from [`MailboxAuthContext`], never from request-owned
-//! fields (R2); the envelope's authority must equal it before anything is sent.
-//! Statements still carry their own ownership predicates (R1/R3, bind
-//! [`ScopedTx::mailbox`]); FORCE RLS on `messages`/`message_tags` is the
-//! backstop when the pool's credential is the constrained `setjoin_app` role.
+//! New code uses [`AppPool`] and typed capability handles:
+//! - [`MailboxTx<ReadOnly>`] / [`MailboxTx<ReadWrite>`]
+//! - [`UserTx<ReadOnly>`] / [`UserTx<ReadWrite>`]
+//! - [`AdminReadTx<Standard>`]
+//! - [`AdminSensitiveRead`] (audit-before-read single-call API: Tx 1 commits
+//!   `audit_write(..., 'core')`, Tx 2 runs under real `BEGIN READ ONLY`)
+//! - [`AdminWriteTx<Unaudited>`] → [`AdminWriteTx<Audited>`] (and 1-RTT
+//!   [`AppPool::run_admin_write_pipelined`])
+//! - `WorkerTx` (constructible only from feature-gated `WorkerPool`)
 //!
-//! # Privilege
-//!
-//! Privilege is the pool's credential. The executor never issues `SET ROLE`
-//! and [`statement::admit`] refuses role/session/transaction-control
-//! statements and `set_config` before they reach the server.
+//! Principal minting (`mint`) and `WorkerPool` (`worker-pool`) are Cargo
+//! feature-gated and statically isolated from `crates/domains/*` by
+//! `scripts/check-rust-family-isolation.py`.
 //!
 //! # Outcomes
 //!
 //! [`CommandOutcome`] is the lifecycle's terminal observation: `Committed`,
 //! `RolledBack` (known not committed) or `Unknown { operation }`, which is
 //! never success and maps to `recover(Unknown) = LookupUnderCurrentAuthority`.
-//! A connection whose outcome is unknown is discarded, never pooled again; a
-//! dropped (cancelled) `run` future discards its connection too.
+//! A connection whose outcome is unknown is quarantined with a PgBouncer-safe
+//! bounded `CancelRequest`, never pooled again.
 #![forbid(unsafe_code)]
 
 pub mod auth;
+pub mod auth_db;
+mod capability;
 pub mod cert_monitor;
 pub mod command;
 pub mod executor;
+pub mod listen_hub;
 pub mod operator;
 pub mod outcome;
+pub mod pipeline;
+pub mod pool;
+pub mod rls_preflight;
 pub mod statement;
 pub mod ticket_keys;
 pub mod workers;
 
 pub use auth::MailboxAuthContext;
+pub use auth_db::{AuthDb, ProvenContract};
+#[cfg(feature = "mint")]
+pub use capability::{mint, AdminWorkerPool, PreAuthReadTx};
+pub use capability::{
+    AdminReadTx, AdminReducerOutcome, AdminRollbackOnlyTx, AdminSensitiveRead, AdminWriteTx,
+    AppPool, AuditEvent, AuditEventError, Audited, MailboxTx, ReadOnly, ReadWrite, Standard,
+    Unaudited, UserTx, VerifiedAdmin, VerifiedMailbox, VerifiedUser, DEFAULT_EFFECT_CONCURRENCY,
+    EFFECT_BODY_TIMEOUT, EFFECT_IDLE_IN_TX_TIMEOUT_MS,
+};
+#[cfg(feature = "worker-pool")]
+pub use capability::{WorkerPool, WorkerTx};
 pub use command::{
     lookup_command, lookup_operation, operation_hex, run_command, run_locked_tx,
     run_receipted_command, run_receipted_command_capped, run_receipted_effect, OperationLookup,
@@ -64,10 +80,23 @@ pub use command::{
 pub use executor::{
     ConfigError, Param, ProvenStatement, ScopedExecutor, ScopedTx, Timeouts, DEADLINE_ENV,
 };
+pub use listen_hub::{
+    ListenEvent, ListenHub, ListenHubError, ListenNotification, ListenSubscription,
+    DEFAULT_SUBSCRIBER_CAPACITY,
+};
 pub use outcome::{
     commit_failure_observation, CommandOutcome, FailureCode, Rejection, StatementFailure,
 };
-pub use tokio_postgres::{types::Type, Row};
+pub use pool::{
+    pg_version_allows_prepared_rls, PgBouncerAttestation, PlanCacheHint, PreparedStatementMode,
+    CANCEL_SEMAPHORE_PERMITS, DEFAULT_PREPARED_CACHE_CAP, MIN_PGBOUNCER_MAX_PREPARED,
+    PGBOUNCER_PREPARED_HEADROOM,
+};
+pub use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope};
+pub use tokio_postgres::{
+    types::{ToSql, Type},
+    Row,
+};
 
 #[cfg(test)]
 mod tests;

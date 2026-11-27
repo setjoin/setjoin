@@ -67,13 +67,15 @@ impl<K: KeySource> JmapCommands<K> {
                 .await;
         }
         if req.uri().path().starts_with("/jmap/upload/") {
-            return self.upload(&mut req, ctx, &auth, &id).await;
+            return self.upload(&mut req, ctx, &auth, &authorized, &id).await;
         }
         if req.uri().path().starts_with("/jmap/download/") {
-            return self.download(&mut req, ctx, &auth, &id).await;
+            return self.download(&mut req, ctx, &auth, &authorized, &id).await;
         }
         if req.uri().path().starts_with("/jmap/recovery-raw/") {
-            let mut response = self.recovery_raw(&mut req, ctx, &auth, &id).await;
+            let mut response = self
+                .recovery_raw(&mut req, ctx, &auth, &authorized, &id)
+                .await;
             let cache = if response.status().is_success() {
                 "private, no-store"
             } else {
@@ -95,7 +97,28 @@ impl<K: KeySource> JmapCommands<K> {
                 "mailbox access is suspended",
             );
         }
-        let s = setjoin_jmap::session::settings(&self.exec, &auth).await;
+        let Some(tx) = self.tx_factory() else {
+            return problem(500, "serverFail", "internal error", ctx, &id);
+        };
+        let client_ip = ctx.identity.client_ip.to_string();
+        let Ok(user) = tx.mint_user_from_authorized(&authorized, &client_ip).await else {
+            return problem(500, "serverFail", "internal error", ctx, &id);
+        };
+        let Ok(mb) = tx
+            .mint_primary_mailbox_from_authorized(&authorized, &client_ip)
+            .await
+        else {
+            return crate::admission::problem(
+                req.headers(),
+                &ctx.identity,
+                403,
+                "mailbox access is suspended",
+            );
+        };
+        let (Ok(read_cap), Ok(owner_cap)) = (mb.require_read(), mb.require_owner()) else {
+            return problem(500, "serverFail", "internal error", ctx, &id);
+        };
+        let s = setjoin_jmap::session::settings(&tx, &read_cap).await;
         let enabled = |key: &str| s.flags.get(key).copied().unwrap_or(false);
         let tasks = json!({"sharedLists":enabled("feature.shared_task_lists")});
         let submission = json!({"maxDelayedSend":31536000,"submissionExtensions":{}});
@@ -127,8 +150,8 @@ impl<K: KeySource> JmapCommands<K> {
                 command: (),
             };
             match setjoin_jmap::session::register_device(
-                &self.exec,
-                &auth,
+                &tx,
+                &owner_cap,
                 &envelope,
                 authorized.device_id(),
                 platform,
@@ -136,7 +159,7 @@ impl<K: KeySource> JmapCommands<K> {
             .await
             {
                 setjoin_pg::CommandOutcome::Committed(device) => {
-                    setjoin_jmap::session::device_caps(&self.exec, &auth, device).await
+                    setjoin_jmap::session::device_caps(&tx, &read_cap, device).await
                 }
                 setjoin_pg::CommandOutcome::Unknown { operation } => {
                     let mut response = reply::response(
@@ -150,10 +173,10 @@ impl<K: KeySource> JmapCommands<K> {
                     }
                     return response;
                 }
-                _ => setjoin_jmap::session::effective_caps(&self.exec, &auth).await,
+                _ => setjoin_jmap::session::effective_caps(&tx, &read_cap).await,
             }
         } else {
-            setjoin_jmap::session::effective_caps(&self.exec, &auth).await
+            setjoin_jmap::session::effective_caps(&tx, &read_cap).await
         };
         let default_effective = || {
             json!({"apps":{"mail":false,"calendar":false,"contacts":false,"tasks":false,"approvals":false,"drive":false,"chat":false,"meet":false},
@@ -175,7 +198,7 @@ impl<K: KeySource> JmapCommands<K> {
             );
         }
         let permissions = if actor.signed_admin() {
-            setjoin_jmap::session::permissions(&services.worker, &auth)
+            setjoin_jmap::session::permissions(&tx, &user)
                 .await
                 .unwrap_or_else(|_| {
                     // Owner-approved security fix 2026-11-05 (#484): fail closed.
@@ -207,7 +230,7 @@ impl<K: KeySource> JmapCommands<K> {
             "state":authorized.session_state().encode(),"purgeConfig":{"deletedPurgeDays":s.deleted_days,"spamPurgeDays":s.spam_days},
             "branding":{"name":s.brand_name,"logoUrl":s.brand_logo},"effectiveCapabilities":effective,
         });
-        if let Ok(delegated) = setjoin_jmap::session::delegated(&services.worker, &auth).await {
+        if let Ok(delegated) = setjoin_jmap::session::delegated(&tx, &read_cap).await {
             for d in delegated {
                 let has = |grant: &str| d.grants.iter().any(|g| g == grant);
                 let mut caps = json!({"urn:ietf:params:jmap:mail":{},(vendor):{"delegateGrants":d.grants,"sendAsAliases":d.aliases}});
@@ -218,7 +241,7 @@ impl<K: KeySource> JmapCommands<K> {
             }
         }
         if enabled("dengbao.sod_mode") {
-            if let Ok(class) = setjoin_jmap::session::sod_class(&services.worker, &auth).await {
+            if let Ok(class) = setjoin_jmap::session::sod_class(&tx, &user).await {
                 body["dengbao"] = json!({"sodMode":true,"sodClass":class});
             }
         }
@@ -256,6 +279,24 @@ pub(super) fn envelope(
     setjoin_contracts::command::CommandEnvelope {
         operation: setjoin_contracts::ids::OperationId(operation),
         authority: auth.authority(),
+        binding: setjoin_db::lifecycle::accepted_contract(),
+        payload_digest: setjoin_contracts::ids::Digest(digest),
+        command: (),
+    }
+}
+
+pub(super) fn user_envelope(
+    user: &setjoin_authz::principals::UserPrincipal,
+    operation: [u8; 16],
+    digest: [u8; 32],
+) -> setjoin_contracts::command::CommandEnvelope<()> {
+    setjoin_contracts::command::CommandEnvelope {
+        operation: setjoin_contracts::ids::OperationId(operation),
+        authority: setjoin_contracts::authority::AuthorityKey {
+            actor: user.user(),
+            scope: setjoin_contracts::authority::ResourceScope::User(user.user()),
+            generation: user.generation(),
+        },
         binding: setjoin_db::lifecycle::accepted_contract(),
         payload_digest: setjoin_contracts::ids::Digest(digest),
         command: (),
@@ -353,15 +394,35 @@ async fn guest_session(
     let mut meet = false;
     let mut drive = false;
     if let Ok(rows)=exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.chat'),false) AND check_user_app_entitlement($1,'chat'), coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.meet'),false) AND coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.guest_accounts'),false) AND check_user_app_entitlement($1,'meet'),coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.drive'),false) AND coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.guest_accounts'),false) AND check_user_app_entitlement($1,'drive')",&[(&user,Type::INT8)]).await {
-        if let Some(r)=rows.first(){chat=r.get(0);meet=r.get(1);drive=r.get(2);}
+        if let Some(r) = rows.first() {
+            chat = r.try_get(0).unwrap_or(false);
+            meet = r.try_get(1).unwrap_or(false);
+            drive = r.try_get(2).unwrap_or(false);
+        }
     }
     let mut create = false;
     let mut host = false;
     let mut download = false;
     if meet || drive {
-        if let Ok(rows)=exec.read_user_scoped(ActorId::new(user).expect("verified guest"),
-            "SELECT guest_profile_flag($1,'allow_meet_create'),guest_profile_flag($1,'allow_meet_host'),guest_profile_flag($1,'allow_download')",&[(&user,Type::INT8)]).await {
-            if let Some(r)=rows.first(){if meet{create=r.get(0);host=r.get(1);}if drive{download=r.get(2);}}
+        if let Ok(actor) = ActorId::new(user) {
+            if let Ok(rows) = crate::policy_composition::user_read(
+                exec,
+                actor,
+                "SELECT guest_profile_flag($1,'allow_meet_create'),guest_profile_flag($1,'allow_meet_host'),guest_profile_flag($1,'allow_download')",
+                &[(&user, Type::INT8)],
+            )
+            .await
+            {
+                if let Some(r) = rows.first() {
+                    if meet {
+                        create = r.try_get(0).unwrap_or(false);
+                        host = r.try_get(1).unwrap_or(false);
+                    }
+                    if drive {
+                        download = r.try_get(2).unwrap_or(false);
+                    }
+                }
+            }
         }
     }
     let value = json!({"accounts":{},"capabilities":{},"isGuest":true,"effectiveCapabilities":{

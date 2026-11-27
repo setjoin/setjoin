@@ -3,6 +3,8 @@ use super::{body_error, contact_props, path, read_body, reply, xml};
 use crate::{Body, RequestContext};
 use hyper::{Request, Response};
 use serde_json::Value;
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
+use setjoin_contracts::ids::MailboxId;
 use setjoin_pg::ScopedExecutor;
 
 pub(super) const TOKEN: &str = "https://setjoin.invalid/ns/sync/";
@@ -59,19 +61,21 @@ pub(super) fn sync_response(changes: &Value, book: i64) -> String {
     xml::multistatus(responses, Some(&format!("{TOKEN}{seq}")))
 }
 pub(super) async fn handle(
-    exec: &ScopedExecutor,
+    tx: &TxFactory,
+    worker: &ScopedExecutor,
+    auth: &setjoin_authz::Authorized,
+    user: &UserPrincipal,
     r: &mut Request<Body>,
     c: &RequestContext,
-    actor: &setjoin_authz::AuthContext,
     id: String,
 ) -> Response<Body> {
-    let user = actor.user_id();
+    let client_ip = c.identity.client_ip.to_string();
     let bytes = match read_body(r, 1 << 20).await {
         Ok(b) => b,
         Err(status) => return body_error(status, r, c, id),
     };
     if path(r).1.first().is_some_and(|p| p == "gal") {
-        return super::gal::report(exec, &bytes, c, actor, id).await;
+        return super::gal::report(tx, worker, user, &bytes, c, id).await;
     }
     let body = String::from_utf8_lossy(&bytes);
     let kind = if body.contains("sync-collection") {
@@ -103,7 +107,7 @@ pub(super) async fn handle(
         if parts.first().is_none_or(|s| s.parse::<i64>().is_err()) {
             return reply(404, String::new(), None, c.identity.proto, id);
         }
-        let Some(book) = setjoin_calendar::carddav::book(exec, user, book)
+        let Some(book) = setjoin_calendar::carddav::book(tx, user, book)
             .await
             .ok()
             .flatten()
@@ -118,7 +122,19 @@ pub(super) async fn handle(
         let Some(since) = valid_token(token) else {
             return invalid_token(c, id);
         };
-        let Some(changes) = setjoin_calendar::carddav::sync(exec, user, &book, &since)
+        let Ok(book_mb_id) = MailboxId::new(book.mailbox) else {
+            return reply(404, String::new(), None, c.identity.proto, id);
+        };
+        let Ok(mb_principal) = tx
+            .mint_mailbox_from_authorized(auth, book_mb_id, &client_ip)
+            .await
+        else {
+            return reply(500, String::new(), None, c.identity.proto, id);
+        };
+        let Ok(read_cap) = mb_principal.require_read() else {
+            return reply(404, String::new(), None, c.identity.proto, id);
+        };
+        let Some(changes) = setjoin_calendar::carddav::sync(tx, &read_cap, &book, &since)
             .await
             .ok()
             .flatten()
@@ -156,13 +172,13 @@ pub(super) async fn handle(
         if uids.is_empty() {
             vec![]
         } else {
-            setjoin_calendar::carddav::contacts_by_uids(exec, user, &uids)
+            setjoin_calendar::carddav::contacts_by_uids(tx, user, &uids)
                 .await
                 .unwrap_or_default()
         }
     } else {
         if book > 0
-            && setjoin_calendar::carddav::book(exec, user, book)
+            && setjoin_calendar::carddav::book(tx, user, book)
                 .await
                 .ok()
                 .flatten()
@@ -183,7 +199,7 @@ pub(super) async fn handle(
                     .find(|n| n.name == "text-match" && n.ns == xml::CARD)
             })
             .map_or("", |n| n.text.as_str());
-        setjoin_calendar::carddav::search_contacts(exec, user, book, text)
+        setjoin_calendar::carddav::search_contacts(tx, user, book, text)
             .await
             .unwrap_or_default()
     };

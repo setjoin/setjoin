@@ -3,7 +3,8 @@ use super::{body_error, path, read_body, reply, xml};
 use crate::{Body, RequestContext};
 use hyper::{Request, Response};
 use serde_json::Value;
-use setjoin_pg::ScopedExecutor;
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
+use setjoin_contracts::ids::MailboxId;
 
 fn instant(value: &str) -> String {
     chrono::NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%SZ")
@@ -52,13 +53,15 @@ fn failure(r: &Request<Body>, c: &RequestContext, id: String) -> Response<Body> 
     response
 }
 pub(super) async fn handle(
-    exec: &ScopedExecutor,
+    tx: &TxFactory,
+    auth: &setjoin_authz::Authorized,
+    user: &UserPrincipal,
     r: &mut Request<Body>,
     c: &RequestContext,
-    user: i64,
-    mailbox: i64,
     id: String,
 ) -> Response<Body> {
+    let mailbox = auth.context().mailbox_id();
+    let client_ip = c.identity.client_ip.to_string();
     let bytes = match read_body(r, 1 << 20).await {
         Ok(b) => b,
         Err(status) => return body_error(status, r, c, id),
@@ -94,7 +97,7 @@ pub(super) async fn handle(
         if parts.first().is_none_or(|s| s.parse::<i64>().is_err()) {
             return reply(404, String::new(), None, c.identity.proto, id);
         }
-        let Some(cal) = setjoin_calendar::dav::calendar(exec, calendar, user)
+        let Some(cal) = setjoin_calendar::dav::calendar(tx, user, calendar)
             .await
             .ok()
             .flatten()
@@ -109,12 +112,23 @@ pub(super) async fn handle(
         let Some(since) = valid_token(token) else {
             return invalid_token(c, id);
         };
-        let changes =
-            match setjoin_calendar::dav::sync(exec, user, cal.mailbox, cal.id, &since).await {
-                Ok(Some(raw)) => serde_json::from_str::<Value>(&raw).ok(),
-                Ok(None) => return reply(404, String::new(), None, c.identity.proto, id),
-                Err(_) => return failure(r, c, id),
-            };
+        let Ok(cal_mb_id) = MailboxId::new(cal.mailbox) else {
+            return reply(404, String::new(), None, c.identity.proto, id);
+        };
+        let Ok(mb_principal) = tx
+            .mint_mailbox_from_authorized(auth, cal_mb_id, &client_ip)
+            .await
+        else {
+            return failure(r, c, id);
+        };
+        let Ok(cal_cap) = mb_principal.require_manage_calendar() else {
+            return reply(404, String::new(), None, c.identity.proto, id);
+        };
+        let changes = match setjoin_calendar::dav::sync(tx, &cal_cap, cal.id, &since).await {
+            Ok(Some(raw)) => serde_json::from_str::<Value>(&raw).ok(),
+            Ok(None) => return reply(404, String::new(), None, c.identity.proto, id),
+            Err(_) => return failure(r, c, id),
+        };
         let Some(changes) = changes else {
             return failure(r, c, id);
         };
@@ -174,15 +188,14 @@ pub(super) async fn handle(
             let end = instant(range.attr("end"));
             if !start.is_empty()
                 && !end.is_empty()
-                && setjoin_calendar::dav::calendar(exec, calendar, user)
+                && setjoin_calendar::dav::calendar(tx, user, calendar)
                     .await
                     .ok()
                     .flatten()
                     .is_some()
             {
-                let _ =
-                    setjoin_calendar::dav::free_busy(exec, user, mailbox, calendar, &start, &end)
-                        .await;
+                let _ = setjoin_calendar::dav::free_busy(tx, user, mailbox, calendar, &start, &end)
+                    .await;
             }
         }
         // Frozen Go's follow-up SELECT email FROM users JOIN mailboxes is
@@ -212,7 +225,7 @@ pub(super) async fn handle(
     let after = range.map_or_else(String::new, |r| instant(r.attr("start")));
     let before = range.map_or_else(String::new, |r| instant(r.attr("end")));
     let calendars = if calendar > 0 {
-        match setjoin_calendar::dav::calendar(exec, calendar, user)
+        match setjoin_calendar::dav::calendar(tx, user, calendar)
             .await
             .ok()
             .flatten()
@@ -221,19 +234,19 @@ pub(super) async fn handle(
             None => return reply(404, String::new(), None, c.identity.proto, id),
         }
     } else {
-        setjoin_calendar::dav::calendars(exec, user)
+        setjoin_calendar::dav::calendars(tx, user)
             .await
             .unwrap_or_default()
     };
     let mut responses = vec![];
     for cal in calendars {
-        for event in setjoin_calendar::dav::events(exec, cal.id, user, &after, &before, None)
+        for event in setjoin_calendar::dav::events(tx, user, cal.id, &after, &before, None)
             .await
             .unwrap_or_default()
         {
             if let Ok(event) = serde_json::from_str::<Value>(&event) {
                 let href = format!("/{}/{}.ics", cal.id, super::ical::text(&event, "uid"));
-                responses.push(super::event_props(exec, user, &href, req.as_deref(), &event).await);
+                responses.push(super::event_props(tx, user, &href, req.as_deref(), &event).await);
             }
         }
     }

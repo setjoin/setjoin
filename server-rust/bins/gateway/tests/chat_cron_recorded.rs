@@ -115,8 +115,8 @@ async fn run(
         } else {
             match action {
                 Native::Nothing => {}
-                Native::Anchor => setjoin_chat::workers::chain_anchor(&native).await?,
-                Native::Purge => setjoin_chat::workers::purge_expired(&native).await?,
+                Native::Anchor => setjoin_gateway::chat_workers::chain_anchor(&native).await?,
+                Native::Purge => setjoin_gateway::chat_workers::purge_expired(&native).await?,
             }
         }
         phases.push(json!({"phase":name,"after":observe(owner,channel,&ids,notary_base).await?}));
@@ -236,13 +236,7 @@ fn record_go_tick(db: &Db, at: &str, go_off: &str) -> Result<(), BoxError> {
     let output = std::process::Command::new("docker")
         .args(["run", "--rm", "--name", &name, "--network", "host", "-v"])
         .arg(format!("{}:/src", root.display()))
-        .args([
-            "-v",
-            &gofree_go_mod_mount(),
-            "-w",
-            "/src/mailserver",
-            "-e",
-        ])
+        .args(["-v", &gofree_go_mod_mount(), "-w", "/src/mailserver", "-e"])
         .arg(format!("GOFREE_CHAT_CRON_DSN={}", db.dsn))
         .args(["-e", &format!("GOFREE_CHAT_CRON_HMAC={HMAC}")])
         .args(["-e", &format!("GOFREE_CHAT_CRON_AT={at}")])

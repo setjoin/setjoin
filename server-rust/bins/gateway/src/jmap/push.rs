@@ -36,7 +36,15 @@ pub struct WebSocketRoute<K: KeySource + 'static> {
     devices: Arc<super::device_cache::DeviceCache>,
 }
 impl<K: KeySource + 'static> WebSocketRoute<K> {
-    pub fn with_device_cache(mut self,devices:Arc<super::device_cache::DeviceCache>)->Self{self.devices=devices;self}
+    pub fn with_device_cache(mut self, devices: Arc<super::device_cache::DeviceCache>) -> Self {
+        self.devices = devices;
+        self
+    }
+
+    pub fn with_listen_hub(mut self, hub: setjoin_pg::ListenHub) -> Self {
+        self.hub = super::hub::PushHub::with_listen_hub(hub);
+        self
+    }
 
     pub fn new(commands: Arc<JmapCommands<K>>, direct_dsn: String) -> Self {
         Self {
@@ -280,16 +288,26 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                 )
                 .await;
                 let user = identity.user_id();
-                let mailbox = commands
-                    .exec
-                    .read(
-                        "SELECT id FROM mailboxes WHERE user_id=$1 AND is_primary LIMIT 1",
-                        &[(&user, Type::INT8)],
-                    )
-                    .await
-                    .ok()
-                    .and_then(|r| r.first().map(|r| r.get::<_, i64>(0)));
-                let Some(mailbox) = mailbox else { return }; // Frozen Go WS (unlike SSE) closes mailbox-less guests.
+                let mailbox = match setjoin_authz::policy_gate::lookup_primary_mailbox_lifecycle(
+                    &commands.exec,
+                    user,
+                )
+                .await
+                {
+                    Ok(Some((mb, true))) => mb,
+                    // Frozen Go WS (unlike SSE) closes mailbox-less guests; Wave 1.4 (#542)
+                    // also closes mailboxes whose lifecycle access is blocked.
+                    Ok(Some((_, false))) => {
+                        let _ = socket
+                            .close(Some(CloseFrame {
+                                code: CloseCode::Policy,
+                                reason: "mailbox access suspended".into(),
+                            }))
+                            .await;
+                        return;
+                    }
+                    _ => return,
+                };
                 let (Ok(actor), Ok(mailbox_id)) = (ActorId::new(user), MailboxId::new(mailbox))
                 else {
                     return;
@@ -360,6 +378,7 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                         _=ping.tick()=>{if socket.send(Message::Ping(Vec::new().into())).await.is_err(){break}continue},
                         _=revalidate.tick()=>{
                             let mut allowed=identity.expires_at().is_some_and(|exp|chrono::Utc::now().timestamp()<exp);
+                            allowed &= setjoin_authz::policy_gate::check_mailbox_lifecycle(&commands.exec, mailbox).await.unwrap_or(false);
                             for channel in &admitted {
                                 let app=if channel.starts_with("chat:"){Some("chat")}else if channel.starts_with("meet:"){Some("meet")}else if channel.starts_with("drive-"){Some("drive")}else{None};
                                 if let Some(app)=app {allowed &=app_allowed(&commands.exec,&identity,app).await;}
@@ -432,6 +451,18 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                             .await;
                         break;
                     }
+                    if !setjoin_authz::policy_gate::check_mailbox_lifecycle(&commands.exec, mailbox)
+                        .await
+                        .unwrap_or(false)
+                    {
+                        let _ = socket
+                            .close(Some(CloseFrame {
+                                code: CloseCode::Policy,
+                                reason: "mailbox access suspended".into(),
+                            }))
+                            .await;
+                        break;
+                    }
                     let Some(env) = super::ws_request::decode(&data) else {
                         continue;
                     };
@@ -453,7 +484,10 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
         })
     }
 }
-pub(super) fn cache_denies<K: KeySource>(commands: &JmapCommands<K>, identity: &PushIdentity) -> bool {
+pub(super) fn cache_denies<K: KeySource>(
+    commands: &JmapCommands<K>,
+    identity: &PushIdentity,
+) -> bool {
     commands.denylist.as_ref().is_some_and(|d| {
         !d.loaded()
             || chrono::DateTime::from_timestamp(identity.issued_at(), 0).is_none_or(|iat| {
@@ -490,13 +524,14 @@ pub(super) async fn app_allowed(
 }
 async fn drive_admin(exec: &setjoin_pg::ScopedExecutor, scope: &MailboxAuthContext) -> bool {
     let user = scope.actor().get();
-    exec.read_user_scoped(
+    crate::policy_composition::user_read(
+        exec,
         scope.actor(),
         "SELECT drive_has_admin_perm($1,'drive.view') OR drive_has_admin_perm($1,'drive.manage')",
         &[(&user, Type::INT8)],
     )
     .await
-    .is_ok_and(|r| r[0].get::<_, bool>(0))
+    .is_ok_and(|r| r.first().and_then(|row| row.try_get::<_, bool>(0).ok()) == Some(true))
 }
 pub(super) fn origin_host(raw: &str) -> Option<&str> {
     if raw.trim() != raw || raw.bytes().any(|b| b.is_ascii_control()) {
@@ -601,7 +636,7 @@ pub(super) async fn state_frames(
         task |= value.contains_key("task_id");
     }
     if valid || calendar || contact || task {
-        let tokens = setjoin_jmap::push_state::tokens(exec, scope).await;
+        let tokens = super::push_tokens(exec, scope).await;
         let mut changed = json!({"Email":tokens[0],"Mailbox":tokens[1],"Thread":tokens[2]});
         if calendar {
             changed["Calendar"] = json!(tokens[3]);

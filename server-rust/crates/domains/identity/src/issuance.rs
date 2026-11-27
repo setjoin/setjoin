@@ -1,6 +1,6 @@
 //! #333 first-party token and discovery authority; HTTP framing stays in auth.
 use serde_json::{json, Value};
-use setjoin_pg::{ScopedExecutor, StatementFailure, Type};
+use setjoin_pg::{AuthDb, StatementFailure, Type};
 use std::collections::BTreeMap;
 
 fn invalid_row(message: &str) -> StatementFailure {
@@ -60,7 +60,7 @@ fn semver(raw: &str) -> [i64; 3] {
     }
     out
 }
-pub async fn version(exec: &ScopedExecutor, raw: &str, host: &str) -> String {
+pub async fn version(exec: &AuthDb, raw: &str, host: &str) -> String {
     let query = query(raw);
     let get = |k| query.get(k).map(String::as_str).unwrap_or("");
     let (client, platform, app) = (get("client"), get("platform"), get("app"));
@@ -68,7 +68,12 @@ pub async fn version(exec: &ScopedExecutor, raw: &str, host: &str) -> String {
     if client.is_empty() || platform.is_empty() || app.is_empty() {
         return default.into();
     }
-    let rows=exec.read("SELECT version,sha256,COALESCE(release_notes,''),COALESCE(file_path,''),release_date FROM client_versions WHERE platform=$1 AND app=$2 ORDER BY string_to_array(version,'.')::int[] DESC LIMIT 1",&[(&platform,Type::TEXT),(&app,Type::TEXT)]).await;
+    let rows = exec
+        .read_contract(
+            &crate::sql::ISSUANCE_CLIENT_VERSION_LATEST,
+            &[(&platform, Type::TEXT), (&app, Type::TEXT)],
+        )
+        .await;
     let Ok(rows) = rows else {
         return default.into();
     };
@@ -125,21 +130,25 @@ pub struct ClientProof {
     client: Option<String>,
 }
 impl ClientProof {
+    /// Sealed in-process internal-service proof for co-located `setjoin-auth` /
+    /// `setjoind` authorities. Gated behind the `in-process-authority` Cargo
+    /// feature, which CI restricts to `setjoin-auth` and `setjoind`.
+    #[cfg(feature = "in-process-authority")]
+    pub fn in_process() -> Self {
+        Self { client: None }
+    }
     pub fn internal(header: &str, key: &str) -> Option<Self> {
         use subtle::ConstantTimeEq;
         let presented = header.strip_prefix("Bearer ")?;
         (!key.is_empty() && bool::from(presented.as_bytes().ct_eq(key.as_bytes())))
             .then_some(Self { client: None })
     }
-    pub async fn authenticate(exec: &ScopedExecutor, client: &str, secret: &str) -> Option<Self> {
+    pub async fn authenticate(exec: &AuthDb, client: &str, secret: &str) -> Option<Self> {
         if client.is_empty() {
             return None;
         }
         let rows = exec
-            .read(
-                "SELECT secret FROM oidc_clients WHERE id=$1 AND enabled=true",
-                &[(&client, Type::TEXT)],
-            )
+            .read_contract(&crate::sql::ISSUANCE_L147, &[(&client, Type::TEXT)])
             .await;
         let hash = rows
             .ok()
@@ -160,15 +169,12 @@ impl ClientProof {
 }
 /// Authenticated service/client + presented token hash grants this read in Go.
 /// Introspection is deliberately not restricted to the caller's client_id.
-pub async fn introspect(
-    exec: &ScopedExecutor,
-    _caller: &ClientProof,
-    token: &str,
-    issuer: &str,
-) -> String {
+pub async fn introspect(exec: &AuthDb, _caller: &ClientProof, token: &str, issuer: &str) -> String {
     use sha2::{Digest, Sha256};
     let hash = Sha256::digest(token.as_bytes()).to_vec();
-    let rows=exec.read("SELECT o.user_id,u.email,o.client_id,COALESCE(o.scope,'{}'),extract(epoch FROM o.issued_at)::bigint,extract(epoch FROM o.expires_at)::bigint FROM oauth_tokens o JOIN users u ON u.id=o.user_id AND u.enabled=true WHERE o.token_hash=$1 AND o.revoked_at IS NULL AND (o.expires_at IS NULL OR o.expires_at>now())",&[(&hash,Type::BYTEA)]).await;
+    let rows = exec
+        .read_contract(&crate::sql::ISSUANCE_L178, &[(&hash, Type::BYTEA)])
+        .await;
     let inactive = "{\"active\":false}\n";
     let Some(r) = rows.as_ref().ok().and_then(|rows| rows.first()) else {
         return inactive.into();
@@ -225,7 +231,7 @@ pub fn form(raw: &[u8]) -> Result<BTreeMap<String, String>, &'static str> {
 /// Go's single-statement RFC7009 transaction. Hash possession plus verified
 /// client authority selects the target; the UPDATE repeats both predicates.
 pub async fn revoke(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     caller: &ClientProof,
     token: &str,
 ) -> setjoin_pg::CommandOutcome<(), setjoin_pg::StatementFailure> {
@@ -233,8 +239,15 @@ pub async fn revoke(
     use setjoin_pg::{CommandOutcome, Rejection};
     use sha2::{Digest, Sha256};
     let hash = Sha256::digest(token.as_bytes()).to_vec();
-    let rows=match exec.read("SELECT user_id FROM oauth_tokens WHERE token_hash=$1 AND revoked_at IS NULL AND (client_id=$2 OR client_id IS NULL)",&[(&hash,Type::BYTEA),(&caller.client,Type::TEXT)]).await{
-        Ok(r)=>r,Err(e)=>return CommandOutcome::RolledBack(Rejection::Statement(e))
+    let rows = match exec
+        .read_contract(
+            &crate::sql::ISSUANCE_L243,
+            &[(&hash, Type::BYTEA), (&caller.client, Type::TEXT)],
+        )
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
     };
     let Some(row) = rows.first() else {
         return CommandOutcome::Committed(());
@@ -248,7 +261,18 @@ pub async fn revoke(
         return CommandOutcome::RolledBack(Rejection::Unavailable);
     };
     let operation = OperationId(*uuid::Uuid::new_v4().as_bytes());
-    exec.run_user_command(actor,operation,"UPDATE oauth_tokens SET revoked_at=now() WHERE user_id=$1 AND token_hash=$2 AND revoked_at IS NULL AND (client_id=$3 OR client_id IS NULL)",&[(&user,Type::INT8),(&hash,Type::BYTEA),(&caller.client,Type::TEXT)],|_|Ok(())).await
+    exec.run_user_command_contract(
+        actor,
+        operation,
+        &crate::sql::ISSUANCE_L258,
+        &[
+            (&user, Type::INT8),
+            (&hash, Type::BYTEA),
+            (&caller.client, Type::TEXT),
+        ],
+        |_| Ok(()),
+    )
+    .await
 }
 
 /// Sealed authserver identity, without inventing a primary-mailbox requirement.
@@ -276,15 +300,16 @@ impl SessionProof {
         if session.user() <= 0 {
             return Err(SessionError::Invalid);
         }
-        Ok(Self { claims: session.claims().clone() })
+        Ok(Self {
+            claims: session.claims().clone(),
+        })
     }
-    pub async fn pending(
-        &self,
-        exec: &ScopedExecutor,
-    ) -> Result<String, setjoin_pg::StatementFailure> {
+    pub async fn pending(&self, exec: &AuthDb) -> Result<String, setjoin_pg::StatementFailure> {
         let user = self.user();
         let actor = setjoin_contracts::ids::ActorId::new(user).expect("verified user");
-        let rows=exec.read_user_scoped(actor,"SELECT t.id,t.name,t.version,t.body_md,t.require_scroll FROM terms_of_use t LEFT JOIN terms_of_use_acceptance a ON a.tou_id=t.id AND a.user_id=$1 AND a.version=t.version WHERE t.enabled AND a.user_id IS NULL ORDER BY t.id",&[(&user,Type::INT8)]).await?;
+        let rows = exec
+            .read_user_scoped_contract(actor, &crate::sql::ISSUANCE_L296, &[(&user, Type::INT8)])
+            .await?;
         let docs = rows
             .iter()
             .map(|r| {
@@ -311,17 +336,17 @@ impl SessionProof {
 impl SessionProof {
     pub async fn accept(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         tou: i64,
         version: i64,
         ip: &str,
     ) -> setjoin_pg::CommandOutcome<(), setjoin_pg::StatementFailure> {
         use setjoin_contracts::ids::{ActorId, OperationId};
         let user = self.user();
-        exec.run_user_command(
+        exec.run_user_command_contract(
             ActorId::new(user).expect("verified user"),
             OperationId(*uuid::Uuid::new_v4().as_bytes()),
-            "SELECT record_tou_acceptance($1,$2,$3::int4,$4::text::inet)",
+            &crate::sql::ISSUANCE_L333,
             &[
                 (&user, Type::INT8),
                 (&tou, Type::INT8),
@@ -337,7 +362,7 @@ impl SessionProof {
 /// SCIM's target is selected only after an internal-service proof. It is not
 /// an end-user owned identity field: this capability deprovisions org users.
 pub async fn disable(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     caller: &ClientProof,
     requested_user: i64,
     external: &str,
@@ -351,10 +376,7 @@ pub async fn disable(
         requested_user
     } else {
         let rows = match exec
-            .read(
-                "SELECT id FROM users WHERE scim_external_id=$1",
-                &[(&external, Type::TEXT)],
-            )
+            .read_contract(&crate::sql::ISSUANCE_L364, &[(&external, Type::TEXT)])
             .await
         {
             Ok(rows) => rows,
@@ -373,10 +395,10 @@ pub async fn disable(
     let Ok(actor) = ActorId::new(user) else {
         return CommandOutcome::RolledBack(Rejection::Unavailable);
     };
-    exec.run_user_command(
+    exec.run_user_command_contract(
         actor,
         OperationId(*uuid::Uuid::new_v4().as_bytes()),
-        "SELECT revoke_user_sessions($1,'all','token_revoke_all',NULL,NULL,NULL)",
+        &crate::sql::ISSUANCE_L388,
         &[(&user, Type::INT8)],
         |_| Ok(true),
     )
@@ -395,9 +417,23 @@ pub fn now_rfc3339() -> String {
 
 impl SessionProof {
     /// WebPush is a delivery subscription, not a native MFA approval device.
-    pub async fn register_webpush(&self,exec:&ScopedExecutor,subscription:&str,name:&str)->setjoin_pg::CommandOutcome<(),setjoin_pg::StatementFailure>{
-        exec.run_user_command(setjoin_contracts::ids::ActorId::new(self.user()).expect("verified user"),setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),
-            "INSERT INTO push_devices(user_id,push_provider,push_token_enc,device_public_key,device_name) VALUES($1,'webpush',pgp_sym_encrypt($2::text,current_setting('app.encryption_key'))::bytea,NULL,$3) ON CONFLICT DO NOTHING",
-            &[(&self.user(),Type::INT8),(&subscription,Type::TEXT),(&name,Type::TEXT)],|_|Ok(())).await
+    pub async fn register_webpush(
+        &self,
+        exec: &AuthDb,
+        subscription: &str,
+        name: &str,
+    ) -> setjoin_pg::CommandOutcome<(), setjoin_pg::StatementFailure> {
+        exec.run_user_command_contract(
+            setjoin_contracts::ids::ActorId::new(self.user()).expect("verified user"),
+            setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),
+            &crate::sql::ISSUANCE_L414,
+            &[
+                (&self.user(), Type::INT8),
+                (&subscription, Type::TEXT),
+                (&name, Type::TEXT),
+            ],
+            |_| Ok(()),
+        )
+        .await
     }
 }

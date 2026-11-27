@@ -163,8 +163,11 @@ pub(crate) fn classify_call(
 /// Render a claimed call for batch/single dispatch (`(name, payload_json)`).
 /// Once claimed, a database failure is a native JMAP error; an ambiguous
 /// commit carries its operation ID and is never replayed.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn response_call(
-    exec: &setjoin_pg::ScopedExecutor,
+    tx_factory: &setjoin_authz::principals::TxFactory,
+    read_cap: &setjoin_authz::principals::ReadCapability,
+    submit_cap: &setjoin_authz::principals::SubmitCapability,
     auth: &setjoin_pg::MailboxAuthContext,
     worker: &setjoin_pg::ScopedExecutor,
     services: Option<&super::JmapServices>,
@@ -181,14 +184,33 @@ pub(crate) async fn response_call(
                 reply::jmap_error_json(error.kind, error.status, &error.detail),
             )
         }
-        Arguments::Get { ids, bad } => setjoin_jmap::submission::get(exec, auth, ids.as_deref())
-            .await
-            .map(|raw| super::get::add_not_found(&raw, &bad).expect("reducer JSON")),
+        Arguments::Get { ids, bad } => {
+            setjoin_jmap::submission::get(tx_factory, read_cap, ids.as_deref())
+                .await
+                .and_then(|raw| {
+                    super::get::add_not_found(&raw, &bad).ok_or_else(|| {
+                        setjoin_pg::StatementFailure {
+                            hint: None,
+                            sqlstate: None,
+                            message: "invalid EmailSubmission/get JSON".into(),
+                        }
+                    })
+                })
+        }
         Arguments::Query {
             filter,
             position,
             limit,
-        } => setjoin_jmap::submission::query(exec, auth, filter.as_deref(), position, limit).await,
+        } => {
+            setjoin_jmap::submission::query(
+                tx_factory,
+                read_cap,
+                filter.as_deref(),
+                position,
+                limit,
+            )
+            .await
+        }
         Arguments::Set(Err(detail)) => {
             return (
                 "error",
@@ -223,18 +245,10 @@ pub(crate) async fn response_call(
             let processed_sizes: &[setjoin_jmap::submission::ProcessedSize] = processed
                 .as_ref()
                 .map_or(&[], |p| p.processed_sizes.as_slice());
-            let envelope = setjoin_contracts::command::CommandEnvelope {
-                operation: setjoin_contracts::ids::OperationId(operation),
-                authority: auth.authority(),
-                binding: setjoin_db::lifecycle::accepted_contract(),
-                payload_digest: setjoin_contracts::ids::Digest(digest),
-                command: setjoin_jmap::submission::Submission,
-            };
-            match setjoin_jmap::submission::create(
+            match worker_submission_create(
                 worker,
-                auth,
-                &envelope,
-                std::time::Instant::now() + super::COMMAND_DEADLINE,
+                submit_cap,
+                setjoin_contracts::ids::OperationId(operation),
                 modified_create,
                 processed_refs,
                 is_encrypted,
@@ -287,8 +301,8 @@ pub(crate) async fn response_call(
                 command: setjoin_jmap::submission::Submission,
             };
             match setjoin_jmap::submission::cancel(
-                exec,
-                auth,
+                tx_factory,
+                submit_cap,
                 &envelope,
                 std::time::Instant::now() + super::COMMAND_DEADLINE,
                 email_id,
@@ -331,5 +345,119 @@ pub(crate) async fn response_call(
             reply::failure_json(setjoin_jmap::classify_failure(&failure))
                 .unwrap_or_else(|| reply::jmap_error_json("serverFail", 500, "database error")),
         ),
+    }
+}
+
+/// Cross-mailbox local-recipient fan-out in `jmap_email_submission_set` (`send` -> `deliver`)
+/// executes `SqlScope::WorkerBypass` contracts on `WorkerPool` strictly after the caller
+/// proved [`setjoin_authz::principals::SubmitCapability`].
+async fn worker_submission_create(
+    worker: &setjoin_pg::ScopedExecutor,
+    submit_cap: &setjoin_authz::principals::SubmitCapability,
+    operation: setjoin_contracts::ids::OperationId,
+    create: Option<&str>,
+    processed_refs: Option<&str>,
+    is_encrypted: Option<&str>,
+    processed_sizes: &[setjoin_jmap::submission::ProcessedSize],
+) -> setjoin_pg::CommandOutcome<String, setjoin_pg::StatementFailure> {
+    let Some(pool) = worker.try_worker_pool() else {
+        return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
+    };
+    let mut tx = match pool.begin_read_write().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e));
+        }
+    };
+    let mailbox = submit_cap.mailbox().get();
+    let actor = submit_cap.actor().get();
+    let body: Result<String, setjoin_pg::StatementFailure> = async {
+        let res_text = if processed_sizes.is_empty() {
+            let rows = tx
+                .query_contract(
+                    &setjoin_jmap::sql::SUBMISSION_SET,
+                    &[&mailbox, &actor, &create, &processed_refs, &is_encrypted],
+                )
+                .await?;
+            setjoin_jmap::submission::decode_submission_result(&rows)?
+        } else {
+            // Acquire canonical #481 parent locks (`users FOR KEY SHARE -> mailboxes FOR UPDATE`)
+            // strictly before locking/updating any child draft `messages` rows (`SUBMISSION_LOCK_DRAFT`),
+            // preventing AB-BA deadlocks with concurrent `send()` / mailbox-delete transactions.
+            let _ = tx
+                .query_contract(&setjoin_jmap::sql::SUBMISSION_PRELOCK_USER, &[&mailbox])
+                .await?;
+            let _ = tx
+                .query_contract(&setjoin_jmap::sql::SUBMISSION_PRELOCK_MAILBOX, &[&mailbox])
+                .await?;
+            let mut orig_sizes: Vec<(String, i64, String, i64)> = Vec::new();
+            for item in processed_sizes {
+                let rows = tx
+                    .query_contract(
+                        &setjoin_jmap::sql::SUBMISSION_LOCK_DRAFT,
+                        &[&item.email_id, &mailbox],
+                    )
+                    .await?;
+                if let Some((orig_ref, orig_size)) =
+                    setjoin_jmap::submission::decode_draft_lock(&rows)?
+                {
+                    tx.execute_contract(
+                        &setjoin_jmap::sql::SUBMISSION_UPDATE_DRAFT_SIZE,
+                        &[&item.size_bytes, &item.email_id, &mailbox],
+                    )
+                    .await?;
+                    orig_sizes.push((item.creation_id.clone(), item.email_id, orig_ref, orig_size));
+                }
+            }
+            let rows = tx
+                .query_contract(
+                    &setjoin_jmap::sql::SUBMISSION_SET_WITH_NOT_CREATED,
+                    &[&mailbox, &actor, &create, &processed_refs, &is_encrypted],
+                )
+                .await?;
+            let (res_text, not_created_keys) =
+                setjoin_jmap::submission::decode_submission_with_not_created(&rows)?;
+            for (cid, email_id, orig_ref, orig_size) in orig_sizes {
+                if not_created_keys.iter().any(|k| k == &cid) {
+                    tx.execute_contract(
+                        &setjoin_jmap::sql::SUBMISSION_RESTORE_DRAFT_SIZE,
+                        &[&orig_size, &email_id, &mailbox, &orig_ref],
+                    )
+                    .await?;
+                }
+            }
+            res_text
+        };
+        tx.record_receipt(
+            operation,
+            setjoin_pg::ReceiptCommand {
+                family: "jmap",
+                command: "submission.set",
+            },
+        )
+        .await?;
+        Ok(res_text)
+    }
+    .await;
+    match body {
+        Ok(res_text) => match tx.commit().await {
+            Ok(()) => setjoin_pg::CommandOutcome::Committed(res_text),
+            Err(e) => {
+                if let Some(code) = e.sqlstate.as_deref() {
+                    if setjoin_pg::commit_failure_observation(Some(code))
+                        == setjoin_contracts::command::CommitObservation::RolledBack
+                    {
+                        return setjoin_pg::CommandOutcome::RolledBack(
+                            setjoin_pg::Rejection::CommitRefused(code.to_owned()),
+                        );
+                    }
+                }
+                setjoin_pg::CommandOutcome::Unknown { operation }
+            }
+        },
+        Err(e) => {
+            let _ = tx.rollback().await;
+            setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e))
+        }
     }
 }

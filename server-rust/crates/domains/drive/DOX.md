@@ -13,9 +13,14 @@ Frozen Go is the authority (ARCH-029/030); no accepted divergences.
 - `sharing-watch` (#276): ACL governance, folder admins, locks, as-of/watches
   and the `/drive/` catch-all (21); closes the shared-effect watch worker.
 
-The catch-all forwards until the remaining handlers qualify. Sharing self-service
-uses the explicit worker credential as frozen Go does, with every list scoped
-to the sealed verified user. Mailbox IDs are independent of user IDs.
+The catch-all forwards until the remaining handlers qualify. All Drive and sharing
+SQL lives in `src/sql.rs` (`SQL_CONTRACTS`, 116 typed `SqlContract` entries) with
+`drive_*` recursive/closure reducers retained in PL/pgSQL (`ARCH-036`). Domain
+entrypoints take `TxFactory` + `UserPrincipal` (or `AdminPermissionProof` for
+admin routes); sharing self-service runs user-scoped on `AppPool` (`UserTx`),
+admin sharing/spaces reads and audited default writes run via `AdminPermissionProof`,
+and CAS-locked chunk promotion uses `TxFactory::run_user_effect_write`. Mailbox
+IDs are independent of user IDs.
 
 Tests: `setjoin-gateway --test drive_recorded`, using only the assigned disposable
 database. The covered Go recorder is opt-in; ordinary replay has Go unset.
@@ -256,13 +261,14 @@ refuses startup); it needs `DB_DIRECT_DSN` and uses the worker DSN.
 ## Mailbox-less guest admission (#188)
 
 User adapters accept live guest proof only through the shared program/route belt.
-`session(actor)` returns user-only scope for a mailbox-less guest; scoped mirror
+`UserPrincipal` carries user-only scope for a mailbox-less guest; scoped mirror
 containment and every node/space membership predicate remain in force. User command
 wrapper guards assert the verified actor rather than requiring a fictitious mailbox.
 Members preserve real mailbox scope. The shared guest-domain corpus records native
 preview lookup on a mailbox-less user; no S3 grant is manufactured by authentication.
 
-Binding detail: receipted commands retain mailbox-compatibility `$1` and verified
-actor `$2`. Plain `read_scoped` binds exactly its explicit arguments; Part B
-`simple_read` uses actor `$1`, target `$2`, payload `$3`. Its audit-action catalog
-therefore tests positive actor `$1`, even though its unused target is zero.
+Binding detail: receipted commands bind the verified actor from `UserPrincipal`
+(no legacy `from_authenticated_session`). Plain user reads bind their explicit
+contract parameters; Part B `simple_read` binds actor `$1`, target `$2`, payload `$3`.
+Its audit-action catalog therefore tests positive actor `$1`, even though its unused
+target is zero.

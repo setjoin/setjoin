@@ -19,9 +19,15 @@ DECLARE
   v_domain_id       bigint;
   v_delegate_domain bigint;
 BEGIN
+  IF NOT public.rls_caller_is_privileged()
+     AND p_user_id IS DISTINCT FROM NULLIF(current_setting('app.current_user_id', true), '')::bigint THEN
+    RAISE EXCEPTION 'approval delegation forbidden'
+      USING ERRCODE = '42501';
+  END IF;
+
   -- Clear any existing entrust first: keeps a single active row and lets a NULL
   -- delegate act as "turn it off".
-  DELETE FROM approval_delegations WHERE delegator_user_id = p_user_id;
+  DELETE FROM public.approval_delegations WHERE delegator_user_id = p_user_id;
 
   IF p_delegate_user_id IS NULL THEN
     RETURN;  -- cleared
@@ -42,15 +48,17 @@ BEGIN
 
   -- Tenant safety: the delegate must exist AND live in the delegator's domain, so an
   -- entrust can never reroute an approval across tenants.
-  SELECT domain_id INTO v_domain_id       FROM users WHERE id = p_user_id;
-  SELECT domain_id INTO v_delegate_domain FROM users WHERE id = p_delegate_user_id;
+  SELECT domain_id INTO v_domain_id       FROM public.users WHERE id = p_user_id;
+  SELECT domain_id INTO v_delegate_domain FROM public.users WHERE id = p_delegate_user_id;
   IF v_delegate_domain IS NULL OR v_delegate_domain IS DISTINCT FROM v_domain_id THEN
     RAISE EXCEPTION 'delegate not found in your organization'
       USING ERRCODE = 'BZ119',
             HINT = jsonb_build_object('type', 'delegate_invalid')::TEXT;
   END IF;
 
-  INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
+  INSERT INTO public.approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
   VALUES (p_user_id, p_delegate_user_id, p_starts_at, p_ends_at);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.set_approval_delegation(bigint,bigint,timestamptz,timestamptz)'::regprocedure);

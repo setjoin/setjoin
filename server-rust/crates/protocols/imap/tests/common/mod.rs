@@ -47,8 +47,13 @@ pub fn executor(db: &setjoin_conformance::harness::Db) -> setjoin_pg::ScopedExec
     setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap()
 }
 
+pub fn worker_executor(db: &setjoin_conformance::harness::Db) -> setjoin_pg::ScopedExecutor {
+    setjoin_pg::ScopedExecutor::from_dsn(db.worker_dsn(), 4).unwrap()
+}
+
 pub fn server(db: &setjoin_conformance::harness::Db, transport: &str) -> Server {
-    let server = Server::new(executor(db), ThreatPolicy::Unwired, WebhookPolicy::Unwired);
+    let server = Server::new(executor(db), ThreatPolicy::Unwired, WebhookPolicy::Unwired)
+        .with_auth_db(worker_executor(db));
     match transport {
         "starttls" => server.with_starttls(tls_server()),
         "tls" => server.with_tls(tls_server()),

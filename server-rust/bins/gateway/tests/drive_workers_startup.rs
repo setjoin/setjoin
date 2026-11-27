@@ -53,7 +53,7 @@ async fn starts_without_go_off() -> Result<(), BoxError> {
         ("S3_BUCKET", "mailblobs"),
     ];
     for name in ["drive-maintenance", "drive-preview"] {
-        let mut child = gateway(&db.dsn, &db.dsn, name, "", &s3)?;
+        let mut child = gateway(db.app_dsn(), db.worker_dsn(), name, "", &s3)?;
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
         let running = child.try_wait()?.is_none();
         stop(&mut child);
@@ -75,7 +75,7 @@ async fn starts_once_go_is_off_and_stops_on_sigterm() -> Result<(), BoxError> {
         ("S3_BUCKET", "mailblobs"),
     ];
     for (name, extra) in [("drive-maintenance", &s3[..]), ("drive-preview", &s3[..])] {
-        let mut child = gateway(&db.dsn, &db.dsn, name, name, extra)?;
+        let mut child = gateway(db.app_dsn(), db.worker_dsn(), name, name, extra)?;
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
         let running = child.try_wait()?.is_none();
         stop(&mut child);
@@ -94,8 +94,8 @@ async fn boot_refuses_invalid_object_store_before_workers() -> Result<(), BoxErr
     };
     for name in ["drive-maintenance", "drive-preview"] {
         let child = gateway(
-            &db.dsn,
-            &db.dsn,
+            db.app_dsn(),
+            db.worker_dsn(),
             name,
             name,
             &[("S3_ENDPOINT", "http://user@example.invalid:9000")],

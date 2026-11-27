@@ -1,31 +1,26 @@
 //! User mail settings and profile (F19): `/settings/*` and `/user/*` routes. Foundation
-//! dependencies only (`authz`, `contracts`, `db`, `pg`) and no other family crate. See
-//! DOX.md for the four-slice map and per-slice contracts.
-//!
-//! The actor comes from the sealed auth context; path ids, query strings and bodies name
-//! targets but never grant authority, and the verified user sits in the same WHERE as every
-//! write. Responses render in `encoding/json` field order (structs) or sorted key order
-//! (maps), HTML-escaped, with the trailing newline of Go's `Encoder`.
+//! dependencies only (`authz`, `contracts`, `db`, `pg`) and no other family crate.
 #![forbid(unsafe_code)]
 pub mod prefs;
 pub mod profile;
 pub mod security;
 pub mod settings;
+pub mod sql;
 pub mod sync;
+pub use sql::SQL_CONTRACTS;
+
 use serde_json::Value;
-use setjoin_authz::AuthContext;
+use setjoin_authz::principals::{MutateCapability, UserPrincipal};
 use setjoin_contracts::{
+    authority::{AuthorityKey, ResourceScope},
     command::CommandEnvelope,
     ids::{Digest, OperationId},
 };
-use setjoin_pg::{MailboxAuthContext, ReceiptCommand, Row, StatementFailure};
+use setjoin_pg::{ReceiptCommand, Row, StatementFailure};
 use sha2::{Digest as _, Sha256};
 
 pub const FAMILY: &str = "F19";
 
-pub fn scope(actor: &AuthContext) -> MailboxAuthContext {
-    actor.database_scope()
-}
 pub(crate) fn invalid() -> StatementFailure {
     StatementFailure {
         sqlstate: None,
@@ -36,14 +31,35 @@ pub(crate) fn invalid() -> StatementFailure {
 pub(crate) fn deadline() -> std::time::Instant {
     std::time::Instant::now() + std::time::Duration::from_secs(30)
 }
-pub(crate) fn envelope(
-    auth: &MailboxAuthContext,
+pub(crate) fn user_envelope(
+    user: &UserPrincipal,
     operation: [u8; 16],
     payload: &str,
 ) -> CommandEnvelope<()> {
     CommandEnvelope {
         operation: OperationId(operation),
-        authority: auth.authority(),
+        authority: AuthorityKey {
+            actor: user.user(),
+            scope: ResourceScope::User(user.user()),
+            generation: user.generation(),
+        },
+        binding: setjoin_db::lifecycle::accepted_contract(),
+        payload_digest: Digest(Sha256::digest(payload.as_bytes()).into()),
+        command: (),
+    }
+}
+pub(crate) fn mailbox_envelope(
+    cap: &MutateCapability,
+    operation: [u8; 16],
+    payload: &str,
+) -> CommandEnvelope<()> {
+    CommandEnvelope {
+        operation: OperationId(operation),
+        authority: AuthorityKey {
+            actor: cap.actor(),
+            scope: ResourceScope::Mailbox(cap.mailbox()),
+            generation: setjoin_contracts::ids::Generation(1),
+        },
         binding: setjoin_db::lifecycle::accepted_contract(),
         payload_digest: Digest(Sha256::digest(payload.as_bytes()).into()),
         command: (),
@@ -71,12 +87,6 @@ pub fn s(text: &str) -> String {
 /// Go's `Encoder` output: the document plus its trailing newline.
 pub fn done(text: String) -> String {
     text + "\n"
-}
-/// RFC 3339 with Go's trimmed fractional seconds (`time.Time` JSON), UTC.
-pub(crate) fn nano(column: &str) -> String {
-    format!(
-        "to_char({column} AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS') || CASE WHEN date_part('microseconds', {column} AT TIME ZONE 'UTC')::bigint % 1000000 = 0 THEN '' ELSE regexp_replace(to_char({column} AT TIME ZONE 'UTC','.US'),'0+$','') END || 'Z'"
-    )
 }
 pub(crate) fn first_i64(rows: &[Row]) -> Result<i64, StatementFailure> {
     rows.first()

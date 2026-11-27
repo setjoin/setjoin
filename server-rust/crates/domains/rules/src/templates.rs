@@ -1,7 +1,8 @@
 //! Frozen template queries; legacy fixtures and missing active tables are both qualified.
-use super::{done, invalid, s};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{Row, ScopedExecutor, StatementFailure, Type};
+use super::{admin_envelope, deadline, done, invalid, project_text0, s, user_envelope};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, Row, StatementFailure};
+
 pub(super) fn raw(text: &str) -> String {
     let (mut out, mut quoted, mut escaped) = (String::new(), false, false);
     for c in text.chars() {
@@ -23,7 +24,7 @@ pub(super) fn raw(text: &str) -> String {
     }
     out
 }
-const COLUMNS:&str="id,name,description,category,conditions::text,actions::text,parameters::text,is_system,sort_order";
+
 fn item(r: &Row, detail: bool) -> Result<String, StatementFailure> {
     let enabled = if detail {
         format!(
@@ -34,15 +35,34 @@ fn item(r: &Row, detail: bool) -> Result<String, StatementFailure> {
         String::new()
     };
     let id: i64 = r.try_get(0).map_err(|_| invalid())?;
-    Ok(format!("{{\"actions\":{},\"category\":{},\"conditions\":{},\"description\":{}{enabled},\"id\":{id},\"isSystem\":{},\"name\":{},\"parameters\":{},\"sortOrder\":{}}}",raw(r.try_get(5).map_err(|_|invalid())?),s(r.try_get(3).map_err(|_|invalid())?),raw(r.try_get(4).map_err(|_|invalid())?),s(r.try_get(2).map_err(|_|invalid())?),r.try_get::<_,bool>(7).map_err(|_|invalid())?,s(r.try_get(1).map_err(|_|invalid())?),raw(r.try_get(6).map_err(|_|invalid())?),r.try_get::<_,i32>(8).map_err(|_|invalid())?))
+    Ok(format!(
+        "{{\"actions\":{},\"category\":{},\"conditions\":{},\"description\":{}{enabled},\"id\":{id},\"isSystem\":{},\"name\":{},\"parameters\":{},\"sortOrder\":{}}}",
+        raw(r.try_get(5).map_err(|_| invalid())?),
+        s(r.try_get(3).map_err(|_| invalid())?),
+        raw(r.try_get(4).map_err(|_| invalid())?),
+        s(r.try_get(2).map_err(|_| invalid())?),
+        r.try_get::<_, bool>(7).map_err(|_| invalid())?,
+        s(r.try_get(1).map_err(|_| invalid())?),
+        raw(r.try_get(6).map_err(|_| invalid())?),
+        r.try_get::<_, i32>(8).map_err(|_| invalid())?
+    ))
 }
-pub async fn list(exec: &ScopedExecutor, a: &AuthContext) -> Result<String, StatementFailure> {
-    let rows = if a.signed_admin() {
-        exec.read_iterated(&format!("SELECT {COLUMNS} FROM rule_templates WHERE enabled=TRUE ORDER BY category,sort_order"),&[]).await?
+
+pub async fn list(
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+    admin_view: bool,
+) -> Result<String, StatementFailure> {
+    let mut tx = tx_factory.begin_user_read(user).await?;
+    let rows = if admin_view {
+        tx.query_iterated_contract(&crate::sql::TEMPLATE_LIST_ADMIN, &[])
+            .await?
     } else {
-        let user = a.user_id();
-        exec.read_iterated(&format!("SELECT {COLUMNS} FROM rule_templates t WHERE t.enabled=TRUE AND NOT EXISTS(SELECT 1 FROM rule_template_visibility v WHERE v.template_id=t.id AND v.user_id=$1 AND v.hidden=TRUE) ORDER BY t.category,t.sort_order"),&[(&user,Type::INT8)]).await?
+        let uid = user.user().get();
+        tx.query_iterated_contract(&crate::sql::TEMPLATE_LIST_USER, &[&uid])
+            .await?
     };
+    tx.finish().await?;
     Ok(done(format!(
         "[{}]",
         rows.iter()
@@ -52,15 +72,17 @@ pub async fn list(exec: &ScopedExecutor, a: &AuthContext) -> Result<String, Stat
     )))
 }
 
-pub async fn get(exec: &ScopedExecutor, id: i64) -> Result<Option<String>, StatementFailure> {
-    let rows = exec
-        .read(
-            &format!("SELECT {COLUMNS},enabled FROM rule_templates WHERE id=$1"),
-            &[(&id, Type::INT8)],
-        )
+pub async fn get(
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+    id: i64,
+) -> Result<Option<String>, StatementFailure> {
+    let rows = tx_factory
+        .run_user_read_contract(user, &crate::sql::TEMPLATE_GET, &[&id])
         .await?;
     rows.first().map(|r| item(r, true).map(done)).transpose()
 }
+
 pub struct Resolved {
     pub name: String,
     pub category: String,
@@ -68,8 +90,8 @@ pub struct Resolved {
     pub actions: String,
     pub parameters: String,
 }
-pub async fn load(exec: &ScopedExecutor, id: i64) -> Result<Option<Resolved>, StatementFailure> {
-    let rows=exec.read("SELECT name,category,conditions::text,actions::text,parameters::text FROM rule_templates WHERE id=$1 AND enabled=TRUE",&[(&id,Type::INT8)]).await?;
+
+fn decode_resolved(rows: &[Row]) -> Result<Option<Resolved>, StatementFailure> {
     let Some(r) = rows.first() else {
         return Ok(None);
     };
@@ -81,42 +103,152 @@ pub async fn load(exec: &ScopedExecutor, id: i64) -> Result<Option<Resolved>, St
         parameters: r.try_get(4).map_err(|_| invalid())?,
     }))
 }
-pub async fn resolve(exec: &ScopedExecutor, id: i64) -> Result<Option<String>, StatementFailure> {
-    Ok(load(exec,id).await?.map(|t|done(format!("{{\"actions\":{},\"category\":{},\"conditions\":{},\"id\":{id},\"name\":{},\"parameters\":{}}}",raw(&t.actions),s(&t.category),raw(&t.conditions),s(&t.name),raw(&t.parameters)))))
-}
-pub async fn create(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
-    t: &super::input::Template,
-    op: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    let sort = t.sort.unwrap_or(0);
-    super::write(exec,a,op,"template.create","INSERT INTO rule_templates(name,description,category,conditions,actions,parameters,sort_order) SELECT $4,$5,$6,$7::text::jsonb,$8::text::jsonb,$9::text::jsonb,$10::bigint::int WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id::text",&[(&t.name,Type::TEXT),(&t.description,Type::TEXT),(&t.category,Type::TEXT),(&t.conditions.0,Type::TEXT),(&t.actions.0,Type::TEXT),(&t.parameters.0,Type::TEXT),(&sort,Type::INT8)]).await
-}
-pub async fn update(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+
+pub async fn load(
+    tx_factory: &TxFactory,
+    proof: &AdminPermissionProof,
     id: i64,
-    t: &super::input::Template,
-    op: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    super::write(exec,a,op,"template.update","WITH changed AS(UPDATE rule_templates SET name=COALESCE(NULLIF($5,''),name),description=COALESCE($6,description),category=COALESCE(NULLIF($7,''),category),conditions=COALESCE($8::text::jsonb,conditions),actions=COALESCE($9::text::jsonb,actions),parameters=COALESCE($10::text::jsonb,parameters),enabled=COALESCE($11,enabled),sort_order=COALESCE($12::bigint::int,sort_order),updated_at=now() WHERE id=$4 AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8),(&t.name,Type::TEXT),(&t.description,Type::TEXT),(&t.category,Type::TEXT),(&t.conditions.0,Type::TEXT),(&t.actions.0,Type::TEXT),(&t.parameters.0,Type::TEXT),(&t.enabled,Type::BOOL),(&t.sort,Type::INT8)]).await
-}
-pub async fn delete(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
-    id: i64,
-    op: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    super::write(exec,a,op,"template.delete","WITH changed AS(DELETE FROM rule_templates WHERE id=$4 AND NOT is_system AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8)]).await
-}
-pub async fn visibility(exec: &ScopedExecutor, id: i64) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read_iterated(
-            "SELECT user_id,hidden FROM rule_template_visibility WHERE template_id=$1",
-            &[(&id, Type::INT8)],
-        )
+) -> Result<Option<Resolved>, StatementFailure> {
+    let rows = tx_factory
+        .run_admin_read_contract(proof, &crate::sql::TEMPLATE_LOAD, &[&id])
         .await?;
+    decode_resolved(&rows)
+}
+
+pub async fn resolve(
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+    id: i64,
+) -> Result<Option<String>, StatementFailure> {
+    let rows = tx_factory
+        .run_user_read_contract(user, &crate::sql::TEMPLATE_LOAD_USER, &[&id])
+        .await?;
+    Ok(decode_resolved(&rows)?.map(|t| {
+        done(format!(
+            "{{\"actions\":{},\"category\":{},\"conditions\":{},\"id\":{id},\"name\":{},\"parameters\":{}}}",
+            raw(&t.actions),
+            s(&t.category),
+            raw(&t.conditions),
+            s(&t.name),
+            raw(&t.parameters)
+        ))
+    }))
+}
+
+pub async fn create(
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+    t: &super::input::Template,
+    op: [u8; 16],
+) -> CommandOutcome<String, StatementFailure> {
+    let sort = t.sort.unwrap_or(0);
+    let digest = format!(
+        "{}:{:?}:{}:{:?}:{:?}:{:?}:{sort}",
+        t.name, t.description, t.category, t.conditions.0, t.actions.0, t.parameters.0
+    );
+    let envelope = user_envelope(user, op, "template.create", &digest);
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &envelope,
+            deadline(),
+            &crate::sql::TEMPLATE_CREATE,
+            &[
+                &t.name,
+                &t.description,
+                &t.category,
+                &t.conditions.0,
+                &t.actions.0,
+                &t.parameters.0,
+                &sort,
+            ],
+            Some(ReceiptCommand {
+                family: "F09",
+                command: "template.create",
+            }),
+            project_text0,
+        )
+        .await
+}
+
+pub async fn update(
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+    id: i64,
+    t: &super::input::Template,
+    op: [u8; 16],
+) -> CommandOutcome<String, StatementFailure> {
+    let digest = format!(
+        "{id}:{}:{:?}:{}:{:?}:{:?}:{:?}:{:?}:{:?}",
+        t.name,
+        t.description,
+        t.category,
+        t.conditions.0,
+        t.actions.0,
+        t.parameters.0,
+        t.enabled,
+        t.sort
+    );
+    let envelope = user_envelope(user, op, "template.update", &digest);
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &envelope,
+            deadline(),
+            &crate::sql::TEMPLATE_UPDATE,
+            &[
+                &id,
+                &t.name,
+                &t.description,
+                &t.category,
+                &t.conditions.0,
+                &t.actions.0,
+                &t.parameters.0,
+                &t.enabled,
+                &t.sort,
+            ],
+            Some(ReceiptCommand {
+                family: "F09",
+                command: "template.update",
+            }),
+            project_text0,
+        )
+        .await
+}
+
+pub async fn delete(
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+    id: i64,
+    op: [u8; 16],
+) -> CommandOutcome<String, StatementFailure> {
+    let envelope = user_envelope(user, op, "template.delete", &id.to_string());
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &envelope,
+            deadline(),
+            &crate::sql::TEMPLATE_DELETE,
+            &[&id],
+            Some(ReceiptCommand {
+                family: "F09",
+                command: "template.delete",
+            }),
+            project_text0,
+        )
+        .await
+}
+
+pub async fn visibility(
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
+    id: i64,
+) -> Result<String, StatementFailure> {
+    let mut tx = tx_factory.begin_user_read(user).await?;
+    let rows = tx
+        .query_iterated_contract(&crate::sql::TEMPLATE_VISIBILITY_LIST, &[&id])
+        .await?;
+    tx.finish().await?;
     let items = rows
         .iter()
         .filter_map(|r| {
@@ -131,35 +263,49 @@ pub async fn visibility(exec: &ScopedExecutor, id: i64) -> Result<String, Statem
         .collect::<Vec<_>>();
     Ok(done(format!("[{}]", items.join(","))))
 }
+
 pub async fn set_visibility(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     id: i64,
     t: &super::input::Visibility,
     op: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    let sql = if t.hidden {
-        "INSERT INTO rule_template_visibility(template_id,user_id,hidden) SELECT $4,$5,TRUE WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' ON CONFLICT(template_id,COALESCE(user_id,-1)) DO UPDATE SET hidden=TRUE RETURNING 'true'::text"
+) -> CommandOutcome<String, StatementFailure> {
+    let contract = if t.hidden {
+        &crate::sql::TEMPLATE_VISIBILITY_HIDE
     } else {
-        "WITH changed AS(DELETE FROM rule_template_visibility WHERE template_id=$4 AND user_id IS NOT DISTINCT FROM $5 AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING template_id) SELECT 'true'::text"
+        &crate::sql::TEMPLATE_VISIBILITY_SHOW
     };
-    super::write(
-        exec,
-        a,
+    let envelope = user_envelope(
+        user,
         op,
         "template.visibility",
-        sql,
-        &[(&id, Type::INT8), (&t.user_id, Type::INT8)],
-    )
-    .await
+        &format!("{id}:{:?}:{}", t.user_id, t.hidden),
+    );
+    tx_factory
+        .run_user_write_contract_pipelined(
+            user,
+            &envelope,
+            deadline(),
+            contract,
+            &[&id, &t.user_id],
+            Some(ReceiptCommand {
+                family: "F09",
+                command: "template.visibility",
+            }),
+            project_text0,
+        )
+        .await
 }
+
 pub async fn instantiate(
-    exec: &ScopedExecutor,
-    a: &AuthContext,
+    tx_factory: &TxFactory,
+    proof: &AdminPermissionProof,
+    mailbox_id: i64,
     t: &Resolved,
     params: &std::collections::HashMap<String, Option<String>>,
     op: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
+) -> CommandOutcome<String, StatementFailure> {
     let mut conditions = t.conditions.clone();
     let mut actions = t.actions.clone();
     for (key, value) in params {
@@ -168,5 +314,20 @@ pub async fn instantiate(
         conditions = conditions.replace(&needle, &encoded);
         actions = actions.replace(&needle, &encoded);
     }
-    super::write(exec,a,op,"admin.from-template","SELECT rule_config_template_create($2,NULLIF($1,0),$4,$5::text::jsonb,$6::text::jsonb)::text WHERE $3::text<>''",&[(&t.name,Type::TEXT),(&conditions,Type::TEXT),(&actions,Type::TEXT)]).await
+    let digest = format!("{mailbox_id}:{}:{conditions}:{actions}", t.name);
+    let envelope = admin_envelope(proof, op, "admin.from-template", &digest);
+    tx_factory
+        .run_admin_audited_reducer_contract(
+            proof,
+            &envelope,
+            deadline(),
+            &crate::sql::TEMPLATE_INSTANTIATE,
+            &[&mailbox_id, &t.name, &conditions, &actions],
+            Some(ReceiptCommand {
+                family: "F09",
+                command: "admin.from-template",
+            }),
+            |rows, _| project_text0(rows),
+        )
+        .await
 }

@@ -349,32 +349,51 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
             trigger = Some("mailboxes");
         }
         Some("no-tenant-filter") => {
-            // Private views that pin every row to the scoped admin's domain.
-            let mut statements =
-                format!("CREATE SCHEMA {schema};GRANT USAGE ON SCHEMA {schema} TO setjoin_app;");
-            for table in ["users", "mailboxes"] {
+            // Private views that drop domain scoping so cross-tenant requests
+            // reach the underlying handler / reducer unguarded.
+            let mut statements = format!(
+                "CREATE SCHEMA {schema};GRANT USAGE ON SCHEMA {schema} TO setjoin_app, setjoin_worker;"
+            );
+            for (table, col, expr) in [
+                ("users", "domain_id", format!("{}::bigint", b.domain)),
+                ("mailboxes", "domain_id", format!("{}::bigint", b.domain)),
+                (
+                    "admin_role_assignments",
+                    "domain_override",
+                    "NULL::bigint".to_string(),
+                ),
+                (
+                    "admin_role_groups",
+                    "domain_scope",
+                    "NULL::bigint".to_string(),
+                ),
+            ] {
                 let columns: String = owner
-                    .query_one("SELECT string_agg(quote_ident(column_name),',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 AND column_name<>'domain_id'", &[&table])
+                    .query_one("SELECT string_agg(quote_ident(column_name),',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 AND column_name<>$2", &[&table, &col])
                     .await?
                     .get(0);
-                statements.push_str(&format!("CREATE VIEW {schema}.{table} AS SELECT {columns},{}::bigint AS domain_id FROM public.{table};GRANT SELECT,UPDATE ON {schema}.{table} TO setjoin_app;", b.domain));
+                statements.push_str(&format!("CREATE VIEW {schema}.{table} AS SELECT {columns},{expr} AS {col} FROM public.{table};GRANT SELECT,UPDATE ON {schema}.{table} TO setjoin_app, setjoin_worker;"));
             }
             owner.batch_execute(&statements).await?;
             private = true;
         }
         _ => {}
     }
-    if private {
+    let worker_dsn = if private {
+        let sep = if db.app.as_deref().unwrap_or(&db.dsn).contains('?') {
+            "&"
+        } else {
+            "?"
+        };
         db.app = Some(format!(
-            "{}{}options=-csearch_path%3D{schema}%2Cpublic",
-            db.app.as_deref().unwrap_or(&db.dsn),
-            if db.app.as_deref().unwrap_or(&db.dsn).contains('?') {
-                "&"
-            } else {
-                "?"
-            }
+            "{}{sep}options=-csearch_path%3D{schema}%2Cpublic",
+            db.app.as_deref().unwrap_or(&db.dsn)
         ));
-    }
+        let wsep = if db.dsn.contains('?') { "&" } else { "?" };
+        format!("{}{wsep}options=-csearch_path%3D{schema}%2Cpublic", db.dsn)
+    } else {
+        db.dsn.clone()
+    };
     let ids: Vec<(i64, &str)> = vec![
         (t.user, "<target>"),
         (a.user, "<admin>"),
@@ -392,8 +411,10 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
         let recording = go.is_some();
         let exec = common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?
             .with_audit_keys("22".repeat(32), String::new());
+        let worker = common::patient_exec(&worker_dsn, 4)?
+            .with_audit_keys("22".repeat(32), String::new());
         let adapter = Probe {
-            inner: AdminIdentityRoute { exec, keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
+            inner: AdminIdentityRoute { exec, worker: Some(worker), keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
             changed_status: mutant,
         };
         let mut inventory: Value = serde_json::from_str(include_str!("../../route-inventory.json"))?;

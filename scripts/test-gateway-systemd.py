@@ -35,7 +35,8 @@ def wait_for(predicate, description):
 def response(connection):
     connection.settimeout(10)
     connection.sendall(
-        b"GET /_gateway/healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        b"GET /_gateway/healthz HTTP/1.1\r\n"
+        b"Host: localhost\r\nConnection: close\r\n\r\n"
     )
     data = bytearray()
     while block := connection.recv(4096):
@@ -44,7 +45,7 @@ def response(connection):
     assert data.endswith(b"ok\n"), bytes(data)
 
 
-def verify(binary):
+def verify(binary, mode="legacy", companion_setjoind=None):
     if os.geteuid() != 0:
         raise RuntimeError("this lane requires root and a running systemd manager")
     command("systemctl", "show", "--property=Version", "--value")
@@ -55,9 +56,29 @@ def verify(binary):
         # The capability-empty service uses nobody, so copy the executable out
         # of potentially private build/worktree ancestors.
         root.chmod(0o755)
-        executable = root / "gofree-t13-gateway"
-        shutil.copyfile(binary, executable)
-        executable.chmod(0o755)
+        if mode == "split-shim":
+            if companion_setjoind is None:
+                raise RuntimeError("--setjoind is required for --mode=split-shim")
+            executable = root / "setjoin-server"
+            shutil.copyfile(binary, executable)
+            executable.chmod(0o755)
+            daemon = root / "setjoind"
+            shutil.copyfile(companion_setjoind, daemon)
+            daemon.chmod(0o755)
+            exec_args = [str(executable)]
+            svc_type = "notify"
+        elif mode == "unified":
+            executable = root / "setjoind"
+            shutil.copyfile(binary, executable)
+            executable.chmod(0o755)
+            exec_args = [str(executable), "--subsystems=http,protocols,workers"]
+            svc_type = "notify"
+        else:
+            executable = root / "gofree-t13-gateway"
+            shutil.copyfile(binary, executable)
+            executable.chmod(0o755)
+            exec_args = [str(executable)]
+            svc_type = "simple"
         gate = root / "stopping"
         hook = root / "gofree-t13-stop"
         hook.write_text(
@@ -79,13 +100,15 @@ def verify(binary):
             reservation.bind(("127.0.0.1", 0))
             address = reservation.getsockname()
         try:
-            command(
+            run_args = [
                 "systemd-run",
                 "--quiet",
                 "--collect",
                 f"--unit={name}",
                 f"--socket-property=ListenStream={address[0]}:{address[1]}",
+                "--socket-property=FileDescriptorName=http",
                 "--socket-property=Accept=no",
+                f"--property=Type={svc_type}",
                 "--property=User=nobody",
                 "--property=CapabilityBoundingSet=",
                 "--property=AmbientCapabilities=",
@@ -93,8 +116,9 @@ def verify(binary):
                 "--property=TimeoutStopSec=15",
                 f"--property=ExecStopPost={hook}",
                 "--setenv=GATEWAY_RUST_AUTH_UPSTREAM=http://127.0.0.1:9",
-                str(executable),
-            )
+            ]
+            run_args.extend(exec_args)
+            command(*run_args)
             with socket.create_connection(address, timeout=10) as connection:
                 response(connection)
             first_pid = command(
@@ -137,7 +161,8 @@ def verify(binary):
             with socket.create_connection(address, timeout=10) as connection:
                 response(connection)
             print(
-                "systemd HTTP activation: PASS (default ON, empty capabilities, queued restart)"
+                f"systemd HTTP activation ({mode}, Type={svc_type}): PASS "
+                "(empty capabilities, queued restart)"
             )
         finally:
             gate.unlink(missing_ok=True)
@@ -162,4 +187,23 @@ def verify(binary):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
-    verify(parser.parse_args().binary.resolve(strict=True))
+    parser.add_argument(
+        "--mode",
+        choices=("legacy", "split-shim", "unified"),
+        default="legacy",
+        help="unit mode: legacy gateway, Release N split-shim, or unified setjoind",
+    )
+    parser.add_argument(
+        "--setjoind",
+        type=Path,
+        default=None,
+        help="sibling setjoind executable (required when --mode=split-shim)",
+    )
+    parsed = parser.parse_args()
+    verify(
+        parsed.binary.resolve(strict=True),
+        mode=parsed.mode,
+        companion_setjoind=(
+            parsed.setjoind.resolve(strict=True) if parsed.setjoind else None
+        ),
+    )

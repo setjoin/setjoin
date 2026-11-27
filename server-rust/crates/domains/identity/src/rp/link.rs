@@ -86,22 +86,13 @@ impl LinkFlow {
         crate::webauthn::CookieCipher::new(master)
             .seal(&serde_json::to_vec(&self.0).map_err(|_| "link serialization")?)
     }
-    pub async fn persist(
-        &self,
-        worker: &ScopedExecutor,
-    ) -> CommandOutcome<Value, StatementFailure> {
+    pub async fn persist(&self, worker: &AuthDb) -> CommandOutcome<Value, StatementFailure> {
         let w = &self.0;
         let hash = hex_hash(&w.session_hash).expect("own hash");
         let (command, sql) = if w.kind == "saml" {
-            (
-                "saml-link-begin",
-                "SELECT rust_identity_saml_link_begin($1,$2::text::uuid,$3,$4,$5,$6)::text",
-            )
+            ("saml-link-begin", &crate::sql::RP_LINK_L98)
         } else {
-            (
-                "rp-link-begin",
-                "SELECT rust_identity_rp_link_begin($1,$2::text::uuid,$3,$4,$5,$6)::text",
-            )
+            ("rp-link-begin", &crate::sql::RP_LINK_L103)
         };
         worker
             .clone()
@@ -109,7 +100,7 @@ impl LinkFlow {
                 family: "F21",
                 command,
             })
-            .run_user_command(
+            .run_user_command_contract(
                 setjoin_contracts::ids::ActorId::new(w.user_id).expect("verified session"),
                 setjoin_contracts::ids::OperationId(
                     *uuid::Uuid::parse_str(&w.flow_id)
@@ -169,7 +160,7 @@ impl LinkFlow {
         self,
         session: &crate::session::Session,
         raw: &str,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
     ) -> Result<AuthorizedLink, &'static str> {
         let w = &self.0;
         if session.text("typ") != "access"
@@ -179,7 +170,18 @@ impl LinkFlow {
         {
             return Err("linking session changed");
         }
-        let live=exec.read("SELECT EXISTS(SELECT 1 FROM sessions WHERE user_id=$1 AND token_hash=digest($2,'sha256') AND expires_at>statement_timestamp())",&[(&w.user_id,Type::INT8),(&raw,Type::TEXT)]).await.ok().is_some_and(|r|r.first().and_then(|r|r.try_get::<_,bool>(0).ok()).unwrap_or(false));
+        let live = exec
+            .read_contract(
+                &crate::sql::RP_LINK_L182,
+                &[(&w.user_id, Type::INT8), (&raw, Type::TEXT)],
+            )
+            .await
+            .ok()
+            .is_some_and(|r| {
+                r.first()
+                    .and_then(|r| r.try_get::<_, bool>(0).ok())
+                    .unwrap_or(false)
+            });
         if !live {
             return Err("linking session is no longer active");
         }
@@ -191,18 +193,21 @@ impl LinkFlow {
     /// session (the SameSite=Strict `access_token` cookie is not sent, #547): hold the assertion,
     /// bound to the flow, for the same-site completion request. Returns the one-time token (only
     /// its SHA-256 is stored). Holding links nothing and mints nothing.
-    pub async fn hold(&self, worker: &ScopedExecutor, assertion: &Assertion) -> Option<String> {
+    pub async fn hold(&self, worker: &AuthDb, assertion: &Assertion) -> Option<String> {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
         use ring::rand::SecureRandom;
         let mut raw = [0u8; 32];
         ring::rand::SystemRandom::new().fill(&mut raw).ok()?;
         let token = URL_SAFE_NO_PAD.encode(raw);
         let hash = Sha256::digest(token.as_bytes()).to_vec();
-        let groups = assertion.groups.as_ref().map(|g| serde_json::to_string(g).unwrap());
+        let groups = assertion
+            .groups
+            .as_ref()
+            .map(|g| serde_json::to_string(g).unwrap());
         let w = &self.0;
         let rows = worker
-            .protocol_query(
-                "SELECT rust_identity_rp_link_hold($1,$2::text::uuid,$3,$4,$5,$6::text::jsonb)::text",
+            .protocol_query_contract(
+                &crate::sql::RP_LINK_L205,
                 &[
                     (&w.provider_key, Type::TEXT),
                     (&w.flow_id, Type::TEXT),
@@ -220,13 +225,17 @@ impl LinkFlow {
 impl AuthorizedLink {
     /// Single use, for this provider and this link flow only; the authorized session (not the
     /// completion URL) is what permits the take.
-    pub async fn take_held(&self, worker: &ScopedExecutor, token: &str) -> Option<Assertion> {
+    pub async fn take_held(&self, worker: &AuthDb, token: &str) -> Option<Assertion> {
         let hash = Sha256::digest(token.as_bytes()).to_vec();
         let w = &self.0 .0;
         let rows = worker
-            .protocol_query(
-                "SELECT rust_identity_rp_link_take($1,$2::text::uuid,$3)::text",
-                &[(&w.provider_key, Type::TEXT), (&w.flow_id, Type::TEXT), (&hash, Type::BYTEA)],
+            .protocol_query_contract(
+                &crate::sql::RP_LINK_L228,
+                &[
+                    (&w.provider_key, Type::TEXT),
+                    (&w.flow_id, Type::TEXT),
+                    (&hash, Type::BYTEA),
+                ],
             )
             .await
             .ok()?;
@@ -238,9 +247,11 @@ impl AuthorizedLink {
             email: String::new(),
             subject: v["subject"].as_str()?.to_owned(),
             issuer: v["issuer"].as_str()?.to_owned(),
-            groups: v["groups"]
-                .as_array()
-                .map(|a| a.iter().filter_map(|g| g.as_str().map(str::to_owned)).collect()),
+            groups: v["groups"].as_array().map(|a| {
+                a.iter()
+                    .filter_map(|g| g.as_str().map(str::to_owned))
+                    .collect()
+            }),
             kind: "oidc",
         })
     }
@@ -249,7 +260,7 @@ impl AuthorizedLink {
     }
     pub async fn finish(
         self,
-        worker: &ScopedExecutor,
+        worker: &AuthDb,
         assertion: &Assertion,
         provider: &dyn Federated,
         allow_super: bool,
@@ -263,12 +274,33 @@ impl AuthorizedLink {
         let mappings = serde_json::to_string(provider.mappings()).unwrap();
         let operation = uuid::Uuid::new_v4();
         let (command, sql) = if w.kind == "saml" {
-            ("saml-link-finish","SELECT rust_identity_saml_link_finish($1,$2,$3,$4,$5::text::uuid,$6,$7::text::jsonb,$8::text::jsonb,$9)::text")
+            ("saml-link-finish", &crate::sql::RP_LINK_L266)
         } else {
-            ("rp-link-finish","SELECT rust_identity_rp_link_finish($1,$2,$3,$4,$5::text::uuid,$6,$7::text::jsonb,$8::text::jsonb,$9)::text")
+            ("rp-link-finish", &crate::sql::RP_LINK_L268)
         };
-        worker.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command}).run_user_command(setjoin_contracts::ids::ActorId::new(w.user_id).expect("verified link session"),setjoin_contracts::ids::OperationId(*operation.as_bytes()),
-            sql,
-            &[(&w.user_id,Type::INT8),(&assertion.issuer,Type::TEXT),(&assertion.subject,Type::TEXT),(&w.provider_key,Type::TEXT),(&w.flow_id,Type::TEXT),(&hash,Type::BYTEA),(&groups,Type::TEXT),(&mappings,Type::TEXT),(&allow_super,Type::BOOL)],row).await
+        worker
+            .clone()
+            .with_user_receipt(setjoin_pg::ReceiptCommand {
+                family: "F21",
+                command,
+            })
+            .run_user_command_contract(
+                setjoin_contracts::ids::ActorId::new(w.user_id).expect("verified link session"),
+                setjoin_contracts::ids::OperationId(*operation.as_bytes()),
+                sql,
+                &[
+                    (&w.user_id, Type::INT8),
+                    (&assertion.issuer, Type::TEXT),
+                    (&assertion.subject, Type::TEXT),
+                    (&w.provider_key, Type::TEXT),
+                    (&w.flow_id, Type::TEXT),
+                    (&hash, Type::BYTEA),
+                    (&groups, Type::TEXT),
+                    (&mappings, Type::TEXT),
+                    (&allow_super, Type::BOOL),
+                ],
+                row,
+            )
+            .await
     }
 }

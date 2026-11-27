@@ -22,7 +22,88 @@ use setjoin_pg::{
     workers::{WorkerConnection, WorkerDatabase},
     Type,
 };
-use setjoin_platform::webhook_secret::{load_subscription_secret, sign, SecretCodec};
+use setjoin_platform::webhook_secret::{sign, SecretCodec, NOT_CONFIGURED};
+
+/// `wh.LoadSubscriptionSecret`: worker-pool secret loader with lazy plaintext re-seal.
+async fn load_subscription_secret(
+    conn: &WorkerConnection,
+    codec: Option<&SecretCodec>,
+    subscription: i64,
+) -> Result<String, String> {
+    let codec = codec.ok_or_else(|| NOT_CONFIGURED.to_string())?;
+    let rows = conn
+        .query(
+            "SELECT secret, prev_secret, secret_enc, secret_key_id, prev_secret_enc, prev_secret_key_id \
+             FROM webhook_subscriptions WHERE id = $1",
+            &[(&subscription, Type::INT8)],
+        )
+        .await
+        .map_err(|e| format!("webhook: load signing secret: {e}"))?;
+    let Some(row) = rows.first() else {
+        return Err(format!("webhook: subscription {subscription} not found"));
+    };
+    let legacy: Option<String> = row
+        .try_get(0)
+        .map_err(|e| format!("webhook: load signing secret: {e}"))?;
+    let prev_legacy: Option<String> = row
+        .try_get(1)
+        .map_err(|e| format!("webhook: load signing secret: {e}"))?;
+    let envelope: Option<Vec<u8>> = row
+        .try_get(2)
+        .map_err(|e| format!("webhook: load signing secret: {e}"))?;
+    let key_id: Option<String> = row
+        .try_get(3)
+        .map_err(|e| format!("webhook: load signing secret: {e}"))?;
+    let prev_envelope: Option<Vec<u8>> = row
+        .try_get(4)
+        .map_err(|e| format!("webhook: load signing secret: {e}"))?;
+    if let Some(envelope) = envelope {
+        let Some(key_id) = key_id else {
+            return Err("webhook: signing secret envelope missing key id".into());
+        };
+        return codec.open(&envelope, &key_id);
+    }
+    let Some(secret) = legacy else {
+        return Err(format!(
+            "webhook: subscription {subscription} holds no usable signing secret"
+        ));
+    };
+    let sealed = codec.seal(&secret);
+    let mut sealed_prev: Option<Vec<u8>> = None;
+    let mut seal_ok = sealed.is_ok();
+    if seal_ok && prev_envelope.is_none() {
+        if let Some(prev) = &prev_legacy {
+            match codec.seal(prev) {
+                Ok(bytes) => sealed_prev = Some(bytes),
+                Err(_) => seal_ok = false,
+            }
+        }
+    }
+    if let (true, Ok(sealed)) = (seal_ok, sealed) {
+        let prev_key: Option<&str> = sealed_prev.as_ref().map(|_| codec.active_key_id());
+        let _ = conn
+            .execute(
+                "UPDATE webhook_subscriptions \
+                    SET secret_enc = $2, secret_key_id = $3, secret = NULL, \
+                        prev_secret_enc = COALESCE(prev_secret_enc, $5), \
+                        prev_secret_key_id = COALESCE(prev_secret_key_id, $7), \
+                        prev_secret = NULL \
+                  WHERE id = $1 AND secret = $4 AND secret_enc IS NULL \
+                    AND prev_secret IS NOT DISTINCT FROM $6",
+                &[
+                    (&subscription, Type::INT8),
+                    (&sealed, Type::BYTEA),
+                    (&codec.active_key_id(), Type::TEXT),
+                    (&secret, Type::TEXT),
+                    (&sealed_prev, Type::BYTEA),
+                    (&prev_legacy, Type::TEXT),
+                    (&prev_key, Type::TEXT),
+                ],
+            )
+            .await;
+    }
+    Ok(secret)
+}
 use std::{
     collections::HashMap,
     future::Future,
@@ -97,7 +178,13 @@ pub struct CloudEvent {
 impl CloudEvent {
     /// An envelope with a caller-chosen id and time whose `data` is raw JSON text
     /// (frozen Go's lifecycle events carry `json.RawMessage`). `None` marshals `null`.
-    pub fn with_raw_data(id: &str, source: &str, kind: &str, time: &str, raw: Option<&str>) -> Self {
+    pub fn with_raw_data(
+        id: &str,
+        source: &str,
+        kind: &str,
+        time: &str,
+        raw: Option<&str>,
+    ) -> Self {
         Self {
             id: id.into(),
             source: source.into(),
@@ -164,7 +251,10 @@ fn go_compact(raw: &str) -> String {
                 out.push_str(&format!("\\u{:04x}", b));
                 i += 1;
                 continue;
-            } else if b == 0xE2 && bytes.get(i + 1) == Some(&0x80) && matches!(bytes.get(i + 2), Some(0xA8 | 0xA9)) {
+            } else if b == 0xE2
+                && bytes.get(i + 1) == Some(&0x80)
+                && matches!(bytes.get(i + 2), Some(0xA8 | 0xA9))
+            {
                 out.push_str(&format!("\\u202{:x}", bytes[i + 2] - 0xA0));
                 i += 3;
                 continue;
@@ -316,7 +406,6 @@ type Rows<'c> = Pin<Box<dyn Future<Output = Result<Vec<setjoin_pg::Row>, String>
 /// Longest the claim turn is held for one connect plus claim query. On expiry the session is
 /// dropped before COMMIT, so the server rolls the claim back.
 const CLAIM_TIMEOUT: Duration = Duration::from_secs(5);
-
 
 struct Inner {
     db: WorkerDatabase,
@@ -744,7 +833,10 @@ impl Dispatcher {
             }
             Err(_) => {
                 drop(conn);
-                warn("delivery claim commit outcome unknown, dispatching", "timeout");
+                warn(
+                    "delivery claim commit outcome unknown, dispatching",
+                    "timeout",
+                );
             }
         }
         let mut accepted = 0;
@@ -1254,7 +1346,10 @@ mod tests {
         let db = WorkerDatabase::new(&format!("postgres://u:p@127.0.0.1:{port}/d")).unwrap();
         let dispatcher = Dispatcher::unguarded_for_tests(db, None);
         let started = tokio::time::Instant::now();
-        let (first, second) = tokio::join!(dispatcher.claim_durable(None), dispatcher.claim_durable(None));
+        let (first, second) = tokio::join!(
+            dispatcher.claim_durable(None),
+            dispatcher.claim_durable(None)
+        );
         assert_eq!((first, second), (0, 0));
         let elapsed = started.elapsed();
         assert!(

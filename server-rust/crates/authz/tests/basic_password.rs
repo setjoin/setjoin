@@ -55,8 +55,15 @@ async fn shared_password_check_follows_go_and_the_explicit_policy() {
         .await
         .unwrap()
         .get(0);
-    let exec =
-        setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2).unwrap();
+    // V288 enforces FORCE RLS on `users` and `app_passwords`: pre-auth credential
+    // verification MUST run on the worker/BYPASSRLS credential (`DB_WORKER_DSN`),
+    // never on `setjoin_app` (which fails closed with Verdict::Refused).
+    let worker_dsn = std::env::var("DB_WORKER_DSN").unwrap_or_else(|_| db.dsn.clone());
+    let exec = setjoin_pg::ScopedExecutor::from_dsn(&worker_dsn, 2).unwrap();
+    let app_exec = db
+        .app
+        .as_deref()
+        .map(|dsn| setjoin_pg::ScopedExecutor::from_dsn(dsn, 2).unwrap());
     let outcome = std::panic::AssertUnwindSafe(async {
         let verified = Verified { user_id: user, email: email.clone() };
         let low = bcrypt_hash(PASSWORD, 4);
@@ -64,6 +71,13 @@ async fn shared_password_check_follows_go_and_the_explicit_policy() {
         let cache = PasswordCache::new();
 
         // 1. Account password on a below-floor hash: verified, self-healed, cached, no audit row.
+        if let Some(app_exec) = &app_exec {
+            assert_eq!(
+                basic::verify(app_exec, &PasswordCache::new(), &email, PASSWORD, ACCOUNT).await,
+                Verdict::Refused,
+                "V288 FORCE RLS: pre-auth basic::verify on setjoin_app must fail closed"
+            );
+        }
         assert_eq!(basic::verify(&exec, &cache, &email, PASSWORD, ACCOUNT).await, Verdict::AccountPassword(verified.clone()));
         let healed: String = c.query_one("SELECT password_hash FROM users WHERE id=$1", &[&user]).await.unwrap().get(0);
         assert_ne!(healed, low);

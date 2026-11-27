@@ -1,29 +1,42 @@
 //! Offline governance: the frozen Go handler's reducer and wire contracts.
-use super::{invalid, StatementFailure};
-use setjoin_pg::ScopedExecutor;
+use super::{invalid, sql, StatementFailure};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, Row};
 
-pub async fn policies(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = exec.read("SELECT offline_policy_list()::text", &[]).await?;
-    rows.first()
-        .ok_or_else(invalid)?
-        .try_get(0)
-        .map_err(|_| invalid())
-}
-
-pub async fn policy(exec: &ScopedExecutor, id: i64) -> Result<Option<String>, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT offline_policy_get($1)::text",
-            &[(&id, setjoin_pg::Type::INT8)],
-        )
+pub async fn policies(
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::OFFLINE_POLICIES, &[])
         .await?;
     rows.first()
         .ok_or_else(invalid)?
         .try_get(0)
         .map_err(|_| invalid())
 }
-pub async fn enabled(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows=exec.read("SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.offline_mail'),false)",&[]).await?;
+
+pub async fn policy(
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
+    id: i64,
+) -> Result<Option<String>, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::OFFLINE_POLICY, &[&id])
+        .await?;
+    rows.first()
+        .ok_or_else(invalid)?
+        .try_get(0)
+        .map_err(|_| invalid())
+}
+
+pub async fn enabled(
+    factory: &TxFactory,
+    _proof: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_public_read_contract(&sql::OFFLINE_ENABLED, &[])
+        .await?;
     let value: bool = rows
         .first()
         .ok_or_else(invalid)?
@@ -31,21 +44,24 @@ pub async fn enabled(exec: &ScopedExecutor) -> Result<String, StatementFailure> 
         .map_err(|_| invalid())?;
     Ok(format!("{{\"enabled\":{value}}}\n"))
 }
+
 /// The approval queue. Owner-approved security fix 2026-11-05 (#440): confined to the
 /// devices of users inside the caller's `mam.read` reach (`rust_offline_devices_pending`);
 /// frozen Go listed every domain's devices. The restored-bug mutant
 /// (`offline-foreign-device`, test builds only) calls Go's unscoped reducer.
 pub async fn pending(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
 ) -> Result<String, StatementFailure> {
-    let user = actor.user_id();
-    let sql = if setjoin_contracts::mutants::on("offline-foreign-device") {
-        "SELECT offline_devices_pending()::text WHERE $1::bigint > 0"
+    let user = proof.actor().get();
+    let contract = if setjoin_contracts::mutants::on("offline-foreign-device") {
+        &sql::OFFLINE_PENDING_MUTANT
     } else {
-        "SELECT rust_offline_devices_pending($1::bigint)::text"
+        &sql::OFFLINE_PENDING
     };
-    let rows = exec.read(sql, &[(&user, setjoin_pg::Type::INT8)]).await?;
+    let rows = factory
+        .run_admin_read_contract(proof, contract, &[&user])
+        .await?;
     rows.first()
         .ok_or_else(invalid)?
         .try_get(0)
@@ -96,6 +112,7 @@ fn decode(
     }
     Ok(out)
 }
+
 pub fn policy_input(body: &[u8]) -> Result<serde_json::Value, String> {
     use super::gojson::Kind::*;
     let schema = [
@@ -170,42 +187,44 @@ pub fn policy_input(body: &[u8]) -> Result<serde_json::Value, String> {
     }
     Ok(serde_json::Value::Object(out))
 }
+
 pub async fn command(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    mailbox_id: i64,
     action: &str,
     payload: serde_json::Value,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    let auth = super::scope(actor);
+) -> CommandOutcome<String, StatementFailure> {
+    let actor = user.user().get();
     let payload = payload.to_string();
-    setjoin_pg::run_receipted_command(
-        exec,
-        super::command("offline.command"),
-        &super::envelope(&auth, operation, &format!("{action}:{payload}")),
-        &auth,
-        super::deadline(),
-        // The reach of the target device is computed here, in the mutating statement,
-        // from the owner stored on the row (#440); only the four device transitions use it.
-        if setjoin_contracts::mutants::on("offline-foreign-device") {
-            "SELECT rust_offline_command($2,$1,$4,$5::text::jsonb,true) WHERE $3::text<>''"
-        } else {
-            "SELECT rust_offline_command($2,$1,$4,$5::text::jsonb,\
-             COALESCE(admin_can_reach_perm($2,(SELECT ud.user_id FROM user_devices ud \
-             WHERE ud.id=($5::text::jsonb->>'id')::bigint),ARRAY['mam.write']),false)) WHERE $3::text<>''"
-        },
-        &[
-            (&action, setjoin_pg::Type::TEXT),
-            (&payload, setjoin_pg::Type::TEXT),
-        ],
-        |rows| {
-            rows.first()
-                .ok_or_else(invalid)?
-                .try_get(0)
-                .map_err(|_| invalid())
-        },
-    )
-    .await
+    let contract = if setjoin_contracts::mutants::on("offline-foreign-device") {
+        &sql::OFFLINE_COMMAND_MUTANT
+    } else {
+        &sql::OFFLINE_COMMAND
+    };
+    let env = super::envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{action}:{payload}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            super::deadline(),
+            contract,
+            &[&actor, &mailbox_id, &action, &payload],
+            Some(super::command("offline.command")),
+            |rows| {
+                rows.first()
+                    .ok_or_else(invalid)?
+                    .try_get(0)
+                    .map_err(|_| invalid())
+            },
+        )
+        .await
 }
 
 pub fn toggle_input(body: &[u8]) -> Result<serde_json::Value, String> {
@@ -219,6 +238,7 @@ pub fn toggle_input(body: &[u8]) -> Result<serde_json::Value, String> {
     out.entry("enabled").or_insert(false.into());
     Ok(out.into())
 }
+
 pub fn preview_input(body: &[u8]) -> Result<(i64, i64), String> {
     let out = decode(
         body,
@@ -242,21 +262,16 @@ pub fn preview_input(body: &[u8]) -> Result<(i64, i64), String> {
         parse("deviceId", "invalid deviceId")?,
     ))
 }
+
 pub async fn preview(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     target: i64,
     device: i64,
 ) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT offline_sync_policy_preview($1,$2,$3)::text",
-            &[
-                (&actor.user_id(), setjoin_pg::Type::INT8),
-                (&target, setjoin_pg::Type::INT8),
-                (&device, setjoin_pg::Type::INT8),
-            ],
-        )
+    let actor = proof.actor().get();
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::OFFLINE_PREVIEW, &[&actor, &target, &device])
         .await?;
     rows.first()
         .ok_or_else(invalid)?
@@ -277,37 +292,13 @@ pub fn ack_input(body: &[u8]) -> Result<serde_json::Value, String> {
     }
     Ok(out.into())
 }
-/// Go uses the worker credential for this cross-mailbox, one-user aggregate.
-/// No request-owned user or mailbox field can widen the predicate.
-pub async fn size(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
-) -> Result<String, StatementFailure> {
-    let windows = [
-        ("7d", Some(7)),
-        ("30d", Some(30)),
-        ("90d", Some(90)),
-        ("180d", Some(180)),
-        ("365d", Some(365)),
-        ("all", None),
-    ];
-    let columns = windows
-        .iter()
-        .map(|(_, days)| {
-            let filter = days
-                .map(|d| format!(" FILTER(WHERE received_at >= now()-interval '{d} days')"))
-                .unwrap_or_default();
-            format!("COUNT(*){filter},COALESCE(SUM(b){filter},0)")
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let sql=format!("SELECT {columns} FROM(SELECT m.received_at,octet_length(COALESCE(m.body_text,''))+octet_length(COALESCE(m.body_html,'')) AS b FROM messages m JOIN mailboxes mb ON mb.id=m.mailbox_id WHERE mb.user_id=$1 AND NOT m.is_deleted)m");
-    let rows = exec
-        .read(&sql, &[(&actor.user_id(), setjoin_pg::Type::INT8)])
-        .await?;
-    let row = rows.first().ok_or_else(invalid)?;
-    let mut buckets = Vec::new();
-    for (i, (window, _)) in windows.iter().enumerate() {
+
+/// Format the 6-window aggregate row returned by [`sql::OFFLINE_SIZE`] (executed
+/// on the gateway worker pool for Go's cross-mailbox one-user estimate).
+pub fn format_size_buckets(row: &Row) -> Result<String, StatementFailure> {
+    let windows = ["7d", "30d", "90d", "180d", "365d", "all"];
+    let mut buckets = Vec::with_capacity(windows.len());
+    for (i, window) in windows.iter().enumerate() {
         let count: i64 = row.try_get(i * 2).map_err(|_| invalid())?;
         let bytes: i64 = row.try_get(i * 2 + 1).map_err(|_| invalid())?;
         buckets.push(format!(

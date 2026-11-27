@@ -3,13 +3,12 @@
 //!
 //! Every route sits behind a console gate the adapter checks first: `requireLogsPerm`
 //! (`audit.read`, organization-wide only) for the reads and `requireSecurityWrite` for the two
-//! writes. All of these tables are global (no tenant column): the actor id comes from the
-//! verified token and is the only identity written (`created_by`, the audit actor). A rule
-//! create or delete is a receipted reducer so the row and Go's best-effort audit row commit
-//! together.
-use super::{command, deadline, done, envelope, invalid, nano, s, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, Row, ScopedExecutor, StatementFailure, Type};
+//! writes. Table views and IP rule reads run via `AdminReadTx`; IP rule creates and deletes
+//! run via `AdminWriteTx` (`ReducerWritesCoreAudit`). The `lockouts` view uses the worker-only
+//! `lockout_count` / `lockout_list` accessors (`WorkerBypass`) via the gateway composition root.
+use super::{command, deadline, done, envelope, invalid, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::{CommandOutcome, Row, StatementFailure};
 
 /// Go's `admin.ConsoleScopes[ConsoleLogs]` (`requireLogsPerm`); organization-wide only.
 pub const LOGS: [&str; 1] = ["audit.read"];
@@ -62,28 +61,12 @@ impl View {
             _ => return None,
         })
     }
-    fn table(self) -> &'static str {
-        match self {
-            View::Attempts => "auth_attempts",
-            View::Lockouts => "auth_lockouts",
-            View::FeedBlocks => "threat_feed_blocks",
-            View::RateCounters => "rate_limit_counters",
-        }
-    }
     fn sort_columns(self) -> &'static [&'static str] {
         match self {
             View::Attempts => &["occurred_at", "source_ip", "outcome"],
             View::Lockouts => &["locked_until", "failed_count", "updated_at"],
             View::FeedBlocks => &["added_at", "source"],
             View::RateCounters => &["count", "window_start", "blocked_until"],
-        }
-    }
-    fn default_order(self) -> &'static str {
-        match self {
-            View::Attempts => "occurred_at DESC",
-            View::Lockouts => "locked_until DESC",
-            View::FeedBlocks => "added_at DESC",
-            View::RateCounters => "count DESC",
         }
     }
     pub fn csv_headers(self) -> &'static [&'static str] {
@@ -137,6 +120,21 @@ fn sort_column(view: View, sort: &str) -> Option<&'static str> {
         .find(|allowed| fold_eq(sort, allowed))
 }
 
+/// Resolved `(column, dir)` arguments for `lockout_list`.
+pub fn lockout_sort(query: &Query<'_>) -> (&'static str, &'static str) {
+    match sort_column(View::Lockouts, query.sort) {
+        None => ("", ""),
+        Some(column) => (
+            column,
+            if fold_eq(query.dir, "desc") {
+                "desc"
+            } else {
+                "asc"
+            },
+        ),
+    }
+}
+
 pub struct Query<'a> {
     pub limit: i64,
     pub offset: i64,
@@ -150,13 +148,6 @@ pub struct Query<'a> {
 pub struct Item {
     pub json: String,
     pub cells: Vec<String>,
-}
-
-/// `fmt.Sprint(time.Time)` for a UTC process: `2006-01-02 15:04:05.999999999 +0000 UTC`.
-fn gotime(column: &str) -> String {
-    format!(
-        "to_char({column} AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') || CASE WHEN date_part('microseconds', {column} AT TIME ZONE 'UTC')::bigint % 1000000 = 0 THEN '' ELSE regexp_replace(to_char({column} AT TIME ZONE 'UTC','.US'),'0+$','') END || ' +0000 UTC'"
-    )
 }
 
 fn text(row: &Row, i: usize) -> Result<String, StatementFailure> {
@@ -195,7 +186,9 @@ fn attempt(row: &Row) -> Result<Item, StatementFailure> {
         cells: vec![ip, user, protocol, outcome, reason, geo, at_cell],
     })
 }
-fn lockout(row: &Row) -> Result<Item, StatementFailure> {
+
+/// Format a row returned by `sql::THREAT_LOCKOUT_LIST`.
+pub fn lockout_item(row: &Row) -> Result<Item, StatementFailure> {
     let key = text(row, 0)?;
     let failed = row.try_get::<_, i32>(1).map_err(|_| invalid())?;
     let (until, until_cell) = stamp(row, 2)?;
@@ -206,9 +199,16 @@ fn lockout(row: &Row) -> Result<Item, StatementFailure> {
             "{{\"escalationLevel\":{level},\"failedCount\":{failed},\"lockedUntil\":{},\"lockoutKey\":{},\"updatedAt\":{}}}",
             s(&until), s(&key), s(&updated)
         ),
-        cells: vec![key, failed.to_string(), until_cell, level.to_string(), updated_cell],
+        cells: vec![
+            key,
+            failed.to_string(),
+            until_cell,
+            level.to_string(),
+            updated_cell,
+        ],
     })
 }
+
 fn feed_block(row: &Row) -> Result<Item, StatementFailure> {
     let (cidr, source) = (text(row, 0)?, text(row, 1)?);
     let (added, added_cell) = stamp(row, 2)?;
@@ -222,6 +222,7 @@ fn feed_block(row: &Row) -> Result<Item, StatementFailure> {
         cells: vec![cidr, source, added_cell],
     })
 }
+
 fn rate_counter(row: &Row) -> Result<Item, StatementFailure> {
     let key = text(row, 0)?;
     let count = row.try_get::<_, i32>(1).map_err(|_| invalid())?;
@@ -237,152 +238,94 @@ fn rate_counter(row: &Row) -> Result<Item, StatementFailure> {
     })
 }
 
-/// The view's page and its total. `exec` is the request credential (the three table views);
-/// `worker` is the BYPASSRLS credential the lockouts accessor needs. Any failure is Go's 500.
+/// The view's page and its total for the three `AdminRead` table views (`Attempts`,
+/// `FeedBlocks`, `RateCounters`). `View::Lockouts` uses `sql::THREAT_LOCKOUT_*` (`WorkerBypass`).
 pub async fn rows(
-    exec: &ScopedExecutor,
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     view: View,
     query: &Query<'_>,
 ) -> Result<(Vec<Item>, i64), StatementFailure> {
-    if view == View::Lockouts {
-        return lockouts(worker, query).await;
+    let desc = fold_eq(query.dir, "DESC");
+    let col = sort_column(view, query.sort);
+    match view {
+        View::Attempts => {
+            let total = factory
+                .run_admin_read_contract(
+                    admin,
+                    &sql::THREAT_ATTEMPTS_COUNT,
+                    &[&query.since, &query.q],
+                )
+                .await?
+                .first()
+                .and_then(|r| r.try_get::<_, i64>(0).ok())
+                .ok_or_else(invalid)?;
+            let contract = match (col, desc) {
+                (None, _) | (Some("occurred_at"), true) => &sql::THREAT_ATTEMPTS_OCCURRED_AT_DESC,
+                (Some("occurred_at"), false) => &sql::THREAT_ATTEMPTS_OCCURRED_AT_ASC,
+                (Some("source_ip"), true) => &sql::THREAT_ATTEMPTS_SOURCE_IP_DESC,
+                (Some("source_ip"), false) => &sql::THREAT_ATTEMPTS_SOURCE_IP_ASC,
+                (Some("outcome"), true) => &sql::THREAT_ATTEMPTS_OUTCOME_DESC,
+                (Some("outcome"), false) => &sql::THREAT_ATTEMPTS_OUTCOME_ASC,
+                _ => &sql::THREAT_ATTEMPTS_OCCURRED_AT_DESC,
+            };
+            let rows = factory
+                .run_admin_read_contract(
+                    admin,
+                    contract,
+                    &[&query.since, &query.q, &query.limit, &query.offset],
+                )
+                .await?;
+            Ok((rows.iter().filter_map(|r| attempt(r).ok()).collect(), total))
+        }
+        View::FeedBlocks => {
+            let total = factory
+                .run_admin_read_contract(admin, &sql::THREAT_FEED_BLOCKS_COUNT, &[&query.q])
+                .await?
+                .first()
+                .and_then(|r| r.try_get::<_, i64>(0).ok())
+                .ok_or_else(invalid)?;
+            let contract = match (col, desc) {
+                (None, _) | (Some("added_at"), true) => &sql::THREAT_FEED_BLOCKS_ADDED_AT_DESC,
+                (Some("added_at"), false) => &sql::THREAT_FEED_BLOCKS_ADDED_AT_ASC,
+                (Some("source"), true) => &sql::THREAT_FEED_BLOCKS_SOURCE_DESC,
+                (Some("source"), false) => &sql::THREAT_FEED_BLOCKS_SOURCE_ASC,
+                _ => &sql::THREAT_FEED_BLOCKS_ADDED_AT_DESC,
+            };
+            let rows = factory
+                .run_admin_read_contract(admin, contract, &[&query.q, &query.limit, &query.offset])
+                .await?;
+            Ok((
+                rows.iter().filter_map(|r| feed_block(r).ok()).collect(),
+                total,
+            ))
+        }
+        View::RateCounters => {
+            let total = factory
+                .run_admin_read_contract(admin, &sql::THREAT_RATE_COUNTERS_COUNT, &[&query.q])
+                .await?
+                .first()
+                .and_then(|r| r.try_get::<_, i64>(0).ok())
+                .ok_or_else(invalid)?;
+            let contract = match (col, desc) {
+                (None, _) | (Some("count"), true) => &sql::THREAT_RATE_COUNTERS_COUNT_DESC,
+                (Some("count"), false) => &sql::THREAT_RATE_COUNTERS_COUNT_ASC,
+                (Some("window_start"), true) => &sql::THREAT_RATE_COUNTERS_WINDOW_START_DESC,
+                (Some("window_start"), false) => &sql::THREAT_RATE_COUNTERS_WINDOW_START_ASC,
+                (Some("blocked_until"), true) => &sql::THREAT_RATE_COUNTERS_BLOCKED_UNTIL_DESC,
+                (Some("blocked_until"), false) => &sql::THREAT_RATE_COUNTERS_BLOCKED_UNTIL_ASC,
+                _ => &sql::THREAT_RATE_COUNTERS_COUNT_DESC,
+            };
+            let rows = factory
+                .run_admin_read_contract(admin, contract, &[&query.q, &query.limit, &query.offset])
+                .await?;
+            Ok((
+                rows.iter().filter_map(|r| rate_counter(r).ok()).collect(),
+                total,
+            ))
+        }
+        View::Lockouts => Err(invalid()),
     }
-    // Filters in Go's order; every value rides a bind parameter.
-    let mut clauses: Vec<String> = vec![];
-    let mut args: Vec<&str> = vec![];
-    if view == View::Attempts && !query.since.is_empty() {
-        args.push(query.since);
-        clauses.push(format!(
-            "occurred_at >= now() - ${}::text::interval",
-            args.len()
-        ));
-    }
-    if !query.q.is_empty() {
-        args.push(query.q);
-        let n = args.len();
-        clauses.push(match view {
-            View::Attempts => format!(
-                "(target_username ILIKE '%' || ${n}::text || '%' OR source_ip::text ILIKE '%' || ${n}::text || '%')"
-            ),
-            View::FeedBlocks => format!(
-                "(cidr::text ILIKE '%' || ${n}::text || '%' OR source ILIKE '%' || ${n}::text || '%')"
-            ),
-            _ => format!("key ILIKE '%' || ${n}::text || '%'"),
-        });
-    }
-    let where_clause = if clauses.is_empty() {
-        "WHERE 1=1".to_owned()
-    } else {
-        format!("WHERE 1=1 AND {}", clauses.join(" AND "))
-    };
-    let table = view.table();
-    let text_args: Vec<setjoin_pg::Param<'_>> = args.iter().map(|a| (a as _, Type::TEXT)).collect();
-    let total = exec
-        .read(
-            &format!("SELECT COUNT(*) FROM {table} {where_clause}"),
-            &text_args,
-        )
-        .await?
-        .first()
-        .and_then(|r| r.try_get::<_, i64>(0).ok())
-        .ok_or_else(invalid)?;
-    let order = match sort_column(view, query.sort) {
-        None => view.default_order().to_owned(),
-        Some(column) => format!(
-            "{column} {}",
-            if fold_eq(query.dir, "DESC") {
-                "DESC"
-            } else {
-                "ASC"
-            }
-        ),
-    };
-    let select = match view {
-        View::Attempts => format!(
-            "host(source_ip::inet), target_username, protocol, outcome, COALESCE(failure_reason,''), COALESCE(geo_country,''), {}, {}",
-            nano("occurred_at"),
-            gotime("occurred_at")
-        ),
-        View::FeedBlocks => format!(
-            "cidr::text AS cidr, source, {}, {}",
-            nano("added_at"),
-            gotime("added_at")
-        ),
-        _ => format!(
-            "key, count, {}, {}, {}, {}",
-            nano("window_start"),
-            gotime("window_start"),
-            nano("blocked_until"),
-            gotime("blocked_until")
-        ),
-    };
-    let (n, m) = (args.len() + 1, args.len() + 2);
-    let mut params = text_args;
-    params.push((&query.limit, Type::INT8));
-    params.push((&query.offset, Type::INT8));
-    let rows = exec
-        .read(
-            &format!(
-                "SELECT {select} FROM {table} {where_clause} ORDER BY {order} LIMIT ${n} OFFSET ${m}"
-            ),
-            &params,
-        )
-        .await?;
-    let build = match view {
-        View::Attempts => attempt,
-        View::FeedBlocks => feed_block,
-        _ => rate_counter,
-    };
-    // A row Go cannot scan is skipped; every column here scans.
-    Ok((rows.iter().filter_map(|r| build(r).ok()).collect(), total))
-}
-
-/// The lockouts view reads only through the worker-owned `lockout_count` / `lockout_list`
-/// accessors (`auth_lockouts` is deny-all FORCE RLS).
-async fn lockouts(
-    worker: &ScopedExecutor,
-    query: &Query<'_>,
-) -> Result<(Vec<Item>, i64), StatementFailure> {
-    let total = worker
-        .read("SELECT lockout_count($1::text)", &[(&query.q, Type::TEXT)])
-        .await?
-        .first()
-        .and_then(|r| r.try_get::<_, i64>(0).ok())
-        .ok_or_else(invalid)?;
-    let (column, dir) = match sort_column(View::Lockouts, query.sort) {
-        None => ("", ""),
-        Some(column) => (
-            column,
-            if fold_eq(query.dir, "desc") {
-                "desc"
-            } else {
-                "asc"
-            },
-        ),
-    };
-    // Go binds the page bounds as int4 parameters: pgx refuses an out-of-range value.
-    let limit = i32::try_from(query.limit).map_err(|_| invalid())?;
-    let offset = i32::try_from(query.offset).map_err(|_| invalid())?;
-    let rows = worker
-        .read(
-            &format!(
-                "SELECT lockout_key, failed_count, {}, {}, escalation_level, {}, {} FROM lockout_list($1::text, $2::int, $3::int, $4::text, $5::text)",
-                nano("locked_until"),
-                gotime("locked_until"),
-                nano("updated_at"),
-                gotime("updated_at")
-            ),
-            &[
-                (&query.q, Type::TEXT),
-                (&limit, Type::INT4),
-                (&offset, Type::INT4),
-                (&column, Type::TEXT),
-                (&dir, Type::TEXT),
-            ],
-        )
-        .await?;
-    Ok((rows.iter().filter_map(|r| lockout(r).ok()).collect(), total))
 }
 
 /// `{rows, total, limit, offset}` as `map[string]any` renders it (sorted keys).
@@ -423,28 +366,19 @@ pub fn unknown_view_detail(name: &str) -> String {
 
 /// `GET /admin/threat/ip-rules`: `{rows, total, limit, offset}`; any failure is Go's 500.
 pub async fn ip_rules_list(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     limit: i64,
     offset: i64,
 ) -> Result<String, StatementFailure> {
-    let total = exec
-        .read("SELECT COUNT(*) FROM ip_rules", &[])
+    let total = factory
+        .run_admin_read_contract(admin, &sql::THREAT_IP_RULES_COUNT, &[])
         .await?
         .first()
         .and_then(|r| r.try_get::<_, i64>(0).ok())
         .ok_or_else(invalid)?;
-    let iso = |column: &str| {
-        format!("to_char({column} AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')")
-    };
-    let rows = exec
-        .read(
-            &format!(
-                "SELECT id, cidr::text, action, description, {}, {}, created_by FROM ip_rules ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-                iso("expires_at"),
-                iso("created_at")
-            ),
-            &[(&limit, Type::INT8), (&offset, Type::INT8)],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::THREAT_IP_RULES_LIST, &[&limit, &offset])
         .await?;
     let mut items = vec![];
     for r in &rows {
@@ -472,8 +406,8 @@ pub async fn ip_rules_list(
 /// transaction. `created_by` is the verified actor. A rolled-back outcome is Go's 500.
 #[allow(clippy::too_many_arguments)]
 pub async fn ip_rule_create(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     ip: &str,
     cidr: &str,
     action: &str,
@@ -481,7 +415,6 @@ pub async fn ip_rule_create(
     expires: Option<&str>,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    let auth = scope(actor);
     let digest = format!(
         "threat.ip_rule.create:{}:{}:{}:{}",
         s(cidr),
@@ -490,49 +423,49 @@ pub async fn ip_rule_create(
         expires.map_or("null".to_owned(), s)
     );
     let expires = expires.map(str::to_owned);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("threat.ip_rule.create"),
-        &envelope(&auth, operation, &digest),
-        &auth,
-        deadline(),
-        "SELECT rust_mailsec_ip_rule_create($2,$4,$5,$6,$7,$8) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-        &[
-            (&cidr, Type::TEXT),
-            (&action, Type::TEXT),
-            (&description, Type::TEXT),
-            (&expires, Type::TEXT),
-            (&ip, Type::TEXT),
-        ],
-        super::first_i64,
-    )
-    .await
+    let env = envelope(admin.actor(), admin.generation(), operation, &digest);
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::THREAT_IP_RULE_CREATE,
+            &[&cidr, &action, &description, &expires, &ip],
+            Some(command("threat.ip_rule.create")),
+            |rows, _| super::first_i64(&rows),
+        )
+        .await
 }
 
 /// `DELETE /admin/threat/ip-rules/{id}`: `Committed(false)` is Go's 404.
 pub async fn ip_rule_delete(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     ip: &str,
     id: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("threat.ip_rule.delete"),
-        &envelope(&auth, operation, &format!("threat.ip_rule.delete:{id}")),
-        &auth,
-        deadline(),
-        "SELECT rust_mailsec_ip_rule_delete($2,$4,$5) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
-        &[(&id, Type::INT8), (&ip, Type::TEXT)],
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get::<_, bool>(0).ok())
-                .ok_or_else(invalid)
-        },
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!("threat.ip_rule.delete:{id}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::THREAT_IP_RULE_DELETE,
+            &[&id, &ip],
+            Some(command("threat.ip_rule.delete")),
+            |rows, _| {
+                rows.first()
+                    .and_then(|r| r.try_get::<_, bool>(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }
 
 /// `{"id":N}` of the create answer.

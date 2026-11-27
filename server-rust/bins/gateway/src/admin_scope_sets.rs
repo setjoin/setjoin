@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 pub struct AdminScopeSetsRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
 }
@@ -146,9 +147,16 @@ impl<K: KeySource + 'static> Intercept for AdminScopeSetsRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        let (exec, worker, keys, issuer) = (
+            self.exec.clone(),
+            self.worker.clone(),
+            self.keys.clone(),
+            self.issuer.clone(),
+        );
         Box::pin(async move {
-            let what = action(r.method(), r.uri().path()).expect("matched route");
+            let Some(what) = action(r.method(), r.uri().path()) else {
+                return bare(404, "not found", &c, "");
+            };
             let verdict =
                 crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
@@ -160,31 +168,45 @@ impl<K: KeySource + 'static> Intercept for AdminScopeSetsRoute<K> {
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
+            let worker_exec = worker.as_ref().unwrap_or(&exec);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(worker_exec))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let admin_principal = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
+            };
             let path = r.uri().path().to_owned();
             let go_path = segment_path(&path);
             let required: &[&str] = &db::SCOPE_SETS_MANAGE;
-            if !matches!(
-                setjoin_admin_identity::authority(&exec, actor).await,
-                Ok(authority) if authority.allows_any(required)
-            ) {
+            let Some(admin_proof) = admin_principal
+                .as_ref()
+                .and_then(|ap| ap.require_any_permission(required).ok())
+            else {
                 let _ = setjoin_admin_identity::console_denied(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user_principal,
                     &go_path,
                     &required.join("|"),
                     operation,
                 )
                 .await;
                 return bare(403, "Forbidden", &c, &id);
-            }
-            let ip = c.identity.client_ip.to_string();
+            };
             if !matches!(what, Action::List | Action::Get)
-                && db::reason_required(&exec).await
+                && db::reason_required(&factory, &admin_proof).await
                 && r.headers()
                     .get("x-audit-reason")
                     .is_none_or(|v| v.as_bytes().is_empty())
             {
-                db::missing_reason(&exec, actor, &ip, operation).await;
+                db::missing_reason(&factory, &user_principal, &ip, operation).await;
                 return bare(400, "reason_required", &c, &id);
             }
             let head = r.method() == Method::HEAD;
@@ -232,7 +254,7 @@ impl<K: KeySource + 'static> Intercept for AdminScopeSetsRoute<K> {
                 _ => None,
             };
             match what {
-                Action::List => match db::list(&exec, actor).await {
+                Action::List => match db::list(&factory, &admin_proof).await {
                     Ok(body) => reply(body),
                     Err(_) => database(),
                 },
@@ -240,7 +262,7 @@ impl<K: KeySource + 'static> Intercept for AdminScopeSetsRoute<K> {
                     let Some(set) = number(4) else {
                         return full(400, "invalid scope set id");
                     };
-                    match db::get(&exec, actor, set).await {
+                    match db::get(&factory, &admin_proof, set).await {
                         Ok(Some(body)) => reply(body),
                         Ok(None) => full(404, "scope set not found"),
                         Err(_) => database(),
@@ -254,8 +276,8 @@ impl<K: KeySource + 'static> Intercept for AdminScopeSetsRoute<K> {
                         return full(400, "name is required");
                     }
                     match db::create(
-                        &exec,
-                        actor,
+                        &factory,
+                        &admin_proof,
                         &body.name,
                         body.domain_id,
                         &body.description,
@@ -295,8 +317,8 @@ impl<K: KeySource + 'static> Intercept for AdminScopeSetsRoute<K> {
                         return full(400, "invalid JSON");
                     };
                     match db::update(
-                        &exec,
-                        actor,
+                        &factory,
+                        &admin_proof,
                         set,
                         body.name.as_deref(),
                         body.description.as_deref(),
@@ -325,7 +347,7 @@ impl<K: KeySource + 'static> Intercept for AdminScopeSetsRoute<K> {
                     let Some(set) = number(4) else {
                         return full(400, "invalid scope set id");
                     };
-                    match db::delete(&exec, actor, set, &ip, operation).await {
+                    match db::delete(&factory, &admin_proof, set, &ip, operation).await {
                         CommandOutcome::Committed(()) => status_only(204),
                         CommandOutcome::RolledBack(e) => failed(&e),
                         CommandOutcome::Unknown { operation } => unknown(operation),
@@ -342,8 +364,8 @@ impl<K: KeySource + 'static> Intercept for AdminScopeSetsRoute<K> {
                         return full(400, "memberType and memberId are required");
                     }
                     match db::add_member(
-                        &exec,
-                        actor,
+                        &factory,
+                        &admin_proof,
                         set,
                         &body.member_type,
                         body.member_id,
@@ -368,8 +390,16 @@ impl<K: KeySource + 'static> Intercept for AdminScopeSetsRoute<K> {
                     let Some(member) = number(7) else {
                         return full(400, "invalid member id");
                     };
-                    match db::remove_member(&exec, actor, set, &member_type, member, &ip, operation)
-                        .await
+                    match db::remove_member(
+                        &factory,
+                        &admin_proof,
+                        set,
+                        &member_type,
+                        member,
+                        &ip,
+                        operation,
+                    )
+                    .await
                     {
                         CommandOutcome::Committed(()) => status_only(204),
                         CommandOutcome::RolledBack(e) => failed(&e),

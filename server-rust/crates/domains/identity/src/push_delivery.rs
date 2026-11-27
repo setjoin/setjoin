@@ -54,7 +54,7 @@ impl Dispatch {
     }
     /// The dispatch survives the request, but dropping the owning auth runtime
     /// aborts its JoinSet. No self-reference keeps jobs or provider caches alive.
-    pub fn enqueue(&self, exec: setjoin_pg::ScopedExecutor, challenge: super::push::Challenge) {
+    pub fn enqueue(&self, exec: setjoin_pg::AuthDb, challenge: super::push::Challenge) {
         let Some(sender) = self.sender.clone() else {
             return;
         };
@@ -63,7 +63,7 @@ impl Dispatch {
         jobs.spawn(async move{
    use setjoin_pg::Type;
    let Ok(actor)=setjoin_contracts::ids::ActorId::new(challenge.user)else{return;};
-   let Ok(rows)=exec.read_user_scoped(actor,"SELECT id,push_provider,push_token_enc,device_public_key FROM push_devices WHERE user_id=$1 AND push_provider IN ('apns','fcm','hms') AND revoked_at IS NULL AND device_public_key IS NOT NULL",&[(&challenge.user,Type::INT8)]).await else{return;};
+   let Ok(rows)=exec.read_user_scoped_contract(actor,&crate::sql::PUSH_DELIVERY_L66,&[(&challenge.user,Type::INT8)]).await else{return;};
    for row in rows{
     // An unreadable subscription row skips only that device.
     let (id,provider,envelope,key) = match (row.try_get::<_,i64>(0),row.try_get::<_,String>(1),row.try_get::<_,Vec<u8>>(2),row.try_get::<_,Vec<u8>>(3)) {
@@ -77,7 +77,7 @@ impl Dispatch {
     // not suppress other enrolled devices. Keys are deployment context only.
     // The command executor installs the deployment crypto GUC transaction-locally;
     // read_user_scoped intentionally carries only the user scope.
-    let token=exec.run_user_command(actor,setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),"SELECT pgp_sym_decrypt($1::bytea,current_setting('app.encryption_key'))::text",&[(&envelope,Type::BYTEA)],|rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(||setjoin_pg::StatementFailure{sqlstate:None,hint:None,message:"push token row".into()})).await;
+    let token=exec.run_user_command_contract(actor,setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),&crate::sql::PUSH_DELIVERY_L80,&[(&envelope,Type::BYTEA)],|rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(||setjoin_pg::StatementFailure{sqlstate:None,hint:None,message:"push token row".into()})).await;
     let token = match token {
      setjoin_pg::CommandOutcome::Committed(token) => token,
      other => {

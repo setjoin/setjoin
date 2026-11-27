@@ -21,7 +21,11 @@ fn op() -> [u8; 16] {
         .as_nanos() as u64;
     let mut out = [0u8; 16];
     out[..8].copy_from_slice(&nanos.to_be_bytes());
-    out[8..].copy_from_slice(&NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst).to_be_bytes());
+    out[8..].copy_from_slice(
+        &NEXT
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            .to_be_bytes(),
+    );
     out
 }
 
@@ -31,15 +35,24 @@ async fn actor(exec: &ScopedExecutor, user: i64) -> Result<setjoin_authz::Author
     headers.insert("origin", "http://mail.test".parse()?);
     let token = common::recovery_token_with(user, json!({"admin": true}));
     headers.insert("authorization", format!("Bearer {token}").parse()?);
-    Ok(
-        setjoin_authz::authorize_request(exec, &common::recovery_keys(), "mailserver", &headers, "http")
-            .await
-            .ok_or("verified actor")?,
+    Ok(setjoin_authz::authorize_request(
+        exec,
+        &common::recovery_keys(),
+        "mailserver",
+        &headers,
+        "http",
     )
+    .await
+    .ok_or("verified actor")?)
 }
 
 /// One role group holding `perms`, assigned to `user`; `domain` makes the GROUP domain-scoped.
-async fn grant(owner: &Client, user: i64, perms: &[&str], domain: Option<i64>) -> Result<i64, BoxError> {
+async fn grant(
+    owner: &Client,
+    user: i64,
+    perms: &[&str],
+    domain: Option<i64>,
+) -> Result<i64, BoxError> {
     let name = format!("secfix5-{user}-{}", perms.join("+"));
     let perms: Vec<String> = perms.iter().map(|p| p.to_string()).collect();
     let role: i64 = owner
@@ -103,7 +116,9 @@ struct World {
 /// the unrelated Go RLS bug of the lockdown/offline reducers (missing user GUC) does not
 /// mask the scope assertions.
 async fn world(case: &str) -> Result<Option<World>, BoxError> {
-    let Some(db) = Db::for_case(case) else { return Ok(None) };
+    let Some(db) = Db::for_case(case) else {
+        return Ok(None);
+    };
     let owner = db.connect().await?;
     cleanup(&owner).await?;
     let a = fixture::account(&owner, "secfix5-a").await?;
@@ -111,7 +126,14 @@ async fn world(case: &str) -> Result<Option<World>, BoxError> {
     let scoped = fixture::account(&owner, "secfix5-scoped").await?;
     let global = fixture::account(&owner, "secfix5-global").await?;
     let exec = common::patient_exec(&db.dsn, 4)?.with_audit_keys("22".repeat(32), String::new());
-    Ok(Some(World { owner, exec, a, b, scoped, global }))
+    Ok(Some(World {
+        owner,
+        exec,
+        a,
+        b,
+        scoped,
+        global,
+    }))
 }
 
 impl World {
@@ -120,9 +142,13 @@ impl World {
     }
 }
 
-fn state_of<T: std::fmt::Debug>(outcome: &CommandOutcome<T, setjoin_pg::StatementFailure>) -> Option<String> {
+fn state_of<T: std::fmt::Debug>(
+    outcome: &CommandOutcome<T, setjoin_pg::StatementFailure>,
+) -> Option<String> {
     match outcome {
-        CommandOutcome::RolledBack(Rejection::Statement(e) | Rejection::Body(e)) => e.sqlstate.clone(),
+        CommandOutcome::RolledBack(Rejection::Statement(e) | Rejection::Body(e)) => {
+            e.sqlstate.clone()
+        }
         _ => None,
     }
 }
@@ -133,7 +159,9 @@ static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 #[tokio::test]
 async fn exchange_group_domain_scope_confines_a_scoped_admin() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
-    let Some(w) = world("secfix5-exchange").await? else { return Ok(()) };
+    let Some(w) = world("secfix5-exchange").await? else {
+        return Ok(());
+    };
     let result = async {
         let perm = "exchange.assessment.run";
         grant(&w.owner, w.scoped.user, &[perm], Some(w.a.domain)).await?;
@@ -174,40 +202,113 @@ async fn device(owner: &Client, user: i64, tag: &str) -> Result<i64, BoxError> {
 }
 
 async fn enroll_state(owner: &Client, id: i64) -> Result<String, BoxError> {
-    Ok(owner.query_one("SELECT enroll_state FROM devices WHERE id=$1", &[&id]).await?.get(0))
+    Ok(owner
+        .query_one("SELECT enroll_state FROM devices WHERE id=$1", &[&id])
+        .await?
+        .get(0))
 }
 
 #[tokio::test]
 async fn lockdown_console_is_confined_to_the_callers_reach() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
     use setjoin_devices::lockdown;
-    let Some(w) = world("secfix5-lockdown").await? else { return Ok(()) };
+    let Some(w) = world("secfix5-lockdown").await? else {
+        return Ok(());
+    };
     let result = async {
-        grant(&w.owner, w.scoped.user, &["mam.read", "mam.write"], Some(w.a.domain)).await?;
+        grant(
+            &w.owner,
+            w.scoped.user,
+            &["mam.read", "mam.write"],
+            Some(w.a.domain),
+        )
+        .await?;
         grant(&w.owner, w.global.user, &["mam.read", "mam.write"], None).await?;
-        let (own, foreign) = (device(&w.owner, w.a.user, "own").await?, device(&w.owner, w.b.user, "foreign").await?);
+        let (own, foreign) = (
+            device(&w.owner, w.a.user, "own").await?,
+            device(&w.owner, w.b.user, "foreign").await?,
+        );
+        let factory = setjoin_gateway::policy_composition::tx_factory_from_executors(&w.exec, None)
+            .expect("tx_factory");
         let scoped = actor(&w.exec, w.scoped.user).await?;
         let global = actor(&w.exec, w.global.user).await?;
+        let scoped_user = factory
+            .mint_user_from_authorized(&scoped, "127.0.0.1")
+            .await?;
+        let global_user = factory
+            .mint_user_from_authorized(&global, "127.0.0.1")
+            .await?;
+        let scoped_read = factory
+            .mint_admin_from_authorized(&scoped, "127.0.0.1")
+            .await?
+            .require_permission("mam.read")?;
+        let global_read = factory
+            .mint_admin_from_authorized(&global, "127.0.0.1")
+            .await?
+            .require_permission("mam.read")?;
         // Reads: the approval queue and the per-user list.
-        let queue = lockdown::queue(&w.exec, scoped.context(), "enrolled", "", 500).await.map_err(|e| e.message)?;
-        assert!(queue.contains(&format!("\"id\":{own},")), "own device missing from the scoped queue");
-        assert!(!queue.contains(&format!("\"id\":{foreign},")), "scoped queue lists a foreign device");
-        let wide = lockdown::queue(&w.exec, global.context(), "enrolled", "", 500).await.map_err(|e| e.message)?;
-        assert!(wide.contains(&format!("\"id\":{foreign},")), "org-wide queue lost a device");
-        assert_eq!(lockdown::devices_of(&w.exec, scoped.context(), w.b.user).await.map_err(|e| e.message)?.trim(), "[]", "scoped admin listed a foreign user's devices");
-        assert!(lockdown::devices_of(&w.exec, scoped.context(), w.a.user).await.map_err(|e| e.message)?.contains(&format!("\"id\":{own}")));
+        let queue = lockdown::queue(&factory, &scoped_read, "enrolled", "", 500)
+            .await
+            .map_err(|e| e.message)?;
+        assert!(
+            queue.contains(&format!("\"id\":{own},")),
+            "own device missing from the scoped queue"
+        );
+        assert!(
+            !queue.contains(&format!("\"id\":{foreign},")),
+            "scoped queue lists a foreign device"
+        );
+        let wide = lockdown::queue(&factory, &global_read, "enrolled", "", 500)
+            .await
+            .map_err(|e| e.message)?;
+        assert!(
+            wide.contains(&format!("\"id\":{foreign},")),
+            "org-wide queue lost a device"
+        );
+        assert_eq!(
+            lockdown::devices_of(&factory, &scoped_read, w.b.user)
+                .await
+                .map_err(|e| e.message)?
+                .trim(),
+            "[]",
+            "scoped admin listed a foreign user's devices"
+        );
+        assert!(lockdown::devices_of(&factory, &scoped_read, w.a.user)
+            .await
+            .map_err(|e| e.message)?
+            .contains(&format!("\"id\":{own}")));
         // Writes: a foreign device answers exactly like a missing one and stays unchanged.
-        let denied = lockdown::transition(&w.exec, scoped.context(), foreign, "approved", "x", op()).await;
-        let missing = lockdown::transition(&w.exec, scoped.context(), 999_999_999, "approved", "x", op()).await;
-        assert_eq!(state_of(&denied).as_deref(), Some("BZ095"), "scoped admin transitioned a foreign device: {denied:?}");
-        let (CommandOutcome::RolledBack(d), CommandOutcome::RolledBack(m)) = (&denied, &missing) else { return Err("expected refusals".into()) };
-        assert_eq!(lockdown::transition_refusal(d).0, lockdown::transition_refusal(m).0);
+        let denied =
+            lockdown::transition(&factory, &scoped_user, foreign, "approved", "x", op()).await;
+        let missing =
+            lockdown::transition(&factory, &scoped_user, 999_999_999, "approved", "x", op()).await;
+        assert_eq!(
+            state_of(&denied).as_deref(),
+            Some("BZ095"),
+            "scoped admin transitioned a foreign device: {denied:?}"
+        );
+        let (CommandOutcome::RolledBack(d), CommandOutcome::RolledBack(m)) = (&denied, &missing)
+        else {
+            return Err("expected refusals".into());
+        };
+        assert_eq!(
+            lockdown::transition_refusal(d).0,
+            lockdown::transition_refusal(m).0
+        );
         assert_eq!(enroll_state(&w.owner, foreign).await?, "enrolled");
-        let allowed = lockdown::transition(&w.exec, scoped.context(), own, "approved", "x", op()).await;
-        assert!(matches!(allowed, CommandOutcome::Committed(())), "own-domain device refused: {allowed:?}");
+        let allowed =
+            lockdown::transition(&factory, &scoped_user, own, "approved", "x", op()).await;
+        assert!(
+            matches!(allowed, CommandOutcome::Committed(())),
+            "own-domain device refused: {allowed:?}"
+        );
         assert_eq!(enroll_state(&w.owner, own).await?, "approved");
-        let wide = lockdown::transition(&w.exec, global.context(), foreign, "approved", "x", op()).await;
-        assert!(matches!(wide, CommandOutcome::Committed(())), "org-wide admin refused: {wide:?}");
+        let wide =
+            lockdown::transition(&factory, &global_user, foreign, "approved", "x", op()).await;
+        assert!(
+            matches!(wide, CommandOutcome::Committed(())),
+            "org-wide admin refused: {wide:?}"
+        );
         Ok::<_, BoxError>(())
     }
     .await;
@@ -229,70 +330,217 @@ async fn user_device(owner: &Client, user: i64, tag: &str, state: &str) -> Resul
 async fn offline_devices_are_confined_to_the_callers_reach() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
     use setjoin_devices::offline;
-    let Some(w) = world("secfix5-offline").await? else { return Ok(()) };
-    let result = async {
-        grant(&w.owner, w.scoped.user, &["mam.read", "mam.write"], Some(w.a.domain)).await?;
-        grant(&w.owner, w.global.user, &["mam.read", "mam.write"], None).await?;
-        let (pend_own, pend_foreign) = (user_device(&w.owner, w.a.user, "pend", "pending").await?, user_device(&w.owner, w.b.user, "pend", "pending").await?);
-        let (appr_own, appr_foreign) = (user_device(&w.owner, w.a.user, "appr", "approved").await?, user_device(&w.owner, w.b.user, "appr", "approved").await?);
-        let scoped = actor(&w.exec, w.scoped.user).await?;
-        let global = actor(&w.exec, w.global.user).await?;
-        let ids = |text: String| -> Vec<i64> { serde_json::from_str::<Vec<serde_json::Value>>(&text).unwrap().iter().map(|v| v["id"].as_i64().unwrap()).collect() };
-        let queue = ids(offline::pending(&w.exec, scoped.context()).await.map_err(|e| e.message)?);
-        assert!(queue.contains(&pend_own), "own pending device missing from the scoped queue");
-        assert!(!queue.contains(&pend_foreign), "scoped pending queue lists a foreign device");
-        let wide = ids(offline::pending(&w.exec, global.context()).await.map_err(|e| e.message)?);
-        assert!(wide.contains(&pend_own) && wide.contains(&pend_foreign), "org-wide queue lost a device");
-        let approval = |id: i64| {
-            let owner = &w.owner;
-            async move {
-                let row = owner.query_one("SELECT offline_approval, wipe_requested FROM user_devices WHERE id=$1", &[&id]).await?;
-                Ok::<_, BoxError>((row.get::<_, String>(0), row.get::<_, bool>(1)))
+    let Some(w) = world("secfix5-offline").await? else {
+        return Ok(());
+    };
+    let result =
+        async {
+            grant(
+                &w.owner,
+                w.scoped.user,
+                &["mam.read", "mam.write"],
+                Some(w.a.domain),
+            )
+            .await?;
+            grant(&w.owner, w.global.user, &["mam.read", "mam.write"], None).await?;
+            let (pend_own, pend_foreign) = (
+                user_device(&w.owner, w.a.user, "pend", "pending").await?,
+                user_device(&w.owner, w.b.user, "pend", "pending").await?,
+            );
+            let (appr_own, appr_foreign) = (
+                user_device(&w.owner, w.a.user, "appr", "approved").await?,
+                user_device(&w.owner, w.b.user, "appr", "approved").await?,
+            );
+            let factory =
+                setjoin_gateway::policy_composition::tx_factory_from_executors(&w.exec, None)
+                    .expect("tx_factory");
+            let scoped = actor(&w.exec, w.scoped.user).await?;
+            let global = actor(&w.exec, w.global.user).await?;
+            let scoped_user = factory
+                .mint_user_from_authorized(&scoped, "127.0.0.1")
+                .await?;
+            let global_user = factory
+                .mint_user_from_authorized(&global, "127.0.0.1")
+                .await?;
+            let scoped_read = factory
+                .mint_admin_from_authorized(&scoped, "127.0.0.1")
+                .await?
+                .require_permission("mam.read")?;
+            let global_read = factory
+                .mint_admin_from_authorized(&global, "127.0.0.1")
+                .await?
+                .require_permission("mam.read")?;
+            let ids = |text: String| -> Vec<i64> {
+                serde_json::from_str::<Vec<serde_json::Value>>(&text)
+                    .unwrap()
+                    .iter()
+                    .map(|v| v["id"].as_i64().unwrap())
+                    .collect()
+            };
+            let queue = ids(offline::pending(&factory, &scoped_read)
+                .await
+                .map_err(|e| e.message)?);
+            assert!(
+                queue.contains(&pend_own),
+                "own pending device missing from the scoped queue"
+            );
+            assert!(
+                !queue.contains(&pend_foreign),
+                "scoped pending queue lists a foreign device"
+            );
+            let wide = ids(offline::pending(&factory, &global_read)
+                .await
+                .map_err(|e| e.message)?);
+            assert!(
+                wide.contains(&pend_own) && wide.contains(&pend_foreign),
+                "org-wide queue lost a device"
+            );
+            let approval = |id: i64| {
+                let owner = &w.owner;
+                async move {
+                    let row = owner
+                        .query_one(
+                            "SELECT offline_approval, wipe_requested FROM user_devices WHERE id=$1",
+                            &[&id],
+                        )
+                        .await?;
+                    Ok::<_, BoxError>((row.get::<_, String>(0), row.get::<_, bool>(1)))
+                }
+            };
+            let run = |user: &setjoin_authz::principals::UserPrincipal,
+                       mb: i64,
+                       action: &'static str,
+                       id: i64| {
+                let (factory, user) = (factory.clone(), user.clone());
+                async move {
+                    offline::command(&factory, &user, mb, action, json!({"id": id}), op()).await
+                }
+            };
+            // A foreign device answers exactly like a missing one and stays untouched.
+            let missing = run(
+                &scoped_user,
+                scoped.context().mailbox_id(),
+                "wipe",
+                999_999_999,
+            )
+            .await;
+            for (action, id, from) in [
+                ("wipe", appr_foreign, "approved"),
+                ("revoke", appr_foreign, "approved"),
+                ("approve", pend_foreign, "pending"),
+                ("deny", pend_foreign, "pending"),
+            ] {
+                let denied = run(&scoped_user, scoped.context().mailbox_id(), action, id).await;
+                assert_eq!(
+                    state_of(&denied).as_deref(),
+                    Some("BZ100"),
+                    "scoped admin could {action} a foreign device: {denied:?}"
+                );
+                let (CommandOutcome::RolledBack(d), CommandOutcome::RolledBack(m)) =
+                    (&denied, &missing)
+                else {
+                    return Err("expected refusals".into());
+                };
+                let (
+                    Rejection::Statement(d) | Rejection::Body(d),
+                    Rejection::Statement(m) | Rejection::Body(m),
+                ) = (d, m)
+                else {
+                    return Err("statement refusals".into());
+                };
+                assert_eq!(
+                    d.hint.as_deref().map(|h| h.contains("not_found")),
+                    m.hint.as_deref().map(|h| h.contains("not_found"))
+                );
+                assert_eq!(
+                    approval(id).await?,
+                    (from.to_string(), false),
+                    "{action} changed a foreign device"
+                );
             }
-        };
-        let run = |ctx: &setjoin_authz::Authorized, action: &'static str, id: i64| {
-            let (exec, ctx) = (w.exec.clone(), ctx.context().clone());
-            async move { offline::command(&exec, &ctx, action, json!({"id": id}), op()).await }
-        };
-        // A foreign device answers exactly like a missing one and stays untouched.
-        let missing = run(&scoped, "wipe", 999_999_999).await;
-        for (action, id, from) in [("wipe", appr_foreign, "approved"), ("revoke", appr_foreign, "approved"), ("approve", pend_foreign, "pending"), ("deny", pend_foreign, "pending")] {
-            let denied = run(&scoped, action, id).await;
-            assert_eq!(state_of(&denied).as_deref(), Some("BZ100"), "scoped admin could {action} a foreign device: {denied:?}");
-            let (CommandOutcome::RolledBack(d), CommandOutcome::RolledBack(m)) = (&denied, &missing) else { return Err("expected refusals".into()) };
-            let (Rejection::Statement(d) | Rejection::Body(d), Rejection::Statement(m) | Rejection::Body(m)) = (d, m) else { return Err("statement refusals".into()) };
-            assert_eq!(d.hint.as_deref().map(|h| h.contains("not_found")), m.hint.as_deref().map(|h| h.contains("not_found")));
-            assert_eq!(approval(id).await?, (from.to_string(), false), "{action} changed a foreign device");
+            let own = run(
+                &scoped_user,
+                scoped.context().mailbox_id(),
+                "wipe",
+                appr_own,
+            )
+            .await;
+            assert!(
+                matches!(own, CommandOutcome::Committed(_)),
+                "own-domain wipe refused: {own:?}"
+            );
+            assert_eq!(approval(appr_own).await?, ("revoked".to_string(), true));
+            let wide = run(
+                &global_user,
+                global.context().mailbox_id(),
+                "wipe",
+                appr_foreign,
+            )
+            .await;
+            assert!(
+                matches!(wide, CommandOutcome::Committed(_)),
+                "org-wide wipe refused: {wide:?}"
+            );
+            assert_eq!(approval(appr_foreign).await?, ("revoked".to_string(), true));
+            let wide = run(
+                &global_user,
+                global.context().mailbox_id(),
+                "approve",
+                pend_foreign,
+            )
+            .await;
+            assert!(
+                matches!(wide, CommandOutcome::Committed(_)),
+                "org-wide approve refused: {wide:?}"
+            );
+            Ok::<_, BoxError>(())
         }
-        let own = run(&scoped, "wipe", appr_own).await;
-        assert!(matches!(own, CommandOutcome::Committed(_)), "own-domain wipe refused: {own:?}");
-        assert_eq!(approval(appr_own).await?, ("revoked".to_string(), true));
-        let wide = run(&global, "wipe", appr_foreign).await;
-        assert!(matches!(wide, CommandOutcome::Committed(_)), "org-wide wipe refused: {wide:?}");
-        assert_eq!(approval(appr_foreign).await?, ("revoked".to_string(), true));
-        let wide = run(&global, "approve", pend_foreign).await;
-        assert!(matches!(wide, CommandOutcome::Committed(_)), "org-wide approve refused: {wide:?}");
-        Ok::<_, BoxError>(())
-    }
-    .await;
+        .await;
     w.finish().await?;
     result
 }
 
-async fn quarantine(owner: &Client, account: &fixture::Account, tag: &str) -> Result<i64, BoxError> {
-    let message = fixture::message(owner, account.mailbox, account.inbox, &[account.inbox], false).await?;
-    owner.execute("UPDATE messages SET subject=$2, body_html='<p>q</p>' WHERE id=$1", &[&message, &format!("secfix5 {tag}")]).await?;
+async fn quarantine(
+    owner: &Client,
+    account: &fixture::Account,
+    tag: &str,
+) -> Result<i64, BoxError> {
+    let message = fixture::message(
+        owner,
+        account.mailbox,
+        account.inbox,
+        &[account.inbox],
+        false,
+    )
+    .await?;
     owner
-        .execute("SELECT quarantine_message($1,$2,'secfix5','virus','Test-Virus',FALSE)", &[&message, &account.mailbox])
+        .execute(
+            "UPDATE messages SET subject=$2, body_html='<p>q</p>' WHERE id=$1",
+            &[&message, &format!("secfix5 {tag}")],
+        )
         .await?;
-    Ok(owner.query_one("SELECT id FROM quarantined_messages WHERE message_id=$1", &[&message]).await?.get(0))
+    owner
+        .execute(
+            "SELECT quarantine_message($1,$2,'secfix5','virus','Test-Virus',FALSE)",
+            &[&message, &account.mailbox],
+        )
+        .await?;
+    Ok(owner
+        .query_one(
+            "SELECT id FROM quarantined_messages WHERE message_id=$1",
+            &[&message],
+        )
+        .await?
+        .get(0))
 }
 
 #[tokio::test]
 async fn quarantine_admin_actions_are_confined_to_the_callers_reach() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
     use setjoin_mail_security::quarantine;
-    let Some(w) = world("secfix5-quarantine").await? else { return Ok(()) };
+    let Some(w) = world("secfix5-quarantine").await? else {
+        return Ok(());
+    };
     let result = async {
         let perms = ["mail.security", "mail.export", "security.write"];
         grant(&w.owner, w.scoped.user, &perms, Some(w.a.domain)).await?;
@@ -300,13 +548,56 @@ async fn quarantine_admin_actions_are_confined_to_the_callers_reach() -> Result<
         let (own, foreign) = (quarantine(&w.owner, &w.a, "own").await?, quarantine(&w.owner, &w.b, "foreign").await?);
         let scoped = actor(&w.exec, w.scoped.user).await?;
         let global = actor(&w.exec, w.global.user).await?;
+        let factory =
+            setjoin_gateway::policy_composition::tx_factory_from_executors(&w.exec, Some(&w.exec))
+                .ok_or_else(|| BoxError::from("tx_factory unavailable"))?;
+        let scoped_admin = factory
+            .mint_admin_from_authorized(&scoped, "127.0.0.1")
+            .await
+            .map_err(|e| BoxError::from(e.to_string()))?;
+        let global_admin = factory
+            .mint_admin_from_authorized(&global, "127.0.0.1")
+            .await
+            .map_err(|e| BoxError::from(e.to_string()))?;
+        let scoped_read = scoped_admin
+            .require_permission("mail.security")
+            .map_err(|e| BoxError::from(e.to_string()))?;
+        let global_read = global_admin
+            .require_permission("mail.security")
+            .map_err(|e| BoxError::from(e.to_string()))?;
+        let scoped_write = scoped_admin
+            .require_permission("security.write")
+            .map_err(|e| BoxError::from(e.to_string()))?;
+        let global_write = global_admin
+            .require_permission("security.write")
+            .map_err(|e| BoxError::from(e.to_string()))?;
         // Preview and stats.
-        assert!(quarantine::admin_preview(&w.exec, scoped.context(), foreign).await.map_err(|e| e.message)?.is_none(), "scoped admin previewed a foreign message");
-        assert!(quarantine::admin_preview(&w.exec, scoped.context(), own).await.map_err(|e| e.message)?.is_some(), "own message not previewable");
-        assert!(quarantine::admin_preview(&w.exec, global.context(), foreign).await.map_err(|e| e.message)?.is_some(), "org-wide admin refused");
-        let stats = serde_json::from_str::<serde_json::Value>(&quarantine::admin_stats(&w.exec, scoped.context()).await)?;
+        assert!(
+            quarantine::admin_preview(&factory, &scoped_read, foreign)
+                .await
+                .map_err(|e| e.message)?
+                .is_none(),
+            "scoped admin previewed a foreign message"
+        );
+        assert!(
+            quarantine::admin_preview(&factory, &scoped_read, own)
+                .await
+                .map_err(|e| e.message)?
+                .is_some(),
+            "own message not previewable"
+        );
+        assert!(
+            quarantine::admin_preview(&factory, &global_read, foreign)
+                .await
+                .map_err(|e| e.message)?
+                .is_some(),
+            "org-wide admin refused"
+        );
+        let stats =
+            serde_json::from_str::<serde_json::Value>(&quarantine::admin_stats(&factory, &scoped_read).await)?;
         assert_eq!(stats["active"], 1, "scoped stats count a foreign domain: {stats}");
-        let wide = serde_json::from_str::<serde_json::Value>(&quarantine::admin_stats(&w.exec, global.context()).await)?;
+        let wide =
+            serde_json::from_str::<serde_json::Value>(&quarantine::admin_stats(&factory, &global_read).await)?;
         assert!(wide["active"].as_i64().unwrap() >= 2, "org-wide stats lost a row: {wide}");
         // Release and reject: a foreign row answers like a missing one and stays active.
         let state = |id: i64| {
@@ -316,16 +607,46 @@ async fn quarantine_admin_actions_are_confined_to_the_callers_reach() -> Result<
                 Ok::<_, BoxError>((row.get::<_, bool>(0), row.get::<_, bool>(1), row.get::<_, i64>(2)))
             }
         };
+        let resolve_admin = |proof: &setjoin_authz::principals::AdminPermissionProof,
+                             target: i64,
+                             reject: bool| {
+            let exec = w.exec.clone();
+            let actor_id = proof.actor().get();
+            async move {
+                let contract = if reject {
+                    &setjoin_mail_security::sql::QUARANTINE_ADMIN_REJECT
+                } else {
+                    &setjoin_mail_security::sql::QUARANTINE_ADMIN_RELEASE
+                };
+                let pool = exec
+                    .try_worker_pool()
+                    .ok_or_else(|| BoxError::from("worker pool unavailable"))?;
+                let mut tx = pool
+                    .begin_read_write()
+                    .await
+                    .map_err(|e| BoxError::from(e.message))?;
+                let rows = tx
+                    .query_contract(contract, &[&actor_id, &target])
+                    .await
+                    .map_err(|e| BoxError::from(e.message))?;
+                let ok = rows
+                    .first()
+                    .and_then(|r| r.try_get::<_, bool>(0).ok())
+                    .unwrap_or(false);
+                tx.commit().await.map_err(|e| BoxError::from(e.message))?;
+                Ok::<bool, BoxError>(ok)
+            }
+        };
         for reject in [false, true] {
-            let denied = quarantine::resolve(&w.exec, scoped.context(), foreign, true, reject, op()).await;
-            assert!(matches!(denied, CommandOutcome::Committed(false)), "scoped admin acted on a foreign message (reject={reject}): {denied:?}");
+            let denied = resolve_admin(&scoped_write, foreign, reject).await?;
+            assert!(!denied, "scoped admin acted on a foreign message (reject={reject})");
             assert_eq!(state(foreign).await?, (false, false, 1), "foreign message changed (reject={reject})");
         }
-        let released = quarantine::resolve(&w.exec, scoped.context(), own, true, false, op()).await;
-        assert!(matches!(released, CommandOutcome::Committed(true)), "own-domain release refused: {released:?}");
+        let released = resolve_admin(&scoped_write, own, false).await?;
+        assert!(released, "own-domain release refused");
         assert_eq!(state(own).await?.0, true);
-        let rejected = quarantine::resolve(&w.exec, global.context(), foreign, true, true, op()).await;
-        assert!(matches!(rejected, CommandOutcome::Committed(true)), "org-wide reject refused: {rejected:?}");
+        let rejected = resolve_admin(&global_write, foreign, true).await?;
+        assert!(rejected, "org-wide reject refused");
         assert_eq!(state(foreign).await?, (false, true, 0));
         Ok::<_, BoxError>(())
     }

@@ -20,24 +20,88 @@ use tokio::{
 const CORE_START: [&str; 2] = ["setjoin-auth", "setjoin-gateway"];
 const CORE_STOP: [&str; 2] = ["setjoin-gateway", "setjoin-auth"];
 const LEGACY_UNIT: &str = "setjoin";
+const UNIFIED_UNIT: &str = "setjoind";
 
-fn has_legacy_unit(units: &Path) -> bool {
-    std::fs::symlink_metadata(units.join(format!("{LEGACY_UNIT}.service"))).is_ok()
+/// Installed core systemd unit topology (#544).
+///
+/// Mixed topologies (where `setjoind.service` coexists with `setjoin-gateway.service`,
+/// `setjoin-auth.service`, or `setjoin.service`) fail closed via `Err` everywhere
+/// except non-destructive `recovery::evidence()` capture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnitTopology {
+    LegacyGo,
+    Split,
+    Unified,
 }
 
-fn start_units_in(units: &Path) -> Vec<&'static str> {
-    if has_legacy_unit(units) {
-        vec!["setjoin-auth", LEGACY_UNIT, "setjoin-gateway"]
-    } else {
-        CORE_START.to_vec()
+fn unit_exists(units: &Path, unit: &str) -> bool {
+    std::fs::symlink_metadata(units.join(format!("{unit}.service"))).is_ok()
+}
+
+pub fn detect_topology_in(units: &Path) -> Result<UnitTopology> {
+    let has_unified = unit_exists(units, UNIFIED_UNIT);
+    let has_gateway = unit_exists(units, "setjoin-gateway");
+    let has_auth = unit_exists(units, "setjoin-auth");
+    let has_legacy = unit_exists(units, LEGACY_UNIT);
+    if has_unified {
+        ensure!(
+            !has_gateway && !has_auth && !has_legacy,
+            "mixed unit topology: setjoind.service coexists with split/legacy units in {}",
+            units.display()
+        );
+        return Ok(UnitTopology::Unified);
+    }
+    if has_legacy {
+        return Ok(UnitTopology::LegacyGo);
+    }
+    Ok(UnitTopology::Split)
+}
+
+/// Primary server unit path for environment/WORM/RLS preflight inspection.
+pub fn primary_server_unit(units: &Path) -> Result<PathBuf> {
+    match detect_topology_in(units)? {
+        UnitTopology::Unified => Ok(units.join("setjoind.service")),
+        UnitTopology::Split | UnitTopology::LegacyGo => Ok(units.join("setjoin-gateway.service")),
     }
 }
 
-fn stop_units_in(units: &Path) -> Vec<&'static str> {
-    if has_legacy_unit(units) {
-        vec!["setjoin-gateway", LEGACY_UNIT, "setjoin-auth"]
+/// Non-destructive unit list for `recovery::evidence()`.
+///
+/// Preserves the byte-identical 3-unit list in `Split`/`LegacyGo`, observes
+/// `setjoind` + `setjoin-updater` in `Unified`, and observes all 4 units in a
+/// `Mixed` topology without aborting evidence capture.
+pub(crate) fn evidence_units_in(units: &Path) -> Vec<&'static str> {
+    let has_unified = unit_exists(units, UNIFIED_UNIT);
+    let has_split_or_legacy = unit_exists(units, "setjoin-gateway")
+        || unit_exists(units, "setjoin-auth")
+        || unit_exists(units, LEGACY_UNIT);
+    if has_unified && has_split_or_legacy {
+        vec![
+            UNIFIED_UNIT,
+            "setjoin-auth",
+            "setjoin-gateway",
+            "setjoin-updater",
+        ]
+    } else if has_unified {
+        vec![UNIFIED_UNIT, "setjoin-updater"]
     } else {
-        CORE_STOP.to_vec()
+        vec!["setjoin-auth", "setjoin-gateway", "setjoin-updater"]
+    }
+}
+
+fn start_units_in(units: &Path) -> Result<Vec<&'static str>> {
+    match detect_topology_in(units)? {
+        UnitTopology::LegacyGo => Ok(vec!["setjoin-auth", LEGACY_UNIT, "setjoin-gateway"]),
+        UnitTopology::Split => Ok(CORE_START.to_vec()),
+        UnitTopology::Unified => Ok(vec![UNIFIED_UNIT]),
+    }
+}
+
+fn stop_units_in(units: &Path) -> Result<Vec<&'static str>> {
+    match detect_topology_in(units)? {
+        UnitTopology::LegacyGo => Ok(vec!["setjoin-gateway", LEGACY_UNIT, "setjoin-auth"]),
+        UnitTopology::Split => Ok(CORE_STOP.to_vec()),
+        UnitTopology::Unified => Ok(vec![UNIFIED_UNIT]),
     }
 }
 #[derive(Deserialize)]
@@ -345,7 +409,7 @@ pub fn require_unit_binaries(release: &Path) -> Result<()> {
     require_unit_binaries_in(Path::new("/etc/systemd/system"), release)
 }
 pub(crate) fn require_unit_binaries_in(units: &Path, release: &Path) -> Result<()> {
-    for unit in start_units_in(units) {
+    for unit in start_units_in(units)? {
         let text = match std::fs::read_to_string(units.join(format!("{unit}.service"))) {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
@@ -375,11 +439,11 @@ pub(crate) fn require_unit_binaries_in(units: &Path, release: &Path) -> Result<(
     Ok(())
 }
 fn check_required_units_in(units: &Path) -> Result<Vec<&'static str>> {
-    for unit in start_units_in(units) {
+    for unit in start_units_in(units)? {
         let m = std::fs::symlink_metadata(units.join(format!("{unit}.service")))?;
         ensure!(m.is_file(), "required unit unavailable");
     }
-    Ok(stop_units_in(units))
+    stop_units_in(units)
 }
 pub async fn preflight() -> Result<()> {
     let units = Path::new("/etc/systemd/system");
@@ -390,8 +454,9 @@ pub async fn preflight() -> Result<()> {
     let explicit_cfg = std::env::var_os("SETJOIN_CONFIG_DIR")
         .filter(|v| !v.is_empty())
         .map(|d| std::path::PathBuf::from(d).join("config.env"));
+    let primary_unit = primary_server_unit(units)?;
     check_worm_gateway_ready(
-        &units.join("setjoin-gateway.service"),
+        &primary_unit,
         explicit_cfg.as_deref(),
         Path::new("/etc/setjoin/config.env"),
     )
@@ -660,7 +725,9 @@ fn parse_go_hex_float64(s: &str) -> Option<f64> {
     } else {
         (false, s)
     };
-    let rest = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X"))?;
+    let rest = rest
+        .strip_prefix("0x")
+        .or_else(|| rest.strip_prefix("0X"))?;
     let p_idx = rest.find(['p', 'P'])?;
     let mant_raw = &rest[..p_idx];
     let exp_raw = &rest[p_idx + 1..];
@@ -675,9 +742,7 @@ fn parse_go_hex_float64(s: &str) -> Option<f64> {
         || exp_digits.starts_with('_')
         || exp_digits.ends_with('_')
         || exp_digits.contains("__")
-        || !exp_digits
-            .bytes()
-            .all(|b| b == b'_' || b.is_ascii_digit())
+        || !exp_digits.bytes().all(|b| b == b'_' || b.is_ascii_digit())
     {
         return None;
     }
@@ -789,7 +854,10 @@ fn parse_yaml_float(raw: &str) -> Option<f64> {
         };
         let int_ok = |part: &str| {
             part == "0"
-                || (part.as_bytes().first().is_some_and(|b| matches!(b, b'1'..=b'9'))
+                || (part
+                    .as_bytes()
+                    .first()
+                    .is_some_and(|b| matches!(b, b'1'..=b'9'))
                     && valid_dec_underscores(part))
         };
         match mantissa.split_once('.') {
@@ -1010,10 +1078,7 @@ impl<'a> YamlParser<'a> {
     }
 
     fn is_prop_char(b: u8) -> bool {
-        !matches!(
-            b,
-            b' ' | b'\t' | b'\n' | b',' | b'[' | b']' | b'{' | b'}'
-        )
+        !matches!(b, b' ' | b'\t' | b'\n' | b',' | b'[' | b']' | b'{' | b'}')
     }
 
     fn read_indicator_name(&mut self, prefix: u8) -> Result<String, &'static str> {
@@ -1092,26 +1157,35 @@ impl<'a> YamlParser<'a> {
         } else {
             (false, cleaned.as_str())
         };
-        if let Some(hex) = unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
+        if let Some(hex) = unsigned
+            .strip_prefix("0x")
+            .or_else(|| unsigned.strip_prefix("0X"))
+        {
             if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
                 return None;
             }
             let v = i64::from_str_radix(hex, 16).ok()?;
-            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+            return if neg { v.checked_neg() } else { Some(v) };
         }
-        if let Some(oct) = unsigned.strip_prefix("0o").or_else(|| unsigned.strip_prefix("0O")) {
+        if let Some(oct) = unsigned
+            .strip_prefix("0o")
+            .or_else(|| unsigned.strip_prefix("0O"))
+        {
             if oct.is_empty() || !oct.bytes().all(|b| matches!(b, b'0'..=b'7')) {
                 return None;
             }
             let v = i64::from_str_radix(oct, 8).ok()?;
-            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+            return if neg { v.checked_neg() } else { Some(v) };
         }
-        if let Some(bin) = unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B")) {
+        if let Some(bin) = unsigned
+            .strip_prefix("0b")
+            .or_else(|| unsigned.strip_prefix("0B"))
+        {
             if bin.is_empty() || !bin.bytes().all(|b| matches!(b, b'0' | b'1')) {
                 return None;
             }
             let v = i64::from_str_radix(bin, 2).ok()?;
-            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+            return if neg { v.checked_neg() } else { Some(v) };
         }
         if unsigned.starts_with('0') && unsigned.len() > 1 {
             let digits = &unsigned[1..];
@@ -1119,7 +1193,7 @@ impl<'a> YamlParser<'a> {
                 return None;
             }
             let v = i64::from_str_radix(digits, 8).ok()?;
-            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+            return if neg { v.checked_neg() } else { Some(v) };
         }
         cleaned.parse::<i64>().ok()
     }
@@ -1142,7 +1216,7 @@ impl<'a> YamlParser<'a> {
                 return None;
             }
             let v = i64::from_str_radix(digits, 8).ok()?;
-            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+            return if neg { v.checked_neg() } else { Some(v) };
         }
         None
     }
@@ -1273,10 +1347,10 @@ impl<'a> YamlParser<'a> {
                 break;
             }
             if ch == b':'
-                && self
-                    .b
-                    .get(self.i + 1)
-                    .is_none_or(|c| matches!(c, b' ' | b'\t' | b'\n') || (in_flow && matches!(c, b',' | b'}' | b']')))
+                && self.b.get(self.i + 1).is_none_or(|c| {
+                    matches!(c, b' ' | b'\t' | b'\n')
+                        || (in_flow && matches!(c, b',' | b'}' | b']'))
+                })
             {
                 break;
             }
@@ -1411,7 +1485,9 @@ impl<'a> YamlParser<'a> {
                     {
                         return true;
                     }
-                    if self.b[p] == b'#' && matches!(self.b.get(p.wrapping_sub(1)), Some(b' ' | b'\t')) {
+                    if self.b[p] == b'#'
+                        && matches!(self.b.get(p.wrapping_sub(1)), Some(b' ' | b'\t'))
+                    {
                         return false;
                     }
                     p += 1;
@@ -1657,7 +1733,8 @@ impl<'a> YamlParser<'a> {
                     continue;
                 }
                 if let Some(ref prev) = prev_text {
-                    let more_indented = prev.starts_with([' ', '\t']) || text.starts_with([' ', '\t']);
+                    let more_indented =
+                        prev.starts_with([' ', '\t']) || text.starts_with([' ', '\t']);
                     if blanks > 0 {
                         let count = if more_indented { blanks + 1 } else { blanks };
                         for _ in 0..count {
@@ -2403,8 +2480,11 @@ fn parse_unit_env_spec_into(unit: &str, unit_name: &str, spec: &mut UnitEnvSpec)
                 spec.unset_env.clear();
             } else {
                 for word in split_systemd_words(rhs).map_err(anyhow::Error::msg)? {
-                    spec.unset_env
-                        .push(expand_systemd_specifiers(&word, unit_name, "UnsetEnvironment")?);
+                    spec.unset_env.push(expand_systemd_specifiers(
+                        &word,
+                        unit_name,
+                        "UnsetEnvironment",
+                    )?);
                 }
             }
             continue;
@@ -2480,7 +2560,8 @@ fn default_dropin_dirs(unit_path: &Path) -> Vec<std::path::PathBuf> {
     } else {
         vec![parent]
     };
-    let mut dirs = Vec::with_capacity(tiers.len() * (unit_rels.len() + usize::from(type_rel.is_some())));
+    let mut dirs =
+        Vec::with_capacity(tiers.len() * (unit_rels.len() + usize::from(type_rel.is_some())));
     if let Some(ref t) = type_rel {
         for tier in &tiers {
             dirs.push(tier.join(t));
@@ -2514,8 +2595,8 @@ fn load_unit_env_spec_with_dirs(
         match std::fs::read_dir(dir) {
             Ok(entries) => {
                 for entry in entries {
-                    let entry =
-                        entry.with_context(|| format!("reading drop-in entry in {}", dir.display()))?;
+                    let entry = entry
+                        .with_context(|| format!("reading drop-in entry in {}", dir.display()))?;
                     let name = entry.file_name();
                     let Some(name_str) = name.to_str() else {
                         continue;
@@ -2726,7 +2807,10 @@ fn expand_env_file_glob(pattern: &Path) -> Result<Vec<std::path::PathBuf>> {
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                         Err(e) => {
                             return Err(e).with_context(|| {
-                                format!("inspecting EnvironmentFile glob dir {}", read_target.display())
+                                format!(
+                                    "inspecting EnvironmentFile glob dir {}",
+                                    read_target.display()
+                                )
                             });
                         }
                     }
@@ -2736,7 +2820,10 @@ fn expand_env_file_glob(pattern: &Path) -> Result<Vec<std::path::PathBuf>> {
                     let mut names = Vec::new();
                     for entry in entries {
                         let entry = entry.with_context(|| {
-                            format!("reading EnvironmentFile glob entry in {}", read_target.display())
+                            format!(
+                                "reading EnvironmentFile glob entry in {}",
+                                read_target.display()
+                            )
                         })?;
                         if let Some(name) = entry.file_name().to_str() {
                             if glob_match(seg, name) {
@@ -2782,12 +2869,15 @@ fn load_effective_gateway_env(spec: &UnitEnvSpec) -> Result<EffectiveGatewayEnv>
         p.file_name().and_then(|n| n.to_str()) == Some("storage.env")
             && std::fs::metadata(p).is_ok_and(|m| m.is_file())
     });
+    let is_primary_env = |p: &Path| {
+        matches!(
+            p.file_name().and_then(|n| n.to_str()),
+            Some("gateway.env" | "setjoind.env")
+        )
+    };
     let gateway_env_path = expanded_files
         .iter()
-        .rfind(|(p, _)| {
-            p.file_name().and_then(|n| n.to_str()) == Some("gateway.env")
-                && std::fs::metadata(p).is_ok_and(|m| m.is_file())
-        })
+        .rfind(|(p, _)| is_primary_env(p) && std::fs::metadata(p).is_ok_and(|m| m.is_file()))
         .map(|(p, _)| p.clone());
     let has_gateway_file = gateway_env_path.is_some();
     let mut pairs = systemd_env_merge(&spec.inline_env);
@@ -2796,19 +2886,21 @@ fn load_effective_gateway_env(spec: &UnitEnvSpec) -> Result<EffectiveGatewayEnv>
         match std::fs::read_to_string(path) {
             Ok(content) => {
                 let parsed = parse_env_assignments(&content);
-                if path.file_name().and_then(|n| n.to_str()) == Some("gateway.env") {
+                if is_primary_env(path) {
                     gateway_file_pairs.extend(parsed.clone());
                 }
                 pairs.extend(parsed);
             }
             Err(err) if !optional => {
-                return Err(err)
-                    .with_context(|| format!("reading required EnvironmentFile {}", path.display()));
+                return Err(err).with_context(|| {
+                    format!("reading required EnvironmentFile {}", path.display())
+                });
             }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
             Err(err) => {
-                return Err(err)
-                    .with_context(|| format!("reading optional EnvironmentFile {}", path.display()));
+                return Err(err).with_context(|| {
+                    format!("reading optional EnvironmentFile {}", path.display())
+                });
             }
         }
     }
@@ -2822,7 +2914,8 @@ fn load_effective_gateway_env(spec: &UnitEnvSpec) -> Result<EffectiveGatewayEnv>
             pairs.retain(|(name, _)| name != entry);
         }
     }
-    let gateway_file_worm_mode = env_lookup_precedence(&gateway_file_pairs, &["WORM__MODE", "WORM_MODE"]);
+    let gateway_file_worm_mode =
+        env_lookup_precedence(&gateway_file_pairs, &["WORM__MODE", "WORM_MODE"]);
     Ok(EffectiveGatewayEnv {
         pairs,
         has_storage_file,
@@ -2900,8 +2993,9 @@ fn check_db_gateway_startup_prereqs(gw: &EffectiveGatewayEnv) -> Result<()> {
             );
         }
         if let Some(raw_ret) = env_lookup_precedence(&gw.pairs, &["WORM_RETENTION_DAYS"]) {
-            let days = parse_koanf_env_retention_days(&raw_ret)
-                .map_err(|reason| anyhow::anyhow!("{reason}; run upgrade.sh refresh-gateway-env"))?;
+            let days = parse_koanf_env_retention_days(&raw_ret).map_err(|reason| {
+                anyhow::anyhow!("{reason}; run upgrade.sh refresh-gateway-env")
+            })?;
             if days.to_string() != raw_ret.trim() {
                 bail!(
                     "DB-backed setjoin-gateway unit/gateway.env WORM_RETENTION_DAYS must be canonical integer days (got {raw_ret:?}); run upgrade.sh refresh-gateway-env"
@@ -2911,7 +3005,9 @@ fn check_db_gateway_startup_prereqs(gw: &EffectiveGatewayEnv) -> Result<()> {
             env_lookup(&gw.pairs, "SETJOIN_CONFIG").filter(|p| !p.is_empty())
         {
             let yaml = std::fs::read_to_string(&yaml_path).with_context(|| {
-                format!("cannot inspect SETJOIN_CONFIG ({yaml_path}) while verifying WORM retention")
+                format!(
+                    "cannot inspect SETJOIN_CONFIG ({yaml_path}) while verifying WORM retention"
+                )
             })?;
             let parsed = yaml_worm_settings(&yaml).map_err(|reason| {
                 anyhow::anyhow!(
@@ -3091,67 +3187,208 @@ pub(crate) fn check_worm_gateway_ready(
     }
     Ok(())
 }
+
+/// Derive redacted `DB_DSN` / `DB_WORKER_DSN` / `DB_OWNER_DSN` role usernames
+/// (never passwords or raw DSNs) from `setjoin-gateway.service`'s unit spec and
+/// root-readable `EnvironmentFile`s, gracefully degrading on `EACCES` when
+/// reading `0600 setjoin:setjoin` `config.env` under the zero-capability sandbox.
+pub(crate) fn inspect_gateway_db_dsn_roles(
+    unit_path: &Path,
+) -> setjoin_pg::rls_preflight::DsnRoleSummary {
+    let dropin_dirs = default_dropin_dirs(unit_path);
+    inspect_gateway_db_dsn_roles_in(unit_path, &dropin_dirs)
+}
+
+pub(crate) fn inspect_gateway_db_dsn_roles_in(
+    unit_path: &Path,
+    dropin_dirs: &[PathBuf],
+) -> setjoin_pg::rls_preflight::DsnRoleSummary {
+    let Ok(spec) = load_unit_env_spec_with_dirs(unit_path, dropin_dirs) else {
+        return setjoin_pg::rls_preflight::DsnRoleSummary::default();
+    };
+    let mut pairs = Vec::new();
+    let mut saw_eacces = false;
+
+    for (pattern, _optional) in &spec.env_files {
+        let raw = pattern.to_string_lossy();
+        let has_glob = raw.contains('*') || raw.contains('?') || raw.contains('[');
+        let paths = if has_glob {
+            expand_env_file_glob(pattern).unwrap_or_default()
+        } else {
+            vec![pattern.clone()]
+        };
+        for path in paths {
+            match std::fs::read_to_string(&path) {
+                Ok(content) => pairs.extend(parse_env_assignments(&content)),
+                Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                    saw_eacces = true;
+                }
+                Err(_) => {}
+            }
+        }
+    }
+
+    // systemd applies inline `Environment=` after `EnvironmentFile=`.
+    pairs.extend(spec.inline_env.clone());
+    let mut pairs = systemd_env_merge(&pairs);
+    for entry in &spec.unset_env {
+        if let Some((k, v)) = entry.split_once('=') {
+            if env_lookup(&pairs, k).as_deref() == Some(v) {
+                pairs.retain(|(name, _)| name != k);
+            }
+        } else {
+            pairs.retain(|(name, _)| name != entry);
+        }
+    }
+
+    let app_dsn = env_lookup_precedence(&pairs, &["DB__DSN", "DB_DSN"]).filter(|v| !v.is_empty());
+    let worker_dsn = env_lookup_precedence(&pairs, &["DB__WORKER_DSN", "DB_WORKER_DSN"])
+        .filter(|v| !v.is_empty());
+    let owner_dsn = env_lookup_precedence(&pairs, &["DB_OWNER_DSN", "DB_DIRECT_OWNER_DSN"])
+        .filter(|v| !v.is_empty());
+
+    let mut summary = setjoin_pg::rls_preflight::DsnRoleSummary::from_dsns(
+        app_dsn.as_deref(),
+        worker_dsn.as_deref(),
+        owner_dsn.as_deref(),
+    );
+    // Only flag config_env_unreadable when EACCES prevented us from seeing DB_DSN.
+    if summary.app_role.is_none() && saw_eacces {
+        summary.config_env_unreadable = true;
+    }
+    summary
+}
+
 pub async fn stop() -> Result<()> {
     let mut args = vec!["stop"];
-    args.extend(stop_units_in(Path::new("/etc/systemd/system")));
+    args.extend(stop_units_in(Path::new("/etc/systemd/system"))?);
     fixed("systemctl", &args).await
 }
 pub async fn start() -> Result<()> {
     let mut args = vec!["start"];
-    args.extend(start_units_in(Path::new("/etc/systemd/system")));
+    args.extend(start_units_in(Path::new("/etc/systemd/system"))?);
     fixed("systemctl", &args).await
 }
-pub async fn readiness() -> Result<()> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
-    loop {
-        let gateway = fixed(
-            "curl",
-            &[
-                "--insecure",
-                "--fail",
-                "--silent",
-                "--show-error",
-                "--max-time",
-                "3",
-                "--max-filesize",
-                "65536",
-                "https://127.0.0.1/ready",
-            ],
-        )
-        .await;
-        let auth = fixed(
-            "curl",
-            &[
-                "--fail",
-                "--silent",
-                "--show-error",
-                "--max-time",
-                "3",
-                "--max-filesize",
-                "65536",
-                "http://127.0.0.1:8443/health",
-            ],
-        )
-        .await;
-        if gateway.is_ok() && auth.is_ok() {
-            return Ok(());
-        }
+async fn probe_unified_once(ready_url: &str, jwks_url: &str) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(3))
+        .build()?;
+    let ready = client.get(ready_url).send().await?;
+    ensure!(
+        ready.status().as_u16() == 200,
+        "unified /ready returned HTTP {}",
+        ready.status().as_u16()
+    );
+    let mut jwks_resp = client.get(jwks_url).send().await?;
+    ensure!(
+        jwks_resp.status().as_u16() == 200,
+        "unified JWKS returned HTTP {}",
+        jwks_resp.status().as_u16()
+    );
+    let content_type = jwks_resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    ensure!(
+        content_type
+            .split(';')
+            .next()
+            .is_some_and(|m| m.trim().eq_ignore_ascii_case("application/json")),
+        "unified JWKS content-type is not application/json ({content_type:?})"
+    );
+    ensure!(
+        jwks_resp.content_length().unwrap_or(0) <= 65536,
+        "unified JWKS response exceeds limit"
+    );
+    let mut raw = Vec::new();
+    while let Some(chunk) = jwks_resp.chunk().await? {
         ensure!(
-            tokio::time::Instant::now() < deadline,
-            "fixed core readiness probes timed out"
+            raw.len() + chunk.len() <= 65536,
+            "unified JWKS response exceeds limit"
         );
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        raw.extend_from_slice(&chunk);
+    }
+    let parsed: Value = serde_json::from_slice(&raw)?;
+    ensure!(
+        parsed.get("keys").and_then(Value::as_array).is_some(),
+        "unified JWKS response lacks keys array"
+    );
+    Ok(())
+}
+pub async fn readiness() -> Result<()> {
+    let topology = detect_topology_in(Path::new("/etc/systemd/system"))?;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    match topology {
+        UnitTopology::Unified => loop {
+            if probe_unified_once(
+                "https://127.0.0.1/ready",
+                "https://127.0.0.1/.well-known/jwks.json",
+            )
+            .await
+            .is_ok()
+            {
+                return Ok(());
+            }
+            ensure!(
+                tokio::time::Instant::now() < deadline,
+                "fixed core readiness probes timed out"
+            );
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        },
+        UnitTopology::Split | UnitTopology::LegacyGo => loop {
+            let gateway = fixed(
+                "curl",
+                &[
+                    "--insecure",
+                    "--fail",
+                    "--silent",
+                    "--show-error",
+                    "--max-time",
+                    "3",
+                    "--max-filesize",
+                    "65536",
+                    "https://127.0.0.1/ready",
+                ],
+            )
+            .await;
+            let auth = fixed(
+                "curl",
+                &[
+                    "--fail",
+                    "--silent",
+                    "--show-error",
+                    "--max-time",
+                    "3",
+                    "--max-filesize",
+                    "65536",
+                    "http://127.0.0.1:8443/health",
+                ],
+            )
+            .await;
+            if gateway.is_ok() && auth.is_ok() {
+                return Ok(());
+            }
+            ensure!(
+                tokio::time::Instant::now() < deadline,
+                "fixed core readiness probes timed out"
+            );
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        },
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
     use super::{
         check_worm_gateway_ready, default_dropin_dirs, load_unit_env_files_with_dirs,
         load_unit_env_spec_with_dirs, parse_env_assignments, parse_koanf_env_retention_days,
         split_systemd_words, yaml_worm_settings,
     };
+    use std::path::Path;
 
     #[test]
     fn worm_gateway_ready_checks_unit_and_env() {
@@ -3210,7 +3447,11 @@ mod tests {
         // Mismatched WORM_MODE or WORM_LEGAL_HOLD_ENABLED -> Err
         std::fs::write(&cfg, "WORM_MODE=governance\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
-        std::fs::write(&cfg, "WORM_MODE=compliance\nWORM_LEGAL_HOLD_ENABLED=false\n").unwrap();
+        std::fs::write(
+            &cfg,
+            "WORM_MODE=compliance\nWORM_LEGAL_HOLD_ENABLED=false\n",
+        )
+        .unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
         std::fs::write(
             &gw,
@@ -3227,10 +3468,17 @@ mod tests {
         .unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
         let cont_pairs = parse_env_assignments("WORM_MODE=\\\n\"compliance\"\n");
-        assert_eq!(cont_pairs, vec![("WORM_MODE".into(), "\"compliance\"".into())]);
+        assert_eq!(
+            cont_pairs,
+            vec![("WORM_MODE".into(), "\"compliance\"".into())]
+        );
 
         // Tagged worm key + retention_days normalization and indented flow mapping beneath worm:
-        std::fs::write(&yaml, "!!str worm: {mode: compliance, retention_days: 3650.}\n").unwrap();
+        std::fs::write(
+            &yaml,
+            "!!str worm: {mode: compliance, retention_days: 3650.}\n",
+        )
+        .unwrap();
         std::fs::write(&cfg, format!("SETJOIN_CONFIG={}\n", yaml.display())).unwrap();
         std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
@@ -3247,7 +3495,11 @@ mod tests {
         )
         .unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
-        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\nWORM_RETENTION_DAYS=2557\n").unwrap();
+        std::fs::write(
+            &gw,
+            "GATEWAY_ENABLED=true\nWORM_MODE=compliance\nWORM_RETENTION_DAYS=2557\n",
+        )
+        .unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
 
         // Top-level flow YAML -> Err when mismatched or S3 bucket differs, Ok when both match
@@ -3265,7 +3517,11 @@ mod tests {
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
 
         // Explicit empty WORM_MODE= overrides YAML -> Ok
-        std::fs::write(&cfg, format!("SETJOIN_CONFIG={}\nWORM_MODE=\n", yaml.display())).unwrap();
+        std::fs::write(
+            &cfg,
+            format!("SETJOIN_CONFIG={}\nWORM_MODE=\n", yaml.display()),
+        )
+        .unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
 
         // Indented YAML root mapping -> detected
@@ -3406,7 +3662,11 @@ mod tests {
             ),
         )
         .unwrap();
-        std::fs::write(dropin_dir.join("20-reset.conf"), "[Service]\nEnvironmentFile=\n").unwrap();
+        std::fs::write(
+            dropin_dir.join("20-reset.conf"),
+            "[Service]\nEnvironmentFile=\n",
+        )
+        .unwrap();
         assert!(check_worm_gateway_ready(&dropin_unit, Some(&cfg), &stale_default).is_err());
         std::fs::remove_file(dropin_dir.join("20-reset.conf")).unwrap();
         assert!(check_worm_gateway_ready(&dropin_unit, Some(&cfg), &stale_default).is_ok());
@@ -3458,14 +3718,38 @@ mod tests {
         let f1 = dir.path().join("tier1.env");
         let f2 = dir.path().join("tier2.env");
         let f3 = dir.path().join("tier3.env");
-        std::fs::write(&tier_unit, format!("[Service]\nEnvironmentFile={}\n", f1.display())).unwrap();
-        std::fs::write(&tier_lib.join("10-a.conf"), format!("[Service]\nEnvironmentFile={}\n", f2.display())).unwrap();
-        std::fs::write(&tier_run.join("10-a.conf"), format!("[Service]\nEnvironmentFile={}\n", f3.display())).unwrap();
-        std::fs::write(&tier_etc.join("20-b.conf"), format!("[Service]\nEnvironmentFile={}\n", f2.display())).unwrap();
-        let tier_dirs = default_dropin_dirs(Path::new("/etc/systemd/system/setjoin-gateway.service"));
-        assert!(tier_dirs.contains(&Path::new("/run/systemd/system/setjoin-gateway.service.d").to_path_buf()));
-        assert!(tier_dirs.contains(&Path::new("/usr/lib/systemd/system/setjoin-gateway.service.d").to_path_buf()));
-        let merged = load_unit_env_files_with_dirs(&tier_unit, &[tier_lib, tier_run.clone(), tier_etc.clone()]).unwrap();
+        std::fs::write(
+            &tier_unit,
+            format!("[Service]\nEnvironmentFile={}\n", f1.display()),
+        )
+        .unwrap();
+        std::fs::write(
+            tier_lib.join("10-a.conf"),
+            format!("[Service]\nEnvironmentFile={}\n", f2.display()),
+        )
+        .unwrap();
+        std::fs::write(
+            tier_run.join("10-a.conf"),
+            format!("[Service]\nEnvironmentFile={}\n", f3.display()),
+        )
+        .unwrap();
+        std::fs::write(
+            tier_etc.join("20-b.conf"),
+            format!("[Service]\nEnvironmentFile={}\n", f2.display()),
+        )
+        .unwrap();
+        let tier_dirs =
+            default_dropin_dirs(Path::new("/etc/systemd/system/setjoin-gateway.service"));
+        assert!(tier_dirs
+            .contains(&Path::new("/run/systemd/system/setjoin-gateway.service.d").to_path_buf()));
+        assert!(tier_dirs.contains(
+            &Path::new("/usr/lib/systemd/system/setjoin-gateway.service.d").to_path_buf()
+        ));
+        let merged = load_unit_env_files_with_dirs(
+            &tier_unit,
+            &[tier_lib, tier_run.clone(), tier_etc.clone()],
+        )
+        .unwrap();
         assert_eq!(merged, vec![(f1, false), (f3, false), (f2, false)]);
 
         #[cfg(unix)]
@@ -3490,14 +3774,15 @@ mod tests {
         .unwrap();
         let err_default =
             check_worm_gateway_ready(&missing_req_unit, None, &missing_default).unwrap_err();
-        assert!(err_default.to_string().contains("reading required EnvironmentFile"));
-        let err_explicit = check_worm_gateway_ready(
-            &missing_req_unit,
-            Some(&missing_default),
-            &missing_default,
-        )
-        .unwrap_err();
-        assert!(err_explicit.to_string().contains("reading required EnvironmentFile"));
+        assert!(err_default
+            .to_string()
+            .contains("reading required EnvironmentFile"));
+        let err_explicit =
+            check_worm_gateway_ready(&missing_req_unit, Some(&missing_default), &missing_default)
+                .unwrap_err();
+        assert!(err_explicit
+            .to_string()
+            .contains("reading required EnvironmentFile"));
 
         // Drop-in UnsetEnvironment= removes LiveKit after EnvironmentFile=, and empty UnsetEnvironment= resets it
         let unset_dir = dir.path().join("unset.service.d");
@@ -3521,7 +3806,11 @@ mod tests {
         let unset_lk_err =
             check_worm_gateway_ready(&unset_unit, Some(&lk_cfg), &stale_default).unwrap_err();
         assert!(unset_lk_err.to_string().contains("LIVEKIT_*"));
-        std::fs::write(unset_dir.join("20-reset.conf"), "[Service]\nUnsetEnvironment=\n").unwrap();
+        std::fs::write(
+            unset_dir.join("20-reset.conf"),
+            "[Service]\nUnsetEnvironment=\n",
+        )
+        .unwrap();
         assert!(check_worm_gateway_ready(&unset_unit, Some(&lk_cfg), &stale_default).is_ok());
 
         // Stale S3 settings in storage.env fail preflight even when WORM_MODE matches
@@ -3634,7 +3923,8 @@ mod tests {
         let unset_worm_err =
             check_worm_gateway_ready(&db_unset_unit, None, &stale_default).unwrap_err();
         assert!(unset_worm_err.to_string().contains("WORM_MODE"));
-        let sys_dirs = default_dropin_dirs(Path::new("/etc/systemd/system/setjoin-gateway.service"));
+        let sys_dirs =
+            default_dropin_dirs(Path::new("/etc/systemd/system/setjoin-gateway.service"));
         let etc_type_pos = sys_dirs
             .iter()
             .position(|p| p == Path::new("/etc/systemd/system/service.d"))
@@ -3668,12 +3958,26 @@ mod tests {
         std::fs::create_dir_all(&x_etc_prefix).unwrap();
         let x_unit = xtier.join("setjoin-gateway.service");
         std::fs::write(&x_unit, "[Service]\n").unwrap();
-        std::fs::write(x_etc_type.join("40-worm.conf"), format!("[Service]\nEnvironmentFile={}\n", gw.display())).unwrap();
-        std::fs::write(x_lib_unit.join("40-worm.conf"), format!("[Service]\nEnvironmentFile={}\n", storage.display())).unwrap();
-        let x_merged = load_unit_env_files_with_dirs(&x_unit, &[x_etc_type, x_lib_unit.clone()]).unwrap();
+        std::fs::write(
+            x_etc_type.join("40-worm.conf"),
+            format!("[Service]\nEnvironmentFile={}\n", gw.display()),
+        )
+        .unwrap();
+        std::fs::write(
+            x_lib_unit.join("40-worm.conf"),
+            format!("[Service]\nEnvironmentFile={}\n", storage.display()),
+        )
+        .unwrap();
+        let x_merged =
+            load_unit_env_files_with_dirs(&x_unit, &[x_etc_type, x_lib_unit.clone()]).unwrap();
         assert_eq!(x_merged, vec![(storage.clone(), false)]);
-        std::fs::write(x_etc_prefix.join("40-worm.conf"), format!("[Service]\nEnvironmentFile={}\n", fed.display())).unwrap();
-        let x_merged_tier = load_unit_env_files_with_dirs(&x_unit, &[x_lib_unit, x_etc_prefix]).unwrap();
+        std::fs::write(
+            x_etc_prefix.join("40-worm.conf"),
+            format!("[Service]\nEnvironmentFile={}\n", fed.display()),
+        )
+        .unwrap();
+        let x_merged_tier =
+            load_unit_env_files_with_dirs(&x_unit, &[x_lib_unit, x_etc_prefix]).unwrap();
         assert_eq!(x_merged_tier, vec![(fed.clone(), false)]);
 
         // Inline [Service] Environment= with C-style escapes supplies DB_DSN (caught even without config.env) and Environment= resets it
@@ -3691,9 +3995,14 @@ mod tests {
             ),
         )
         .unwrap();
-        let inline_err = check_worm_gateway_ready(&inline_unit, None, &missing_default).unwrap_err();
+        let inline_err =
+            check_worm_gateway_ready(&inline_unit, None, &missing_default).unwrap_err();
         assert!(inline_err.to_string().contains("WORM_MODE"));
-        std::fs::write(inline_dropin.join("10-reset.conf"), "[Service]\nEnvironment=\n").unwrap();
+        std::fs::write(
+            inline_dropin.join("10-reset.conf"),
+            "[Service]\nEnvironment=\n",
+        )
+        .unwrap();
         assert!(check_worm_gateway_ready(&inline_unit, None, &missing_default).is_ok());
 
         // C-style escapes in UnsetEnvironment= (both double- and single-quoted) remove WORM_MODE
@@ -3973,7 +4282,11 @@ mod tests {
         let db_yaml = dir.path().join("db-variant.yaml");
         std::fs::create_dir_all(db_gw.parent().unwrap()).unwrap();
         std::fs::write(&db_storage, "S3_BUCKET=mailblobs\n").unwrap();
-        std::fs::write(&db_gw, "GATEWAY_ENABLED=true\nDB__DSN=postgres://app@localhost/mail\n").unwrap();
+        std::fs::write(
+            &db_gw,
+            "GATEWAY_ENABLED=true\nDB__DSN=postgres://app@localhost/mail\n",
+        )
+        .unwrap();
         std::fs::write(
             &db_unit,
             format!(
@@ -3997,7 +4310,10 @@ mod tests {
         .unwrap();
         std::fs::write(
             &db_gw,
-            format!("GATEWAY_ENABLED=true\nSETJOIN_CONFIG={}\n", db_yaml.display()),
+            format!(
+                "GATEWAY_ENABLED=true\nSETJOIN_CONFIG={}\n",
+                db_yaml.display()
+            ),
         )
         .unwrap();
         assert!(check_worm_gateway_ready(&db_unit, Some(&db_missing_cfg), &stale_default).is_err());
@@ -4059,7 +4375,9 @@ mod tests {
             "[Service]\nEnvironmentFile=\"/etc/setjoin/gateway.env\"\n",
         )
         .unwrap();
-        assert!(load_unit_env_files_with_dirs(&spec_unit, &[]).unwrap().is_empty());
+        assert!(load_unit_env_files_with_dirs(&spec_unit, &[])
+            .unwrap()
+            .is_empty());
         std::fs::write(
             &spec_unit,
             "[Service]\nEnvironmentFile=-/etc/setjoin/%H/override.env\n",
@@ -4105,12 +4423,20 @@ mod tests {
         assert!(!redaction_err.contains("DB_DSN"));
 
         // Explicit YAML worm.retention_days: "" / null and overflowing 9223372036854775808 fail closed even when host config.env is absent
-        let empty_ret_yaml = yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: \"\"\n").unwrap();
+        let empty_ret_yaml =
+            yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: \"\"\n").unwrap();
         assert_eq!(empty_ret_yaml.retention_days.as_deref(), Some(""));
-        let null_ret_yaml = yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: null\n").unwrap();
+        let null_ret_yaml =
+            yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: null\n").unwrap();
         assert_eq!(null_ret_yaml.retention_days.as_deref(), Some(""));
-        let overflow_ret_yaml = yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: 9223372036854775808\n").unwrap();
-        assert_eq!(overflow_ret_yaml.retention_days.as_deref(), Some("9223372036854775808"));
+        let overflow_ret_yaml = yaml_worm_settings(
+            "worm:\n  mode: compliance\n  retention_days: 9223372036854775808\n",
+        )
+        .unwrap();
+        assert_eq!(
+            overflow_ret_yaml.retention_days.as_deref(),
+            Some("9223372036854775808")
+        );
         for bad_ret in ["\"\"", "null", "9223372036854775808"] {
             std::fs::write(
                 &db_yaml,
@@ -4127,16 +4453,17 @@ mod tests {
                 ),
             )
             .unwrap();
-            assert!(check_worm_gateway_ready(&db_unit, Some(&db_missing_cfg), &stale_default).is_err());
+            assert!(
+                check_worm_gateway_ready(&db_unit, Some(&db_missing_cfg), &stale_default).is_err()
+            );
         }
 
         // !!float / verbatim float tag on legacy octal and exact >2^53 i64 retention match Go, while tagged 0x/0o/0b radix floats fail closed
         let oct_float = yaml_worm_settings("worm:\n  retention_days: !!float \"0_10\"\n").unwrap();
         assert_eq!(oct_float.retention_days.as_deref(), Some("8"));
-        let verbatim_oct_float = yaml_worm_settings(
-            "worm:\n  retention_days: !<tag:yaml.org,2002:float> \"0_10\"\n",
-        )
-        .unwrap();
+        let verbatim_oct_float =
+            yaml_worm_settings("worm:\n  retention_days: !<tag:yaml.org,2002:float> \"0_10\"\n")
+                .unwrap();
         assert_eq!(verbatim_oct_float.retention_days.as_deref(), Some("8"));
         for tagged_radix in [
             "worm:\n  retention_days: !!float \"0x10\"\n",
@@ -4157,13 +4484,15 @@ mod tests {
         ] {
             assert!(yaml_worm_settings(tagged_radix).is_err());
         }
-        let dec_fallback = yaml_worm_settings("worm:\n  retention_days: !!float \"01000000000000000000000\"\n")
-            .unwrap()
-            .retention_days
-            .unwrap();
+        let dec_fallback =
+            yaml_worm_settings("worm:\n  retention_days: !!float \"01000000000000000000000\"\n")
+                .unwrap()
+                .retention_days
+                .unwrap();
         assert!(parse_koanf_env_retention_days(&dec_fallback).is_err());
         assert!(dec_fallback.parse::<f64>().unwrap() > 9.9e20);
-        let padded_oct_float = yaml_worm_settings("worm:\n  retention_days: !!float \" 010 \"\n").unwrap();
+        let padded_oct_float =
+            yaml_worm_settings("worm:\n  retention_days: !!float \" 010 \"\n").unwrap();
         assert_eq!(padded_oct_float.retention_days.as_deref(), Some("10"));
         assert_eq!(
             parse_koanf_env_retention_days("9007199254740993").unwrap(),
@@ -4272,8 +4601,14 @@ mod unit_binaries {
             "[Service]\nExecStart=/opt/setjoin/current/setjoin-server\n",
         )
         .unwrap();
-        assert_eq!(start_units_in(&units), vec!["setjoin-auth", "setjoin-gateway"]);
-        assert_eq!(stop_units_in(&units), vec!["setjoin-gateway", "setjoin-auth"]);
+        assert_eq!(
+            start_units_in(&units).unwrap(),
+            vec!["setjoin-auth", "setjoin-gateway"]
+        );
+        assert_eq!(
+            stop_units_in(&units).unwrap(),
+            vec!["setjoin-gateway", "setjoin-auth"]
+        );
         assert_eq!(
             check_required_units_in(&units).unwrap(),
             vec!["setjoin-gateway", "setjoin-auth"]
@@ -4286,7 +4621,7 @@ mod unit_binaries {
         )
         .unwrap();
         assert_eq!(
-            start_units_in(&units),
+            start_units_in(&units).unwrap(),
             vec!["setjoin-auth", "setjoin", "setjoin-gateway"]
         );
         assert_eq!(
@@ -4299,5 +4634,303 @@ mod unit_binaries {
         assert!(check_required_units_in(&units).is_err());
 
         let _ = std::fs::remove_dir_all(&units);
+    }
+
+    #[test]
+    fn setjoind_topology_matrix_env_and_evidence_contracts() {
+        use super::{
+            check_worm_gateway_ready, detect_topology_in, evidence_units_in, primary_server_unit,
+            UnitTopology,
+        };
+
+        let units_split = dir("topo-split");
+        let units_unified = dir("topo-unified");
+        let units_mixed = dir("topo-mixed");
+        let rel_n_minus_1 = dir("rel-n-minus-1");
+        let rel_n_expand = dir("rel-n-expand");
+        let rel_n_plus_1 = dir("rel-n-plus-1");
+
+        std::fs::write(
+            units_split.join("setjoin-auth.service"),
+            "[Service]\nExecStart=/opt/setjoin/current/setjoin-auth\n",
+        )
+        .unwrap();
+        std::fs::write(
+            units_split.join("setjoin-gateway.service"),
+            "[Service]\nExecStart=/opt/setjoin/current/setjoin-server\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            units_unified.join("setjoind.service"),
+            "[Service]\nExecStart=/opt/setjoin/current/setjoind --subsystems=all\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            units_mixed.join("setjoind.service"),
+            "[Service]\nExecStart=/opt/setjoin/current/setjoind --subsystems=all\n",
+        )
+        .unwrap();
+        std::fs::write(
+            units_mixed.join("setjoin-gateway.service"),
+            "[Service]\nExecStart=/opt/setjoin/current/setjoin-server\n",
+        )
+        .unwrap();
+
+        // Cohorts: N-1 (split), N (expand), N+1 (unified)
+        std::fs::write(rel_n_minus_1.join("setjoin-server"), b"s").unwrap();
+        std::fs::write(rel_n_minus_1.join("setjoin-auth"), b"a").unwrap();
+
+        std::fs::write(rel_n_expand.join("setjoind"), b"d").unwrap();
+        std::fs::write(rel_n_expand.join("setjoin-server"), b"s").unwrap();
+        std::fs::write(rel_n_expand.join("setjoin-auth"), b"a").unwrap();
+
+        std::fs::write(rel_n_plus_1.join("setjoind"), b"d").unwrap();
+
+        // Topology detection & primary_server_unit
+        assert_eq!(
+            detect_topology_in(&units_split).unwrap(),
+            UnitTopology::Split
+        );
+        assert_eq!(
+            primary_server_unit(&units_split).unwrap(),
+            units_split.join("setjoin-gateway.service")
+        );
+        assert_eq!(
+            evidence_units_in(&units_split),
+            vec!["setjoin-auth", "setjoin-gateway", "setjoin-updater"]
+        );
+
+        assert_eq!(
+            detect_topology_in(&units_unified).unwrap(),
+            UnitTopology::Unified
+        );
+        assert_eq!(
+            primary_server_unit(&units_unified).unwrap(),
+            units_unified.join("setjoind.service")
+        );
+        assert_eq!(start_units_in(&units_unified).unwrap(), vec!["setjoind"]);
+        assert_eq!(stop_units_in(&units_unified).unwrap(), vec!["setjoind"]);
+        assert_eq!(
+            evidence_units_in(&units_unified),
+            vec!["setjoind", "setjoin-updater"]
+        );
+
+        // Mixed topology fails closed everywhere except non-destructive evidence_units_in
+        assert!(detect_topology_in(&units_mixed).is_err());
+        assert!(primary_server_unit(&units_mixed).is_err());
+        assert!(check_required_units_in(&units_mixed).is_err());
+        assert_eq!(
+            evidence_units_in(&units_mixed),
+            vec![
+                "setjoind",
+                "setjoin-auth",
+                "setjoin-gateway",
+                "setjoin-updater"
+            ]
+        );
+
+        // Full topology x cohort matrix in require_unit_binaries_in
+        require_unit_binaries_in(&units_split, &rel_n_minus_1).unwrap();
+        require_unit_binaries_in(&units_split, &rel_n_expand).unwrap();
+        assert!(require_unit_binaries_in(&units_split, &rel_n_plus_1).is_err());
+
+        assert!(require_unit_binaries_in(&units_unified, &rel_n_minus_1).is_err());
+        require_unit_binaries_in(&units_unified, &rel_n_expand).unwrap();
+        require_unit_binaries_in(&units_unified, &rel_n_plus_1).unwrap();
+
+        assert!(require_unit_binaries_in(&units_mixed, &rel_n_minus_1).is_err());
+        assert!(require_unit_binaries_in(&units_mixed, &rel_n_expand).is_err());
+        assert!(require_unit_binaries_in(&units_mixed, &rel_n_plus_1).is_err());
+
+        // load_effective_gateway_env recognizes setjoind.env on unified setjoind.service
+        let env_dir = dir("setjoind-env");
+        let cfg_env = env_dir.join("config.env");
+        let setjoind_env = env_dir.join("setjoind.env");
+        let unified_unit = env_dir.join("setjoind.service");
+        std::fs::write(&cfg_env, "DB_DSN=postgres://app@127.0.0.1/mail\n").unwrap();
+        std::fs::write(
+            &setjoind_env,
+            "GATEWAY_ENABLED=true\nLISTEN_ADDR=127.0.0.1:0\nWORM_MODE=\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &unified_unit,
+            format!(
+                "[Service]\nEnvironmentFile={}\nEnvironmentFile={}\n",
+                cfg_env.display(),
+                setjoind_env.display()
+            ),
+        )
+        .unwrap();
+        check_worm_gateway_ready(&unified_unit, Some(&cfg_env), &cfg_env)
+            .expect("unified setjoind.service with setjoind.env WORM_MODE= passes preflight");
+
+        for d in [
+            units_split,
+            units_unified,
+            units_mixed,
+            rel_n_minus_1,
+            rel_n_expand,
+            rel_n_plus_1,
+            env_dir,
+        ] {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    }
+
+    #[tokio::test]
+    async fn unified_readiness_probe_requires_200_ready_and_json_jwks_keys() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        async fn spawn_mock(
+            ready_status: &'static str,
+            jwks_status: &'static str,
+            jwks_ct: &'static str,
+            jwks_body: &'static str,
+        ) -> std::net::SocketAddr {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move {
+                for _ in 0..2 {
+                    let Ok((mut sock, _)) = listener.accept().await else {
+                        break;
+                    };
+                    let mut buf = [0u8; 1024];
+                    let n = sock.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]);
+                    let resp = if req.starts_with("GET /ready ") {
+                        format!(
+                            "HTTP/1.1 {ready_status}\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                        )
+                    } else {
+                        format!(
+                            "HTTP/1.1 {jwks_status}\r\nContent-Type: {jwks_ct}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{jwks_body}",
+                            jwks_body.len()
+                        )
+                    };
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                }
+            });
+            addr
+        }
+
+        let ok_addr = spawn_mock(
+            "200 OK",
+            "200 OK",
+            "application/json; charset=utf-8",
+            r#"{"keys":[{"kty":"EC"}]}"#,
+        )
+        .await;
+        super::probe_unified_once(
+            &format!("http://{ok_addr}/ready"),
+            &format!("http://{ok_addr}/.well-known/jwks.json"),
+        )
+        .await
+        .expect("valid ready + jwks passes");
+
+        let html_addr = spawn_mock("200 OK", "200 OK", "text/html", "<html>spa</html>").await;
+        assert!(super::probe_unified_once(
+            &format!("http://{html_addr}/ready"),
+            &format!("http://{html_addr}/.well-known/jwks.json"),
+        )
+        .await
+        .is_err());
+
+        let no_keys_addr =
+            spawn_mock("200 OK", "200 OK", "application/json", r#"{"status":"ok"}"#).await;
+        assert!(super::probe_unified_once(
+            &format!("http://{no_keys_addr}/ready"),
+            &format!("http://{no_keys_addr}/.well-known/jwks.json"),
+        )
+        .await
+        .is_err());
+
+        let bad_ready = spawn_mock(
+            "503 Service Unavailable",
+            "200 OK",
+            "application/json",
+            r#"{"keys":[]}"#,
+        )
+        .await;
+        assert!(super::probe_unified_once(
+            &format!("http://{bad_ready}/ready"),
+            &format!("http://{bad_ready}/.well-known/jwks.json"),
+        )
+        .await
+        .is_err());
+    }
+
+    #[test]
+    fn gateway_db_dsn_role_inspection_degrades_on_eacces_and_never_leaks_passwords() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = dir("rls-eacces");
+        let unit = root.join("setjoin-gateway.service");
+        let cfg = root.join("config.env");
+        let fed = root.join("federation.env");
+        std::fs::write(
+            &cfg,
+            "DB_DSN=postgres://setjoin_app:supersecret_cfg@127.0.0.1:5432/mail\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &fed,
+            "DB_DSN=postgres://setjoin_app:supersecret_fed@127.0.0.1:5432/mail\n\
+             DB_WORKER_DSN=postgres://setjoin_worker:supersecret_w@127.0.0.1:5432/mail\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &unit,
+            format!(
+                "[Service]\nEnvironmentFile={}\nEnvironmentFile={}\n",
+                cfg.display(),
+                fed.display()
+            ),
+        )
+        .unwrap();
+
+        // When both files are readable, usernames are extracted without passwords.
+        let summary = super::inspect_gateway_db_dsn_roles_in(&unit, &[]);
+        assert_eq!(summary.app_role.as_deref(), Some("setjoin_app"));
+        assert_eq!(summary.worker_role.as_deref(), Some("setjoin_worker"));
+        assert!(!summary.config_env_unreadable);
+        let serialized = serde_json::to_string(&summary).unwrap();
+        assert!(!serialized.contains("supersecret"), "{serialized}");
+
+        // Inline Environment= overrides EnvironmentFile= (systemd precedence).
+        std::fs::write(
+            &unit,
+            format!(
+                "[Service]\nEnvironmentFile={}\nEnvironment=\"DB_DSN=postgres://setjoin_override:supersecret_inline@127.0.0.1:5432/mail\"\n",
+                cfg.display()
+            ),
+        )
+        .unwrap();
+        let overridden = super::inspect_gateway_db_dsn_roles_in(&unit, &[]);
+        assert_eq!(overridden.app_role.as_deref(), Some("setjoin_override"));
+        let overridden_json = serde_json::to_string(&overridden).unwrap();
+        assert!(
+            !overridden_json.contains("supersecret"),
+            "{overridden_json}"
+        );
+
+        // When config.env is unreadable (0000 -> EACCES for non-root) and no
+        // other file supplies DB_DSN, inspect gracefully degrades instead of failing.
+        std::fs::write(
+            &unit,
+            format!("[Service]\nEnvironmentFile={}\n", cfg.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let degraded = super::inspect_gateway_db_dsn_roles_in(&unit, &[]);
+        let is_root = unsafe { libc::geteuid() } == 0;
+        if !is_root {
+            assert!(degraded.config_env_unreadable);
+            assert!(degraded.app_role.is_none());
+        }
+        let _ = std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o600));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -13,14 +13,15 @@ use std::sync::Arc;
 
 pub struct DirectorySyncRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
     /// LDAP runtime (#380): present when Rust owns the LDAP routes and worker;
     /// without it the five runtime routes return 503 "service unavailable".
-    pub ldap: Option<Arc<setjoin_directory_sync::ldap::runtime::LdapRuntime>>,
+    pub ldap: Option<Arc<crate::directory_sync_workers::LdapRuntime>>,
     /// AD runtime (#381): present when Rust owns the four AD runtime routes and
     /// the `ad-sync` worker; without it they return 503 "service unavailable".
-    pub ad: Option<Arc<setjoin_directory_sync::ad::AdRuntime>>,
+    pub ad: Option<Arc<crate::directory_sync_workers::AdRuntime>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -134,6 +135,7 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        let worker = self.worker.clone();
         let ldap_runtime = self.ldap.clone();
         let ad_runtime = self.ad.clone();
         Box::pin(async move {
@@ -148,6 +150,16 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                 return fail(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+            let worker_exec = worker.as_ref().unwrap_or(&exec);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(worker_exec))
+            else {
+                return fail(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return fail(500, "database error", &c, &id);
+            };
             let actor = auth.context();
             let writes = matches!(
                 what,
@@ -168,25 +180,33 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
             } else {
                 &setjoin_directory_sync::AUTH_CONSOLE
             };
-            let authority = match setjoin_directory_sync::authority(&exec, actor).await {
-                Ok(authority) if authority.allows_any(required) => authority,
-                _ => {
-                    let decoded = crate::guests_input::go_utf8(&crate::inventory::unescape(
-                        r.uri()
-                            .path()
-                            .strip_prefix("/api")
-                            .unwrap_or(r.uri().path()),
-                    ));
-                    let _ = setjoin_directory_sync::console_denied(
-                        &exec,
-                        actor,
-                        &decoded,
-                        &required.join("|"),
-                        operation,
-                    )
-                    .await;
-                    return fail(403, "Forbidden", &c, &id);
-                }
+            let admin_opt = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
+            };
+            let deny_console = || async {
+                let decoded = crate::guests_input::go_utf8(&crate::inventory::unescape(
+                    r.uri()
+                        .path()
+                        .strip_prefix("/api")
+                        .unwrap_or(r.uri().path()),
+                ));
+                let _ = setjoin_directory_sync::console_denied(
+                    &factory,
+                    &user_principal,
+                    &decoded,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                fail(403, "Forbidden", &c, &id)
+            };
+            let Some(admin_principal) = admin_opt.filter(|a| a.allows_any(required)) else {
+                return deny_console().await;
+            };
+            let Ok(admin) = admin_principal.require_any_permission(required) else {
+                return deny_console().await;
             };
             if ldap_runtime.is_none()
                 && matches!(
@@ -208,7 +228,7 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
             {
                 return fail(503, "service unavailable", &c, &id);
             }
-            let scope = authority.domain_scope();
+            let scope = admin_principal.enforced_domain_scope().unwrap_or(0);
             let reply =
                 |body: String| crate::jmap::reply::response(body, c.identity.proto, id.clone());
             let db_error = |detail: &str| fail(500, detail, &c, &id);
@@ -229,7 +249,7 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                     } else {
                         Source::Ldap
                     };
-                    match setjoin_directory_sync::config(&exec, source).await {
+                    match setjoin_directory_sync::config(&factory, &admin, source).await {
                         Ok(body) => reply(body),
                         Err(_) => db_error("database error"),
                     }
@@ -244,15 +264,19 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                         .map(|v| input::atoi(&v))
                         .filter(|n| *n > 0)
                         .unwrap_or(20);
-                    match setjoin_directory_sync::sync_log(&exec, source, scope, limit).await {
+                    match setjoin_directory_sync::sync_log(&factory, &admin, source, scope, limit)
+                        .await
+                    {
                         Ok(body) => reply(body),
                         Err(_) => db_error("database error"),
                     }
                 }
-                Action::Conflicts => match setjoin_directory_sync::conflicts(&exec, actor).await {
-                    Ok(body) => reply(body),
-                    Err(_) => db_error("database error"),
-                },
+                Action::Conflicts => {
+                    match setjoin_directory_sync::conflicts(&factory, &admin).await {
+                        Ok(body) => reply(body),
+                        Err(_) => db_error("database error"),
+                    }
+                }
                 Action::FieldPolicyGet => {
                     let user = input::query(r.uri(), "user_id")
                         .map(|v| input::atoi(&v))
@@ -264,8 +288,8 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                     // within the caller's administrative scope, as for the write.
                     if !setjoin_contracts::mutants::on("fieldpolicy-get-foreign") {
                         match setjoin_directory_sync::reach_perm(
-                            &exec,
-                            actor,
+                            &factory,
+                            &admin,
                             user,
                             &setjoin_directory_sync::AUTH_CONSOLE,
                         )
@@ -283,7 +307,7 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                             Ok(true) => {}
                         }
                     }
-                    match setjoin_directory_sync::field_policy(&exec, actor, user).await {
+                    match setjoin_directory_sync::field_policy(&factory, &admin, user).await {
                         Ok(body) => reply(body),
                         Err(_) => db_error("db error"),
                     }
@@ -315,13 +339,24 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                     let outcome = match target {
                         Some(conflict) => {
                             setjoin_directory_sync::resolve_conflict(
-                                &exec, actor, conflict, resolution, operation,
+                                &factory,
+                                &user_principal,
+                                &admin,
+                                conflict,
+                                resolution,
+                                operation,
                             )
                             .await
                         }
                         None => {
-                            setjoin_directory_sync::resolve_all(&exec, actor, resolution, operation)
-                                .await
+                            setjoin_directory_sync::resolve_all(
+                                &factory,
+                                &user_principal,
+                                &admin,
+                                resolution,
+                                operation,
+                            )
+                            .await
                         }
                     };
                     match outcome {
@@ -349,8 +384,8 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                         );
                     }
                     match setjoin_directory_sync::reach_perm(
-                        &exec,
-                        actor,
+                        &factory,
+                        &admin,
                         body.user_id,
                         &setjoin_directory_sync::IDENTITY_WRITE,
                     )
@@ -368,8 +403,9 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                         Ok(true) => {}
                     }
                     match setjoin_directory_sync::set_field_policy(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user_principal,
+                        &admin,
                         body.user_id,
                         &body.field,
                         &body.policy,
@@ -387,7 +423,7 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                 Action::LdapPut => {
                     use setjoin_directory_sync::ldap::admin as ldap_admin;
                     let Some(rt) = ldap_runtime.clone() else {
-                        unreachable!()
+                        return fail(503, "service unavailable", &c, &id);
                     };
                     let Ok(body) =
                         input::first::<Option<serde_json::Map<String, serde_json::Value>>>(
@@ -402,21 +438,25 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                     if !ldap_admin::validate_config(&body) {
                         return fail(400, "invalid LDAP config", &c, &id);
                     }
-                    match ldap_admin::put_config(
+                    let prepared = match ldap_admin::prepare_config(
                         rt.codec().await,
                         ldap_admin::Kind::Ldap,
-                        &exec,
-                        actor,
+                        &factory,
+                        &admin,
                         &body,
-                        operation,
                     )
                     .await
                     {
-                        Ok(()) => {}
-                        Err(ldap_admin::PutError::Outcome(CommandOutcome::Unknown {
-                            operation,
-                        })) => return unknown(operation),
+                        Ok(prepared) => prepared,
                         Err(error) => {
+                            eprintln!("setjoin-gateway: ldap config save failed: {error}");
+                            return fail(500, "failed to save LDAP config", &c, &id);
+                        }
+                    };
+                    match save_prepared_config(worker_exec, &admin, &prepared, operation).await {
+                        CommandOutcome::Committed(()) => {}
+                        CommandOutcome::Unknown { operation } => return unknown(operation),
+                        CommandOutcome::RolledBack(error) => {
                             eprintln!("setjoin-gateway: ldap config save failed: {error:?}");
                             return fail(500, "failed to save LDAP config", &c, &id);
                         }
@@ -435,12 +475,12 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                 Action::LdapTest | Action::LdapPreview | Action::LdapSync | Action::LdapHealth => {
                     use setjoin_directory_sync::ldap::admin as ldap_admin;
                     let Some(rt) = ldap_runtime.clone() else {
-                        unreachable!()
+                        return fail(503, "service unavailable", &c, &id);
                     };
                     let loaded = rt.reload().await.unwrap_or(None);
                     let enabled = loaded.as_ref().is_some_and(|l| l.enabled);
                     if what == Action::LdapHealth {
-                        return reply(ldap_admin::health(&exec, loaded.is_some()).await);
+                        return reply(ldap_admin::health(&factory, &admin, loaded.is_some()).await);
                     }
                     if what == Action::LdapSync && !enabled {
                         return fail(503, "LDAP sync not enabled", &c, &id);
@@ -496,7 +536,7 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                 Action::AdPut => {
                     use setjoin_directory_sync::ldap::admin as ldap_admin;
                     let Some(rt) = ad_runtime.clone() else {
-                        unreachable!()
+                        return fail(503, "service unavailable", &c, &id);
                     };
                     let Ok(body) =
                         input::first::<Option<serde_json::Map<String, serde_json::Value>>>(
@@ -511,21 +551,25 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                     if !ldap_admin::validate_prefixed(&body, ldap_admin::Kind::Ad) {
                         return fail(400, "invalid AD config", &c, &id);
                     }
-                    match ldap_admin::put_config(
+                    let prepared = match ldap_admin::prepare_config(
                         rt.codec().await,
                         ldap_admin::Kind::Ad,
-                        &exec,
-                        actor,
+                        &factory,
+                        &admin,
                         &body,
-                        operation,
                     )
                     .await
                     {
-                        Ok(()) => {}
-                        Err(ldap_admin::PutError::Outcome(CommandOutcome::Unknown {
-                            operation,
-                        })) => return unknown(operation),
+                        Ok(prepared) => prepared,
                         Err(error) => {
+                            eprintln!("setjoin-gateway: ad config save failed: {error}");
+                            return fail(500, "failed to save AD config", &c, &id);
+                        }
+                    };
+                    match save_prepared_config(worker_exec, &admin, &prepared, operation).await {
+                        CommandOutcome::Committed(()) => {}
+                        CommandOutcome::Unknown { operation } => return unknown(operation),
+                        CommandOutcome::RolledBack(error) => {
                             eprintln!("setjoin-gateway: ad config save failed: {error:?}");
                             return fail(500, "failed to save AD config", &c, &id);
                         }
@@ -544,11 +588,13 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                 Action::AdTest | Action::AdSync | Action::AdHealth => {
                     use setjoin_directory_sync::ldap::admin as ldap_admin;
                     let Some(rt) = ad_runtime.clone() else {
-                        unreachable!()
+                        return fail(503, "service unavailable", &c, &id);
                     };
                     let loaded = rt.reload().await.unwrap_or(None);
                     if what == Action::AdHealth {
-                        return reply(ldap_admin::health_for(&exec, loaded.is_some(), "ad").await);
+                        return reply(
+                            ldap_admin::health_for(&factory, &admin, loaded.is_some(), "ad").await,
+                        );
                     }
                     let Some(loaded) = loaded else {
                         return fail(503, "AD sync not configured", &c, &id);
@@ -592,7 +638,7 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                     if principal.is_empty() {
                         return fail(400, "krb5Principal required", &c, &id);
                     }
-                    match setjoin_directory_sync::reach(&exec, actor, body.user_id).await {
+                    match setjoin_directory_sync::reach(&factory, &admin, body.user_id).await {
                         Err(_) => return db_error("database error"),
                         Ok(false) => {
                             return fail(
@@ -604,17 +650,20 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                         }
                         Ok(true) => {}
                     }
-                    let old = match setjoin_directory_sync::principal_current(&exec, body.user_id)
-                        .await
+                    let old = match setjoin_directory_sync::principal_current(
+                        &factory,
+                        &admin,
+                        body.user_id,
+                    )
+                    .await
                     {
                         Ok(Some(old)) => old,
                         Ok(None) => return fail(404, "user not found", &c, &id),
                         Err(_) => return db_error("database error"),
                     };
-                    let ip = c.identity.client_ip.to_string();
                     match setjoin_directory_sync::set_principal(
-                        &exec,
-                        actor,
+                        &factory,
+                        &admin,
                         body.user_id,
                         principal,
                         old.as_deref(),
@@ -644,6 +693,66 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                 }
             }
         })
+    }
+}
+
+async fn save_prepared_config(
+    worker: &ScopedExecutor,
+    _admin: &setjoin_authz::principals::AdminPermissionProof,
+    prepared: &setjoin_directory_sync::ldap::admin::PreparedConfig,
+    operation: [u8; 16],
+) -> CommandOutcome<(), setjoin_pg::StatementFailure> {
+    let op = setjoin_contracts::ids::OperationId(operation);
+    if prepared.keys.is_empty() {
+        return CommandOutcome::Committed(());
+    }
+    let Some(pool) = worker.try_worker_pool() else {
+        return CommandOutcome::RolledBack(Rejection::Unavailable);
+    };
+    let mut tx = match pool.begin_read_write().await {
+        Ok(tx) => tx,
+        Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
+    };
+    let op_hex = setjoin_pg::operation_hex(op);
+    let body: Result<(), setjoin_pg::StatementFailure> = async {
+        tx.query_contract(
+            &setjoin_directory_sync::sql::CONFIG_UPSERT_BATCH_ENCRYPTED,
+            &[
+                &prepared.keys,
+                &prepared.texts,
+                &prepared.flags,
+                &prepared.description,
+            ],
+        )
+        .await?;
+        tx.execute(
+            "INSERT INTO public.rust_operation_receipts(operation_id, family, command) \
+             VALUES ($1::text::uuid, $2, $3)",
+            &[
+                (&op_hex, setjoin_pg::Type::TEXT),
+                (&setjoin_directory_sync::FAMILY, setjoin_pg::Type::TEXT),
+                (&prepared.command, setjoin_pg::Type::TEXT),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
+    match body {
+        Ok(()) => match tx.commit().await {
+            Ok(()) => CommandOutcome::Committed(()),
+            Err(e) => {
+                if e.sqlstate.is_none() {
+                    CommandOutcome::Unknown { operation: op }
+                } else {
+                    CommandOutcome::RolledBack(Rejection::Statement(e))
+                }
+            }
+        },
+        Err(e) => {
+            let _ = tx.rollback().await;
+            CommandOutcome::RolledBack(Rejection::Statement(e))
+        }
     }
 }
 
@@ -685,8 +794,8 @@ fn no_content(c: &RequestContext, id: &str) -> Response<Body> {
 /// directory-sync catalog runtime takes it (the family crates cannot see each other).
 pub fn source_config(
     c: setjoin_admin_identity::idv2_source::RuntimeConfig,
-) -> setjoin_directory_sync::catalog::SourceConfig {
-    setjoin_directory_sync::catalog::SourceConfig {
+) -> crate::directory_sync_workers::SourceConfig {
+    crate::directory_sync_workers::SourceConfig {
         source_key: c.source_key,
         kind: c.kind,
         host: c.host,
@@ -710,7 +819,7 @@ impl crate::admin_identity_v2::SourceProbe for DirectoryProbe {
         config: &'a setjoin_admin_identity::idv2_source::RuntimeConfig,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), bool>> + Send + 'a>> {
         Box::pin(async move {
-            setjoin_directory_sync::catalog::probe(&self.0, &source_config(config.clone()))
+            crate::directory_sync_workers::catalog::probe(&self.0, &source_config(config.clone()))
                 .await
                 .map_err(|failure| failure.credential_rejected)
         })

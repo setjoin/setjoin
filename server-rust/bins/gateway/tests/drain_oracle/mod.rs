@@ -65,7 +65,10 @@ impl GoTick<'_> {
                 json!(format!("/src/server-rust/tests/conformance/drain/{source}")),
             );
         }
-        std::fs::write(&overlay, serde_json::to_vec(&json!({ "Replace": replace }))?)?;
+        std::fs::write(
+            &overlay,
+            serde_json::to_vec(&json!({ "Replace": replace }))?,
+        )?;
         // A run owner can prefix its containers (e.g. `gofree-drive5-`) so cleanup
         // by prefix finds only its own.
         let prefix = std::env::var("GOFREE_ORACLE_CONTAINER_PREFIX")

@@ -1,19 +1,29 @@
 BEGIN;
-SELECT plan(5);
+SELECT plan(11);
 SELECT has_table('audit_policy');
 SELECT throws_ok($$INSERT INTO audit_policy (id, level) VALUES (2,'lean')$$, '23514', NULL, 'singleton id=1 enforced');
--- Provide actor referenced by admin_audit_log.user_id FK.
+-- Provide actor referenced by admin_audit_log.user_id.
 INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (97038, 'aw.test', TRUE);
 INSERT INTO users (id, username, domain_id, email, display_name, enabled)
   VALUES (1, 'aw_a', 97038, 'a@aw.test', 'A', TRUE) ON CONFLICT (id) DO NOTHING;
--- lean: core always, routine suppressed
+-- routine at lean: suppressed AND leaves app.core_audit_written unset
 UPDATE audit_policy SET level='lean' WHERE id=1;
-SELECT audit_write(1,'core_test',NULL,NULL,'{}','{}','10.0.0.1','x','core');
 SELECT audit_write(1,'routine_test',NULL,NULL,'{}','{}','10.0.0.1','x','routine');
-SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='core_test'),    1, 'core writes at lean');
-SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='routine_test'), 0, 'routine suppressed at lean');
+SELECT is(current_setting('app.core_audit_written', true), NULL, 'routine at lean leaves app.core_audit_written unset');
+-- routine at full: inserts row AND still leaves app.core_audit_written unset
 UPDATE audit_policy SET level='full' WHERE id=1;
 SELECT audit_write(1,'routine_test2',NULL,NULL,'{}','{}','10.0.0.1','x','routine');
+SELECT is(current_setting('app.core_audit_written', true), NULL, 'routine at full leaves app.core_audit_written unset');
+-- failed audit_write (bad tier BZ067 and NULL action NOT NULL violation 23502) must NOT set app.core_audit_written
+SELECT throws_ok($$SELECT audit_write(1,'bad_tier',NULL,NULL,'{}','{}','10.0.0.1','x','bogus')$$, 'BZ067', NULL, 'bad tier aborts');
+SELECT throws_ok($$SELECT audit_write(1,NULL,NULL,NULL,'{}','{}','10.0.0.1','x','core')$$, '23502', NULL, 'core audit NOT NULL failure aborts');
+SELECT is(current_setting('app.core_audit_written', true), NULL, 'failed core audit leaves app.core_audit_written unset');
+-- lean: core always writes AND sets app.core_audit_written = '1'
+UPDATE audit_policy SET level='lean' WHERE id=1;
+SELECT audit_write(1,'core_test',NULL,NULL,'{}','{}','10.0.0.1','x','core');
+SELECT is(current_setting('app.core_audit_written', true), '1', 'core audit sets app.core_audit_written = 1');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='core_test'),    1, 'core writes at lean');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='routine_test'), 0, 'routine suppressed at lean');
 SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='routine_test2'), 1, 'routine writes at full');
 SELECT * FROM finish();
 ROLLBACK;

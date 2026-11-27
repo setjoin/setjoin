@@ -757,6 +757,10 @@ async fn observe_and_compare(
             discovery: None,
             fallback: None,
             exec: exec().unwrap(),
+            worker: Some(
+                setjoin_pg::ScopedExecutor::from_dsn(&db.dsn, 2)
+                    .expect("worker executor for /metrics"),
+            ),
             keys: Arc::new(common::recovery_keys()),
             issuer: "mailserver".into(),
             config: Arc::new(surface_config(case.cfg)),
@@ -1032,7 +1036,8 @@ async fn observe_and_compare(
     }
     if case.world.telemetry.is_some() {
         let actual = telemetry_rows(&observation["effects"]);
-        let rows: Value = common::golden_doc(&golden_path(case, "-row-effects"), "effects", &actual);
+        let rows: Value =
+            common::golden_doc(&golden_path(case, "-row-effects"), "effects", &actual);
         setjoin_conformance::golden::compare(&rows["effects"], &actual)?;
     }
     // Forward accounting: native cases never reach Go; forwarded cases do, once, intact.

@@ -1,24 +1,17 @@
 //! Platform slice `terms-remaining`, group `federation`: the admin federation allow-list
 //! console (`/admin/federation/peers*`), Go's `FederationHandler`.
-//!
-//! `federation_allowlist` is deny-all row-level security for the request role, so reads run
-//! on the worker credential; writes are the existing SECURITY DEFINER reducers
-//! `federation_peer_set` and `federation_peer_delete` (one reducer call each), run as the
-//! verified actor. The list is an audited read, written best effort after the reads.
-use super::{command, deadline, done, envelope, invalid, s, scope};
+use super::{command, deadline, done, envelope, invalid, s, sql};
 use serde_json::Value;
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 
-/// `GET /admin/federation/peers`: rows by domain with each peer's transport health. Go
-/// answers any read or decode failure with a database error.
-pub async fn list(worker: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = worker
-        .read(
-            "SELECT peer_domain, scope, enabled, created_at::TEXT, updated_at::TEXT \
-             FROM federation_allowlist ORDER BY peer_domain",
-            &[],
-        )
+/// `GET /admin/federation/peers`: rows by domain with each peer's transport health.
+pub async fn list(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::FEDERATION_LIST, &[])
         .await?;
     fn bad<E>(_: E) -> StatementFailure {
         invalid()
@@ -26,11 +19,8 @@ pub async fn list(worker: &ScopedExecutor) -> Result<String, StatementFailure> {
     let mut out = Vec::new();
     for row in &rows {
         let domain: String = row.try_get(0).map_err(bad)?;
-        let health = worker
-            .read(
-                "SELECT federation_peer_health($1)::text",
-                &[(&domain, Type::TEXT)],
-            )
+        let health = factory
+            .run_admin_read_contract(admin, &sql::FEDERATION_PEER_HEALTH, &[&domain])
             .await?;
         let mut item = format!(
             "{{\"peerDomain\":{},\"scope\":{},\"enabled\":{},\"createdAt\":{},\"updatedAt\":{}",
@@ -46,8 +36,6 @@ pub async fn list(worker: &ScopedExecutor) -> Result<String, StatementFailure> {
             .try_get(0)
             .map_err(bad)?;
         if let Some(text) = text {
-            // `json.Unmarshal` into two int64 fields: absent or null keeps zero, a
-            // non-integer number or another type fails.
             let value: Value = serde_json::from_str(&text).map_err(bad)?;
             let object = value.as_object().ok_or_else(invalid)?;
             let number = |key: &str| -> Result<i64, StatementFailure> {
@@ -75,36 +63,40 @@ pub async fn list(worker: &ScopedExecutor) -> Result<String, StatementFailure> {
 
 /// The audited read: Go writes `federation_peers_list` after the reads and ignores a failure.
 pub async fn audit_list(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     ip: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("federation_peers_list"),
-        &envelope(&auth, operation, "federation_peers_list"),
-        &auth,
-        deadline(),
-        "SELECT audit_write($2,'federation_peers_list','federation_peer',NULL,NULL,NULL,$4::text::inet,'','core') \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[(&ip, Type::TEXT)],
-        |_| Ok(()),
-    )
-    .await
+    let actor_id = user.user().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        "federation_peers_list",
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::FEDERATION_AUDIT_LIST,
+            &[&actor_id, &ip],
+            Some(command("federation_peers_list")),
+            |_| Ok(()),
+        )
+        .await
 }
 
 /// The stored anchor of a peer, `None` when the peer does not exist.
 pub async fn anchor(
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     domain: &str,
 ) -> Result<Option<String>, StatementFailure> {
-    let rows = worker
-        .read(
-            "SELECT peer_anchor FROM federation_allowlist WHERE peer_domain = $1",
-            &[(&domain, Type::TEXT)],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::FEDERATION_ANCHOR, &[&domain])
         .await?;
     match rows.first() {
         None => Ok(None),
@@ -114,55 +106,66 @@ pub async fn anchor(
 
 /// `POST`: upsert one peer (the reducer audits and wakes the reconcile loop).
 pub async fn set(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     domain: &str,
     anchor: &str,
     scope_name: &str,
     enabled: bool,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("federation_peer_set"),
-        &envelope(&auth, operation, &format!("set:{domain}:{scope_name}:{enabled}")),
-        &auth,
-        deadline(),
-        "SELECT federation_peer_set($2, $4, $5, $6, $7)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&domain, Type::TEXT),
-            (&anchor, Type::TEXT),
-            (&scope_name, Type::TEXT),
-            (&enabled, Type::BOOL),
-        ],
-        |rows| if rows.len() == 1 { Ok(()) } else { Err(invalid()) },
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!("set:{domain}:{scope_name}:{enabled}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::FEDERATION_PEER_SET,
+            &[&domain, &anchor, &scope_name, &enabled],
+            Some(command("federation_peer_set")),
+            |rows, _audited| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 /// `DELETE`: `true` when a (disabled) peer was removed.
 pub async fn delete(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     domain: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("federation_peer_delete"),
-        &envelope(&auth, operation, &format!("delete:{domain}")),
-        &auth,
-        deadline(),
-        "SELECT federation_peer_delete($2, $4) WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[(&domain, Type::TEXT)],
-        |rows| {
-            rows.first()
-                .filter(|_| rows.len() == 1)
-                .and_then(|r| r.try_get::<_, bool>(0).ok())
-                .ok_or_else(invalid)
-        },
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &format!("delete:{domain}"),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::FEDERATION_PEER_DELETE,
+            &[&domain],
+            Some(command("federation_peer_delete")),
+            |rows, _audited| {
+                rows.first()
+                    .filter(|_| rows.len() == 1)
+                    .and_then(|r| r.try_get::<_, bool>(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }

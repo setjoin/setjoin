@@ -57,7 +57,7 @@ fn acme_renewal_needs_the_challenge_descriptor() {
 /// Parent-owned sockets stand in for systemd's: fd 3 is the gateway, fd 4 the `acme` :80 listener.
 fn activated(mut command: Command, extra: &[&std::net::TcpListener]) -> Child {
     let fds: Vec<i32> = extra.iter().map(|l| l.as_raw_fd()).collect();
-    let names = ["gateway", "acme"][..extra.len()].join(":");
+    let names = ["http", "acme"][..extra.len()].join(":");
     command
         .arg("-c")
         .arg(format!(
@@ -208,12 +208,12 @@ fn acme_renewal_with_a_fresh_certificate_starts_without_contacting_a_ca() {
 fn setup_control_serves_a_0600_socket_and_removes_it_on_sigterm() {
     let dir = tmp("control");
     let socket = dir.join("run").join("control.sock");
-    let dsn = std::env::var("TEST_DB_DSN").expect("disposable boot database");
+    let app_dsn = std::env::var("DB_APP_DSN").expect("disposable app boot database");
     let mut child = Child(
         base()
             .env("RUST_WORKERS_ON", "setup-control")
-            .env("DB_DSN", &dsn)
-            .env("DB_DIRECT_DSN", &dsn)
+            .env("DB_DSN", &app_dsn)
+            .env("DB_DIRECT_DSN", &app_dsn)
             .env("SETJOIN_CONTROL_SOCKET", &socket)
             .env("SETJOIN_SETUP_TOKEN", "tok")
             .stdout(Stdio::null())

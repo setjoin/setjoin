@@ -12,23 +12,25 @@ use std::time::{Duration, Instant};
 
 use setjoin_conformance::harness::{BoxError, Db};
 use setjoin_conformance::mark_read::{self, SeenOutcome, SetSeen};
+use setjoin_contracts::authority::{AuthorityKey, ResourceScope};
 use setjoin_contracts::command::{CommandEnvelope, OperationResult, SetMessageSeen};
 use setjoin_contracts::ids::{ActorId, Digest, Generation, OperationId};
 use setjoin_db::lifecycle::accepted_contract;
-use setjoin_jmap::{set_message_seen, SeenEffect};
-use setjoin_pg::{MailboxAuthContext, ScopedExecutor};
+use setjoin_jmap::{set_message_seen, SeenEffect, TxFactory};
+use setjoin_pg::ScopedExecutor;
 use tokio_postgres::types::Type;
 use tokio_postgres::Client;
 
 pub struct RustCommand {
-    exec: ScopedExecutor,
+    tx: TxFactory,
 }
 
 impl RustCommand {
     pub fn new(db: &Db) -> Self {
         let dsn = db.app.as_deref().unwrap_or(&db.dsn);
+        let exec = ScopedExecutor::from_dsn(dsn, 2).expect("command pool");
         Self {
-            exec: ScopedExecutor::from_dsn(dsn, 2).expect("command pool"),
+            tx: TxFactory::new(exec.try_app_pool().expect("app pool")),
         }
     }
 }
@@ -53,28 +55,45 @@ impl SetSeen for RustCommand {
         cmd: SetMessageSeen,
     ) -> Result<SeenOutcome, BoxError> {
         // Plays the authentication boundary: the session's actor is the
-        // mailbox's bound user.
-        let user: i64 = client
+        // mailbox's bound user. Under V288 FORCE RLS on `mailboxes`, scope the
+        // lookup transaction to `cmd.mailbox` so `setjoin_app` can read the row.
+        let tx = client.transaction().await?;
+        tx.query_typed(
+            "SELECT set_config('app.current_mailbox_id', $1, true)",
+            &[(&cmd.mailbox.decimal(), Type::TEXT)],
+        )
+        .await?;
+        let user: i64 = tx
             .query_typed(
                 "SELECT user_id FROM mailboxes WHERE id = $1",
                 &[(&cmd.mailbox.get(), Type::INT8)],
             )
             .await?[0]
             .get(0);
-        let auth = MailboxAuthContext::from_authenticated_session(
-            ActorId::new(user).map_err(|_| "mailbox has no bound user")?,
-            cmd.mailbox,
-            Generation(1),
-        );
+        tx.commit().await?;
+        let principal = self
+            .tx
+            .mint_capability_primary_mailbox(
+                ActorId::new(user).map_err(|_| "mailbox has no bound user")?,
+                "",
+                "127.0.0.1",
+            )
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        let cap = principal.require_mutate().map_err(|e| format!("{e:?}"))?;
         let envelope = CommandEnvelope {
             operation: operation(),
-            authority: auth.authority(),
+            authority: AuthorityKey {
+                actor: cap.actor(),
+                scope: ResourceScope::Mailbox(cap.mailbox()),
+                generation: Generation(1),
+            },
             binding: accepted_contract(),
             payload_digest: Digest([3; 32]),
             command: cmd,
         };
         let deadline = Instant::now() + Duration::from_secs(30);
-        let reply = set_message_seen(&self.exec, &envelope, &auth, deadline).await;
+        let reply = set_message_seen(&self.tx, &envelope, &cap, deadline).await;
         match reply.result {
             OperationResult::Accepted(SeenEffect::NotFound { .. }) => Ok(SeenOutcome::NotFound),
             OperationResult::Accepted(

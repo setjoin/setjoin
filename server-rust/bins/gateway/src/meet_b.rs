@@ -149,7 +149,7 @@ impl Authed<'_> {
     /// feature.meet_document_presentation and feature.drive must both be ON.
     async fn presentation_on(&self) -> Result<(), Response<Body>> {
         for key in ["feature.meet_document_presentation", "feature.drive"] {
-            match setjoin_meet::flag(self.exec, key, false).await {
+            match setjoin_meet::flag(self.factory, key, false).await {
                 Ok(true) => {}
                 Ok(false) => return Err(self.flag_off_reply()),
                 Err(_) => return Err(self.plain(500, "internal error")),
@@ -160,7 +160,7 @@ impl Authed<'_> {
 
     async fn gate(&self, keys: &[&str]) -> Result<(), Response<Body>> {
         for key in keys {
-            match setjoin_meet::flag(self.exec, key, false).await {
+            match setjoin_meet::flag(self.factory, key, false).await {
                 Ok(true) => {}
                 Ok(false) => return Err(self.flag_off_reply()),
                 Err(_) => return Err(self.plain(500, "internal error")),
@@ -201,7 +201,7 @@ impl Authed<'_> {
         pres: Option<&str>,
         r: &mut Request<Body>,
     ) -> Result<Response<Body>, Response<Body>> {
-        let (exec, actor, livekit) = (self.exec, self.actor, self.livekit);
+        let (factory, user, livekit) = (self.factory, self.user, self.livekit);
         match kind {
             Kind::RecStart => {
                 self.gate(&["feature.meet_recording", "feature.drive"])
@@ -213,14 +213,14 @@ impl Authed<'_> {
                     );
                 }
                 let recording = self.commit(
-                    setjoin_meet::recording_start(exec, actor, id, self.operation()?).await,
+                    setjoin_meet::recording_start(factory, user, id, self.operation()?).await,
                 )?;
                 let failed = async |reason: &str| {
                     // Best effort, exactly as Go's bindFailed: a failure is only logged.
                     if let Ok(op) = self.operation() {
                         let _ = setjoin_meet::recording_bind(
-                            exec,
-                            actor,
+                            factory,
+                            user,
                             recording,
                             None,
                             Some(reason),
@@ -229,7 +229,7 @@ impl Authed<'_> {
                         .await;
                     }
                 };
-                let room = match setjoin_meet::room_name(exec, actor, id).await {
+                let room = match setjoin_meet::room_name(factory, user, id).await {
                     Ok(room) => room,
                     Err(_) => {
                         failed("internal: room lookup failed").await;
@@ -241,8 +241,8 @@ impl Authed<'_> {
                     Ok(egress) => {
                         self.commit(
                             setjoin_meet::recording_bind(
-                                exec,
-                                actor,
+                                factory,
+                                user,
                                 recording,
                                 Some((&egress, &key)),
                                 None,
@@ -284,7 +284,7 @@ impl Authed<'_> {
                     );
                 }
                 let raw = self.commit(
-                    setjoin_meet::recording_stop(exec, actor, id, self.operation()?).await,
+                    setjoin_meet::recording_stop(factory, user, id, self.operation()?).await,
                 )?;
                 #[derive(Deserialize, Default)]
                 #[serde(default)]
@@ -313,14 +313,14 @@ impl Authed<'_> {
                     );
                 }
                 let spec = self.commit(
-                    setjoin_meet::captions_set(exec, actor, id, true, self.operation()?).await,
+                    setjoin_meet::captions_set(factory, user, id, true, self.operation()?).await,
                 )?;
                 let Some(spec) = spec else {
                     return Ok(super::empty_reply(204, self.c, self.id.clone()));
                 };
                 let rollback = async || {
                     if let Ok(op) = self.operation() {
-                        let _ = setjoin_meet::captions_set(exec, actor, id, false, op).await;
+                        let _ = setjoin_meet::captions_set(factory, user, id, false, op).await;
                     }
                 };
                 let spec = match self.grant(&spec) {
@@ -358,12 +358,12 @@ impl Authed<'_> {
             Kind::CapStop => {
                 let id = self.id_of(meeting, "meeting")?;
                 self.commit(
-                    setjoin_meet::captions_set(exec, actor, id, false, self.operation()?).await,
+                    setjoin_meet::captions_set(factory, user, id, false, self.operation()?).await,
                 )?;
                 if !livekit.captions_configured() {
                     return Ok(super::empty_reply(204, self.c, self.id.clone()));
                 }
-                let Ok(room) = setjoin_meet::room_name(exec, actor, id).await else {
+                let Ok(room) = setjoin_meet::room_name(factory, user, id).await else {
                     return Err(self.plain(500, "internal error"));
                 };
                 if livekit.captions_stop(&room).await.is_err() {
@@ -384,8 +384,8 @@ impl Authed<'_> {
                 let digest = text_field(&fields, "MANIFESTDIGEST").map_err(invalid)?;
                 let created = self.commit(
                     setjoin_meet::presentation_prepare(
-                        exec,
-                        actor,
+                        factory,
+                        user,
                         id,
                         node,
                         version,
@@ -407,7 +407,7 @@ impl Authed<'_> {
                 let id = self.id_of(meeting, "meeting")?;
                 let pid = self.id_of(pres.unwrap_or(""), "presentation")?;
                 if kind == Kind::Checkpoint {
-                    if let Err(wait) = self.throttle.admit(actor.user_id()) {
+                    if let Err(wait) = self.throttle.admit(user.user().get()) {
                         let mut reply = meet_problem(
                             429,
                             "checkpoint refresh throttled; retry after the Retry-After window",
@@ -429,9 +429,9 @@ impl Authed<'_> {
                     }
                 }
                 let out = if kind == Kind::Checkpoint {
-                    setjoin_meet::presentation_checkpoint(exec, actor, id, pid).await
+                    setjoin_meet::presentation_checkpoint(factory, user, id, pid).await
                 } else {
-                    setjoin_meet::presentation_annotation_read(exec, actor, id, pid).await
+                    setjoin_meet::presentation_annotation_read(factory, user, id, pid).await
                 };
                 match out {
                     Ok(raw) => Ok(self.json(200, &raw)),
@@ -456,7 +456,7 @@ impl Authed<'_> {
         pres: &str,
         r: &mut Request<Body>,
     ) -> Result<Response<Body>, Response<Body>> {
-        let (exec, actor) = (self.exec, self.actor);
+        let (factory, user) = (self.factory, self.user);
         // Drain verbs are never flag-gated: a toggle gates new intent only.
         if !matches!(kind, Kind::PresEnd | Kind::Revoke) {
             self.presentation_on().await?;
@@ -472,7 +472,7 @@ impl Authed<'_> {
                 let digest =
                     optional_field::<String>(&fields, "MANIFESTDIGEST").map_err(invalid)?;
                 (
-                    setjoin_meet::presentation_ready(exec, actor, id, pid, digest.as_deref(), op)
+                    setjoin_meet::presentation_ready(factory, user, id, pid, digest.as_deref(), op)
                         .await,
                     "ready",
                     |_| None,
@@ -481,7 +481,7 @@ impl Authed<'_> {
             Kind::PresStart => {
                 let gen = optional_field::<i64>(&fields, "PRESENTERGENERATION").map_err(invalid)?;
                 (
-                    setjoin_meet::presentation_start(exec, actor, id, pid, gen, op).await,
+                    setjoin_meet::presentation_start(factory, user, id, pid, gen, op).await,
                     "start",
                     |_| None,
                 )
@@ -496,7 +496,8 @@ impl Authed<'_> {
                     ));
                 };
                 (
-                    setjoin_meet::presentation_page(exec, actor, id, pid, gen, seq, page, op).await,
+                    setjoin_meet::presentation_page(factory, user, id, pid, gen, seq, page, op)
+                        .await,
                     "page.changed",
                     |f| Some(format!("{{\"pageIndex\":{}}}", f.page)),
                 )
@@ -507,7 +508,7 @@ impl Authed<'_> {
                 let gen = optional_field::<i64>(&fields, "PRESENTERGENERATION").map_err(invalid)?;
                 (
                     setjoin_meet::presentation_presenter(
-                        exec, actor, id, pid, target, takeover, gen, op,
+                        factory, user, id, pid, target, takeover, gen, op,
                     )
                     .await,
                     if takeover {
@@ -526,7 +527,7 @@ impl Authed<'_> {
                 let seq = optional_field::<i64>(&fields, "CHECKPOINTSEQ").map_err(invalid)?;
                 (
                     setjoin_meet::presentation_source(
-                        exec, actor, id, pid, node, version, &digest, gen, seq, op,
+                        factory, user, id, pid, node, version, &digest, gen, seq, op,
                     )
                     .await,
                     "source.switched",
@@ -543,8 +544,8 @@ impl Authed<'_> {
                 let reason = optional_field::<String>(&fields, "REASON").map_err(invalid)?;
                 (
                     setjoin_meet::presentation_degrade(
-                        exec,
-                        actor,
+                        factory,
+                        user,
                         id,
                         pid,
                         gen,
@@ -559,7 +560,7 @@ impl Authed<'_> {
             Kind::Recover => {
                 let gen = optional_field::<i64>(&fields, "PRESENTERGENERATION").map_err(invalid)?;
                 (
-                    setjoin_meet::presentation_recover(exec, actor, id, pid, gen, op).await,
+                    setjoin_meet::presentation_recover(factory, user, id, pid, gen, op).await,
                     "fallback.changed",
                     |_| None,
                 )
@@ -567,7 +568,7 @@ impl Authed<'_> {
             Kind::PresEnd => {
                 let gen = optional_field::<i64>(&fields, "PRESENTERGENERATION").map_err(invalid)?;
                 (
-                    setjoin_meet::presentation_end(exec, actor, id, pid, gen, op).await,
+                    setjoin_meet::presentation_end(factory, user, id, pid, gen, op).await,
                     "end",
                     |_| None,
                 )
@@ -575,8 +576,15 @@ impl Authed<'_> {
             Kind::Revoke => {
                 let reason = optional_field::<String>(&fields, "REASON").map_err(invalid)?;
                 (
-                    setjoin_meet::presentation_revoke(exec, actor, id, pid, reason.as_deref(), op)
-                        .await,
+                    setjoin_meet::presentation_revoke(
+                        factory,
+                        user,
+                        id,
+                        pid,
+                        reason.as_deref(),
+                        op,
+                    )
+                    .await,
                     "end",
                     |_| None,
                 )
@@ -647,8 +655,8 @@ impl Authed<'_> {
         }
         let raw = self.commit(
             setjoin_meet::presentation_annotation(
-                self.exec,
-                self.actor,
+                self.factory,
+                self.user,
                 id,
                 pid,
                 gen,

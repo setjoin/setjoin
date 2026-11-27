@@ -20,7 +20,7 @@ Commands:
   migration list|status|cancel
   mailbox retained|preview|suspend|resume|detach-retain|reconnect
           purge-schedule|purge-approve|purge-deny|purge-cancel|purge-execute
-  schema check|apply
+  schema check|apply|preflight|provision-roles
   bootstrap-admin    Create the first administrator through the local database authority
   backup run|list|create --pre-upgrade|verify --pre-upgrade <id>
   backup-db          Operator pg_dump -> backup bucket (no gateway)

@@ -457,15 +457,14 @@ async fn session(server: Arc<Server>, socket: TcpStream, session_id: &str) -> io
                                                 &delivered,
                                                 Err(delivery::Failure::DmarcRejected)
                                             )
+                                            || (matches!(
+                                                &delivered,
+                                                Err(delivery::Failure::GroupRejected)
+                                            ) && !matches!(
+                                                &first,
+                                                Err(delivery::Failure::DmarcRejected)
+                                            ))
                                         {
-                                            first = delivered;
-                                        } else if matches!(
-                                            &delivered,
-                                            Err(delivery::Failure::GroupRejected)
-                                        ) && !matches!(
-                                            &first,
-                                            Err(delivery::Failure::DmarcRejected)
-                                        ) {
                                             first = delivered;
                                         }
                                         if let Some(recipient) = recipients.next() {

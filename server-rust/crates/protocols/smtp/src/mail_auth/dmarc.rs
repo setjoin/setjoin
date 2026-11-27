@@ -217,4 +217,6 @@ async fn report(db: &WorkerDatabase, domain: &str, result: &str, rec: &Record) {
     let _=conn.query("INSERT INTO dmarc_reports (domain,report_uri,begin_time,end_time,total_count,count_none,count_pass,count_fail,count_temperror,count_permperror,policy_domain,policy_pct) VALUES ($1,$2,$3::text::timestamptz,$4::text::timestamptz,1,$5,$6,$7,$8,$9,$10,$11::bigint) ON CONFLICT (domain,begin_time,end_time) DO UPDATE SET total_count=dmarc_reports.total_count+1,count_none=dmarc_reports.count_none+EXCLUDED.count_none,count_pass=dmarc_reports.count_pass+EXCLUDED.count_pass,count_fail=dmarc_reports.count_fail+EXCLUDED.count_fail,count_temperror=dmarc_reports.count_temperror+EXCLUDED.count_temperror,count_permperror=dmarc_reports.count_permperror+EXCLUDED.count_permperror",&[(&domain,Type::TEXT),(&rec.rua,Type::TEXT),(&start.to_rfc3339(),Type::TEXT),(&end.to_rfc3339(),Type::TEXT),(&counts[0],Type::INT4),(&counts[1],Type::INT4),(&counts[2],Type::INT4),(&counts[3],Type::INT4),(&counts[4],Type::INT4),(&domain,Type::TEXT),(&rec.pct,Type::INT8)]).await;
 }
 
-pub(super) fn relaxed_aligned(child:&str,parent:&str)->bool {aligned(child,parent,&Alignment::Relaxed)}
+pub(super) fn relaxed_aligned(child: &str, parent: &str) -> bool {
+    aligned(child, parent, &Alignment::Relaxed)
+}

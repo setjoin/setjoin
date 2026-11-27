@@ -2,7 +2,65 @@
 //! the global recovery permission and incident data. Configuration is shared with F16.
 use crate::{Body, RequestContext};
 use hyper::Response;
-use setjoin_pg::{ScopedExecutor, Type};
+use setjoin_pg::{CommandOutcome, Param, ScopedExecutor, StatementFailure, Type};
+
+fn recovery_invalid() -> StatementFailure {
+    StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: "invalid recovery reducer row".into(),
+    }
+}
+
+fn recovery_text(rows: &[setjoin_pg::Row]) -> Result<Option<String>, StatementFailure> {
+    match rows {
+        [row] => row
+            .try_get::<_, Option<String>>(0)
+            .map_err(|_| recovery_invalid()),
+        _ => Err(recovery_invalid()),
+    }
+}
+
+async fn recovery_read(
+    worker: &ScopedExecutor,
+    sql: &str,
+    params: &[Param<'_>],
+) -> Result<Option<String>, StatementFailure> {
+    recovery_text(&worker.read(sql, params).await?)
+}
+
+async fn recovery_write(
+    worker: &ScopedExecutor,
+    actor: &setjoin_authz::AuthContext,
+    name: &'static str,
+    sql: &str,
+    params: &[Param<'_>],
+    operation: [u8; 16],
+) -> CommandOutcome<Option<String>, StatementFailure> {
+    use sha2::{Digest, Sha256};
+    let auth = actor.database_scope();
+    let envelope = setjoin_contracts::command::CommandEnvelope {
+        operation: setjoin_contracts::ids::OperationId(operation),
+        authority: auth.authority(),
+        binding: setjoin_db::lifecycle::accepted_contract(),
+        payload_digest: setjoin_contracts::ids::Digest(Sha256::digest(name.as_bytes()).into()),
+        command: (),
+    };
+    setjoin_pg::run_receipted_command(
+        worker,
+        setjoin_pg::ReceiptCommand {
+            family: "F08",
+            command: name,
+        },
+        &envelope,
+        &auth,
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
+        sql,
+        params,
+        recovery_text,
+    )
+    .await
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -101,7 +159,7 @@ pub(crate) async fn serve(
     };
     if let Some(incident) = incident {
         let user = auth.context().user_id();
-        return match setjoin_platform::upgrades::read(
+        return match recovery_read(
             &service.worker,
             "SELECT mail_recovery_artifact_list($1,$2::text::uuid,$3)::text",
             &[
@@ -122,7 +180,7 @@ pub(crate) async fn serve(
     }
     if kind == Kind::Signals {
         let user = auth.context().user_id();
-        return match setjoin_platform::upgrades::read(
+        return match recovery_read(
             &service.worker,
             "SELECT continuity_admin_status($1,$2)::text",
             &[(&user, Type::INT8), (&limit, Type::INT4)],
@@ -153,7 +211,7 @@ pub(crate) async fn serve(
         return problem(400, "invalid recovery incident status", c, id);
     }
     let user = auth.context().user_id();
-    match setjoin_platform::upgrades::read(
+    match recovery_read(
         &service.worker,
         "SELECT mail_recovery_incident_list($1,$2,$3::text::timestamptz,$4::text)::text",
         &[
@@ -283,7 +341,7 @@ async fn incident_mutation(
         Kind::Close => ("mail_recovery_incident_close", "SELECT mail_recovery_incident_close($4::bigint,$5::text::uuid,$6::text)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''"),
         _ => unreachable!("incident mutation kind"),
     };
-    match setjoin_platform::upgrades::write(
+    match recovery_write(
         &service.worker,
         actor,
         command,
@@ -531,7 +589,7 @@ async fn open(
     let evidence = serde_json::to_string(&body.evidence).expect("string evidence map");
     let expires = expires.timestamp_micros();
     let reason = body.reason.trim();
-    let outcome=setjoin_platform::upgrades::write(&service.worker,actor,"mail_recovery_incident_open",
+    let outcome=recovery_write(&service.worker,actor,"mail_recovery_incident_open",
         "SELECT mail_recovery_incident_open($4::bigint,$5::text::uuid,$6::bigint[],$7::text::jsonb,$8::bigint,$9::bigint,'epoch'::timestamptz+$10::bigint*interval '1 microsecond',$11::text,$12::boolean,$13::bytea,$14::text::uuid)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&user,Type::INT8),(&incident,Type::TEXT),(&mailboxes,Type::INT8_ARRAY),(&evidence,Type::TEXT),(&minimum,Type::INT8),(&maximum,Type::INT8),(&expires,Type::INT8),(&reason,Type::TEXT),(&body.approval,Type::BOOL),(&binding,Type::BYTEA),(&key,Type::TEXT)],operation,
     ).await;
@@ -585,7 +643,7 @@ async fn accept(
     let actor = auth.context();
     let user = actor.user_id();
     let reason = body.reason.trim();
-    match setjoin_platform::upgrades::write(&service.worker,actor,"mail_recovery_artifact_ingest",
+    match recovery_write(&service.worker,actor,"mail_recovery_artifact_ingest",
         "SELECT mail_recovery_artifact_ingest($4::bigint,$5::text::uuid,$6::text,$7::text)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&user,Type::INT8),(&artifact,Type::TEXT),(&body.resolution,Type::TEXT),(&reason,Type::TEXT)],operation,
     ).await {
@@ -667,10 +725,52 @@ impl FeatureCache {
             stop: guard,
         }
     }
+    async fn new_with_hub(worker: ScopedExecutor, hub: setjoin_pg::ListenHub) -> Self {
+        let value = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (send, mut stop) = tokio::sync::oneshot::channel();
+        let guard = std::sync::Arc::new(CacheStop(std::sync::Mutex::new(Some(send))));
+        let sub = hub.subscribe("config_changed").await.ok();
+        Self::reload(&value, &worker).await;
+        if let Some(mut sub) = sub {
+            let value = value.clone();
+            tokio::spawn(async move {
+                loop {
+                    let event = tokio::select! {
+                        _ = &mut stop => return,
+                        ev = sub.recv() => ev,
+                    };
+                    if event.is_none() {
+                        return;
+                    }
+                    tokio::select! {
+                        _ = &mut stop => return,
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(50)) => {}
+                    }
+                    Self::reload(&value, &worker).await;
+                }
+            });
+        }
+        Self {
+            enabled: value,
+            stop: guard,
+        }
+    }
 }
 impl RecoveryAdmin {
     pub(crate) async fn new(worker: ScopedExecutor, ready: bool, direct: Option<String>) -> Self {
         let feature = FeatureCache::new(worker.clone(), direct).await;
+        Self {
+            worker,
+            ready,
+            feature,
+        }
+    }
+    pub(crate) async fn new_with_hub(
+        worker: ScopedExecutor,
+        ready: bool,
+        hub: setjoin_pg::ListenHub,
+    ) -> Self {
+        let feature = FeatureCache::new_with_hub(worker.clone(), hub).await;
         Self {
             worker,
             ready,

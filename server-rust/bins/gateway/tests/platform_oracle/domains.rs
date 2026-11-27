@@ -53,13 +53,20 @@ const SHIFTED: [(&str, &str); 5] = [
 
 pub fn specs(action: &str, label: &str) -> Option<Case> {
     let mut c = specs_recorded(action, label)?;
-    let shift = |text: &str| SHIFTED.iter().fold(text.to_owned(), |t, (old, new)| t.replace(old, new));
+    let shift = |text: &str| {
+        SHIFTED
+            .iter()
+            .fold(text.to_owned(), |t, (old, new)| t.replace(old, new))
+    };
     c.seed = c.seed.iter().map(|t| shift(t)).collect();
     c.cleanup = c.cleanup.iter().map(|t| shift(t)).collect();
     c.fill = c.fill.iter().map(|t| shift(t)).collect();
     c.body = shift(&c.body);
     c.query = shift(&c.query);
-    c.unshift = SHIFTED.iter().map(|(old, new)| ((*new).to_owned(), (*old).to_owned())).collect();
+    c.unshift = SHIFTED
+        .iter()
+        .map(|(old, new)| ((*new).to_owned(), (*old).to_owned()))
+        .collect();
     Some(c)
 }
 

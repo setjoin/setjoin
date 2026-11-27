@@ -5,9 +5,16 @@
 //! secure-behaviour test rejects it.
 #[cfg(feature = "oracle-mutants")]
 pub fn on(id: &str) -> bool {
-    ["SETJOIN_SECFIX7_MUTANT", "SETJOIN_SECFIX8_MUTANT", "SETJOIN_SECFIX10_MUTANT", "SETJOIN_SAMLACS_MUTANT", "SETJOIN_SECFIX13_MUTANT", "SETJOIN_OIDCLAX_MUTANT"]
-        .iter()
-        .any(|name| std::env::var(name).is_ok_and(|v| v == id))
+    [
+        "SETJOIN_SECFIX7_MUTANT",
+        "SETJOIN_SECFIX8_MUTANT",
+        "SETJOIN_SECFIX10_MUTANT",
+        "SETJOIN_SAMLACS_MUTANT",
+        "SETJOIN_SECFIX13_MUTANT",
+        "SETJOIN_OIDCLAX_MUTANT",
+    ]
+    .iter()
+    .any(|name| std::env::var(name).is_ok_and(|v| v == id))
 }
 #[cfg(not(feature = "oracle-mutants"))]
 #[inline(always)]

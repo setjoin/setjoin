@@ -3,7 +3,7 @@ use super::*;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 
-pub(super) struct CaListener(tokio::task::JoinHandle<()>);
+pub struct CaListener(tokio::task::JoinHandle<()>);
 impl Drop for CaListener {
     fn drop(&mut self) {
         self.0.abort();
@@ -22,10 +22,10 @@ impl AuthServer {
     /// Required CA and device-trust feature flags (#454/#457). A lookup error
     /// fails closed at the caller (500 on login/MFA/OIDC; 503 on SAML ACS).
     pub(super) async fn ca_flags(&self) -> Result<(bool, bool), ()> {
-        let ca = login::enabled(&self.exec, "feature.conditional_access")
+        let ca = login::enabled(&self.app_db, "feature.conditional_access")
             .await
             .map_err(|_| ())?;
-        let dt = login::enabled(&self.exec, "feature.device_trust_enforcement")
+        let dt = login::enabled(&self.app_db, "feature.device_trust_enforcement")
             .await
             .map_err(|_| ())?;
         Ok((ca, dt))
@@ -39,7 +39,7 @@ impl AuthServer {
             .map_or(&self.ca_engine, |gate| gate.engine())
     }
 
-    pub(super) fn start_ca_listener(self: &Arc<Self>) -> Option<CaListener> {
+    pub fn start_ca_listener(self: &Arc<Self>) -> Option<CaListener> {
         if self.gate.is_some() || self.config.direct_dsn.is_empty() {
             return None;
         }
@@ -64,6 +64,27 @@ impl AuthServer {
                 }
                 tokio::time::sleep(retry).await;
                 retry = (retry * 2).min(Duration::from_secs(30));
+            }
+        })))
+    }
+
+    /// Multiplex `conditional_access` cache invalidation onto a shared
+    /// [`setjoin_pg::ListenHub`] (#543).
+    pub async fn start_ca_listener_with_hub(
+        self: &Arc<Self>,
+        hub: &setjoin_pg::ListenHub,
+    ) -> Option<CaListener> {
+        if self.gate.is_some() {
+            return None;
+        }
+        let mut sub = hub.subscribe("conditional_access").await.ok()?;
+        let server = self.clone();
+        Some(CaListener(tokio::spawn(async move {
+            let _ = server.ca_engine.invalidate_auth().await;
+            while sub.recv().await.is_some() {
+                if let Err(err) = server.ca_engine.invalidate_auth().await {
+                    eprintln!("auth CA reload: {}", err.message);
+                }
             }
         })))
     }
@@ -196,7 +217,7 @@ impl AuthServer {
         if !ca_enabled {
             return Ok(0);
         }
-        let result = self.policy_engine().evaluate(ctx.clone()).await;
+        let result = boxed(|| self.policy_engine().evaluate(ctx.clone())).await;
         self.record_ca_signin(&ctx, &result).await;
 
         if result.decision == "block" && result.remediation.is_empty() {
@@ -269,18 +290,17 @@ impl AuthServer {
         }
         let device_hash = format!("{:x}", Sha256::digest(fp.as_bytes()));
         let actor = setjoin_contracts::ids::ActorId::new(user_id).ok()?;
-        let rows = self
-            .exec
-            .read_user_scoped(
-                actor,
-                "SELECT compliance_status FROM managed_devices WHERE device_hash=$1 AND user_id=$2",
-                &[
-                    (&device_hash, setjoin_pg::Type::TEXT),
-                    (&user_id, setjoin_pg::Type::INT8),
-                ],
-            )
-            .await
-            .ok()?;
+        let rows = crate::policy_composition::user_read(
+            &self.exec,
+            actor,
+            "SELECT compliance_status FROM managed_devices WHERE device_hash=$1 AND user_id=$2",
+            &[
+                (&device_hash, setjoin_pg::Type::TEXT),
+                (&user_id, setjoin_pg::Type::INT8),
+            ],
+        )
+        .await
+        .ok()?;
         let status = rows.first()?.try_get::<_, String>(0).ok()?;
         map_managed_compliance_to_claim(&device_hash, &status)
     }
@@ -291,13 +311,12 @@ impl AuthServer {
         if policy_id == 0 {
             return (None, "always".to_owned());
         }
-        let Ok(rows) = self
-            .exec
-            .read(
-                "SELECT policy_session_view($1)::text",
-                &[(&policy_id, setjoin_pg::Type::INT8)],
-            )
-            .await
+        let Ok(rows) = crate::policy_composition::pre_auth_read(
+            self.pre_auth_pool.as_ref(),
+            "SELECT policy_session_view($1)::text",
+            &[(&policy_id, setjoin_pg::Type::INT8)],
+        )
+        .await
         else {
             return (Some(3600), "never".to_owned());
         };

@@ -25,7 +25,13 @@ Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go se
     adapter over injected trusted stores; see its [DOX.md](crates/domains/recording/DOX.md).
   - `crates/pg` (`setjoin-pg`) — scoped executor, workers and standalone
     operator connections; [contract](crates/pg/DOX.md).
+  - `crates/sql-catalog` (`setjoin-sql-catalog`, #541) — zero-proc-macro typed
+    SQL contract catalog (`SqlContract`, `SqlScope`, `pg_rfc3339!`);
+    [contract](crates/sql-catalog/DOX.md).
   - `tests/conformance` — DB-backed parity and recorded-golden harness; [contract](DOX.md#conformance-harness-contract).
+  - `tests/sql-contracts` (`setjoin-sql-contracts`, `verify-sql-contracts`, #541) —
+    disposable-Postgres SQL contract verifier gated by `scripts/check-rust-sql-contracts.sh`
+    and `scripts/check-rust-sql-contracts-selftest.sh`; [contract](crates/sql-catalog/DOX.md).
 - `pilot/` — separate pilot workspace; [contract](DOX.md#pilot-workspace-contract).
 - `tools/schema-simulation/` — separate tooling workspace; [contract](DOX.md#schema-simulation-workspace).
 
@@ -72,11 +78,13 @@ Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go se
   `scripts/test-samlacs-mutants.py` continues running in CI `roots` under `REQUIRE_DB=1`.
   Historical record in [DOX.md](DOX.md#go-deletion-rehearsal-141).
 - `setjoin-pg` DB tests (`crates/pg/tests/db_scope.rs`) need a schema from
-  `scripts/load-test-schema.sh`, owner DSN in `TEST_DB_DSN`/`DB_DSN` and the
-  `setjoin_app` credential in `DB_APP_DSN`; absent → `SETJOIN-PG-DB-SKIP
-  (reason=no-dsn)` per test, `REQUIRE_DB=1` → FAIL. Rust has no runtime skip,
-  so a skipped DB test still counts as `ok`: a skip line is never a pass.
-  CI's guard step sets all three plus `REQUIRE_DB=1`.
+  `scripts/load-test-schema.sh`, owner DSN in `TEST_DB_DSN`/`DB_DSN`, the
+  `setjoin_app` credential in `DB_APP_DSN`, and the `setjoin_worker` credential
+  in `DB_WORKER_DSN` (mandatory for Release N+1 `#547` fail-closed process
+  boot); absent → `SETJOIN-PG-DB-SKIP (reason=no-dsn)` per test, `REQUIRE_DB=1`
+  → FAIL. Rust has no runtime skip, so a skipped DB test still counts as `ok`:
+  a skip line is never a pass. CI's guard step sets all credentials plus
+  `REQUIRE_DB=1`.
 - `crates/pg/tests/workers.rs` exercises the scheduler lock against Go's SQL,
   worker credential selection and direct LISTEN using the disposable test DB.
 - Gateway `tests/workers.rs` covers the Go task catalog, interval/cron timing,
@@ -140,6 +148,7 @@ Go list handlers that ignore Rows.Err: see the [iterated-read contract](crates/p
 Typed worker error projection: [PG contract](crates/pg/DOX.md#typed-worker-query-failures-348).
 
 - `bins/auth` (`setjoin-auth`, #112) — standalone identity HTTP process with fail-closed native HTTP IP-rule admission; [contract](bins/auth/DOX.md).
+- `bins/setjoind` (`setjoind`, #543) — unified server binary (`--subsystems=all|http,auth,protocols,workers`), in-process/remote `AuthAuthority`, shared `ListenHub`, strict schema refusal; [contract](bins/setjoind/DOX.md).
 - `crates/domains/identity` (`setjoin-identity`, #112) — F21 login/session/token, MFA and connector slices; [contract](crates/domains/identity/DOX.md).
 Authentication-time user transactions: [pg contract](crates/pg/DOX.md#authentication-time-user-transactions-112).
 - `crates/tls` (`setjoin-tls`, #413) — native TLS, certificates and Go-compatible session tickets; [contract](crates/tls/DOX.md).

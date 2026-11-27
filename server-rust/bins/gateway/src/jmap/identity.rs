@@ -1,6 +1,6 @@
 use super::{envelope, reply};
 use serde_json::{json, Value};
-use setjoin_pg::{MailboxAuthContext, ScopedExecutor};
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
 
 pub struct Request {
     pub method: &'static str,
@@ -31,13 +31,13 @@ pub fn classify_call(method: &str, raw_args: &str, _client_id: &str) -> Option<R
 }
 
 pub async fn response_call(
-    exec: &ScopedExecutor,
-    worker: &ScopedExecutor,
-    auth: &MailboxAuthContext,
+    tx_factory: &TxFactory,
+    user: &UserPrincipal,
     r: &Request,
 ) -> (&'static str, String) {
     let since = r.since.as_str();
-    let state = setjoin_jmap::identity::state(exec, auth).await;
+    let state = setjoin_jmap::identity::state(tx_factory, user).await;
+    let uid = user.user().get();
     let value = if r.method == "Identity/changes" {
         let Some(state) = state else {
             return (
@@ -47,14 +47,14 @@ pub async fn response_call(
         };
         let changed = !since.is_empty() && since != state;
         let updated = if changed {
-            vec![format!("i{}", auth.actor().get())]
+            vec![format!("i{uid}")]
         } else {
             vec![]
         };
         json!({"created":[],"destroyed":[],"hasMoreChanges":false,"newState":state,"oldState":since,"updated":updated})
     } else {
-        let primary = setjoin_jmap::identity::primary(exec, auth).await;
-        let mut p = json!({"id":format!("i{}",auth.actor().get()),"name":primary.name,"email":primary.email,"isDefault":true,"mayDelete":false});
+        let primary = setjoin_jmap::identity::primary(tx_factory, user).await;
+        let mut p = json!({"id":format!("i{uid}"),"name":primary.name,"email":primary.email,"isDefault":true,"mayDelete":false});
         for (name, value) in [
             ("givenName", primary.given),
             ("familyName", primary.family),
@@ -75,10 +75,14 @@ pub async fn response_call(
         }
         let mut list = vec![p];
         for (prefix, entries, delete) in [
-            ("a", setjoin_jmap::identity::aliases(exec, auth).await, true),
+            (
+                "a",
+                setjoin_jmap::identity::aliases(tx_factory, user).await,
+                true,
+            ),
             (
                 "d",
-                setjoin_jmap::identity::delegated(worker, auth).await,
+                setjoin_jmap::identity::delegated(tx_factory, user).await,
                 false,
             ),
         ] {

@@ -124,7 +124,8 @@ pub(crate) async fn serve(
     start: bool,
     wizard: &Wizard,
     r: &mut Request<Body>,
-    auth: &setjoin_authz::Authorized,
+    user: setjoin_authz::principals::UserPrincipal,
+    admin: &setjoin_authz::principals::AdminPermissionProof,
     c: &RequestContext,
     id: &str,
 ) -> Response<Body> {
@@ -157,11 +158,7 @@ pub(crate) async fn serve(
         return crate::mailboxes::bare(400, detail, c, id);
     }
     wizard.reset().await;
-    if wizard
-        .begin(body.nodes, auth.context().clone())
-        .await
-        .is_err()
-    {
+    if wizard.begin(body.nodes, user, admin).await.is_err() {
         return crate::mailboxes::bare(
             500,
             "Deploy failed. Check the server logs for details.",

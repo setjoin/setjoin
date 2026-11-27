@@ -80,6 +80,7 @@ async fn replay(corpus_name: &str, mutant: bool) {
             ThreatPolicy::Enforced(gate),
             WebhookPolicy::Unwired,
         )
+        .with_auth_db(worker_executor(&db))
         .with_tls(tls_server());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -171,7 +172,10 @@ async fn feed_bypass_mutant_is_rejected_by_recorded_socket_and_effects() {
         .map(String::as_str)
         .or_else(|| panic.downcast_ref::<&str>().copied())
         .unwrap_or("");
-    assert!(message.contains("complete effects feed"), "mutant failed before the recorded feed assertion: {message}");
+    assert!(
+        message.contains("complete effects feed"),
+        "mutant failed before the recorded feed assertion: {message}"
+    );
 }
 
 #[tokio::test]

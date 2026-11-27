@@ -1,0 +1,996 @@
+-- pgTAP: wave18c_force_rls.pg
+-- Wave 1.8 Phase 546d (`V288__wave18c_root_auth_force_rls.sql`) proof:
+--   1. All 20 Wave C root/auth tables have BOTH relrowsecurity AND relforcerowsecurity.
+--   2. `resolve_identity(text)` is SECURITY DEFINER owned by `setjoin_worker`, fails closed
+--      without an active caller GUC under `setjoin_app`, and resolves colleagues with an active GUC.
+--   3. Divergent user_id != mailbox_id fixtures (`mk_account`) under SET LOCAL ROLE setjoin_app:
+--      - Unset GUCs fail closed (0 rows visible on SELECT across all 20 tables).
+--      - Nullable scope columns (`mailboxes.user_id IS NULL` shared/group mailbox,
+--        `oidc_auth_requests.user_id IS NULL` pre-login request,
+--        `webhook_subscriptions.user_id IS NULL` org webhook) fail closed under setjoin_app.
+--      - Divergent ID trap: setting app.current_mailbox_id = user_id sees 0 rows on `mailboxes`.
+--      - Tenant A sees ONLY Tenant A rows and CANNOT SELECT, INSERT, UPDATE, or DELETE
+--        Tenant B rows across all 20 tables.
+--      - `mailbox_delegates` (V090) <-> `mailboxes` (V288) mutual RLS recursion is broken via
+--        worker-owned `rls_mailbox_delegate_for_current_user`: delegate Carol (`manage_calendar`)
+--        can read Alice's `mailboxes` row without infinite recursion and CANNOT read Alice's
+--        `rules`, `contacts`, or `messages` (non-widening proof).
+--      - App-callable Wave 1.8d reducers enforce `p_user_id <-> app.current_user_id` GUC binding
+--        (rejecting forged `p_user_id` with 42501); worker-only reducers reject `setjoin_app`
+--        with 42501 (`EXECUTE` revoked + `rls_caller_is_privileged()` backstop).
+--      - Positive same-tenant ALLOW-flow proofs for all 20 tables under SET LOCAL ROLE setjoin_app.
+
+BEGIN;
+SELECT plan(122);
+
+-- ── 1) Structural check: all 20 Wave C tables have ENABLE + FORCE RLS ───────
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+    WHERE c.relname IN (
+      'mailboxes','users','sessions','app_passwords','oauth_tokens',
+      'oidc_auth_requests','oidc_tokens','passkey_credentials','password_history',
+      'push_devices','push_mfa_challenges','mfa_reauth_step_ups',
+      'totp_pending_enrollments','totp_removal_step_ups','webauthn_ceremonies',
+      'user_app_entitlements','user_smime_certs','recipient_smime_certs',
+      'webhook_subscriptions','ws_subscriptions'
+    )
+      AND c.relrowsecurity = true
+      AND c.relforcerowsecurity = true),
+  20,
+  'V288: all 20 Wave C root/auth tables have ENABLE + FORCE ROW LEVEL SECURITY'
+);
+
+-- Verify resolve_identity(text) is SECURITY DEFINER owned by setjoin_worker.
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'public'
+     JOIN pg_authid r ON r.oid = p.proowner
+    WHERE p.proname = 'resolve_identity'
+      AND p.prosecdef = true
+      AND r.rolname = 'setjoin_worker'),
+  1,
+  'V288: resolve_identity(text) is SECURITY DEFINER owned by setjoin_worker'
+);
+
+-- Empty users table under unscoped setjoin_app: system_has_users() returns false (rolled-back subtx)
+SELECT lives_ok($$
+  DO $p$
+  DECLARE
+    v_has boolean;
+  BEGIN
+    BEGIN
+      TRUNCATE public.users CASCADE;
+      SET LOCAL ROLE setjoin_app;
+      PERFORM set_config('app.current_user_id', '', true);
+      PERFORM set_config('app.current_mailbox_id', '', true);
+      v_has := public.system_has_users();
+      IF v_has IS DISTINCT FROM false THEN
+        RAISE EXCEPTION 'expected system_has_users() = false on empty users, got %', v_has;
+      END IF;
+      RAISE EXCEPTION '__w18c_empty_users_ok';
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM <> '__w18c_empty_users_ok' THEN
+        RAISE;
+      END IF;
+    END;
+  END $p$;
+$$, 'V288: system_has_users() returns false under unscoped setjoin_app when public.users is empty');
+
+-- ── 2) Seed two divergent-ID tenants (A & B) plus delegate (C) as superuser ─
+CREATE TEMP TABLE _w18c (
+  k text PRIMARY KEY,
+  v bigint NOT NULL
+);
+CREATE TEMP TABLE _w18c_txt (
+  k text PRIMARY KEY,
+  v text NOT NULL
+);
+
+DO $$
+DECLARE
+  v_mb_a   bigint := mk_account('w18c-alice');
+  v_mb_b   bigint := mk_account('w18c-bob');
+  v_mb_c   bigint := mk_account('w18c-carol');
+  v_u_a    bigint; v_u_b  bigint; v_u_c  bigint;
+  v_d_a    bigint; v_d_b  bigint;
+  v_mb_null bigint;
+  v_ap_a   bigint; v_ap_b bigint;
+  v_ot_a   bigint; v_ot_b bigint;
+  v_ph_a   bigint; v_ph_b bigint;
+  v_pd_a   bigint; v_pd_b bigint;
+  v_pm_a   bigint; v_pm_b bigint;
+  v_usc_a  bigint; v_usc_b bigint;
+  v_rsc_a  bigint; v_rsc_b bigint;
+  v_wh_a   bigint; v_wh_b bigint; v_wh_null bigint;
+  v_tpe_a  uuid;   v_tpe_b uuid;
+  v_rl_a   bigint;
+  v_ab_a   bigint; v_ct_a bigint;
+  v_fld_a  bigint; v_msg_a bigint;
+BEGIN
+  SELECT user_id, domain_id INTO v_u_a, v_d_a FROM mailboxes WHERE id = v_mb_a;
+  SELECT user_id, domain_id INTO v_u_b, v_d_b FROM mailboxes WHERE id = v_mb_b;
+  SELECT user_id INTO v_u_c FROM mailboxes WHERE id = v_mb_c;
+
+  IF v_u_a = v_mb_a OR v_u_b = v_mb_b OR v_u_c = v_mb_c THEN
+    RAISE EXCEPTION 'expected divergent user_id != mailbox_id';
+  END IF;
+
+  -- Nullable user_id mailbox (shared/group mailbox without user owner)
+  INSERT INTO mailboxes (user_id, domain_id, email, type, is_primary, display_name)
+  VALUES (NULL, v_d_a, 'w18c-shared-null@mk.test', 'personal', false, 'W18C Shared Null')
+  RETURNING id INTO v_mb_null;
+
+  -- Delegate Carol with manage_calendar ONLY on Alice's mailbox (recursion + non-widening test)
+  INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+  VALUES (v_mb_a, v_u_c, 'manage_calendar', v_u_a) ON CONFLICT DO NOTHING;
+
+  -- Seed Alice's rules, contacts, messages to prove manage_calendar delegate cannot read them
+  INSERT INTO rules (mailbox_id, name, is_transport_rule)
+  VALUES (v_mb_a, 'W18C Alice Rule', false) RETURNING id INTO v_rl_a;
+  INSERT INTO addressbooks (mailbox_id, name)
+  VALUES (v_mb_a, 'W18C Alice AB') RETURNING id INTO v_ab_a;
+  INSERT INTO contacts (addressbook_id, vcard_uid, display_name)
+  VALUES (v_ab_a, 'w18c-ct-a', 'Alice Secret Contact') RETURNING id INTO v_ct_a;
+  INSERT INTO folders (mailbox_id, name, path)
+  VALUES (v_mb_a, 'W18C-Inbox', 'W18C-Inbox') RETURNING id INTO v_fld_a;
+  INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, size_bytes, thread_id, raw_ref, received_at)
+  VALUES (v_mb_a, v_fld_a, '<w18c-msg-a@mk.test>', 'Alice Secret Mail', 'a@mk.test', '[]'::jsonb, 10, 'thr-w18c-a', 'raw/w18c-a', now())
+  RETURNING id INTO v_msg_a;
+
+  -- 3. sessions
+  INSERT INTO sessions (id, user_id, expires_at) VALUES ('w18c-sess-a', v_u_a, now() + interval '1 hour');
+  INSERT INTO sessions (id, user_id, expires_at) VALUES ('w18c-sess-b', v_u_b, now() + interval '1 hour');
+
+  -- 4. app_passwords
+  INSERT INTO app_passwords (user_id, name, token_hash) VALUES (v_u_a, 'ap-a', 'hash-a') RETURNING id INTO v_ap_a;
+  INSERT INTO app_passwords (user_id, name, token_hash) VALUES (v_u_b, 'ap-b', 'hash-b') RETURNING id INTO v_ap_b;
+
+  -- 5. oauth_tokens
+  INSERT INTO oauth_tokens (user_id, token_hash, token_type) VALUES (v_u_a, '\xaa01'::bytea, 'refresh') RETURNING id INTO v_ot_a;
+  INSERT INTO oauth_tokens (user_id, token_hash, token_type) VALUES (v_u_b, '\xbb01'::bytea, 'refresh') RETURNING id INTO v_ot_b;
+
+  -- 6. oidc_auth_requests (including NULL user_id pre-login row)
+  INSERT INTO oidc_clients (id, name, secret, redirect_uris)
+  VALUES ('cli', 'W18C Client', 'sec', ARRAY['https://a.test/cb','https://b.test/cb','https://n.test/cb'])
+  ON CONFLICT DO NOTHING;
+  INSERT INTO oidc_auth_requests (id, client_id, redirect_uri, state, scopes, user_id)
+  VALUES ('w18c-oar-a', 'cli', 'https://a.test/cb', 'st-a', ARRAY['openid'], v_u_a);
+  INSERT INTO oidc_auth_requests (id, client_id, redirect_uri, state, scopes, user_id)
+  VALUES ('w18c-oar-b', 'cli', 'https://b.test/cb', 'st-b', ARRAY['openid'], v_u_b);
+  INSERT INTO oidc_auth_requests (id, client_id, redirect_uri, state, scopes, user_id)
+  VALUES ('w18c-oar-null', 'cli', 'https://n.test/cb', 'st-n', ARRAY['openid'], NULL);
+
+  -- 7. oidc_tokens
+  INSERT INTO oidc_tokens (id, client_id, user_id, subject, scopes, expires_at)
+  VALUES ('w18c-oidct-a', 'cli', v_u_a, 'sub-a', ARRAY['openid'], now() + interval '1 hour');
+  INSERT INTO oidc_tokens (id, client_id, user_id, subject, scopes, expires_at)
+  VALUES ('w18c-oidct-b', 'cli', v_u_b, 'sub-b', ARRAY['openid'], now() + interval '1 hour');
+
+  -- 8. passkey_credentials
+  INSERT INTO passkey_credentials (id, user_id, public_key, device_name)
+  VALUES ('\x01aa'::bytea, v_u_a, '\x1111'::bytea, 'Key A');
+  INSERT INTO passkey_credentials (id, user_id, public_key, device_name)
+  VALUES ('\x01bb'::bytea, v_u_b, '\x2222'::bytea, 'Key B');
+
+  -- 9. password_history
+  INSERT INTO password_history (user_id, password_hash) VALUES (v_u_a, '$argon2id$a') RETURNING id INTO v_ph_a;
+  INSERT INTO password_history (user_id, password_hash) VALUES (v_u_b, '$argon2id$b') RETURNING id INTO v_ph_b;
+
+  -- 10. push_devices
+  INSERT INTO push_devices (user_id, push_provider, push_token_enc, device_name)
+  VALUES (v_u_a, 'fcm', '\xaa'::bytea, 'Phone A') RETURNING id INTO v_pd_a;
+  INSERT INTO push_devices (user_id, push_provider, push_token_enc, device_name)
+  VALUES (v_u_b, 'fcm', '\xbb'::bytea, 'Phone B') RETURNING id INTO v_pd_b;
+
+  -- 11. push_mfa_challenges
+  INSERT INTO push_mfa_challenges (user_id, challenge_code, nonce, expires_at)
+  VALUES (v_u_a, '12', '\xaa'::bytea, now() + interval '5 minutes') RETURNING id INTO v_pm_a;
+  INSERT INTO push_mfa_challenges (user_id, challenge_code, nonce, expires_at)
+  VALUES (v_u_b, '34', '\xbb'::bytea, now() + interval '5 minutes') RETURNING id INTO v_pm_b;
+
+  -- 12. mfa_reauth_step_ups
+  INSERT INTO mfa_reauth_step_ups (token_hash, user_id, session_jti, expires_at, operation, proof_method, bound_factor_generation)
+  VALUES ('w18c-mrs-a', v_u_a, 'jti-a', now() + interval '5 minutes', 'totp', 'password', 1);
+  INSERT INTO mfa_reauth_step_ups (token_hash, user_id, session_jti, expires_at, operation, proof_method, bound_factor_generation)
+  VALUES ('w18c-mrs-b', v_u_b, 'jti-b', now() + interval '5 minutes', 'totp', 'password', 1);
+
+  -- 13. totp_pending_enrollments
+  INSERT INTO totp_pending_enrollments (user_id, secret_enc, staged_by_jti, expires_at)
+  VALUES (v_u_a, '\xaa'::bytea, 'jti-a', now() + interval '5 minutes') RETURNING id INTO v_tpe_a;
+  INSERT INTO totp_pending_enrollments (user_id, secret_enc, staged_by_jti, expires_at)
+  VALUES (v_u_b, '\xbb'::bytea, 'jti-b', now() + interval '5 minutes') RETURNING id INTO v_tpe_b;
+
+  -- 14. totp_removal_step_ups
+  INSERT INTO totp_removal_step_ups (token_hash, user_id, session_jti, expires_at)
+  VALUES ('w18c-trs-a', v_u_a, 'jti-a', now() + interval '5 minutes');
+  INSERT INTO totp_removal_step_ups (token_hash, user_id, session_jti, expires_at)
+  VALUES ('w18c-trs-b', v_u_b, 'jti-b', now() + interval '5 minutes');
+
+  -- 15. webauthn_ceremonies
+  INSERT INTO webauthn_ceremonies (challenge_hash, user_id, kind, operation, session_jti, expires_at)
+  VALUES ('w18c-wc-a', v_u_a, 'management_assertion', 'login', 'jti-a', now() + interval '5 minutes');
+  INSERT INTO webauthn_ceremonies (challenge_hash, user_id, kind, operation, session_jti, expires_at)
+  VALUES ('w18c-wc-b', v_u_b, 'management_assertion', 'login', 'jti-b', now() + interval '5 minutes');
+
+  -- 16. user_app_entitlements
+  INSERT INTO user_app_entitlements (user_id, app, enabled) VALUES (v_u_a, 'mail', true) ON CONFLICT DO NOTHING;
+  INSERT INTO user_app_entitlements (user_id, app, enabled) VALUES (v_u_b, 'mail', true) ON CONFLICT DO NOTHING;
+
+  -- 17. user_smime_certs
+  INSERT INTO user_smime_certs (user_id, label, cert_pem)
+  VALUES (v_u_a, 'Cert A', '-----BEGIN CERTIFICATE-----A') RETURNING id INTO v_usc_a;
+  INSERT INTO user_smime_certs (user_id, label, cert_pem)
+  VALUES (v_u_b, 'Cert B', '-----BEGIN CERTIFICATE-----B') RETURNING id INTO v_usc_b;
+
+  -- 18. recipient_smime_certs
+  INSERT INTO recipient_smime_certs (owner_user_id, email, cert_pem, fingerprint, source)
+  VALUES (v_u_a, 'ext-a@mk.test', '-----BEGIN CERTIFICATE-----RA', 'fp-a', 'imported') RETURNING id INTO v_rsc_a;
+  INSERT INTO recipient_smime_certs (owner_user_id, email, cert_pem, fingerprint, source)
+  VALUES (v_u_b, 'ext-b@mk.test', '-----BEGIN CERTIFICATE-----RB', 'fp-b', 'imported') RETURNING id INTO v_rsc_b;
+
+  -- 19. webhook_subscriptions (including NULL user_id org webhook)
+  INSERT INTO webhook_subscriptions (user_id, url, scope)
+  VALUES (v_u_a, 'https://a.test/hook', 'self') RETURNING id INTO v_wh_a;
+  INSERT INTO webhook_subscriptions (user_id, url, scope)
+  VALUES (v_u_b, 'https://b.test/hook', 'self') RETURNING id INTO v_wh_b;
+  INSERT INTO webhook_subscriptions (user_id, url, scope)
+  VALUES (NULL, 'https://org.test/hook', 'organization') RETURNING id INTO v_wh_null;
+
+  -- 20. ws_subscriptions
+  INSERT INTO ws_subscriptions (connection_id, session_id, user_id)
+  VALUES ('w18c-ws-a', 'w18c-sess-a', v_u_a);
+  INSERT INTO ws_subscriptions (connection_id, session_id, user_id)
+  VALUES ('w18c-ws-b', 'w18c-sess-b', v_u_b);
+
+  INSERT INTO _w18c VALUES
+    ('mb_a', v_mb_a), ('mb_b', v_mb_b), ('mb_c', v_mb_c), ('mb_null', v_mb_null),
+    ('u_a', v_u_a), ('u_b', v_u_b), ('u_c', v_u_c),
+    ('d_a', v_d_a), ('d_b', v_d_b),
+    ('ap_a', v_ap_a), ('ap_b', v_ap_b),
+    ('ot_a', v_ot_a), ('ot_b', v_ot_b),
+    ('ph_a', v_ph_a), ('ph_b', v_ph_b),
+    ('pd_a', v_pd_a), ('pd_b', v_pd_b),
+    ('pm_a', v_pm_a), ('pm_b', v_pm_b),
+    ('usc_a', v_usc_a), ('usc_b', v_usc_b),
+    ('rsc_a', v_rsc_a), ('rsc_b', v_rsc_b),
+    ('wh_a', v_wh_a), ('wh_b', v_wh_b), ('wh_null', v_wh_null),
+    ('rl_a', v_rl_a), ('ct_a', v_ct_a), ('msg_a', v_msg_a);
+  INSERT INTO _w18c_txt VALUES
+    ('tpe_a', v_tpe_a::text), ('tpe_b', v_tpe_b::text),
+    ('email_b', (SELECT email FROM users WHERE id = v_u_b));
+END $$;
+
+GRANT SELECT ON _w18c, _w18c_txt TO setjoin_app;
+
+-- ── 3) Switch to setjoin_app (NOSUPERUSER NOBYPASSRLS) with UNSET GUCs ──────
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '', true);
+SELECT set_config('app.current_mailbox_id', '', true);
+
+SELECT is((SELECT count(*)::int FROM mailboxes WHERE id IN (SELECT v FROM _w18c WHERE k IN ('mb_a','mb_b','mb_null'))), 0, 'unset GUC: mailboxes fail-closed');
+SELECT is((SELECT count(*)::int FROM users WHERE id IN (SELECT v FROM _w18c WHERE k IN ('u_a','u_b'))), 0, 'unset GUC: users fail-closed');
+SELECT is((SELECT count(*)::int FROM sessions WHERE id IN ('w18c-sess-a','w18c-sess-b')), 0, 'unset GUC: sessions fail-closed');
+SELECT is((SELECT count(*)::int FROM app_passwords WHERE id IN (SELECT v FROM _w18c WHERE k IN ('ap_a','ap_b'))), 0, 'unset GUC: app_passwords fail-closed');
+SELECT is((SELECT count(*)::int FROM oauth_tokens WHERE id IN (SELECT v FROM _w18c WHERE k IN ('ot_a','ot_b'))), 0, 'unset GUC: oauth_tokens fail-closed');
+SELECT is((SELECT count(*)::int FROM oidc_auth_requests WHERE id IN ('w18c-oar-a','w18c-oar-b','w18c-oar-null')), 0, 'unset GUC: oidc_auth_requests fail-closed');
+SELECT is((SELECT count(*)::int FROM oidc_tokens WHERE id IN ('w18c-oidct-a','w18c-oidct-b')), 0, 'unset GUC: oidc_tokens fail-closed');
+SELECT is((SELECT count(*)::int FROM passkey_credentials WHERE id IN ('\x01aa'::bytea,'\x01bb'::bytea)), 0, 'unset GUC: passkey_credentials fail-closed');
+SELECT is((SELECT count(*)::int FROM password_history WHERE id IN (SELECT v FROM _w18c WHERE k IN ('ph_a','ph_b'))), 0, 'unset GUC: password_history fail-closed');
+SELECT is((SELECT count(*)::int FROM push_devices WHERE id IN (SELECT v FROM _w18c WHERE k IN ('pd_a','pd_b'))), 0, 'unset GUC: push_devices fail-closed');
+SELECT is((SELECT count(*)::int FROM push_mfa_challenges WHERE id IN (SELECT v FROM _w18c WHERE k IN ('pm_a','pm_b'))), 0, 'unset GUC: push_mfa_challenges fail-closed');
+SELECT is((SELECT count(*)::int FROM mfa_reauth_step_ups WHERE token_hash IN ('w18c-mrs-a','w18c-mrs-b')), 0, 'unset GUC: mfa_reauth_step_ups fail-closed');
+SELECT is((SELECT count(*)::int FROM totp_pending_enrollments WHERE id::text IN (SELECT v FROM _w18c_txt WHERE k IN ('tpe_a','tpe_b'))), 0, 'unset GUC: totp_pending_enrollments fail-closed');
+SELECT is((SELECT count(*)::int FROM totp_removal_step_ups WHERE token_hash IN ('w18c-trs-a','w18c-trs-b')), 0, 'unset GUC: totp_removal_step_ups fail-closed');
+SELECT is((SELECT count(*)::int FROM webauthn_ceremonies WHERE challenge_hash IN ('w18c-wc-a','w18c-wc-b')), 0, 'unset GUC: webauthn_ceremonies fail-closed');
+SELECT is((SELECT count(*)::int FROM user_app_entitlements WHERE user_id IN (SELECT v FROM _w18c WHERE k IN ('u_a','u_b'))), 0, 'unset GUC: user_app_entitlements fail-closed');
+SELECT is((SELECT count(*)::int FROM user_smime_certs WHERE id IN (SELECT v FROM _w18c WHERE k IN ('usc_a','usc_b'))), 0, 'unset GUC: user_smime_certs fail-closed');
+SELECT is((SELECT count(*)::int FROM recipient_smime_certs WHERE id IN (SELECT v FROM _w18c WHERE k IN ('rsc_a','rsc_b'))), 0, 'unset GUC: recipient_smime_certs fail-closed');
+SELECT is((SELECT count(*)::int FROM webhook_subscriptions WHERE id IN (SELECT v FROM _w18c WHERE k IN ('wh_a','wh_b','wh_null'))), 0, 'unset GUC: webhook_subscriptions fail-closed');
+SELECT is((SELECT count(*)::int FROM ws_subscriptions WHERE connection_id IN ('w18c-ws-a','w18c-ws-b')), 0, 'unset GUC: ws_subscriptions fail-closed');
+
+-- resolve_identity fails closed under setjoin_app when no caller GUC is set.
+SELECT is(
+  (SELECT count(*)::int FROM resolve_identity((SELECT v FROM _w18c_txt WHERE k = 'email_b'))),
+  0,
+  'unset GUC: resolve_identity fails closed under setjoin_app'
+);
+
+-- ── 4) Divergent-ID trap: setting mailbox GUC to user_id (without user GUC) sees 0 mailboxes ──
+SELECT set_config('app.current_user_id', '', true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18c WHERE k = 'u_a'), true);
+SELECT is((SELECT count(*)::int FROM mailboxes WHERE id = (SELECT v FROM _w18c WHERE k = 'mb_a')), 0, 'divergent ID: user_id in mailbox GUC sees 0 mailboxes');
+
+-- ── 5) Tenant A scope (user_id=u_a, mailbox_id=mb_a) ────────────────────────
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18c WHERE k = 'u_a'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18c WHERE k = 'mb_a'), true);
+
+SELECT is((SELECT count(*)::int FROM mailboxes WHERE id IN (SELECT v FROM _w18c WHERE k IN ('mb_a','mb_b','mb_null'))), 1, 'tenant A: sees only own mailboxes (NULL user_id mailbox hidden)');
+SELECT is((SELECT count(*)::int FROM users WHERE id IN (SELECT v FROM _w18c WHERE k IN ('u_a','u_b'))), 1, 'tenant A: sees only own users');
+SELECT is((SELECT count(*)::int FROM sessions WHERE id IN ('w18c-sess-a','w18c-sess-b')), 1, 'tenant A: sees only own sessions');
+SELECT is((SELECT count(*)::int FROM app_passwords WHERE id IN (SELECT v FROM _w18c WHERE k IN ('ap_a','ap_b'))), 1, 'tenant A: sees only own app_passwords');
+SELECT is((SELECT count(*)::int FROM oauth_tokens WHERE id IN (SELECT v FROM _w18c WHERE k IN ('ot_a','ot_b'))), 1, 'tenant A: sees only own oauth_tokens');
+SELECT is((SELECT count(*)::int FROM oidc_auth_requests WHERE id IN ('w18c-oar-a','w18c-oar-b','w18c-oar-null')), 1, 'tenant A: sees only own oidc_auth_requests (NULL pre-login hidden)');
+SELECT is((SELECT count(*)::int FROM oidc_tokens WHERE id IN ('w18c-oidct-a','w18c-oidct-b')), 1, 'tenant A: sees only own oidc_tokens');
+SELECT is((SELECT count(*)::int FROM passkey_credentials WHERE id IN ('\x01aa'::bytea,'\x01bb'::bytea)), 1, 'tenant A: sees only own passkey_credentials');
+SELECT is((SELECT count(*)::int FROM password_history WHERE id IN (SELECT v FROM _w18c WHERE k IN ('ph_a','ph_b'))), 1, 'tenant A: sees only own password_history');
+SELECT is((SELECT count(*)::int FROM push_devices WHERE id IN (SELECT v FROM _w18c WHERE k IN ('pd_a','pd_b'))), 1, 'tenant A: sees only own push_devices');
+SELECT is((SELECT count(*)::int FROM push_mfa_challenges WHERE id IN (SELECT v FROM _w18c WHERE k IN ('pm_a','pm_b'))), 1, 'tenant A: sees only own push_mfa_challenges');
+SELECT is((SELECT count(*)::int FROM mfa_reauth_step_ups WHERE token_hash IN ('w18c-mrs-a','w18c-mrs-b')), 1, 'tenant A: sees only own mfa_reauth_step_ups');
+SELECT is((SELECT count(*)::int FROM totp_pending_enrollments WHERE id::text IN (SELECT v FROM _w18c_txt WHERE k IN ('tpe_a','tpe_b'))), 1, 'tenant A: sees only own totp_pending_enrollments');
+SELECT is((SELECT count(*)::int FROM totp_removal_step_ups WHERE token_hash IN ('w18c-trs-a','w18c-trs-b')), 1, 'tenant A: sees only own totp_removal_step_ups');
+SELECT is((SELECT count(*)::int FROM webauthn_ceremonies WHERE challenge_hash IN ('w18c-wc-a','w18c-wc-b')), 1, 'tenant A: sees only own webauthn_ceremonies');
+SELECT is((SELECT count(*)::int FROM user_app_entitlements WHERE user_id IN (SELECT v FROM _w18c WHERE k IN ('u_a','u_b'))), 1, 'tenant A: sees only own user_app_entitlements');
+SELECT is((SELECT count(*)::int FROM user_smime_certs WHERE id IN (SELECT v FROM _w18c WHERE k IN ('usc_a','usc_b'))), 1, 'tenant A: sees only own user_smime_certs');
+SELECT is((SELECT count(*)::int FROM recipient_smime_certs WHERE id IN (SELECT v FROM _w18c WHERE k IN ('rsc_a','rsc_b'))), 1, 'tenant A: sees only own recipient_smime_certs');
+SELECT is((SELECT count(*)::int FROM webhook_subscriptions WHERE id IN (SELECT v FROM _w18c WHERE k IN ('wh_a','wh_b','wh_null'))), 1, 'tenant A: sees only own webhook_subscriptions (NULL org webhook hidden)');
+SELECT is((SELECT count(*)::int FROM ws_subscriptions WHERE connection_id IN ('w18c-ws-a','w18c-ws-b')), 1, 'tenant A: sees only own ws_subscriptions');
+
+-- resolve_identity succeeds for authenticated tenant A looking up colleague Bob.
+SELECT is(
+  (SELECT count(*)::int FROM resolve_identity((SELECT v FROM _w18c_txt WHERE k = 'email_b'))),
+  1,
+  'tenant A: resolve_identity resolves colleague under setjoin_app'
+);
+
+-- ── 6) Cross-tenant & NULL-scope INSERT / UPDATE / DELETE denials ───────────
+SELECT throws_ok(
+  $$INSERT INTO mailboxes (user_id, domain_id, email, display_name) VALUES ((SELECT v FROM _w18c WHERE k = 'u_b'), (SELECT v FROM _w18c WHERE k = 'd_b'), 'w18c-inj@mk.test', 'Inj')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into mailboxes denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO users (username, domain_id, email, display_name) VALUES ('w18c-inj', (SELECT v FROM _w18c WHERE k = 'd_a'), 'w18c-inj-u@mk.test', 'Inj')$$,
+  '42501', NULL,
+  'direct INSERT into users denied under setjoin_app'
+);
+SELECT throws_ok(
+  $$INSERT INTO sessions (id, user_id, expires_at) VALUES ('w18c-inj-s', (SELECT v FROM _w18c WHERE k = 'u_b'), now() + interval '1 hour')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into sessions denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO app_passwords (user_id, name, token_hash) VALUES ((SELECT v FROM _w18c WHERE k = 'u_b'), 'inj', 'inj')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into app_passwords denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO oauth_tokens (user_id, token_hash, token_type) VALUES ((SELECT v FROM _w18c WHERE k = 'u_b'), '\xff'::bytea, 'refresh')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into oauth_tokens denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO oidc_auth_requests (id, client_id, redirect_uri, state, scopes, user_id) VALUES ('w18c-oar-inj', 'cli', 'https://x.test', 's', ARRAY['openid'], NULL)$$,
+  '42501', NULL,
+  'NULL user_id INSERT into oidc_auth_requests denied under setjoin_app'
+);
+SELECT throws_ok(
+  $$INSERT INTO oidc_tokens (id, client_id, user_id, subject, scopes, expires_at) VALUES ('w18c-oidct-inj', 'cli', (SELECT v FROM _w18c WHERE k = 'u_b'), 'sub', ARRAY['openid'], now() + interval '1 hour')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into oidc_tokens denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO passkey_credentials (id, user_id, public_key) VALUES ('\xff01'::bytea, (SELECT v FROM _w18c WHERE k = 'u_b'), '\x99'::bytea)$$,
+  '42501', NULL,
+  'cross-tenant INSERT into passkey_credentials denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO password_history (user_id, password_hash) VALUES ((SELECT v FROM _w18c WHERE k = 'u_b'), 'inj')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into password_history denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO push_devices (user_id, push_provider, push_token_enc) VALUES ((SELECT v FROM _w18c WHERE k = 'u_b'), 'fcm', '\xff'::bytea)$$,
+  '42501', NULL,
+  'cross-tenant INSERT into push_devices denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO push_mfa_challenges (user_id, challenge_code, nonce, expires_at) VALUES ((SELECT v FROM _w18c WHERE k = 'u_b'), '99', '\xff'::bytea, now() + interval '1 minute')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into push_mfa_challenges denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO mfa_reauth_step_ups (token_hash, user_id, session_jti, expires_at, operation, proof_method, bound_factor_generation) VALUES ('w18c-mrs-inj', (SELECT v FROM _w18c WHERE k = 'u_b'), 'j', now() + interval '1 minute', 'totp', 'password', 1)$$,
+  '42501', NULL,
+  'cross-tenant INSERT into mfa_reauth_step_ups denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO totp_pending_enrollments (user_id, secret_enc, staged_by_jti, expires_at) VALUES ((SELECT v FROM _w18c WHERE k = 'u_b'), '\xff'::bytea, 'j', now() + interval '1 minute')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into totp_pending_enrollments denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO totp_removal_step_ups (token_hash, user_id, session_jti, expires_at) VALUES ('w18c-trs-inj', (SELECT v FROM _w18c WHERE k = 'u_b'), 'j', now() + interval '1 minute')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into totp_removal_step_ups denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO webauthn_ceremonies (challenge_hash, user_id, kind, operation, session_jti, expires_at) VALUES ('w18c-wc-inj', (SELECT v FROM _w18c WHERE k = 'u_b'), 'management_assertion', 'login', 'j', now() + interval '1 minute')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into webauthn_ceremonies denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO user_app_entitlements (user_id, app, enabled) VALUES ((SELECT v FROM _w18c WHERE k = 'u_a'), 'drive', true)$$,
+  '42501', NULL,
+  'direct INSERT into user_app_entitlements denied under setjoin_app (read-only)'
+);
+SELECT throws_ok(
+  $$INSERT INTO user_smime_certs (user_id, cert_pem) VALUES ((SELECT v FROM _w18c WHERE k = 'u_b'), 'inj')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into user_smime_certs denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO recipient_smime_certs (owner_user_id, email, cert_pem, fingerprint, source) VALUES ((SELECT v FROM _w18c WHERE k = 'u_b'), 'i@mk.test', 'inj', 'fp-inj', 'imported')$$,
+  '42501', NULL,
+  'cross-tenant INSERT into recipient_smime_certs denied by FORCE RLS'
+);
+SELECT throws_ok(
+  $$INSERT INTO webhook_subscriptions (user_id, url, scope) VALUES (NULL, 'https://inj.test/hook', 'organization')$$,
+  '42501', NULL,
+  'NULL user_id INSERT into webhook_subscriptions denied under setjoin_app'
+);
+SELECT throws_ok(
+  $$INSERT INTO ws_subscriptions (connection_id, session_id, user_id) VALUES ('w18c-ws-inj', 's', (SELECT v FROM _w18c WHERE k = 'u_b'))$$,
+  '42501', NULL,
+  'cross-tenant INSERT into ws_subscriptions denied by FORCE RLS'
+);
+
+-- Cross-tenant UPDATE / DELETE on Bob's user, mailbox, and org webhook affect 0 rows.
+WITH u AS (UPDATE users SET display_name = 'Hijacked' WHERE id = (SELECT v FROM _w18c WHERE k = 'u_b') RETURNING id)
+SELECT is((SELECT count(*)::int FROM u), 0, 'cross-tenant UPDATE on users affects 0 rows');
+
+WITH u AS (UPDATE mailboxes SET display_name = 'Hijacked' WHERE id IN (SELECT v FROM _w18c WHERE k IN ('mb_b','mb_null')) RETURNING id)
+SELECT is((SELECT count(*)::int FROM u), 0, 'cross-tenant/NULL UPDATE on mailboxes affects 0 rows');
+
+WITH d AS (DELETE FROM webhook_subscriptions WHERE id IN (SELECT v FROM _w18c WHERE k IN ('wh_b','wh_null')) RETURNING id)
+SELECT is((SELECT count(*)::int FROM d), 0, 'cross-tenant/NULL DELETE on webhook_subscriptions affects 0 rows');
+
+-- ── 7) mailbox_delegates <-> mailboxes non-recursion & manage_calendar non-widening ──
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18c WHERE k = 'u_c'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18c WHERE k = 'mb_c'), true);
+
+SELECT is(
+  (SELECT count(*)::int FROM mailboxes WHERE id = (SELECT v FROM _w18c WHERE k = 'mb_a')),
+  1,
+  'mailbox_delegates <-> mailboxes: manage_calendar delegate Carol reads Alice mailbox without RLS recursion'
+);
+SELECT is(
+  (SELECT count(*)::int FROM mailbox_delegates WHERE mailbox_id = (SELECT v FROM _w18c WHERE k = 'mb_a')),
+  1,
+  'mailbox_delegates <-> mailboxes: delegate Carol reads own mailbox_delegates row without RLS recursion'
+);
+SELECT is(
+  (SELECT count(*)::int FROM rules WHERE id = (SELECT v FROM _w18c WHERE k = 'rl_a')),
+  0,
+  'non-widening: manage_calendar delegate Carol sees 0 of Alice rules'
+);
+SELECT is(
+  (SELECT count(*)::int FROM contacts WHERE id = (SELECT v FROM _w18c WHERE k = 'ct_a')),
+  0,
+  'non-widening: manage_calendar delegate Carol sees 0 of Alice contacts'
+);
+SELECT is(
+  (SELECT count(*)::int FROM messages WHERE id = (SELECT v FROM _w18c WHERE k = 'msg_a')),
+  0,
+  'non-widening: manage_calendar delegate Carol sees 0 of Alice messages'
+);
+
+-- ── 8) Wave 1.8d rust_* reducer GUC-binding & worker-only ACL proofs ────────
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18c WHERE k = 'u_a'), true);
+SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18c WHERE k = 'mb_a'), true);
+
+SELECT throws_ok(
+  $$SELECT rust_user_profile_update((SELECT v FROM _w18c WHERE k = 'u_b'), 'Forged')$$,
+  '42501', NULL,
+  'GUC bind: rust_user_profile_update rejects forged p_user_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT rust_webhook_self_create((SELECT v FROM _w18c WHERE k = 'u_b'), 'https://forged.test', '["mail.received"]', NULL, NULL)$$,
+  '42501', NULL,
+  'GUC bind: rust_webhook_self_create rejects forged p_user_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT rust_compliance_audit_log_insert((SELECT v FROM _w18c WHERE k = 'u_b'), '127.0.0.1', 'impersonate', '{}')$$,
+  '42501', NULL,
+  'GUC bind: rust_compliance_audit_log_insert rejects forged p_user_id under setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT rust_mailbox_admin_set_quota((SELECT v FROM _w18c WHERE k = 'u_a'), (SELECT v FROM _w18c WHERE k = 'mb_a'), 1024, 100)$$,
+  '42501', NULL,
+  'worker-only ACL: rust_mailbox_admin_set_quota rejects setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT rust_system_config_upsert_batch_encrypted(ARRAY['k'], ARRAY['v'], ARRAY[false], 'x')$$,
+  '42501', NULL,
+  'worker-only ACL: rust_system_config_upsert_batch_encrypted rejects setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT rust_ca_policy_soft_delete((SELECT v FROM _w18c WHERE k = 'u_a'), 999999)$$,
+  '42501', NULL,
+  'worker-only ACL: rust_ca_policy_soft_delete rejects setjoin_app'
+);
+SELECT throws_ok(
+  $$SELECT rust_compliance_content_search_kql('TRUE', ARRAY[]::text[])$$,
+  '42501', NULL,
+  'worker-only ACL: rust_compliance_content_search_kql rejects setjoin_app'
+);
+
+-- ── 9) Positive same-tenant ALLOW-flow proofs for all 20 Wave C tables ──────
+-- 1. users ALLOW (own-row UPDATE via rust_user_profile_update + read-back)
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_dn text;
+  BEGIN
+    PERFORM rust_user_profile_update((SELECT v FROM _w18c WHERE k = 'u_a'), 'Alice Updated');
+    SELECT display_name INTO v_dn FROM users WHERE id = (SELECT v FROM _w18c WHERE k = 'u_a');
+    IF v_dn <> 'Alice Updated' THEN RAISE EXCEPTION 'users display_name readback mismatch: %', v_dn; END IF;
+  END $p$;
+$$, 'ALLOW users: setjoin_app UPDATE own profile succeeds');
+
+-- 2. mailboxes ALLOW (own-row UPDATE + read-back)
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_cnt int;
+  BEGIN
+    UPDATE mailboxes SET display_name = 'Alice Mailbox Updated' WHERE id = (SELECT v FROM _w18c WHERE k = 'mb_a');
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'mailboxes UPDATE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW mailboxes: setjoin_app UPDATE own mailbox succeeds');
+
+-- 3. sessions ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_cnt int;
+  BEGIN
+    INSERT INTO sessions (id, user_id, expires_at) VALUES ('w18c-allow-s', (SELECT v FROM _w18c WHERE k = 'u_a'), now() + interval '1 hour');
+    UPDATE sessions SET auth_method = 'password' WHERE id = 'w18c-allow-s';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'sessions UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM sessions WHERE id = 'w18c-allow-s';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'sessions DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW sessions: setjoin_app INSERT/UPDATE/DELETE own session succeeds');
+
+-- 4. app_passwords ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO app_passwords (user_id, name, token_hash) VALUES ((SELECT v FROM _w18c WHERE k = 'u_a'), 'allow-ap', 'allow-hash') RETURNING id INTO v_id;
+    UPDATE app_passwords SET label = 'imap' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'app_passwords UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM app_passwords WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'app_passwords DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW app_passwords: setjoin_app INSERT/UPDATE/DELETE own app_password succeeds');
+
+-- 5. oauth_tokens ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO oauth_tokens (user_id, token_hash, token_type) VALUES ((SELECT v FROM _w18c WHERE k = 'u_a'), '\xaa99'::bytea, 'refresh') RETURNING id INTO v_id;
+    UPDATE oauth_tokens SET last_used_protocol = 'jmap' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'oauth_tokens UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM oauth_tokens WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'oauth_tokens DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW oauth_tokens: setjoin_app INSERT/UPDATE/DELETE own oauth_token succeeds');
+
+-- 6. oidc_auth_requests ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_cnt int;
+  BEGIN
+    INSERT INTO oidc_auth_requests (id, client_id, redirect_uri, state, scopes, user_id)
+    VALUES ('w18c-allow-oar', 'cli', 'https://a.test/cb', 'st', ARRAY['openid'], (SELECT v FROM _w18c WHERE k = 'u_a'));
+    UPDATE oidc_auth_requests SET done = true WHERE id = 'w18c-allow-oar';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'oidc_auth_requests UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM oidc_auth_requests WHERE id = 'w18c-allow-oar';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'oidc_auth_requests DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW oidc_auth_requests: setjoin_app INSERT/UPDATE/DELETE own request succeeds');
+
+-- 7. oidc_tokens ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_cnt int;
+  BEGIN
+    INSERT INTO oidc_tokens (id, client_id, user_id, subject, scopes, expires_at)
+    VALUES ('w18c-allow-oidct', 'cli', (SELECT v FROM _w18c WHERE k = 'u_a'), 'sub-a', ARRAY['openid'], now() + interval '1 hour');
+    UPDATE oidc_tokens SET revoked_at = now() WHERE id = 'w18c-allow-oidct';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'oidc_tokens UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM oidc_tokens WHERE id = 'w18c-allow-oidct';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'oidc_tokens DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW oidc_tokens: setjoin_app INSERT/UPDATE/DELETE own token succeeds');
+
+-- 8. passkey_credentials ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_cnt int;
+  BEGIN
+    INSERT INTO passkey_credentials (id, user_id, public_key, device_name)
+    VALUES ('\x02aa'::bytea, (SELECT v FROM _w18c WHERE k = 'u_a'), '\x3333'::bytea, 'Allow Key');
+    UPDATE passkey_credentials SET device_name = 'Allow Key v2' WHERE id = '\x02aa'::bytea;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'passkey_credentials UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM passkey_credentials WHERE id = '\x02aa'::bytea;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'passkey_credentials DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW passkey_credentials: setjoin_app INSERT/UPDATE/DELETE own passkey succeeds');
+
+-- 9. password_history ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO password_history (user_id, password_hash)
+    VALUES ((SELECT v FROM _w18c WHERE k = 'u_a'), '$argon2id$allow') RETURNING id INTO v_id;
+    SELECT count(*)::int INTO v_cnt FROM password_history WHERE id = v_id;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'password_history SELECT readback returned % rows', v_cnt; END IF;
+    DELETE FROM password_history WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'password_history DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW password_history: setjoin_app INSERT/DELETE own history succeeds');
+
+-- 10. push_devices ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO push_devices (user_id, push_provider, push_token_enc, device_name)
+    VALUES ((SELECT v FROM _w18c WHERE k = 'u_a'), 'fcm', '\xaa02'::bytea, 'Allow Phone') RETURNING id INTO v_id;
+    UPDATE push_devices SET device_name = 'Allow Phone v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'push_devices UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM push_devices WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'push_devices DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW push_devices: setjoin_app INSERT/UPDATE/DELETE own device succeeds');
+
+-- 11. push_mfa_challenges ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO push_mfa_challenges (user_id, challenge_code, nonce, expires_at)
+    VALUES ((SELECT v FROM _w18c WHERE k = 'u_a'), '56', '\xaa03'::bytea, now() + interval '5 minutes') RETURNING id INTO v_id;
+    UPDATE push_mfa_challenges SET failed_attempts = 1 WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'push_mfa_challenges UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM push_mfa_challenges WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'push_mfa_challenges DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW push_mfa_challenges: setjoin_app INSERT/UPDATE/DELETE own challenge succeeds');
+
+-- 12. mfa_reauth_step_ups ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_cnt int;
+  BEGIN
+    INSERT INTO mfa_reauth_step_ups (token_hash, user_id, session_jti, expires_at, operation, proof_method, bound_factor_generation)
+    VALUES ('w18c-allow-mrs', (SELECT v FROM _w18c WHERE k = 'u_a'), 'jti-a', now() + interval '5 minutes', 'totp', 'password', 1);
+    UPDATE mfa_reauth_step_ups SET target_ref = 'x' WHERE token_hash = 'w18c-allow-mrs';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'mfa_reauth_step_ups UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM mfa_reauth_step_ups WHERE token_hash = 'w18c-allow-mrs';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'mfa_reauth_step_ups DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW mfa_reauth_step_ups: setjoin_app INSERT/UPDATE/DELETE own step-up succeeds');
+
+-- 13. totp_pending_enrollments ALLOW (UNIQUE(user_id): clear seeded row first)
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id uuid; v_cnt int;
+  BEGIN
+    DELETE FROM totp_pending_enrollments WHERE user_id = (SELECT v FROM _w18c WHERE k = 'u_a');
+    INSERT INTO totp_pending_enrollments (user_id, secret_enc, staged_by_jti, expires_at)
+    VALUES ((SELECT v FROM _w18c WHERE k = 'u_a'), '\xaa04'::bytea, 'jti-a', now() + interval '5 minutes') RETURNING id INTO v_id;
+    UPDATE totp_pending_enrollments SET staged_via = 'web' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'totp_pending_enrollments UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM totp_pending_enrollments WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'totp_pending_enrollments DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW totp_pending_enrollments: setjoin_app INSERT/UPDATE/DELETE own enrollment succeeds');
+
+-- 14. totp_removal_step_ups ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_cnt int;
+  BEGIN
+    INSERT INTO totp_removal_step_ups (token_hash, user_id, session_jti, expires_at)
+    VALUES ('w18c-allow-trs', (SELECT v FROM _w18c WHERE k = 'u_a'), 'jti-a', now() + interval '5 minutes');
+    UPDATE totp_removal_step_ups SET expires_at = now() + interval '6 minutes' WHERE token_hash = 'w18c-allow-trs';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'totp_removal_step_ups UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM totp_removal_step_ups WHERE token_hash = 'w18c-allow-trs';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'totp_removal_step_ups DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW totp_removal_step_ups: setjoin_app INSERT/UPDATE/DELETE own step-up succeeds');
+
+-- 15. webauthn_ceremonies ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_cnt int;
+  BEGIN
+    INSERT INTO webauthn_ceremonies (challenge_hash, user_id, kind, operation, session_jti, expires_at)
+    VALUES ('w18c-allow-wc', (SELECT v FROM _w18c WHERE k = 'u_a'), 'management_assertion', 'login', 'jti-a', now() + interval '5 minutes');
+    UPDATE webauthn_ceremonies SET target_ref = 'y' WHERE challenge_hash = 'w18c-allow-wc';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'webauthn_ceremonies UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM webauthn_ceremonies WHERE challenge_hash = 'w18c-allow-wc';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'webauthn_ceremonies DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW webauthn_ceremonies: setjoin_app INSERT/UPDATE/DELETE own ceremony succeeds');
+
+-- 16. user_app_entitlements ALLOW (SELECT-only for setjoin_app; admin writes on worker)
+SELECT is(
+  (SELECT count(*)::int FROM user_app_entitlements WHERE user_id = (SELECT v FROM _w18c WHERE k = 'u_a') AND app = 'mail'),
+  1,
+  'ALLOW user_app_entitlements: setjoin_app SELECT own entitlement succeeds'
+);
+
+-- 17. user_smime_certs ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO user_smime_certs (user_id, label, cert_pem)
+    VALUES ((SELECT v FROM _w18c WHERE k = 'u_a'), 'Allow Cert', '-----BEGIN CERTIFICATE-----ALLOW') RETURNING id INTO v_id;
+    UPDATE user_smime_certs SET label = 'Allow Cert v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'user_smime_certs UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM user_smime_certs WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'user_smime_certs DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW user_smime_certs: setjoin_app INSERT/UPDATE/DELETE own cert succeeds');
+
+-- 18. recipient_smime_certs ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO recipient_smime_certs (owner_user_id, email, cert_pem, fingerprint, source)
+    VALUES ((SELECT v FROM _w18c WHERE k = 'u_a'), 'allow-rcpt@mk.test', '-----BEGIN CERTIFICATE-----R', 'fp-allow', 'imported') RETURNING id INTO v_id;
+    UPDATE recipient_smime_certs SET label = 'Updated' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'recipient_smime_certs UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM recipient_smime_certs WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'recipient_smime_certs DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW recipient_smime_certs: setjoin_app INSERT/UPDATE/DELETE own cert succeeds');
+
+-- 19. webhook_subscriptions ALLOW (via rust_webhook_self_create/delete)
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    v_id := rust_webhook_self_create(
+      (SELECT v FROM _w18c WHERE k = 'u_a'),
+      'https://allow.test/hook', '["mail.received"]', NULL, NULL
+    );
+    UPDATE webhook_subscriptions SET is_active = false WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'webhook_subscriptions UPDATE affected % rows', v_cnt; END IF;
+    IF NOT rust_webhook_self_delete((SELECT v FROM _w18c WHERE k = 'u_a'), v_id) THEN
+      RAISE EXCEPTION 'rust_webhook_self_delete returned false';
+    END IF;
+  END $p$;
+$$, 'ALLOW webhook_subscriptions: setjoin_app INSERT/UPDATE/DELETE own subscription succeeds');
+
+-- 20. ws_subscriptions ALLOW
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_cnt int;
+  BEGIN
+    INSERT INTO ws_subscriptions (connection_id, session_id, user_id)
+    VALUES ('w18c-allow-ws', 'w18c-sess-a', (SELECT v FROM _w18c WHERE k = 'u_a'));
+    UPDATE ws_subscriptions SET last_ping_at = now() WHERE connection_id = 'w18c-allow-ws';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'ws_subscriptions UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM ws_subscriptions WHERE connection_id = 'w18c-allow-ws';
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'ws_subscriptions DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW ws_subscriptions: setjoin_app INSERT/UPDATE/DELETE own subscription succeeds');
+
+-- ── 10) Review hardening proofs: ARCH-018 3VL, webhook scope='self', V249 triggers, catalog ACLs ──
+
+-- 10a. Catalog-level EXECUTE revocation on worker-only Wave 1.8d reducers
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.rust_mailbox_admin_set_quota(bigint,bigint,bigint,integer)', 'EXECUTE'),
+  false,
+  'catalog ACL: setjoin_app lacks EXECUTE on rust_mailbox_admin_set_quota'
+);
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.rust_system_config_upsert_batch_encrypted(text[],text[],boolean[],text)', 'EXECUTE'),
+  false,
+  'catalog ACL: setjoin_app lacks EXECUTE on rust_system_config_upsert_batch_encrypted'
+);
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.rust_ca_policy_soft_delete(bigint,bigint)', 'EXECUTE'),
+  false,
+  'catalog ACL: setjoin_app lacks EXECUTE on rust_ca_policy_soft_delete'
+);
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.rust_compliance_content_search_kql(text,text[])', 'EXECUTE'),
+  false,
+  'catalog ACL: setjoin_app lacks EXECUTE on rust_compliance_content_search_kql'
+);
+
+-- 10b. webhook_subscriptions scope='self' enforcement & users least-privilege (no DELETE under setjoin_app)
+SELECT throws_ok(
+  $$INSERT INTO webhook_subscriptions (user_id, url, scope) VALUES ((SELECT v FROM _w18c WHERE k = 'u_a'), 'https://org-esc.test/hook', 'organization')$$,
+  '42501', NULL,
+  'webhook_subscriptions: setjoin_app cannot INSERT scope=organization even with own user_id'
+);
+SELECT throws_ok(
+  $$UPDATE webhook_subscriptions SET scope = 'organization' WHERE id = (SELECT v FROM _w18c WHERE k = 'wh_a')$$,
+  '42501', NULL,
+  'webhook_subscriptions: setjoin_app cannot escalate own webhook to scope=organization'
+);
+WITH d AS (DELETE FROM users WHERE id = (SELECT v FROM _w18c WHERE k = 'u_a') RETURNING id)
+SELECT is((SELECT count(*)::int FROM d), 0, 'users least privilege: setjoin_app DELETE own user affects 0 rows');
+
+-- 10c. V249 identity-address admission triggers remain unblinded under V288 FORCE RLS
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'public'
+     JOIN pg_roles r ON r.oid = p.proowner
+    WHERE p.proname IN (
+      'identity_address_admission_users',
+      'identity_address_admission_aliases',
+      'identity_address_admission_mailboxes'
+    )
+      AND p.prosecdef = true
+      AND r.rolname = 'setjoin_worker'
+      AND NOT has_function_privilege('setjoin_app', p.oid, 'EXECUTE')),
+  3,
+  'V249 triggers: all 3 admission trigger functions are worker-owned SECURITY DEFINER without setjoin_app EXECUTE'
+);
+SELECT throws_ok(
+  $$UPDATE users SET ad_upn = (SELECT v FROM _w18c_txt WHERE k = 'email_b') WHERE id = (SELECT v FROM _w18c WHERE k = 'u_a')$$,
+  'BZ328', NULL,
+  'V249 trigger unblinded: setjoin_app UPDATE users.ad_upn to competing enabled user email raises BZ328'
+);
+SELECT throws_ok(
+  $$UPDATE users SET email = (SELECT v FROM _w18c_txt WHERE k = 'email_b') WHERE id = (SELECT v FROM _w18c WHERE k = 'u_a')$$,
+  'BZ328', NULL,
+  'V249 trigger unblinded: setjoin_app UPDATE users.email to competing enabled user email raises BZ328'
+);
+
+-- 10d. ARCH-018 admin reach predicates: strict FALSE (never NULL) on unset GUC & forged p_actor
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'public'
+     JOIN pg_roles r ON r.oid = p.proowner
+    WHERE p.proname IN ('admin_can_reach','admin_can_manage_with_permission','admin_can_reach_perm')
+      AND p.prosecdef = true
+      AND r.rolname = 'setjoin_worker'),
+  3,
+  'ARCH-018 admin predicates: all 3 are SECURITY DEFINER owned by setjoin_worker'
+);
+
+-- Seed a global admin role assignment for Alice as owner, then test under setjoin_app
+RESET ROLE;
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+VALUES ((SELECT v FROM _w18c WHERE k = 'u_a'), 1, (SELECT v FROM _w18c WHERE k = 'u_a'))
+ON CONFLICT DO NOTHING;
+
+SET LOCAL ROLE setjoin_app;
+-- Unset GUC: all 3 must return strict FALSE (never NULL — zero 3VL enumeration oracle!)
+SELECT set_config('app.current_user_id', '', true);
+SELECT is(
+  admin_can_reach((SELECT v FROM _w18c WHERE k = 'u_a'), (SELECT v FROM _w18c WHERE k = 'u_b')),
+  false,
+  '3VL oracle closed: admin_can_reach returns strict false (not NULL) when app.current_user_id is unset'
+);
+SELECT is(
+  admin_can_manage_with_permission((SELECT v FROM _w18c WHERE k = 'u_a'), (SELECT v FROM _w18c WHERE k = 'u_b'), 'users.read'),
+  false,
+  '3VL oracle closed: admin_can_manage_with_permission returns strict false (not NULL) when app.current_user_id is unset'
+);
+SELECT is(
+  admin_can_reach_perm((SELECT v FROM _w18c WHERE k = 'u_a'), (SELECT v FROM _w18c WHERE k = 'u_b'), ARRAY['users.read']),
+  false,
+  '3VL oracle closed: admin_can_reach_perm returns strict false (not NULL) when app.current_user_id is unset'
+);
+
+-- Forged p_actor (Bob trying to probe Alice's reach): all 3 must return strict FALSE
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18c WHERE k = 'u_b'), true);
+SELECT is(
+  admin_can_reach((SELECT v FROM _w18c WHERE k = 'u_a'), (SELECT v FROM _w18c WHERE k = 'u_b')),
+  false,
+  '3VL oracle closed: admin_can_reach returns strict false for forged p_actor'
+);
+SELECT is(
+  admin_can_manage_with_permission((SELECT v FROM _w18c WHERE k = 'u_a'), (SELECT v FROM _w18c WHERE k = 'u_b'), 'users.read'),
+  false,
+  '3VL oracle closed: admin_can_manage_with_permission returns strict false for forged p_actor'
+);
+SELECT is(
+  admin_can_reach_perm((SELECT v FROM _w18c WHERE k = 'u_a'), (SELECT v FROM _w18c WHERE k = 'u_b'), ARRAY['users.read']),
+  false,
+  '3VL oracle closed: admin_can_reach_perm returns strict false for forged p_actor'
+);
+
+-- Authentic Alice caller GUC: admin_can_reach returns true for Alice reaching Bob
+SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18c WHERE k = 'u_a'), true);
+SELECT is(
+  admin_can_reach((SELECT v FROM _w18c WHERE k = 'u_a'), (SELECT v FROM _w18c WHERE k = 'u_b')),
+  true,
+  'ARCH-018 positive: authentic Alice GUC evaluates admin_can_reach(u_a, u_b) = true under setjoin_app'
+);
+
+-- 10e. Public first-boot setup check `public.system_has_users()` under V288 FORCE RLS
+-- + pg_temp search_path guard across all newly hardened V288 SECURITY DEFINER helpers.
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'public'
+     JOIN pg_roles r ON r.oid = p.proowner
+    WHERE p.proname = 'system_has_users'
+      AND p.prosecdef = true
+      AND r.rolname = 'setjoin_worker'
+      AND has_function_privilege('setjoin_app', p.oid, 'EXECUTE')),
+  1,
+  'V288: system_has_users() is worker-owned SECURITY DEFINER callable by setjoin_app'
+);
+
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'public'
+    WHERE p.proname IN (
+      'resolve_identity',
+      'admin_can_reach',
+      'admin_can_manage_with_permission',
+      'admin_can_reach_perm',
+      'identity_address_claims',
+      'identity_address_admission_users',
+      'identity_address_admission_aliases',
+      'identity_address_admission_mailboxes',
+      'system_has_users'
+    )
+      AND p.proconfig @> ARRAY['search_path=pg_catalog, public, pg_temp']),
+  9,
+  'V288: all 9 hardened identity/admin/setup helpers pin search_path = pg_catalog, public, pg_temp'
+);
+
+-- Unscoped setjoin_app on populated DB: users table returns 0 rows, system_has_users() returns true!
+SELECT set_config('app.current_user_id', '', true);
+SELECT set_config('app.current_mailbox_id', '', true);
+SELECT is(
+  public.system_has_users(),
+  true,
+  'V288: system_has_users() returns true under unscoped setjoin_app on populated DB (prevents / -> /setup loop)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

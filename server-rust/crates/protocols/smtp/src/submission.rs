@@ -1,18 +1,28 @@
 //! SMTP submission (MSA, port 587): a port of frozen Go's `SubmissionServer`
 //! (#501). AUTH PLAIN/LOGIN only after STARTTLS, the shared threat gate (#420),
-//! envelope-from ownership, `smtp_submission_send` and the post-commit event.
-//! There is no proxy and no switch back to Go.
+//! `PolicyGate` + `TxFactory` + `MailboxPrincipal` `SubmitCapability`
+//! enforcement, envelope-from ownership, `smtp_submission_send` and the
+//! post-commit event. There is no proxy and no switch back to Go.
 //!
-//! Every statement runs on the worker credential, as in Go (`workerPool`):
-//! submission self-authenticates at AUTH and the reducer self-authorizes the
-//! sender before any write.
+//! Authentication post-checks, principal minting (`UserPrincipal`,
+//! `MailboxPrincipal` -> `SubmitCapability`), sender authorization, and
+//! user/mailbox reads run on `TxFactory` (`AppPool` / `setjoin_app`,
+//! `NOBYPASSRLS`). Only the cross-mailbox `smtp_submission_send` reducer
+//! (which is explicitly `REVOKE ALL FROM setjoin_app; GRANT EXECUTE TO
+//! setjoin_worker` for cross-mailbox local recipient delivery) and pre-auth
+//! credential/rate-limit bookkeeping run on `WorkerDatabase`.
 use crate::{framing, reducer_reply};
 use futures_util::future::BoxFuture;
 use serde_json::Value;
+use setjoin_authz::{
+    policy_gate::{self, GateDenial, ProtocolSurface},
+    principals::{PrincipalError, SubmitCapability, TxFactory, UserPrincipal},
+    Authorized, Refusal,
+};
 use setjoin_mime as mime;
 use setjoin_pg::{
     workers::{WorkerConnection, WorkerDatabase},
-    Type,
+    ScopedExecutor, Type,
 };
 use setjoin_threat::{
     registry::{Closer, ProtocolSessionRegistry},
@@ -39,13 +49,8 @@ pub trait AuthWebhooks: Send + Sync {
 }
 /// Post-commit `mail.sent` event; only reducer-derived subjects reach it.
 pub trait SubmissionEvents: Send + Sync {
-    fn sent<'a>(
-        &'a self,
-        user: i64,
-        mailbox: i64,
-        from: &'a str,
-        to: &'a str,
-    ) -> BoxFuture<'a, ()>;
+    fn sent<'a>(&'a self, user: i64, mailbox: i64, from: &'a str, to: &'a str)
+        -> BoxFuture<'a, ()>;
 }
 /// Process-wide feature flags (`feature_toggles` with registry defaults).
 pub trait Flags: Send + Sync {
@@ -63,6 +68,8 @@ const CONTINUATION_CAP: usize = 8192;
 
 pub struct Submission {
     db: WorkerDatabase,
+    app_exec: Option<ScopedExecutor>,
+    tx_factory: Option<TxFactory>,
     gate: Option<Arc<dyn ThreatGate>>,
     webhooks: Option<Arc<dyn AuthWebhooks>>,
     events: Option<Arc<dyn SubmissionEvents>>,
@@ -72,19 +79,18 @@ pub struct Submission {
     max_connections: usize,
     users: ConnTracker,
     registry: Option<Arc<ProtocolSessionRegistry>>,
-    dummy_hash: &'static str,
-    dummy_verifications: std::sync::atomic::AtomicUsize,
+    passwords: setjoin_authz::basic::PasswordCache,
 }
-
-/// bcrypt cost 10; the gateway passes the profile's own algorithm (SECFIX3).
-const DUMMY_BCRYPT: &str = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
 
 impl Submission {
     /// `Unwired` threat policy mirrors Go's nil interceptor (fixtures only); the
-    /// gateway refuses to activate a listener without the shared gate.
+    /// gateway refuses to activate a listener without the shared gate and
+    /// `TxFactory` (`with_app_executor` / `with_tx_factory`).
     pub fn new(db: WorkerDatabase) -> Self {
         Self {
             db,
+            app_exec: None,
+            tx_factory: None,
             gate: None,
             webhooks: None,
             events: None,
@@ -94,19 +100,37 @@ impl Submission {
             max_connections: 0,
             users: ConnTracker::default(),
             registry: None,
-            dummy_hash: DUMMY_BCRYPT,
-            dummy_verifications: Default::default(),
+            passwords: setjoin_authz::basic::PasswordCache::new(),
         }
+    }
+    /// Attach the constrained `DB_DSN` (`setjoin_app`) executor for `PolicyGate`
+    /// post-auth checks and derive `TxFactory` from its `AppPool` if not yet set.
+    pub fn with_app_executor(mut self, exec: ScopedExecutor) -> Self {
+        if self.tx_factory.is_none() {
+            self.tx_factory = exec.try_app_pool().map(TxFactory::new);
+        }
+        self.app_exec = Some(exec);
+        self
+    }
+    /// Attach a shared capability-gated [`TxFactory`] backed by `AppPool`
+    /// (`setjoin_app`, `NOBYPASSRLS`) for principal minting and `SubmitCapability`.
+    pub fn with_tx_factory(mut self, tx_factory: TxFactory) -> Self {
+        self.tx_factory = Some(tx_factory);
+        self
+    }
+    /// Whether both the constrained app executor and `TxFactory` are wired.
+    pub fn tx_factory_wired(&self) -> bool {
+        self.app_exec.is_some() && self.tx_factory.is_some()
     }
     /// The fixed hash an unknown/disabled account is verified against, in the
     /// crypto profile's algorithm (`setjoin_identity::login::dummy_hash`).
     pub fn with_dummy_hash(mut self, hash: &'static str) -> Self {
-        self.dummy_hash = hash;
+        self.passwords = self.passwords.with_dummy_hash(hash);
         self
     }
     /// How many password hashes were spent on accounts that do not exist.
     pub fn dummy_verifications(&self) -> usize {
-        self.dummy_verifications.load(std::sync::atomic::Ordering::SeqCst)
+        self.passwords.dummy_verifications()
     }
     pub fn with_threat_gate(mut self, gate: Arc<dyn ThreatGate>) -> Self {
         self.gate = Some(gate);
@@ -211,7 +235,9 @@ impl Submission {
             io: BufReader::new(Box::new(socket)),
             tls: false,
             authed: false,
-            user: 0,
+            authorized: None,
+            user_principal: None,
+            submit_cap: None,
             from: Vec::new(),
             to: Vec::new(),
             db: None,
@@ -274,13 +300,17 @@ impl Submission {
                     }
                     c.reply(220, "Ready to start TLS").await?;
                     let Ok(config) = self.starttls_config() else {
-                        c.reply(454, "TLS not available due to server error").await?;
+                        c.reply(454, "TLS not available due to server error")
+                            .await?;
                         return Ok(());
                     };
                     // Go replaces its textproto reader, discarding pipelined bytes.
                     let stream = std::mem::replace(
                         &mut c.io,
-                        BufReader::new(Box::new(tokio::io::join(tokio::io::empty(), tokio::io::sink()))),
+                        BufReader::new(Box::new(tokio::io::join(
+                            tokio::io::empty(),
+                            tokio::io::sink(),
+                        ))),
                     )
                     .into_inner();
                     let accepted = tokio::time::timeout(
@@ -379,6 +409,7 @@ impl Submission {
 
     /// `pwhash.LogAuthEvent`: unknown providers are never logged; a toggle
     /// checker applies only where Go passed one.
+    #[allow(clippy::too_many_arguments)]
     async fn log_event(
         &self,
         c: &mut State,
@@ -449,9 +480,7 @@ impl Submission {
                 ThreatAction::Reject => {
                     self.log_event(c, None, "login_failed", "threat", email, &ip, true)
                         .await;
-                    return c
-                        .reply(421, "Authentication temporarily unavailable")
-                        .await;
+                    return c.reply(421, "Authentication temporarily unavailable").await;
                 }
                 ThreatAction::Tarpitted => {
                     if !delay.is_zero() {
@@ -459,9 +488,7 @@ impl Submission {
                     }
                     self.log_event(c, None, "login_failed", "threat", email, &ip, true)
                         .await;
-                    return c
-                        .reply(421, "Authentication temporarily unavailable")
-                        .await;
+                    return c.reply(421, "Authentication temporarily unavailable").await;
                 }
                 ThreatAction::RateLimited => {
                     self.log_event(c, None, "login_failed", "rate_limit", email, &ip, true)
@@ -498,8 +525,8 @@ impl Submission {
             }
         }
         if let Some(user) = self.check_app_password(c, email, password).await {
+            c.clear_auth();
             c.authed = true;
-            c.user = user;
             if let Some(gate) = self.gate.clone() {
                 meta.app_password = true;
                 gate.record_result(&meta, true, user).await;
@@ -516,15 +543,14 @@ impl Submission {
                         true,
                     )
                     .await;
-                    c.authed = false;
-                    c.user = 0;
+                    c.clear_auth();
                     return c
                         .reply(535, &format!("5.7.0 Access blocked by policy: {reason}"))
                         .await;
                 }
             }
             self.webhook(true, email, "app_password", &ip).await;
-            return self.admit(c, user, authenticated_at).await;
+            return self.admit(c, user, email, authenticated_at).await;
         }
         let Some(user) = self.check_user_password(c, email, password).await else {
             self.log_event(c, None, "login_failed", "bcrypt", email, &ip, true)
@@ -538,8 +564,8 @@ impl Submission {
         self.log_event(c, Some(user), "login", "bcrypt", email, &ip, true)
             .await;
         self.webhook(true, email, "bcrypt", &ip).await;
+        c.clear_auth();
         c.authed = true;
-        c.user = user;
         if let Some(gate) = self.gate.clone() {
             gate.record_result(&meta, true, user).await;
             meta.user_id = user;
@@ -555,37 +581,51 @@ impl Submission {
                     true,
                 )
                 .await;
-                c.authed = false;
-                c.user = 0;
+                c.clear_auth();
                 return c
                     .reply(535, &format!("5.7.0 Access blocked by policy: {reason}"))
                     .await;
             }
         }
-        self.admit(c, user, authenticated_at).await
+        self.admit(c, user, email, authenticated_at).await
     }
 
-    /// Per-user slot, then the revocation registry, then 235.
+    /// Unified PolicyGate post-auth checks, sealed `UserPrincipal` /
+    /// `MailboxPrincipal` minting + `SubmitCapability` proof, per-user slot
+    /// (release-then-acquire), revocation registry registration, then 235.
     async fn admit(
         &self,
         c: &mut State,
         user: i64,
+        email: &str,
         authenticated_at: std::time::SystemTime,
     ) -> io::Result<()> {
+        let client_ip = c.ip.clone();
+        let (authorized, user_principal) = match self
+            .policy_gate_mint_principals(&client_ip, user, email)
+            .await
+        {
+            Ok(principals) => principals,
+            Err(reason) => {
+                c.clear_auth();
+                return c.reply(535, reason).await;
+            }
+        };
+        // Wave 1.4 (#542) security fix: release any previous slot on re-AUTH
+        // before acquiring the new identity's slot (fixes Go's ConnTracker leak).
+        c.slot = None;
         match self.users.try_acquire(user) {
             Ok(slot) => {
-                // Mirrored Go defect: a second successful AUTH overwrites `c.release`
-                // without calling it, so the first slot is never given back.
-                if let Some(first) = c.slot.replace(slot) {
-                    std::mem::forget(first);
-                }
+                c.slot = Some(slot);
             }
             Err(()) => {
-                c.authed = false;
-                c.user = 0;
+                c.clear_auth();
                 return c.reply(550, "Too many connections from this account").await;
             }
         }
+        c.authorized = Some(authorized);
+        c.user_principal = Some(user_principal);
+        c.submit_cap = None;
         c.registry_release = None;
         if let Some(registry) = &self.registry {
             c.registry_release = Some(registry.register(user, authenticated_at, c.closer.clone()));
@@ -593,7 +633,66 @@ impl Submission {
         c.reply(235, "Authentication successful").await
     }
 
-    /// `pwhash.CheckAppPassword`.
+    /// Unified PolicyGate post-auth enforcement + principal minting for SMTP
+    /// submission (#542, #546c): durable `session_revocations` (`scope='all'`),
+    /// `feature.device_lockdown`, `check_user_app_entitlement(user, 'mail')`,
+    /// primary mailbox `mailbox_lifecycle_access_allowed`, and live
+    /// `MailboxPrincipal::require_submit()` verification on `AppPool`.
+    async fn policy_gate_mint_principals(
+        &self,
+        client_ip: &str,
+        user: i64,
+        email: &str,
+    ) -> Result<(Authorized, UserPrincipal), &'static str> {
+        let (Some(app_exec), Some(tx_factory)) = (self.app_exec.as_ref(), self.tx_factory.as_ref())
+        else {
+            return Err("5.7.0 Authentication verification unavailable");
+        };
+        if let Err(denial) =
+            policy_gate::check_protocol_post_auth(app_exec, ProtocolSurface::SmtpSubmission, user)
+                .await
+        {
+            return Err(match denial {
+                GateDenial::SessionRevoked => "5.7.0 Session revoked",
+                GateDenial::DeviceLockdown => "5.7.0 Device not enrolled",
+                GateDenial::EntitlementDenied(_) => "5.7.0 Mail access disabled by policy",
+                GateDenial::NoPrimaryMailbox | GateDenial::MailboxBlocked => {
+                    "5.7.0 Mailbox access suspended"
+                }
+                _ => "5.7.0 Authentication verification unavailable",
+            });
+        }
+        let authorized = setjoin_authz::authorize_basic_member(app_exec, user, email.to_owned())
+            .await
+            .map_err(|refusal| match refusal {
+                Refusal::Revoked => "5.7.0 Session revoked",
+                Refusal::NoPrimaryMailbox | Refusal::MailboxBlocked => {
+                    "5.7.0 Mailbox access suspended"
+                }
+                Refusal::Guest | Refusal::GuestInactive => "5.7.0 Mail access disabled by policy",
+                _ => "5.7.0 Authentication verification unavailable",
+            })?;
+        let user_principal = tx_factory
+            .mint_user_from_authorized(&authorized, client_ip)
+            .await
+            .map_err(|_| "5.7.0 Authentication verification unavailable")?;
+        let primary_mailbox = tx_factory
+            .mint_primary_mailbox_from_authorized(&authorized, client_ip)
+            .await
+            .map_err(|err| match err {
+                PrincipalError::MailboxBlocked | PrincipalError::Forbidden(_) => {
+                    "5.7.0 Mailbox access suspended"
+                }
+                PrincipalError::GuestRefused => "5.7.0 Mail access disabled by policy",
+                _ => "5.7.0 Authentication verification unavailable",
+            })?;
+        primary_mailbox
+            .require_submit()
+            .map_err(|_| "5.7.0 Mailbox access suspended")?;
+        Ok((authorized, user_principal))
+    }
+
+    /// `pwhash.CheckAppPassword` + fail-closed guest refusal (#542).
     async fn check_app_password(&self, c: &mut State, email: &str, token: &str) -> Option<i64> {
         let digest = Sha256::digest(token.as_bytes());
         let hash: String = digest.iter().map(|b| format!("{b:02x}")).collect();
@@ -613,6 +712,20 @@ impl Submission {
                 .await;
             return None;
         };
+        let is_guest = c
+            .query(
+                &self.db,
+                "SELECT is_guest_account($1)",
+                &[(&user, Type::INT8)],
+            )
+            .await
+            .ok()
+            .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()));
+        if is_guest != Some(false) {
+            self.log_event(c, None, "login_failed", "app_password", email, "", false)
+                .await;
+            return None;
+        }
         let _ = c
             .query(
                 &self.db,
@@ -642,39 +755,36 @@ impl Submission {
         Some(user)
     }
 
-    /// `auth.CheckPassword`: bcrypt/SM3 verification, best-effort below-floor
-    /// self-heal, then the fail-closed guest check.
+    /// `auth.CheckPassword`: constant-time dummy hash via `PasswordCache`,
+    /// TOTP account-password refusal (#542), bcrypt/SM3 verification,
+    /// best-effort below-floor self-heal, then fail-closed guest check.
     async fn check_user_password(&self, c: &mut State, email: &str, password: &str) -> Option<i64> {
         let rows = c
             .query(
                 &self.db,
-                "SELECT u.id, u.password_hash FROM users u JOIN domains d ON d.id = u.domain_id \
+                "SELECT u.id, u.password_hash, u.totp_enabled FROM users u \
+                 JOIN domains d ON d.id = u.domain_id \
                  WHERE u.email = $1 AND u.enabled = TRUE",
                 &[(&email, Type::TEXT)],
             )
             .await
             .ok();
-        // Security fix (SECFIX3 pattern, #501): frozen Go returned before any hash
-        // for an unknown/disabled/hash-less account, so timing revealed which
-        // accounts exist. Every such path now costs one verify of the profile's
-        // algorithm.
+        // Security fix (SECFIX3 pattern, #501, #542): unknown/disabled/hash-less
+        // accounts spend one constant-time dummy hash verification.
         let known = rows.as_ref().and_then(|rows| rows.first()).and_then(|row| {
             let hash = row.try_get::<_, String>(1).ok().filter(|h| !h.is_empty())?;
-            Some((row.get::<_, i64>(0), hash))
+            let totp_enabled: bool = row.try_get(2).ok()?;
+            Some((row.get::<_, i64>(0), hash, totp_enabled))
         });
-        let Some((id, hash)) = known else {
+        let Some((id, hash, totp_enabled)) = known else {
             if !crate::mutants::on("smtp-no-dummy-hash") {
-                self.dummy_verifications
-                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                let dummy = self.dummy_hash;
-                let pw = password.to_string();
-                let _ = tokio::task::spawn_blocking(move || {
-                    setjoin_authz::password::verify(dummy, &pw)
-                })
-                .await;
+                self.passwords.spend_dummy_hash(password).await;
             }
             return None;
         };
+        if totp_enabled {
+            return None;
+        }
         let verified = hash.clone();
         let pw = password.to_string();
         let (valid, upgrade) = tokio::task::spawn_blocking(move || {
@@ -694,7 +804,11 @@ impl Submission {
                 .query(
                     &self.db,
                     "UPDATE users SET password_hash = $1 WHERE email = $2 AND password_hash = $3",
-                    &[(&new, Type::TEXT), (&email, Type::TEXT), (&verified, Type::TEXT)],
+                    &[
+                        (&new, Type::TEXT),
+                        (&email, Type::TEXT),
+                        (&verified, Type::TEXT),
+                    ],
                 )
                 .await;
         }
@@ -721,14 +835,42 @@ impl Submission {
         if !has_prefix(arg, b"FROM:") {
             return c.reply(501, "Syntax error").await;
         }
+        c.submit_cap = None;
         c.from = mime::extract_addr(&arg[5..]);
         let from = String::from_utf8(c.from.clone()).ok();
-        let user = c.user;
+        let (Some(tx_factory), Some(authorized), Some(user_principal)) = (
+            self.tx_factory.as_ref(),
+            c.authorized.as_ref(),
+            c.user_principal.as_ref(),
+        ) else {
+            c.from.clear();
+            return c
+                .reply(553, "Envelope-from address not authorized for this user")
+                .await;
+        };
+        // Re-verify live MailboxPrincipal and mint SubmitCapability
+        // (`Owner | full_access | send_as | send_on_behalf` + lifecycle check).
+        let Ok(mb_principal) = tx_factory
+            .mint_primary_mailbox_from_authorized(authorized, &c.ip)
+            .await
+        else {
+            c.from.clear();
+            return c
+                .reply(553, "Envelope-from address not authorized for this user")
+                .await;
+        };
+        let Ok(submit_cap) = mb_principal.require_submit() else {
+            c.from.clear();
+            return c
+                .reply(553, "Envelope-from address not authorized for this user")
+                .await;
+        };
+        let user = submit_cap.actor().get();
         let allowed = match &from {
             None => None,
-            Some(from) => c
-                .query(
-                    &self.db,
+            Some(from) => tx_factory
+                .run_user_read_pipelined(
+                    user_principal,
                     "SELECT EXISTS(\
                      SELECT 1 FROM mailboxes mb \
                      LEFT JOIN aliases a ON a.mailbox_id = mb.id AND lower(a.email) = lower($1) \
@@ -746,6 +888,7 @@ impl Submission {
                 .reply(553, "Envelope-from address not authorized for this user")
                 .await;
         }
+        c.submit_cap = Some(submit_cap);
         c.reply(250, "OK").await
     }
 
@@ -782,11 +925,8 @@ impl Submission {
         let unlimited = Arc::new(tokio::sync::Semaphore::new(
             tokio::sync::Semaphore::MAX_PERMITS,
         ));
-        let body = match tokio::time::timeout(
-            COMMAND_TIMEOUT,
-            framing::data(&mut c.io, unlimited),
-        )
-        .await
+        let body = match tokio::time::timeout(COMMAND_TIMEOUT, framing::data(&mut c.io, unlimited))
+            .await
         {
             Ok(Err(framing::DataError::BareLf)) => {
                 c.reply(500, "5.5.2 Bare LF not allowed").await?;
@@ -833,12 +973,22 @@ impl Submission {
             prefixed.extend_from_slice(&msg);
             msg = prefixed;
         }
-        let user = c.user;
+        let (Some(tx_factory), Some(user_principal), Some(submit_cap)) = (
+            self.tx_factory.as_ref(),
+            c.user_principal.as_ref(),
+            c.submit_cap.as_ref(),
+        ) else {
+            c.reply(451, "4.3.0 Mailbox temporarily unavailable")
+                .await?;
+            return Ok(false);
+        };
+        let user = submit_cap.actor().get();
+        let mailbox = submit_cap.mailbox().get();
         {
             let (_, from_addr) = mime::parse_from(&mime::extract_header(&msg, "From"));
-            let auth_email = c
-                .query(
-                    &self.db,
+            let auth_email = tx_factory
+                .run_user_read_pipelined(
+                    user_principal,
                     "SELECT email FROM users WHERE id = $1",
                     &[(&user, Type::INT8)],
                 )
@@ -861,30 +1011,16 @@ impl Submission {
         let to_addrs = mime::parse_address_list(&mime::extract_header(&msg, "To"));
         let cc_addrs = mime::parse_address_list(&mime::extract_header(&msg, "Cc"));
         let bcc_addrs = mime::parse_address_list(&mime::extract_header(&msg, "Bcc"));
-        let has_attachments = msg.windows(31).any(|w| w == b"Content-Disposition: attachment");
+        let has_attachments = msg
+            .windows(31)
+            .any(|w| w == b"Content-Disposition: attachment");
         let raw_ref = format!("blobs/{}", hex(&Sha256::digest(&msg)));
 
-        let mailbox = match c
-            .query(
-                &self.db,
-                "SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
-                &[(&user, Type::INT8)],
-            )
-            .await
-            .ok()
-            .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()))
-        {
-            Some(id) => id,
-            None => {
-                c.reply(451, "4.3.0 Mailbox temporarily unavailable").await?;
-                return Ok(false);
-            }
-        };
         let (_, mut from_addr) = mime::parse_from(&mime::extract_header(&msg, "From"));
         if from_addr.is_empty() {
-            let rows = c
-                .query(
-                    &self.db,
+            let rows = tx_factory
+                .run_user_read_pipelined(
+                    user_principal,
                     "SELECT email, display_name FROM users WHERE id = $1",
                     &[(&user, Type::INT8)],
                 )
@@ -927,10 +1063,7 @@ impl Submission {
         ] {
             if !self.feature(key) {
                 let _ = conn
-                    .query(
-                        "SELECT set_config($1,'true',true)",
-                        &[(&guc, Type::TEXT)],
-                    )
+                    .query("SELECT set_config($1,'true',true)", &[(&guc, Type::TEXT)])
                     .await;
             }
         }
@@ -947,10 +1080,7 @@ impl Submission {
             .await;
         if !self.feature("feature.mailbox_audit_log") {
             let _ = conn
-                .query(
-                    "SELECT set_config('app.skip_audit','true',true)",
-                    &[],
-                )
+                .query("SELECT set_config('app.skip_audit','true',true)", &[])
                 .await;
         }
         let rcpts: Vec<String> = c.to.iter().map(|r| mime::go_lossy(r)).collect();
@@ -998,11 +1128,13 @@ impl Submission {
             c.reply(554, "5.3.0 Internal error").await?;
             return Ok(false);
         }
-        let row = &rows[0];
-        let sent: Option<i64> = row.get(0);
-        let user_subject: Option<i64> = row.get(1);
-        let mailbox_subject: Option<i64> = row.get(2);
-        let enrolled: bool = row.get(3);
+        let Some(row) = rows.first() else {
+            return Ok(true);
+        };
+        let sent: Option<i64> = row.try_get(0).unwrap_or(None);
+        let user_subject: Option<i64> = row.try_get(1).unwrap_or(None);
+        let mailbox_subject: Option<i64> = row.try_get(2).unwrap_or(None);
+        let enrolled: bool = row.try_get(3).unwrap_or(false);
         if sent.is_some() && !enrolled {
             if let (Some(events), Some(user), Some(mailbox)) =
                 (&self.events, user_subject, mailbox_subject)
@@ -1025,7 +1157,9 @@ struct State {
     io: BufReader<BoxStream>,
     tls: bool,
     authed: bool,
-    user: i64,
+    authorized: Option<Authorized>,
+    user_principal: Option<UserPrincipal>,
+    submit_cap: Option<SubmitCapability>,
     from: Vec<u8>,
     to: Vec<Vec<u8>>,
     db: Option<WorkerConnection>,
@@ -1035,9 +1169,18 @@ struct State {
 }
 
 impl State {
+    fn clear_auth(&mut self) {
+        self.authed = false;
+        self.authorized = None;
+        self.user_principal = None;
+        self.submit_cap = None;
+        self.slot = None;
+        self.registry_release = None;
+    }
     fn reset(&mut self) {
         self.from.clear();
         self.to.clear();
+        self.submit_cap = None;
     }
     async fn write(&mut self, bytes: &[u8]) -> io::Result<()> {
         let stream = self.io.get_mut();

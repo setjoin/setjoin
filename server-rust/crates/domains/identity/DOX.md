@@ -474,6 +474,17 @@ new hash in password history in the same transaction as guest activation.
 
 `device_trust` takes only a `VerifiedDevice`: `effective_policy` reads the
 `mdm_effective_policy` evaluator; `checkin` runs `rust_device_checkin` through
-`run_protocol_tx` (empty user/mailbox GUCs as in Go, explicit bounded COMMIT,
-zero `rust_operation_receipts` writes, #473); `EVENT_CAP` is the owner-approved
-100-event bound; `Effective::version` is frozen Go's FNV-1a content hash (the ETag).
+`run_protocol_tx_contract` (empty user/mailbox GUCs as in Go, explicit bounded
+COMMIT, zero `rust_operation_receipts` writes, #473, via `AuthDb` #546e);
+`EVENT_CAP` is the owner-approved 100-event bound; `Effective::version` is frozen
+Go's FNV-1a content hash (the ETag).
+
+## Wave 1.8 Phase `546d` pool separation & `V288` `FORCE RLS` (#546)
+
+All `setjoin-identity` database statements live in `src/sql.rs` (`201` typed `SqlContract`
+entries, zero `ScopedExecutor`, zero `format!` SQL). Post-auth self-service (`self_service.rs`)
+runs through `&TxFactory` (`UserTx` / `MailboxTx` on `AppPool`); pre-auth login, refresh, MFA,
+OIDC/SAML/RP, and service-authority paths run through `setjoin_pg::AuthDb`, which routes
+`SqlScope::UserScoped` contracts onto `AppPool` (`setjoin_app` + `app.current_user_id`) and
+`SqlScope::{AuthPreScope,WorkerBypass}` contracts onto the private `WorkerPool` (`setjoin_worker`),
+avoiding any `setjoin_app`-callable broad `users` lookup oracle under `V288` `FORCE RLS`.

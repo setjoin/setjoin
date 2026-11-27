@@ -1,36 +1,13 @@
 //! MDM console (Go's `admin.MDMHandler` and `mdm.Engine`): device state reads,
-//! the wipe arm and the policy CRUD. Reads run in a `READ ONLY` transaction with
-//! the admin actor GUC (Go's `dbscope.RunUserScoped`); the domain-scope predicate
-//! rides in the same SELECT (R1). Writes are receipted commands: the wipe arm and
-//! the policy delete/reorder call reducers (several statements in Go's
-//! transaction), policy create and update are one statement each.
-use super::{
-    command, deadline, done, envelope, gojson, invalid, nano, opt, s, scope, StatementFailure,
-};
+//! the wipe arm and the policy CRUD.
+use super::{command, deadline, done, envelope, gojson, invalid, opt, s, sql, StatementFailure};
 use gojson::{Kind, V};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, Param, Rejection, ScopedExecutor, Type};
-
-const UUID_FIELDS: &str =
-    "device_id::text, user_id, platform, device_name, os_version, app_version, \
-     passcode_set, passcode_compliant, encryption_enabled, jailbroken, jailbreak_method, \
-     compliance_status, non_compliance_reasons, ";
-
-fn device_select() -> String {
-    format!(
-        "SELECT {UUID_FIELDS}{}, wipe_requested, COALESCE(wipe_level, ''), {}, {}, {}, {}, {} FROM mdm_device_state",
-        nano("grace_until"),
-        nano("wipe_requested_at"),
-        nano("wipe_acked_at"),
-        nano("last_checkin_at"),
-        nano("created_at"),
-        nano("updated_at"),
-    )
-}
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, Rejection, Row};
 
 /// `DeviceState.MarshalJSON`: Go's field order, `omitempty` on the optional
 /// fields, and the attestation marker once a wipe is armed.
-fn device_json(row: &setjoin_pg::Row) -> Result<String, StatementFailure> {
+fn device_json(row: &Row) -> Result<String, StatementFailure> {
     let g =
         |i: usize| -> Result<String, StatementFailure> { row.try_get(i).map_err(|_| invalid()) };
     let b = |i: usize| -> Result<bool, StatementFailure> { row.try_get(i).map_err(|_| invalid()) };
@@ -84,18 +61,13 @@ fn device_json(row: &setjoin_pg::Row) -> Result<String, StatementFailure> {
 
 /// `GET /admin/mdm/devices`: up to 100 devices, newest check-in first.
 pub async fn list_devices(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     domain_scope: i64,
 ) -> Result<String, StatementFailure> {
-    let mut sql = device_select();
-    let mut params: Vec<Param<'_>> = Vec::new();
-    if domain_scope > 0 {
-        params.push((&domain_scope, Type::INT8));
-        sql.push_str(" WHERE user_id IN (SELECT id FROM users WHERE domain_id = $1)");
-    }
-    sql.push_str(" ORDER BY last_checkin_at DESC LIMIT 100");
-    let rows = exec.read_scoped(&scope(actor), &sql, &params).await?;
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::MDM_LIST_DEVICES, &[&domain_scope])
+        .await?;
     let devices = rows
         .iter()
         .map(device_json)
@@ -110,19 +82,16 @@ pub async fn list_devices(
 /// `GET /admin/mdm/devices/{device_id}`: `None` for a missing or out-of-scope
 /// device and for any read failure, which Go answers alike with 404.
 pub async fn get_device(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
     device: &str,
     domain_scope: i64,
 ) -> Option<String> {
-    let mut sql = format!("{} WHERE device_id = $1::text::uuid", device_select());
-    let mut params: Vec<Param<'_>> = vec![(&device, Type::TEXT)];
-    if domain_scope > 0 {
-        params.push((&domain_scope, Type::INT8));
-        sql.push_str(" AND user_id IN (SELECT id FROM users WHERE domain_id = $2)");
-    }
-    let rows = exec.read_scoped(&scope(actor), &sql, &params).await.ok()?;
-    device_json(rows.first()?).ok().map(|d| done(d))
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::MDM_GET_DEVICE, &[&device, &domain_scope])
+        .await
+        .ok()?;
+    device_json(rows.first()?).ok().map(done)
 }
 
 /// What the wipe arm's reducer answered, as `Engine.mapWipeArmError` projects it.
@@ -178,32 +147,38 @@ pub fn wipe_refusal(error: &Rejection<StatementFailure>) -> WipeRefusal {
 /// audit row, `device_events` row and `device_policy` notify in one transaction)
 /// with the admin and client IP from the verified request.
 pub async fn arm_wipe(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     device: &str,
     level: &str,
     domain_scope: i64,
     ip: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("mdm_wipe_arm"),
-        &envelope(&auth, operation, &format!("{device}\n{level}\n{domain_scope}")),
-        &auth,
-        deadline(),
-        "SELECT mdm_device_wipe_arm($4::text::uuid, $5::text, $6::bigint, $2::bigint, NULLIF($7::text, '')::inet)::text \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&device, Type::TEXT),
-            (&level, Type::TEXT),
-            (&domain_scope, Type::INT8),
-            (&ip, Type::TEXT),
-        ],
-        |rows| if rows.len() == 1 { Ok(()) } else { Err(invalid()) },
-    )
-    .await
+    let actor = user.user().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{device}\n{level}\n{domain_scope}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MDM_ARM_WIPE,
+            &[&device, &level, &domain_scope, &actor, &ip],
+            Some(command("mdm_wipe_arm")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 // ---- policies ----
@@ -211,21 +186,11 @@ pub async fn arm_wipe(
 /// `GET /admin/mdm/policies`: Go's `policyRow` (the outer fields shadow the
 /// embedded `mdm.Policy`'s `id` and `name`), highest priority first.
 pub async fn list_policies(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    proof: &AdminPermissionProof,
 ) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read_scoped(
-            &scope(actor),
-            "SELECT id, name, description, priority::bigint, scope_type, COALESCE(scope_id, 0), enabled, \
-             passcode_min_length::bigint, passcode_complexity, passcode_max_age_days::bigint, \
-             passcode_history_count::bigint, max_failed_attempts::bigint, inactivity_lock_mins::bigint, \
-             block_screenshots, block_copy_paste, require_device_encryption, \
-             min_os_version_ios, min_os_version_android, jailbreak_action, \
-             heartbeat_interval_secs::bigint, grace_period_mins::bigint \
-             FROM mdm_policies ORDER BY priority DESC",
-            &[],
-        )
+    let rows = factory
+        .run_admin_read_contract(proof, &sql::MDM_LIST_POLICIES, &[])
         .await?;
     let mut items = Vec::new();
     for row in &rows {
@@ -374,12 +339,11 @@ impl PolicyFields {
 
 /// `POST /admin/mdm/policies`: Go's INSERT with the defaults applied, one statement.
 pub async fn create_policy(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     p: &PolicyFields,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    let auth = scope(actor);
     let name = p.name.clone().unwrap_or_default();
     let description = p.description.clone().unwrap_or_default();
     let priority = p.priority.unwrap_or(0);
@@ -405,122 +369,98 @@ pub async fn create_policy(
         .unwrap_or_else(|| "quarantine".into());
     let heartbeat = p.heartbeat_interval_secs.unwrap_or(3600);
     let grace = p.grace_period_mins.unwrap_or(60);
-    let params: [Param<'_>; 20] = [
-        (&name, Type::TEXT),
-        (&description, Type::TEXT),
-        (&priority, Type::INT8),
-        (&scope_type, Type::TEXT),
-        (&p.scope_id, Type::INT8),
-        (&enabled, Type::BOOL),
-        (&min_length, Type::INT8),
-        (&complexity, Type::TEXT),
-        (&max_age, Type::INT8),
-        (&history, Type::INT8),
-        (&failed, Type::INT8),
-        (&lock, Type::INT8),
-        (&screenshots, Type::BOOL),
-        (&copy_paste, Type::BOOL),
-        (&encryption, Type::BOOL),
-        (&ios, Type::TEXT),
-        (&android, Type::TEXT),
-        (&jailbreak, Type::TEXT),
-        (&heartbeat, Type::INT8),
-        (&grace, Type::INT8),
-    ];
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("mdm_policy_create"),
-        &envelope(&auth, operation, &format!("{name}\n{scope_type}")),
-        &auth,
-        deadline(),
-        "INSERT INTO mdm_policies (name, description, priority, scope_type, scope_id, enabled, \
-         passcode_min_length, passcode_complexity, passcode_max_age_days, passcode_history_count, \
-         max_failed_attempts, inactivity_lock_mins, block_screenshots, block_copy_paste, \
-         require_device_encryption, min_os_version_ios, min_os_version_android, jailbreak_action, \
-         heartbeat_interval_secs, grace_period_mins) \
-         SELECT $4::text, $5::text, $6::bigint::int4, $7::text, $8::bigint, $9::boolean, \
-         $10::bigint::int4, $11::text, $12::bigint::int4, $13::bigint::int4, $14::bigint::int4, \
-         $15::bigint::int4, $16::boolean, $17::boolean, $18::boolean, $19::text, $20::text, $21::text, \
-         $22::bigint::int4, $23::bigint::int4 \
-         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
-        &params,
-        |rows| match rows {
-            [row] => row.try_get(0).map_err(|_| invalid()),
-            _ => Err(invalid()),
-        },
-    )
-    .await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{name}\n{scope_type}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MDM_CREATE_POLICY,
+            &[
+                &name,
+                &description,
+                &priority,
+                &scope_type,
+                &p.scope_id,
+                &enabled,
+                &min_length,
+                &complexity,
+                &max_age,
+                &history,
+                &failed,
+                &lock,
+                &screenshots,
+                &copy_paste,
+                &encryption,
+                &ios,
+                &android,
+                &jailbreak,
+                &heartbeat,
+                &grace,
+            ],
+            Some(command("mdm_policy_create")),
+            |rows| match rows.as_slice() {
+                [row] => row.try_get(0).map_err(|_| invalid()),
+                _ => Err(invalid()),
+            },
+        )
+        .await
 }
 
 /// `PUT /admin/mdm/policies/{id}`: Go's dynamic UPDATE (absent fields keep their
 /// value, but `scope_id` is always written). `true` when a row matched.
 pub async fn update_policy(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     id: i64,
     p: &PolicyFields,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    let params: [Param<'_>; 21] = [
-        (&id, Type::INT8),
-        (&p.name, Type::TEXT),
-        (&p.description, Type::TEXT),
-        (&p.priority, Type::INT8),
-        (&p.scope_type, Type::TEXT),
-        (&p.scope_id, Type::INT8),
-        (&p.enabled, Type::BOOL),
-        (&p.passcode_min_length, Type::INT8),
-        (&p.passcode_complexity, Type::TEXT),
-        (&p.passcode_max_age_days, Type::INT8),
-        (&p.passcode_history_count, Type::INT8),
-        (&p.max_failed_attempts, Type::INT8),
-        (&p.inactivity_lock_mins, Type::INT8),
-        (&p.block_screenshots, Type::BOOL),
-        (&p.block_copy_paste, Type::BOOL),
-        (&p.require_device_encryption, Type::BOOL),
-        (&p.min_os_version_ios, Type::TEXT),
-        (&p.min_os_version_android, Type::TEXT),
-        (&p.jailbreak_action, Type::TEXT),
-        (&p.heartbeat_interval_secs, Type::INT8),
-        (&p.grace_period_mins, Type::INT8),
-    ];
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("mdm_policy_update"),
-        &envelope(&auth, operation, &id.to_string()),
-        &auth,
-        deadline(),
-        "WITH u AS (UPDATE mdm_policies SET \
-         name = COALESCE($5::text, name), description = COALESCE($6::text, description), \
-         priority = COALESCE($7::bigint::int4, priority), scope_type = COALESCE($8::text, scope_type), \
-         scope_id = $9::bigint, enabled = COALESCE($10::boolean, enabled), \
-         passcode_min_length = COALESCE($11::bigint::int4, passcode_min_length), \
-         passcode_complexity = COALESCE($12::text, passcode_complexity), \
-         passcode_max_age_days = COALESCE($13::bigint::int4, passcode_max_age_days), \
-         passcode_history_count = COALESCE($14::bigint::int4, passcode_history_count), \
-         max_failed_attempts = COALESCE($15::bigint::int4, max_failed_attempts), \
-         inactivity_lock_mins = COALESCE($16::bigint::int4, inactivity_lock_mins), \
-         block_screenshots = COALESCE($17::boolean, block_screenshots), \
-         block_copy_paste = COALESCE($18::boolean, block_copy_paste), \
-         require_device_encryption = COALESCE($19::boolean, require_device_encryption), \
-         min_os_version_ios = COALESCE($20::text, min_os_version_ios), \
-         min_os_version_android = COALESCE($21::text, min_os_version_android), \
-         jailbreak_action = COALESCE($22::text, jailbreak_action), \
-         heartbeat_interval_secs = COALESCE($23::bigint::int4, heartbeat_interval_secs), \
-         grace_period_mins = COALESCE($24::bigint::int4, grace_period_mins), updated_at = now() \
-         WHERE id = $4::bigint AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) \
-         SELECT count(*)::bigint FROM u",
-        &params,
-        |rows| match rows {
-            [row] => row
-                .try_get::<_, i64>(0)
-                .map(|n| n > 0)
-                .map_err(|_| invalid()),
-            _ => Err(invalid()),
-        },
-    )
-    .await
+    let env = envelope(user.user(), user.generation(), operation, &id.to_string());
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MDM_UPDATE_POLICY,
+            &[
+                &id,
+                &p.name,
+                &p.description,
+                &p.priority,
+                &p.scope_type,
+                &p.scope_id,
+                &p.enabled,
+                &p.passcode_min_length,
+                &p.passcode_complexity,
+                &p.passcode_max_age_days,
+                &p.passcode_history_count,
+                &p.max_failed_attempts,
+                &p.inactivity_lock_mins,
+                &p.block_screenshots,
+                &p.block_copy_paste,
+                &p.require_device_encryption,
+                &p.min_os_version_ios,
+                &p.min_os_version_android,
+                &p.jailbreak_action,
+                &p.heartbeat_interval_secs,
+                &p.grace_period_mins,
+            ],
+            Some(command("mdm_policy_update")),
+            |rows| match rows.as_slice() {
+                [row] => row
+                    .try_get::<_, i64>(0)
+                    .map(|n| n > 0)
+                    .map_err(|_| invalid()),
+                _ => Err(invalid()),
+            },
+        )
+        .await
 }
 
 /// The reducer verdict `rust_mdm_policy_delete` carries.
@@ -534,52 +474,63 @@ pub enum Deleted {
 /// `DELETE /admin/mdm/policies/{id}`: the last-global probe and the DELETE as one
 /// transaction (`rust_mdm_policy_delete`).
 pub async fn delete_policy(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     id: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<Deleted, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("mdm_policy_delete"),
-        &envelope(&auth, operation, &id.to_string()),
-        &auth,
-        deadline(),
-        "SELECT (rust_mdm_policy_delete($4::bigint)->>'status') WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
-        &[(&id, Type::INT8)],
-        |rows| match rows {
-            [row] => match row.try_get::<_, String>(0).map_err(|_| invalid())?.as_str() {
-                "200" => Ok(Deleted::Done),
-                "409" => Ok(Deleted::LastGlobal),
-                "404" => Ok(Deleted::Missing),
+    let env = envelope(user.user(), user.generation(), operation, &id.to_string());
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MDM_DELETE_POLICY,
+            &[&id],
+            Some(command("mdm_policy_delete")),
+            |rows| match rows.as_slice() {
+                [row] => match row.try_get::<_, String>(0).map_err(|_| invalid())?.as_str() {
+                    "200" => Ok(Deleted::Done),
+                    "409" => Ok(Deleted::LastGlobal),
+                    "404" => Ok(Deleted::Missing),
+                    _ => Err(invalid()),
+                },
                 _ => Err(invalid()),
             },
-            _ => Err(invalid()),
-        },
-    )
-    .await
+        )
+        .await
 }
 
 /// `PUT /admin/mdm/policies/reorder`: one UPDATE per id, highest priority first
 /// (`rust_mdm_policy_reorder`), atomically.
 pub async fn reorder_policies(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     ids: &[i64],
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
     let list: Vec<i64> = ids.to_vec();
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("mdm_policy_reorder"),
-        &envelope(&auth, operation, &format!("{ids:?}")),
-        &auth,
-        deadline(),
-        "SELECT rust_mdm_policy_reorder($4::bigint[])::text WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
-        &[(&list, Type::INT8_ARRAY)],
-        |rows| if rows.len() == 1 { Ok(()) } else { Err(invalid()) },
-    )
-    .await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{ids:?}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::MDM_REORDER_POLICIES,
+            &[&list],
+            Some(command("mdm_policy_reorder")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }

@@ -209,9 +209,25 @@ pub async fn revocation(
         identity.token_id(),
         identity.token_family(),
     );
-    let rows = exec.read("SELECT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND expires_at>now() AND ((scope='all' AND not_before>=to_timestamp($2::float8)) OR (scope='jti' AND $3<>'' AND jti=$3) OR (scope='family' AND $4<>'' AND family_id=$4)))",
-        &[(&user,Type::INT8),(&iat,Type::FLOAT8),(&jti,Type::TEXT),(&family,Type::TEXT)]).await?;
-    Ok(rows[0].get::<_, bool>(0))
+    let Ok(actor) = setjoin_contracts::ids::ActorId::new(user) else {
+        return Ok(false);
+    };
+    let rows = exec
+        .read_user_scoped(
+            actor,
+            "SELECT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND expires_at>now() AND ((scope='all' AND not_before>=to_timestamp($2::float8)) OR (scope='jti' AND $3<>'' AND jti=$3) OR (scope='family' AND $4<>'' AND family_id=$4)))",
+            &[
+                (&user, Type::INT8),
+                (&iat, Type::FLOAT8),
+                (&jti, Type::TEXT),
+                (&family, Type::TEXT),
+            ],
+        )
+        .await?;
+    Ok(rows
+        .first()
+        .and_then(|r| r.try_get::<_, bool>(0).ok())
+        .unwrap_or(true))
 }
 /// Durable twin of Go's process-local denylist; also closes the subscribe race.
 pub async fn revoked(exec: &ScopedExecutor, identity: &PushIdentity) -> bool {
@@ -223,8 +239,40 @@ impl PushIdentity {
     /// account ID or HTTP-only admission gate enters this authorization.
     pub async fn command_authorization(&self, exec: &ScopedExecutor) -> Option<crate::Authorized> {
         let user = self.user_id();
-        let rows=exec.read("SELECT m.id,m.jmap_email_state::int8,m.jmap_mailbox_state::int8,m.jmap_thread_state::int8,m.jmap_tag_state::int8,coalesce((SELECT max(jmap_state) FROM calendars WHERE mailbox_id=m.id),0)::int8,coalesce((SELECT max(jmap_state) FROM addressbooks WHERE mailbox_id=m.id),0)::int8,coalesce((SELECT max(jmap_state) FROM tasks WHERE mailbox_id=m.id),0)::int8,floor(extract(epoch FROM u.updated_at))::int8 FROM mailboxes m JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND m.is_primary",&[(&user,Type::INT8)]).await.ok()?;
+        let actor = setjoin_contracts::ids::ActorId::new(user).ok()?;
+        let rows = exec
+            .read_user_scoped(
+                actor,
+                "SELECT m.id,m.jmap_email_state::int8,m.jmap_mailbox_state::int8,\
+                 m.jmap_thread_state::int8,m.jmap_tag_state::int8,\
+                 floor(extract(epoch FROM u.updated_at))::int8,\
+                 mailbox_lifecycle_access_allowed(m.id) \
+                 FROM mailboxes m JOIN users u ON u.id=m.user_id \
+                 WHERE m.user_id=$1 AND m.is_primary",
+                &[(&user, Type::INT8)],
+            )
+            .await
+            .ok()?;
         let row = rows.first()?;
+        let mailbox: i64 = row.get(0);
+        let mailbox_blocked = row.try_get::<_, Option<bool>>(6).ok().flatten() != Some(true);
+        // Wave A FORCE RLS (#546b): calendars and addressbooks require app.current_mailbox_id.
+        let mb_scope = setjoin_pg::MailboxAuthContext::from_authenticated_session(
+            setjoin_contracts::ids::ActorId::new(user).ok()?,
+            setjoin_contracts::ids::MailboxId::new(mailbox).ok()?,
+            setjoin_contracts::ids::Generation(1),
+        );
+        let state_rows = exec
+            .read_scoped(
+                &mb_scope,
+                "SELECT coalesce((SELECT max(jmap_state) FROM calendars WHERE mailbox_id=$1),0)::int8,\
+                 coalesce((SELECT max(jmap_state) FROM addressbooks WHERE mailbox_id=$1),0)::int8,\
+                 coalesce((SELECT max(jmap_state) FROM tasks WHERE mailbox_id=$1),0)::int8",
+                &[(&mailbox, Type::INT8)],
+            )
+            .await
+            .ok()?;
+        let st = state_rows.first()?;
         let admin = self
             .claims
             .get("admin")
@@ -252,24 +300,24 @@ impl PushIdentity {
                 guest: self.guest,
                 user_id: user,
                 email: self.text("email").into(),
-                mailbox_id: row.get(0),
+                mailbox_id: mailbox,
                 domain_scope: self.claims.get("domain").and_then(Value::as_i64),
                 admin,
                 permissions: strings("perms"),
                 roles,
                 auth_time: self.claims.get("auth_time").and_then(Value::as_i64),
                 actor_id: self.act().filter(|&id| id > 0),
-                mailbox_blocked: false,
+                mailbox_blocked,
             },
             state: crate::gates::SessionState {
                 email: row.get(1),
                 mailbox: row.get(2),
                 thread: row.get(3),
                 tag: row.get(4),
-                calendar: row.get(5),
-                contact: row.get(6),
-                task: row.get(7),
-                identity: row.get(8),
+                calendar: st.get(0),
+                contact: st.get(1),
+                task: st.get(2),
+                identity: row.get(5),
             },
             issued_at: self.issued_at(),
             token_id: self.token_id().into(),
@@ -390,6 +438,9 @@ mod accessor_tests {
         assert_eq!(id.token_id(), "");
         assert_eq!(id.token_family(), "");
         assert_eq!(id.account_type(), "");
-        assert_eq!(identity(json!({"exp": 1_700_000_000})).expires_at(), Some(1_700_000_000));
+        assert_eq!(
+            identity(json!({"exp": 1_700_000_000})).expires_at(),
+            Some(1_700_000_000)
+        );
     }
 }

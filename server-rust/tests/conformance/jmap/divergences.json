@@ -254,5 +254,31 @@
     "reviewed": true,
     "review": "Wave 2b settled security divergence: fail-closed signSMIME and actor-scoped S/MIME keys",
     "secure_test": "bins/gateway/tests/jmap_batch_delegate.rs::wave2b_smime_attachments_and_decrypt_on_read"
+  },
+  {
+    "route": "GET /jmap/ws",
+    "case": "ws-mailbox-lifecycle-blocked",
+    "field": "/status",
+    "from": "upgrade WebSocket even when primary mailbox is disabled/suspended",
+    "to": "403 Forbidden (mailbox_blocked) via PolicyGate mailbox_lifecycle_access_allowed check on handshake and mid-connection revalidation",
+    "issue": "#542",
+    "reason": "Wave 1.4 (#542) unified PolicyGate security tightening: frozen Go WebSocket handshake did not check mailbox_lifecycle_access_allowed on primary mailboxes. Rust rejects blocked/suspended primary mailboxes with 403 at handshake and revalidates during push sessions.",
+    "reviewer": "Wave 1.4 PLAN-542 Rev 2 security review (2026-11-26)",
+    "reviewed": true,
+    "review": "Wave 1.4 (#542) PolicyGate mailbox lifecycle enforcement on WebSocket push",
+    "secure_test": "crates/authz/tests/policy_gate_db.rs::surface_matrix_enforces_revocation_lockdown_guest_entitlement_and_lifecycle"
+  },
+  {
+    "route": "GET /jmap/eventsource",
+    "case": "sse-mailbox-lifecycle-blocked",
+    "field": "/status",
+    "from": "open SSE stream even when primary mailbox is disabled/suspended",
+    "to": "403 Forbidden (mailbox_blocked) via PolicyGate mailbox_lifecycle_access_allowed check on stream setup and mid-connection revalidation",
+    "issue": "#542",
+    "reason": "Wave 1.4 (#542) unified PolicyGate security tightening: frozen Go EventSource setup did not check mailbox_lifecycle_access_allowed on primary mailboxes. Rust rejects blocked/suspended primary mailboxes with 403 at stream open and revalidates during push sessions.",
+    "reviewer": "Wave 1.4 PLAN-542 Rev 2 security review (2026-11-26)",
+    "reviewed": true,
+    "review": "Wave 1.4 (#542) PolicyGate mailbox lifecycle enforcement on SSE push",
+    "secure_test": "crates/authz/tests/policy_gate_db.rs::surface_matrix_enforces_revocation_lockdown_guest_entitlement_and_lifecycle"
   }
 ]

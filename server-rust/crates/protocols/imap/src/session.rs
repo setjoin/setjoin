@@ -2,12 +2,21 @@
 use crate::{
     auth,
     conn::{Conn, Io, LineError, READ_TIMEOUT},
+    messages::operation_id,
     registry::SessionRelease,
     tracker::UserSlot,
     Server, TlsMode,
 };
-use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
-use setjoin_pg::{MailboxAuthContext, Type};
+use setjoin_authz::principals::{
+    MailboxPrincipal, MutateCapability, ReadCapability, TxFactory, UserPrincipal,
+};
+use setjoin_contracts::{
+    authority::{AuthorityKey, ResourceScope},
+    command::CommandEnvelope,
+    ids::{ActorId, Digest, Generation, MailboxId},
+};
+use setjoin_pg::Type;
+use sha2::{Digest as _, Sha256};
 use std::{
     net::SocketAddr,
     sync::Arc,
@@ -24,6 +33,10 @@ pub(crate) struct Session {
     pub(crate) secure: bool,
     pub(crate) authed: bool,
     pub(crate) user_id: i64,
+    pub(crate) user_email: String,
+    pub(crate) client_ip: String,
+    pub(crate) user_principal: Option<UserPrincipal>,
+    pub(crate) principal: Option<MailboxPrincipal>,
     pub(crate) release: Option<UserSlot>,
     pub(crate) session_release: Option<SessionRelease>,
     pub(crate) close_tx: Arc<watch::Sender<bool>>,
@@ -62,6 +75,10 @@ pub(crate) async fn handle(server: Arc<Server>, socket: tokio::net::TcpStream) {
         peer,
         authed: false,
         user_id: 0,
+        user_email: String::new(),
+        client_ip: String::new(),
+        user_principal: None,
+        principal: None,
         release: None,
         session_release: None,
         close_tx: Arc::new(close_tx),
@@ -327,6 +344,82 @@ impl Session {
         }
     }
 
+    pub(crate) fn tx_factory(&self) -> Option<&TxFactory> {
+        self.server.tx_factory.as_ref()
+    }
+
+    pub(crate) fn user_principal(&self) -> Option<&UserPrincipal> {
+        self.user_principal.as_ref()
+    }
+
+    pub(crate) fn read_cap(&self) -> Option<ReadCapability> {
+        self.principal.as_ref()?.require_read().ok()
+    }
+
+    pub(crate) fn mutate_cap(&self) -> Option<MutateCapability> {
+        self.principal.as_ref()?.require_mutate().ok()
+    }
+
+    pub(crate) fn mailbox_envelope(
+        &self,
+        cap: &MutateCapability,
+        payload: &[u8],
+    ) -> CommandEnvelope<()> {
+        let generation = self
+            .principal
+            .as_ref()
+            .map_or(Generation(1), MailboxPrincipal::generation);
+        self.mailbox_envelope_for_generation(cap, generation, payload)
+    }
+
+    fn mailbox_envelope_for_generation(
+        &self,
+        cap: &MutateCapability,
+        generation: Generation,
+        payload: &[u8],
+    ) -> CommandEnvelope<()> {
+        CommandEnvelope {
+            operation: operation_id(cap.actor().get()),
+            authority: AuthorityKey {
+                actor: cap.actor(),
+                scope: ResourceScope::Mailbox(cap.mailbox()),
+                generation,
+            },
+            binding: setjoin_db::lifecycle::accepted_contract(),
+            payload_digest: Digest(Sha256::digest(payload).into()),
+            command: (),
+        }
+    }
+
+    /// Resolve a `MutateCapability` + matching `CommandEnvelope` for `mailbox_id`.
+    /// Reuses the currently bound session principal when it already targets `mailbox_id`,
+    /// otherwise mints a temporary `MailboxPrincipal` via `TxFactory::mint_capability_mailbox`
+    /// so cross-mailbox `APPEND` (before `SELECT`, or targeting another owned mailbox)
+    /// enforces ownership and RLS against the destination mailbox.
+    pub(crate) async fn mutate_cap_for(
+        &self,
+        mailbox_id: i64,
+        payload: &[u8],
+    ) -> Option<(MutateCapability, CommandEnvelope<()>)> {
+        if let Some(p) = self.principal.as_ref() {
+            if p.mailbox().get() == mailbox_id {
+                let cap = p.require_mutate().ok()?;
+                let env = self.mailbox_envelope_for_generation(&cap, p.generation(), payload);
+                return Some((cap, env));
+            }
+        }
+        let tx_factory = self.tx_factory()?;
+        let actor = ActorId::new(self.user_id).ok()?;
+        let mb = MailboxId::new(mailbox_id).ok()?;
+        let principal = tx_factory
+            .mint_capability_mailbox(actor, mb, &self.user_email, &self.client_ip)
+            .await
+            .ok()?;
+        let cap = principal.require_mutate().ok()?;
+        let env = self.mailbox_envelope_for_generation(&cap, principal.generation(), payload);
+        Some((cap, env))
+    }
+
     async fn select(&mut self, tag: &str, cmd: &str, args: &str) {
         if !self.authed {
             self.reply(tag, "NO Authentication required");
@@ -340,10 +433,18 @@ impl Session {
         let folder = canonical_mailbox(args.trim_matches('"'));
         self.selected = folder.clone();
         self.read_only = cmd == "EXAMINE";
-        let rows = self
-            .server
-            .db
-            .read(
+        let (Some(tx_factory), Some(user_principal)) =
+            (self.tx_factory().cloned(), self.user_principal().cloned())
+        else {
+            self.selected.clear();
+            self.reply(tag, "NO No such mailbox");
+            return;
+        };
+        // Run SELECT/EXAMINE tag lookup under UserPrincipal (app.current_user_id only)
+        // so secondary owned mailboxes remain visible under V287 FORCE RLS on `tags`.
+        let rows = tx_factory
+            .run_user_read_pipelined(
+                &user_principal,
                 "SELECT t.id, t.mailbox_id, COALESCE(t.total_count, 0)::bigint, \
                  COALESCE(t.unread_count, 0)::bigint, \
                  COALESCE(t.imap_uid_validity, 0)::bigint, COALESCE(t.imap_uid_next, 1)::bigint, \
@@ -361,10 +462,47 @@ impl Session {
             self.reply(tag, "NO No such mailbox");
             return;
         };
-        let (tag_id, mailbox_id): (i64, i64) = (row.get(0), row.get(1));
-        let (total, mut uid_validity, mut next_uid): (i64, i64, i64) =
-            (row.get(2), row.get(4), row.get(5));
+        let (Ok(tag_id), Ok(mailbox_id), Ok(total), Ok(mut uid_validity), Ok(mut next_uid)) = (
+            row.try_get::<_, i64>(0),
+            row.try_get::<_, i64>(1),
+            row.try_get::<_, i64>(2),
+            row.try_get::<_, i64>(4),
+            row.try_get::<_, i64>(5),
+        ) else {
+            self.selected.clear();
+            self.reply(tag, "NO No such mailbox");
+            return;
+        };
         let membership: bool = row.try_get(6).unwrap_or(false);
+        // Bind/refresh the session's MailboxPrincipal to the selected mailbox so
+        // subsequent mailbox-scoped commands (FETCH/SEARCH/STORE/APPEND/EXPUNGE)
+        // enforce RLS against the selected (possibly secondary) owned mailbox.
+        let needs_rebind = self
+            .principal
+            .as_ref()
+            .is_none_or(|p| p.mailbox().get() != mailbox_id);
+        if needs_rebind {
+            let (Ok(actor), Ok(mb)) = (ActorId::new(self.user_id), MailboxId::new(mailbox_id))
+            else {
+                self.selected.clear();
+                self.reply(tag, "NO No such mailbox");
+                return;
+            };
+            let Ok(selected_principal) = tx_factory
+                .mint_capability_mailbox(actor, mb, &self.user_email, &self.client_ip)
+                .await
+            else {
+                self.selected.clear();
+                self.reply(tag, "NO No such mailbox");
+                return;
+            };
+            if selected_principal.require_read().is_err() {
+                self.selected.clear();
+                self.reply(tag, "NO No such mailbox");
+                return;
+            }
+            self.principal = Some(selected_principal);
+        }
         self.mailbox_id = mailbox_id;
         self.tag_id = tag_id;
         self.use_membership_uid = membership;
@@ -410,25 +548,19 @@ impl Session {
 
     /// MAX(uid)+1 under the mailbox scope, only when the tag has no stored next UID.
     async fn max_uid_fallback(&self) -> Option<i64> {
-        let auth = MailboxAuthContext::from_authenticated_session(
-            ActorId::new(self.user_id).ok()?,
-            MailboxId::new(self.mailbox_id).ok()?,
-            Generation(1),
-        );
-        let column = if self.use_membership_uid {
-            "mt.imap_uid"
-        } else {
-            "m.imap_uid"
-        };
-        let sql = format!(
-            "SELECT COALESCE(MAX({column}), 0) + 1 FROM messages m \
+        let tx_factory = self.tx_factory()?;
+        let read_cap = self.read_cap()?;
+        let sql = if self.use_membership_uid {
+            "SELECT COALESCE(MAX(mt.imap_uid), 0) + 1 FROM messages m \
              JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at \
              WHERE mt.tag_id = $1 AND mt.is_primary = TRUE"
-        );
-        let rows = self
-            .server
-            .db
-            .read_scoped(&auth, &sql, &[(&self.tag_id, Type::INT8)])
+        } else {
+            "SELECT COALESCE(MAX(m.imap_uid), 0) + 1 FROM messages m \
+             JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at \
+             WHERE mt.tag_id = $1 AND mt.is_primary = TRUE"
+        };
+        let rows = tx_factory
+            .run_mailbox_read_pipelined(&read_cap, sql, &[(&self.tag_id, Type::INT8)])
             .await
             .ok()?;
         rows.first()?.try_get::<_, i64>(0).ok()

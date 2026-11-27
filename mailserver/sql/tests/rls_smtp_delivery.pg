@@ -37,6 +37,7 @@ SELECT is(
 -- writes into the RECIPIENT mailbox (B), server-resolved. Divergent ids (ADR-003).
 SELECT mk_account('srlsSender') AS mbs \gset
 SELECT mk_account('srlsRecip')  AS mbr \gset
+SELECT get_tag_id('Inbox', :mbr) AS inbox_r \gset
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.messages, public.message_tags
   TO setjoin_app, setjoin_worker;
@@ -70,7 +71,7 @@ SELECT set_config('app.current_mailbox_id', '', true);  -- no scope (un-wrapped 
 SELECT throws_ok(
   format($$ INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
             VALUES (783002, %s, %s, '<deliver-a@rls.test>', 'app cannot deliver', 'sender@ext.com', 10, 'thr-da', 'raw-da', now(), FALSE) $$,
-         :mbr, get_tag_id('Inbox', :mbr)),
+         :mbr, :inbox_r),
   '42501', NULL,
   'setjoin_app WITHOUT GUC: cross-tenant delivery INSERT is REJECTED (WITH CHECK) — the bypass role is load-bearing for delivery');
 
@@ -80,7 +81,7 @@ SELECT set_config('app.current_mailbox_id', :mbs::text, true);  -- sender's GUC,
 SELECT throws_ok(
   format($$ INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
             VALUES (783003, %s, %s, '<deliver-a2@rls.test>', 'sender GUC cannot fan out', 'sender@ext.com', 10, 'thr-da2', 'raw-da2', now(), FALSE) $$,
-         :mbr, get_tag_id('Inbox', :mbr)),
+         :mbr, :inbox_r),
   '42501', NULL,
   'setjoin_app with SENDER''s GUC: delivery into recipient B still REJECTED — a sender-pinned GUC cannot satisfy the fan-out (W4)');
 

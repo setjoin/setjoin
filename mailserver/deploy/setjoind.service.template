@@ -1,0 +1,65 @@
+[Unit]
+Description=Setjoin unified server (setjoind)
+Documentation=https://github.com/setjoin/setjoin/blob/main/docs/adr/ARCH-031-go-is-deleted.md
+# Unified single-box daemon composing http, auth, protocols, and workers
+# in-process behind systemd-owned sockets (#544).
+Requires=setjoin-gateway.socket
+After=network.target postgresql.service setjoin-gateway.socket
+Wants=postgresql.service
+# Stay inactive (not failed) if the active release does not carry setjoind.
+ConditionPathExists={{RUNTIME_DIR}}/setjoind
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=notify
+User={{USER|setjoin}}
+Group={{GROUP|setjoin}}
+WorkingDirectory={{RUNTIME_DIR}}
+ExecStart={{RUNTIME_DIR}}/setjoind --subsystems=all
+TimeoutStartSec=180
+# Order-sensitive EnvironmentFile chain:
+# 1. federation.env precedes config.env so operator worker switches in
+#    config.env are not overwritten by federation.env's narrower subset.
+# 2. setjoind.env provides gateway/WORM/protocol/LISTEN_ADDR=127.0.0.1:0 overrides.
+# 3. tls.env provides TLS/ACME paths and DNS-01 credentials.
+# 4. setjoind-auth.env (0600 root:root) provides DB_WORKER_DSN only.
+# Never source auth.env or db-credentials.env from this unit.
+EnvironmentFile=-{{FEDERATION_ENV}}
+EnvironmentFile={{CONFIG_ENV}}
+EnvironmentFile=-{{STORAGE_ENV}}
+EnvironmentFile=-{{SMTP_ENV}}
+EnvironmentFile={{SETJOIND_ENV}}
+EnvironmentFile=-{{TLS_ENV}}
+EnvironmentFile={{SETJOIND_AUTH_ENV}}
+Restart=always
+RestartSec=2
+# Unified 30s concurrent graceful drain on SIGTERM.
+TimeoutStopSec=40
+MemoryMax=1G
+TasksMax=1024
+LimitNOFILE=65536
+
+# No capability: all privileged ports are bound by systemd sockets.
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=yes
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=setjoind
+
+[Install]
+WantedBy=multi-user.target
+Also=setjoin-gateway.socket

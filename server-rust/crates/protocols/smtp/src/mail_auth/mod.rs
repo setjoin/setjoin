@@ -22,7 +22,9 @@ pub struct MailAuth {
     pub(crate) dns: Arc<dyn Dns>,
     pub(crate) features: Features,
 }
-pub(crate) fn relaxed_aligned(child: &str,parent: &str)->bool { dmarc::relaxed_aligned(child,parent) }
+pub(crate) fn relaxed_aligned(child: &str, parent: &str) -> bool {
+    dmarc::relaxed_aligned(child, parent)
+}
 impl MailAuth {
     /// The same DNS with the live per-session feature switches.
     pub fn with_features(mut self, features: Features) -> Self {

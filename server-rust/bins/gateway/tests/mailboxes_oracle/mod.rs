@@ -245,12 +245,17 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
     }
     .await;
     let mut db = db;
+    let mut worker_dsn = db.dsn.clone();
     if private {
         let base = db.app.clone().unwrap_or_else(|| db.dsn.clone());
         db.app = Some(format!(
             "{base}{}options=-csearch_path%3D{schema}%2Cpublic",
             if base.contains('?') { "&" } else { "?" }
         ));
+        worker_dsn = format!(
+            "{worker_dsn}{}options=-csearch_path%3D{schema}%2Cpublic",
+            if worker_dsn.contains('?') { "&" } else { "?" }
+        );
     }
     let result = async {
         seeded?;
@@ -263,7 +268,7 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
         let exec = ScopedExecutor::from_dsn_with(db.app.as_deref().unwrap_or(&db.dsn), 4, timeouts)
             .map_err(|e| e.0)?
             .with_audit_keys("22".repeat(32), String::new());
-        let worker = ScopedExecutor::from_dsn_with(&db.dsn, 4, timeouts)
+        let worker = ScopedExecutor::from_dsn_with(&worker_dsn, 4, timeouts)
             .map_err(|e| e.0)?
             .with_audit_keys("22".repeat(32), String::new());
         let adapter = Probe {

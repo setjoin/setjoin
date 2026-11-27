@@ -27,6 +27,12 @@ DECLARE
   v_default_cal   BIGINT;
   v_default_level TEXT;
 BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    IF p_viewer_id IS DISTINCT FROM NULLIF(current_setting('app.current_user_id', true), '')::bigint THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   -- Resolve the owner by ANY of their addresses (primary ∪ alias ∪ UPN) through
   -- the one address-aware seam (ADR-004) — not by users.email only, which missed
   -- an owner addressed by a sister-domain alias or their UPN.
@@ -92,7 +98,9 @@ BEGIN
     'list', v_result
   );
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.jmap_calendar_get_shared(bigint,text)'::regprocedure);
 
 -- jmap_calendar_event_get_shared: events on p_owner_email's calendars the viewer holds a
 -- grant on, within [p_after, p_before]. A 'freebusy' grant — OR a PRIVATE/CONFIDENTIAL
@@ -118,6 +126,12 @@ DECLARE
   v_default_cal   BIGINT;
   v_default_level TEXT;
 BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    IF p_viewer_id IS DISTINCT FROM NULLIF(current_setting('app.current_user_id', true), '')::bigint THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   -- Owner resolved address-aware (primary ∪ alias ∪ UPN), one seam (ADR-004).
   SELECT user_id, primary_mailbox INTO v_owner_uid, v_owner_mbox
   FROM resolve_identity(p_owner_email);
@@ -186,7 +200,9 @@ BEGIN
     'list', v_result
   );
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.jmap_calendar_event_get_shared(bigint,text,timestamptz,timestamptz)'::regprocedure);
 
 -- jmap_calendar_share_get: list the grants on a calendar the account owns.
 CREATE OR REPLACE FUNCTION jmap_calendar_share_get(
@@ -197,9 +213,16 @@ DECLARE
   v_result JSONB := '[]'::JSONB;
   v_row    RECORD;
 BEGIN
+  IF NOT public.rls_caller_is_privileged()
+     AND NOT public.rls_mailbox_in_scope(p_mailbox_id) THEN
+    RAISE EXCEPTION 'Calendar not found in this account'
+      USING ERRCODE = 'BZ001',
+            HINT = '{"type":"forbidden","calendar_id":"' || p_calendar_id || '"}';
+  END IF;
+
   -- Ownership: the calendar must belong to the account's mailbox.
   IF NOT EXISTS (
-    SELECT 1 FROM calendars WHERE id = p_calendar_id AND mailbox_id = p_mailbox_id
+    SELECT 1 FROM public.calendars WHERE id = p_calendar_id AND mailbox_id = p_mailbox_id
   ) THEN
     RAISE EXCEPTION 'Calendar not found in this account'
       USING ERRCODE = 'BZ001',
@@ -208,8 +231,8 @@ BEGIN
 
   FOR v_row IN
     SELECT a.permission, u.email, u.display_name
-    FROM calendar_acls a
-    JOIN users u ON u.id = a.user_id
+    FROM public.calendar_acls a
+    JOIN public.users u ON u.id = a.user_id
     WHERE a.calendar_id = p_calendar_id
     ORDER BY u.email
   LOOP
@@ -226,7 +249,9 @@ BEGIN
     'list', v_result
   );
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.jmap_calendar_share_get(bigint,bigint)'::regprocedure);
 
 -- jmap_calendar_share_set: grant/revoke calendar_acls rows. Only the calendar owner (the
 -- account whose mailbox owns it) or a viewer holding an 'admin' grant may change shares.
@@ -249,6 +274,14 @@ DECLARE
   v_target_uids BIGINT[];
   v_level       TEXT;
 BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    IF NOT public.rls_mailbox_in_scope(p_mailbox_id) THEN
+      RAISE EXCEPTION 'Not authorized to manage shares on this calendar'
+        USING ERRCODE = 'BZ001',
+              HINT = '{"type":"forbidden","calendar_id":"' || p_calendar_id || '"}';
+    END IF;
+  END IF;
+
   SELECT mailbox_id INTO v_owner_mbox FROM calendars WHERE id = p_calendar_id;
   IF v_owner_mbox IS NULL THEN
     RAISE EXCEPTION 'Calendar not found'
@@ -351,4 +384,6 @@ BEGIN
     'newState', (SELECT jmap_state FROM calendars WHERE id = p_calendar_id)::TEXT
   );
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.jmap_calendar_share_set(bigint,bigint,jsonb,jsonb)'::regprocedure);

@@ -150,15 +150,23 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
             let mailbox = if auth.is_guest() {
                 None
             } else {
-                commands
-                    .exec
-                    .read(
-                        "SELECT id FROM mailboxes WHERE user_id=$1 AND is_primary LIMIT 1",
-                        &[(&user, Type::INT8)],
-                    )
-                    .await
-                    .ok()
-                    .and_then(|r| r.first().map(|r| r.get::<_, i64>(0)))
+                match setjoin_authz::policy_gate::lookup_primary_mailbox_lifecycle(
+                    &commands.exec,
+                    user,
+                )
+                .await
+                {
+                    Ok(Some((mb, true))) => Some(mb),
+                    Ok(Some((_, false))) => {
+                        return super::push::plain(
+                            &r,
+                            &c,
+                            StatusCode::FORBIDDEN,
+                            "mailbox access suspended\n",
+                        );
+                    }
+                    _ => None,
+                }
             };
             if !auth.is_guest() && mailbox.is_none() {
                 return super::push::plain(&r, &c, StatusCode::FORBIDDEN, "no primary mailbox\n");
@@ -225,7 +233,7 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
             let ping_nanos = ping_secs.wrapping_mul(1_000_000_000);
             let mut initial = String::new();
             if let Some(scope) = &scope {
-                let tokens = setjoin_jmap::push_state::tokens(&commands.exec, scope).await;
+                let tokens = super::push_tokens(&commands.exec, scope).await;
                 let data = serde_json::json!({"@type":"StateChange","changed":{scope.mailbox().decimal():{"Email":tokens[0],"Mailbox":tokens[1],"Thread":tokens[2],"Calendar":tokens[3],"CalendarEvent":tokens[3],"Contact":tokens[4],"Task":tokens[5]}}});
                 initial = state_event(&data.to_string(), filter.as_ref()).unwrap_or_default();
             }
@@ -280,6 +288,9 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
                         _=revalidate.tick()=>{
                             if auth.expires_at().is_none_or(|exp|chrono::Utc::now().timestamp()>=exp){break}
                             let mut allowed=true;
+                            if let Some(mb) = mailbox {
+                                allowed &= setjoin_authz::policy_gate::check_mailbox_lifecycle(&commands.exec, mb).await.unwrap_or(false);
+                            }
                             for channel in &channels {
                                 let app=if channel.starts_with("chat:"){Some("chat")}else if channel.starts_with("meet:"){Some("meet")}else if channel.starts_with("drive-"){Some("drive")}else{None};
                                 if let Some(app)=app {allowed &=super::push::app_allowed(&commands.exec,&auth,app).await;}
@@ -415,13 +426,14 @@ async fn write(
     }
 }
 async fn drive_admin(exec: &setjoin_pg::ScopedExecutor, actor: ActorId) -> bool {
-    exec.read_user_scoped(
+    crate::policy_composition::user_read(
+        exec,
         actor,
         "SELECT drive_has_admin_perm($1,'drive.view') OR drive_has_admin_perm($1,'drive.manage')",
         &[(&actor.get(), Type::INT8)],
     )
     .await
-    .is_ok_and(|r| r[0].get::<_, bool>(0))
+    .is_ok_and(|r| r.first().and_then(|row| row.try_get::<_, bool>(0).ok()) == Some(true))
 }
 
 fn raw(event: &super::hub::Event) -> Option<String> {

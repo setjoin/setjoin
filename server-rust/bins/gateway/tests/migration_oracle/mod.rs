@@ -213,9 +213,13 @@ async fn run_inner(action: &str, kind: &str) -> Result<(), BoxError> {
         let exec = ScopedExecutor::from_dsn_with(db.app.as_deref().unwrap_or(&db.dsn), 4, timeouts)
             .map_err(|e| e.0)?
             .with_audit_keys("22".repeat(32), String::new());
+        let worker = ScopedExecutor::from_dsn_with(&db.dsn, 4, timeouts)
+            .map_err(|e| e.0)?
+            .with_audit_keys("22".repeat(32), String::new());
         let adapter = Probe {
             inner: MigrationRoute {
                 exec,
+                worker,
                 keys: Arc::new(common::recovery_keys()),
                 issuer: "mailserver".into(),
                 encryption_key: plan::root(),

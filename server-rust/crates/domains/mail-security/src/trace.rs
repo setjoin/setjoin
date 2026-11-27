@@ -4,12 +4,13 @@
 //!
 //! `message_trace` and `outbound_queue` carry no tenant column: the admin routes sit behind
 //! the console gate the adapter checks (`requireMailPerm` for list and timeline,
-//! `requireMailExport` for the CSV) and read globally. `delivery_attempts`, `messages` and
-//! `message_tags` are forced-RLS tables that Go reads on the worker pool; the user route
-//! filters them by the verified user (`mb.user_id`) and the resolved mailbox in the same
-//! WHERE. Everything here is a read, so there is no reducer.
-use super::{done, invalid, nano, s};
-use setjoin_pg::{ScopedExecutor, StatementFailure, Type};
+//! `requireMailExport` for the CSV) and read via `AdminReadTx`. `delivery_attempts`,
+//! `messages` and `message_tags` are forced-RLS tables: the admin timeline reads via
+//! `AdminReadTx` (cross-tenant admin pool) and the user route reads via `MailboxTx`
+//! (`ReadCapability`) with explicit ownership filters in the WHERE.
+use super::{done, invalid, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, ReadCapability, TxFactory};
+use setjoin_pg::{Row, StatementFailure};
 use std::collections::HashMap;
 
 /// `httputil.ParseLimitOffset(r, 50, 200)`.
@@ -107,45 +108,42 @@ pub struct Filters {
     pub date_to: String,
 }
 
-/// Go's dynamic WHERE, in Go's order: every value rides a bind parameter.
-fn where_clause(f: &Filters) -> (String, Vec<String>) {
-    let mut clause = "WHERE 1=1".to_owned();
-    let mut args: Vec<String> = vec![];
-    let mut add = |sql: &str, value: String| {
-        args.push(value);
-        clause += &format!(
-            " AND {sql}",
-            sql = sql.replace("$N", &format!("${}", args.len()))
-        );
-    };
-    if !f.from.is_empty() {
-        add("from_addr ILIKE $N", format!("%{}%", f.from));
+struct BoundFilters {
+    from_pat: String,
+    to_pat: String,
+    event: String,
+    status: String,
+    subject_pat: String,
+    date_from: Option<String>,
+    date_to: Option<String>,
+}
+
+fn bind_filters(f: &Filters) -> BoundFilters {
+    BoundFilters {
+        from_pat: if f.from.is_empty() {
+            String::new()
+        } else {
+            format!("%{}%", f.from)
+        },
+        to_pat: if f.to.is_empty() {
+            String::new()
+        } else {
+            format!("%{}%", f.to)
+        },
+        event: f.event.clone(),
+        status: f.status.clone(),
+        subject_pat: if f.subject.is_empty() {
+            String::new()
+        } else {
+            format!("%{}%", f.subject)
+        },
+        date_from: (!f.date_from.is_empty())
+            .then(|| go_rfc3339(&f.date_from))
+            .flatten(),
+        date_to: (!f.date_to.is_empty())
+            .then(|| go_rfc3339(&f.date_to))
+            .flatten(),
     }
-    if !f.to.is_empty() {
-        add("rcpt_addr ILIKE $N", format!("%{}%", f.to));
-    }
-    if !f.event.is_empty() {
-        add("event = $N", f.event.clone());
-    }
-    if !f.status.is_empty() {
-        add("details->>'status' = $N", f.status.clone());
-    }
-    if !f.subject.is_empty() {
-        add("details->>'subject' ILIKE $N", format!("%{}%", f.subject));
-    }
-    if let Some(t) = (!f.date_from.is_empty())
-        .then(|| go_rfc3339(&f.date_from))
-        .flatten()
-    {
-        add("occurred_at >= $N::text::timestamptz", t);
-    }
-    if let Some(t) = (!f.date_to.is_empty())
-        .then(|| go_rfc3339(&f.date_to))
-        .flatten()
-    {
-        add("occurred_at <= $N::text::timestamptz", t);
-    }
-    (clause, args)
 }
 
 /// `json.RawMessage` as `json.Marshal` writes it: whitespace outside strings removed.
@@ -172,43 +170,51 @@ fn compact(text: &str) -> String {
     out
 }
 
-fn text_args(args: &[String]) -> Vec<setjoin_pg::Param<'_>> {
-    args.iter().map(|a| (a as _, Type::TEXT)).collect()
-}
-
 /// `GET /admin/trace`: `{records, total, limit, offset}`; any query error is Go's 500.
 pub async fn admin_list(
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     filters: &Filters,
     limit: i64,
     offset: i64,
 ) -> Result<String, StatementFailure> {
-    let (clause, args) = where_clause(filters);
-    let total = worker
-        .read(
-            &format!("SELECT COUNT(*) FROM message_trace {clause}"),
-            &text_args(&args),
+    let b = bind_filters(filters);
+    let total = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::TRACE_ADMIN_COUNT,
+            &[
+                &b.from_pat,
+                &b.to_pat,
+                &b.event,
+                &b.status,
+                &b.subject_pat,
+                &b.date_from,
+                &b.date_to,
+            ],
         )
         .await?
         .first()
         .and_then(|r| r.try_get::<_, i64>(0).ok())
         .ok_or_else(invalid)?;
-    let n = args.len();
-    let mut params = text_args(&args);
-    params.push((&limit, Type::INT8));
-    params.push((&offset, Type::INT8));
-    let rows = worker
-        .read_iterated(
-            &format!(
-                "SELECT id, message_id, event, from_addr, rcpt_addr, remote_host, details::text, {} \
-                 FROM message_trace {clause} ORDER BY occurred_at DESC LIMIT ${} OFFSET ${}",
-                nano("occurred_at"),
-                n + 1,
-                n + 2
-            ),
-            &params,
+    let mut tx = factory.begin_admin_read(admin).await?;
+    let rows = tx
+        .query_iterated_contract(
+            &sql::TRACE_ADMIN_LIST,
+            &[
+                &b.from_pat,
+                &b.to_pat,
+                &b.event,
+                &b.status,
+                &b.subject_pat,
+                &b.date_from,
+                &b.date_to,
+                &limit,
+                &offset,
+            ],
         )
         .await?;
+    tx.finish().await?;
     let mut records = vec![];
     for row in &rows {
         // Go skips a row whose Scan fails; every column here is scannable.
@@ -251,20 +257,27 @@ pub async fn admin_list(
 /// `GET /admin/trace/export`: Go's CSV (header row written as is, data cells
 /// formula-neutralised), capped at 10 000 rows.
 pub async fn admin_export(
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     filters: &Filters,
 ) -> Result<String, StatementFailure> {
-    let (clause, args) = where_clause(filters);
-    let rows = worker
-        .read_iterated(
-            &format!(
-                "SELECT message_id, event, from_addr, rcpt_addr, remote_host, details::text, \
-                 to_char(occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') \
-                 FROM message_trace {clause} ORDER BY occurred_at DESC LIMIT 10000"
-            ),
-            &text_args(&args),
+    let b = bind_filters(filters);
+    let mut tx = factory.begin_admin_read(admin).await?;
+    let rows = tx
+        .query_iterated_contract(
+            &sql::TRACE_ADMIN_EXPORT,
+            &[
+                &b.from_pat,
+                &b.to_pat,
+                &b.event,
+                &b.status,
+                &b.subject_pat,
+                &b.date_from,
+                &b.date_to,
+            ],
         )
         .await;
+    let _ = tx.finish().await;
     let rows = match rows {
         Ok(rows) => rows,
         // pgx prepares the statement before binding: a data exception (invalid UTF-8 or NUL in a
@@ -280,7 +293,7 @@ pub fn export_empty() -> String {
     export_csv(&[])
 }
 
-fn export_csv(rows: &[setjoin_pg::Row]) -> String {
+fn export_csv(rows: &[Row]) -> String {
     let header: Vec<String> = [
         "message_id",
         "event",
@@ -414,33 +427,9 @@ fn recipient_json(r: &Recipient) -> String {
     )
 }
 
-/// The binding DISTINCT-ON read contract: one current row per recipient. `mailbox` is
-/// `Some` for the user path (ownership in the WHERE) and `None` for the admin path (the
-/// RBAC-gated cross-mailbox read). A failure degrades to what was read, as Go's Warn does.
-async fn read_latest(
-    worker: &ScopedExecutor,
-    pk: i64,
-    mailbox: Option<i64>,
-) -> HashMap<String, Latest> {
+fn decode_latest(rows: &[Row]) -> HashMap<String, Latest> {
     let mut out = HashMap::new();
-    let scope = if mailbox.is_some() {
-        " AND mailbox_id = $2"
-    } else {
-        ""
-    };
-    let sql = format!(
-        "SELECT DISTINCT ON (recipient_email) recipient_email, mx_host, smtp_code, smtp_text, {}, outcome \
-         FROM delivery_attempts WHERE message_pk = $1{scope} ORDER BY recipient_email, attempt_number DESC",
-        nano("attempted_at")
-    );
-    let mut params: Vec<setjoin_pg::Param<'_>> = vec![(&pk, Type::INT8)];
-    if let Some(m) = mailbox.as_ref() {
-        params.push((m, Type::INT8));
-    }
-    let Ok(rows) = worker.read(&sql, &params).await else {
-        return out;
-    };
-    for row in &rows {
+    for row in rows {
         let (Ok(email), Ok(mx_host), Ok(code), Ok(text), Ok(at), Ok(outcome)) = (
             row.try_get::<_, String>(0),
             row.try_get::<_, Option<String>>(1),
@@ -464,30 +453,10 @@ async fn read_latest(
     }
     out
 }
-async fn read_history(
-    worker: &ScopedExecutor,
-    pk: i64,
-    mailbox: Option<i64>,
-) -> HashMap<String, Vec<Attempt>> {
+
+fn decode_history(rows: &[Row]) -> HashMap<String, Vec<Attempt>> {
     let mut out: HashMap<String, Vec<Attempt>> = HashMap::new();
-    let scope = if mailbox.is_some() {
-        " AND mailbox_id = $2"
-    } else {
-        ""
-    };
-    let sql = format!(
-        "SELECT recipient_email, attempt_number, {}, mx_host, smtp_code, smtp_text, outcome, tls \
-         FROM delivery_attempts WHERE message_pk = $1{scope} ORDER BY recipient_email, attempt_number ASC",
-        nano("attempted_at")
-    );
-    let mut params: Vec<setjoin_pg::Param<'_>> = vec![(&pk, Type::INT8)];
-    if let Some(m) = mailbox.as_ref() {
-        params.push((m, Type::INT8));
-    }
-    let Ok(rows) = worker.read(&sql, &params).await else {
-        return out;
-    };
-    for row in &rows {
+    for row in rows {
         let (Ok(email), Ok(n), Ok(at), Ok(mx_host), Ok(code), Ok(text), Ok(outcome), Ok(tls)) = (
             row.try_get::<_, String>(0),
             row.try_get::<_, i32>(1),
@@ -513,23 +482,75 @@ async fn read_history(
     out
 }
 
+async fn read_latest_admin(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    pk: i64,
+) -> HashMap<String, Latest> {
+    match factory
+        .run_admin_read_contract(admin, &sql::TRACE_DELIVERY_LATEST_ADMIN, &[&pk])
+        .await
+    {
+        Ok(rows) => decode_latest(&rows),
+        Err(_) => HashMap::new(),
+    }
+}
+
+async fn read_history_admin(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    pk: i64,
+) -> HashMap<String, Vec<Attempt>> {
+    match factory
+        .run_admin_read_contract(admin, &sql::TRACE_DELIVERY_HISTORY_ADMIN, &[&pk])
+        .await
+    {
+        Ok(rows) => decode_history(&rows),
+        Err(_) => HashMap::new(),
+    }
+}
+
+async fn read_latest_user(
+    factory: &TxFactory,
+    cap: &ReadCapability,
+    pk: i64,
+    mailbox: i64,
+) -> HashMap<String, Latest> {
+    match factory
+        .run_mailbox_read_contract(cap, &sql::TRACE_DELIVERY_LATEST_USER, &[&pk, &mailbox])
+        .await
+    {
+        Ok(rows) => decode_latest(&rows),
+        Err(_) => HashMap::new(),
+    }
+}
+
+async fn read_history_user(
+    factory: &TxFactory,
+    cap: &ReadCapability,
+    pk: i64,
+    mailbox: i64,
+) -> HashMap<String, Vec<Attempt>> {
+    match factory
+        .run_mailbox_read_contract(cap, &sql::TRACE_DELIVERY_HISTORY_USER, &[&pk, &mailbox])
+        .await
+    {
+        Ok(rows) => decode_history(&rows),
+        Err(_) => HashMap::new(),
+    }
+}
+
 // ---- GET /admin/trace/{messageId} ----
 
 /// The ordered delivery timeline of one message. Any read error before the recipients is
 /// Go's 500; the per-recipient reads degrade.
 pub async fn timeline(
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     message_id: &str,
 ) -> Result<String, StatementFailure> {
-    let rows = worker
-        .read(
-            &format!(
-                "SELECT event, rcpt_addr, from_addr, remote_host, details::text, {} \
-                 FROM message_trace WHERE message_id = $1 ORDER BY occurred_at ASC",
-                nano("occurred_at")
-            ),
-            &[(&message_id, Type::TEXT)],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::TRACE_TIMELINE_EVENTS, &[&message_id])
         .await?;
     let mut events = vec![];
     for row in &rows {
@@ -555,16 +576,8 @@ pub async fn timeline(
             s(&at)
         ));
     }
-    let queue = worker
-        .read(
-            &format!(
-                "SELECT status, attempt_count, {}, last_error, rcpt_addrs, {}, message_pk \
-                 FROM outbound_queue WHERE message_id = $1 ORDER BY queued_at DESC LIMIT 1",
-                nano("next_attempt_at"),
-                nano("queued_at")
-            ),
-            &[(&message_id, Type::TEXT)],
-        )
+    let queue = factory
+        .run_admin_read_contract(admin, &sql::TRACE_TIMELINE_QUEUE, &[&message_id])
         .await?;
     let mut out = format!(
         "{{\"messageId\":{},\"events\":[{}],",
@@ -594,8 +607,8 @@ pub async fn timeline(
     );
     if let Some(pk) = pk {
         let overall = overall_status(&status);
-        let latest = read_latest(worker, pk, None).await;
-        let history = read_history(worker, pk, None).await;
+        let latest = read_latest_admin(factory, admin, pk).await;
+        let history = read_history_admin(factory, admin, pk).await;
         let (recipients, expired) = if latest.is_empty() && is_terminal(&overall) {
             (vec![], true)
         } else {
@@ -687,17 +700,13 @@ pub struct Owned {
 /// `ResolveOwnedMessage`: the message only when it sits in one of the user's mailboxes
 /// (R1); `Ok(None)` is Go's IDOR-safe 404.
 pub async fn owned(
-    worker: &ScopedExecutor,
+    factory: &TxFactory,
+    cap: &ReadCapability,
     email_id: i64,
-    user: i64,
 ) -> Result<Option<Owned>, StatementFailure> {
-    let rows = worker
-        .read(
-            "SELECT m.raw_ref, m.mailbox_id, m.id, m.received_at, COALESCE(m.subject, 'message') \
-             FROM messages m JOIN mailboxes mb ON mb.id = m.mailbox_id \
-             WHERE m.id = $1 AND mb.user_id = $2",
-            &[(&email_id, Type::INT8), (&user, Type::INT8)],
-        )
+    let uid = cap.actor().get();
+    let rows = factory
+        .run_mailbox_read_contract(cap, &sql::TRACE_USER_OWNED, &[&email_id, &uid])
         .await?;
     let Some(row) = rows.first() else {
         return Ok(None);
@@ -713,18 +722,13 @@ pub async fn owned(
 }
 
 /// `isSentMessage`: any error reads as inbound.
-pub async fn is_sent(worker: &ScopedExecutor, om: &Owned) -> bool {
+pub async fn is_sent(factory: &TxFactory, cap: &ReadCapability, om: &Owned) -> bool {
     let at = om.received_at;
-    let Ok(rows) = worker
-        .read(
-            "SELECT EXISTS (SELECT 1 FROM message_tags mt JOIN tags t ON t.id = mt.tag_id \
-             WHERE mt.message_id = $1 AND mt.received_at = $2 AND t.mailbox_id = $3 \
-             AND t.name = 'Sent' AND t.tag_type = 'system' AND t.exclusive_group = 'location')",
-            &[
-                (&om.pk, Type::INT8),
-                (&at, Type::TIMESTAMPTZ),
-                (&om.mailbox_id, Type::INT8),
-            ],
+    let Ok(rows) = factory
+        .run_mailbox_read_contract(
+            cap,
+            &sql::TRACE_USER_IS_SENT,
+            &[&om.pk, &at, &om.mailbox_id],
         )
         .await
     else {
@@ -765,17 +769,13 @@ pub fn download_url(base: &str, om: &Owned) -> String {
 }
 
 /// `writeOutbound`: the per-recipient delivery view of a Sent message.
-pub async fn outbound(worker: &ScopedExecutor, om: &Owned, base: &str) -> String {
+pub async fn outbound(factory: &TxFactory, cap: &ReadCapability, om: &Owned, base: &str) -> String {
     // readOutboundQueue
-    let queue = worker
-        .read(
-            &format!(
-                "SELECT status, {}, {}, rcpt_addrs FROM outbound_queue \
-                 WHERE message_pk = $1 AND mailbox_id = $2 ORDER BY queued_at DESC LIMIT 1",
-                nano("next_attempt_at"),
-                nano("delivered_at")
-            ),
-            &[(&om.pk, Type::INT8), (&om.mailbox_id, Type::INT8)],
+    let queue = factory
+        .run_mailbox_read_contract(
+            cap,
+            &sql::TRACE_USER_OUTBOUND_QUEUE,
+            &[&om.pk, &om.mailbox_id],
         )
         .await
         .ok()
@@ -793,8 +793,8 @@ pub async fn outbound(worker: &ScopedExecutor, om: &Owned, base: &str) -> String
         Some((status, next, delivered, rcpts)) => (overall_status(&status), next, delivered, rcpts),
         None => (String::new(), None, None, vec![]),
     };
-    let latest = read_latest(worker, om.pk, Some(om.mailbox_id)).await;
-    let history = read_history(worker, om.pk, Some(om.mailbox_id)).await;
+    let latest = read_latest_user(factory, cap, om.pk, om.mailbox_id).await;
+    let history = read_history_user(factory, cap, om.pk, om.mailbox_id).await;
     let list = if found && latest.is_empty() && is_terminal(&overall) {
         vec![]
     } else {

@@ -586,6 +586,7 @@ async fn run(case: &'static str, mutant: Mutant) -> Result<(), BoxError> {
                 dsn: db.dsn.clone(),
                 direct: db.direct.clone(),
                 app: db.app.clone(),
+                worker: db.worker.clone(),
             },
             unused,
             "gofree-meet5",

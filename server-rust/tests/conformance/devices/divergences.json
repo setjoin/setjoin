@@ -46,5 +46,35 @@
     "review": "owner-approved security fix 2026-11-05",
     "secure_test": "bins/gateway/tests/secfix5.rs::lockdown_console_is_confined_to_the_callers_reach",
     "mutant": "lockdown-foreign-target"
+  },
+  {
+    "baseline": "goldens/queue-rls.json",
+    "sha256": "02ca0e532c2186287dead4edefe67fb320199eeb9fc8fd51285d821bcda0d5da",
+    "expectation": "security/queue-rls.json",
+    "reason": "owner-approved security fix 2026-11-26 (#546b Wave 1.8: AdminReadTx always binds app.current_user_id to the verified admin principal rather than leaving it unset like frozen Go, so under setjoin_app FORCE RLS the admin's own device_enroll_events timestamps last_seen_at/requested_at remain visible while foreign users' events stay denied)",
+    "issue": "#546",
+    "reviewer": "owner 2026-11-26",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-26"
+  },
+  {
+    "baseline": "goldens/transition-rls.json",
+    "sha256": "02290a2f2e521e18f57a924a1be8c428492bc77bf6f94c0a92346d7ec97fc1d6",
+    "expectation": "security/transition-rls.json",
+    "reason": "owner-approved security fix 2026-11-26 (#546e Wave 1.8e V289: dropped legacy open TO PUBLIC devices_admin_read SELECT policy; without app.current_user_id under setjoin_app, device_enroll_transition fails closed on the initial SELECT as 409 device_not_found instead of leaking device existence and failing later on UPDATE with 500)",
+    "issue": "#546",
+    "reviewer": "owner 2026-11-26",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-26"
+  },
+  {
+    "baseline": "goldens/transition-rls-own.json",
+    "sha256": "2dd14fcfecd2457d15768919b100331faef964665e1267e91c5a4433dfb3d9e5",
+    "expectation": "security/transition-rls-own.json",
+    "reason": "owner-approved security fix 2026-11-26 (#546e Wave 1.8e V289: dropped legacy open TO PUBLIC devices_admin_read SELECT policy; rust_device_enroll_transition clears app.current_user_id so under setjoin_app the initial SELECT fails closed as 409 device_not_found instead of reading through the open policy and failing later on UPDATE with 500)",
+    "issue": "#546",
+    "reviewer": "owner 2026-11-26",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-26"
   }
 ]

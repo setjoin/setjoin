@@ -1,32 +1,22 @@
-//! Conditional access (F03) slice `remaining`: named locations. Reads repeat Go's query; every
-//! write calls `ca_named_location_set|restore`, which commit data, audit and the single
-//! `ca_notify_policy_change` together.
-use super::cmd::{counted, one_i64, run};
+//! Conditional access (F03) slice `remaining`: named locations. Reads run via `AdminReadTx`;
+//! every write calls `rust_ca_named_location_set|restore` via `AdminWriteTx`
+//! (`ReducerWritesCoreAudit`), committing data, core audit and `ca_notify_policy_change` together.
+use super::cmd::{one_i64, run_audited};
 use super::policies::compact;
-use super::{done, invalid, nano, s};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use super::{done, invalid, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 
 /// `GET .../named-locations`: Go's `[]map[string]any`, keys in sorted order, `ip_ranges` and
 /// `countries` jsonb compacted like a `json.RawMessage`.
 pub async fn list(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     include_deleted: bool,
 ) -> Result<String, StatementFailure> {
-    let sql = format!(
-        "SELECT id, name, description, ip_ranges::text, countries::text, is_trusted, \
-         {}, {}, CASE WHEN deleted_at IS NULL THEN NULL ELSE {} END \
-         FROM named_locations{} ORDER BY name ASC",
-        nano("created_at"),
-        nano("updated_at"),
-        nano("deleted_at"),
-        if include_deleted {
-            ""
-        } else {
-            " WHERE deleted_at IS NULL"
-        }
-    );
-    let rows = exec.read(&sql, &[]).await?;
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::LOCATIONS_LIST, &[&include_deleted])
+        .await?;
     let bad = |_| invalid();
     let mut out = Vec::new();
     for r in &rows {
@@ -56,11 +46,10 @@ pub struct Location<'a> {
     pub trusted: bool,
 }
 
-/// Create (`id` 0) or update: Go's `ca_named_location_set(id, name, description, cidrs,
-/// countries, trusted, false, actor, ip)`; the answer is the row id.
+/// Create (`id` 0) or update: `rust_ca_named_location_set`; the answer is the row id.
 pub async fn save(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     ip: &str,
     id: i64,
     location: &Location<'_>,
@@ -68,9 +57,10 @@ pub async fn save(
 ) -> CommandOutcome<i64, StatementFailure> {
     let cidrs: Option<Vec<String>> = location.cidrs.map(<[String]>::to_vec);
     let countries: Option<Vec<String>> = location.countries.map(<[String]>::to_vec);
-    run(
-        exec,
-        actor,
+    let delete = false;
+    run_audited(
+        factory,
+        admin,
         if id == 0 {
             "ca_named_location_create"
         } else {
@@ -81,16 +71,16 @@ pub async fn save(
             "{id}:{ip}:{}:{}:{cidrs:?}:{countries:?}:{}",
             location.name, location.description, location.trusted
         ),
-        "SELECT ca_named_location_set($4,$5,$6,$7::text[]::cidr[],$8::text[],$9,false,$2,$10::text::inet) \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
+        &sql::LOCATION_SET,
         &[
-            (&id, Type::INT8),
-            (&location.name, Type::TEXT),
-            (&location.description, Type::TEXT),
-            (&cidrs, Type::TEXT_ARRAY),
-            (&countries, Type::TEXT_ARRAY),
-            (&location.trusted, Type::BOOL),
-            (&ip, Type::TEXT),
+            &id,
+            &location.name,
+            &location.description,
+            &cidrs,
+            &countries,
+            &location.trusted,
+            &delete,
+            &ip,
         ],
         one_i64,
     )
@@ -99,42 +89,53 @@ pub async fn save(
 
 /// `DELETE .../named-locations/{id}`: the soft-delete path of the same reducer.
 pub async fn soft_delete(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     ip: &str,
     id: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    run(
-        exec,
-        actor,
+    let none_text: Option<&str> = None;
+    let none_arr: Option<Vec<String>> = None;
+    let none_bool: Option<bool> = None;
+    let delete = true;
+    run_audited(
+        factory,
+        admin,
         "ca_named_location_delete",
         operation,
         &format!("{id}:{ip}"),
-        "SELECT count(*)::bigint FROM (SELECT ca_named_location_set($4,NULL,NULL,NULL,NULL,NULL,true,$2,$5::text::inet) \
-         WHERE $1::bigint >= 0 AND $3::text <> '') w",
-        &[(&id, Type::INT8), (&ip, Type::TEXT)],
-        counted,
+        &sql::LOCATION_SET,
+        &[
+            &id, &none_text, &none_text, &none_arr, &none_arr, &none_bool, &delete, &ip,
+        ],
+        |rows| {
+            if rows.len() == 1 {
+                Ok(())
+            } else {
+                Err(invalid())
+            }
+        },
     )
     .await
 }
 
 /// `POST .../named-locations/{id}/restore`.
 pub async fn restore(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     ip: &str,
     id: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    run(
-        exec,
-        actor,
+    run_audited(
+        factory,
+        admin,
         "ca_named_location_restore",
         operation,
         &format!("{id}:{ip}"),
-        "SELECT ca_named_location_restore($4,$2,$5::text::inet) WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[(&id, Type::INT8), (&ip, Type::TEXT)],
+        &sql::LOCATION_RESTORE,
+        &[&id, &ip],
         one_i64,
     )
     .await

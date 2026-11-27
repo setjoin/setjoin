@@ -16,13 +16,23 @@ use std::sync::Arc;
 
 pub struct UserSettingsRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
 }
 
 impl<K: KeySource + 'static> UserSettingsRoute<K> {
     pub fn new(exec: ScopedExecutor, keys: Arc<K>, issuer: String) -> Self {
-        Self { exec, keys, issuer }
+        Self {
+            exec,
+            worker: None,
+            keys,
+            issuer,
+        }
+    }
+    pub fn with_worker(mut self, worker: ScopedExecutor) -> Self {
+        self.worker = Some(worker);
+        self
     }
 }
 
@@ -411,7 +421,12 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        let (exec, worker, keys, issuer) = (
+            self.exec.clone(),
+            self.worker.clone(),
+            self.keys.clone(),
+            self.issuer.clone(),
+        );
         Box::pin(async move {
             let what = action(r.method(), r.uri().path()).expect("matched route");
             let verdict =
@@ -420,11 +435,18 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
+            let Some(factory) = crate::policy_composition::tx_factory_from_executors(&exec, None)
+            else {
+                return bare(503, "service unavailable", &c, "");
+            };
             let Some(operation) = crate::jmap::random() else {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
-            let actor = auth.context();
+            let client_ip = c.identity.client_ip.to_string();
+            let Ok(user) = factory.mint_user_from_authorized(&auth, &client_ip).await else {
+                return bare(500, "database error", &c, &id);
+            };
             let json = |body: String, status: u16| {
                 let mut response = crate::jmap::reply::response(body, c.identity.proto, id.clone());
                 *response.status_mut() = hyper::StatusCode::from_u16(status).expect("status");
@@ -461,7 +483,7 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                 CommandOutcome::Unknown { operation } => unknown_outcome(operation, &c, &id),
             };
             match what {
-                Action::ImapGet => json(db::imap_get(&exec, actor).await, 200),
+                Action::ImapGet => json(db::imap_get(&factory, &user).await, 200),
                 Action::ImapPut => {
                     let Some(body) = decode_body::<ImapBody>(&mut r, UNCAPPED).await else {
                         return bare(400, "invalid json", &c, &id);
@@ -472,9 +494,9 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                         exposed_tag_ids: body.exposed_tag_ids.map(|ids| ids.0),
                         folder_separator: body.folder_separator,
                     };
-                    failed(db::imap_put(&exec, actor, &body, operation).await)
+                    failed(db::imap_put(&factory, &user, &body, operation).await)
                 }
-                Action::ViewGet => json(db::view_get(&exec, actor).await, 200),
+                Action::ViewGet => json(db::view_get(&factory, &user).await, 200),
                 Action::ViewPut => {
                     let Some(raw) = first_value(&mut r, UNCAPPED).await else {
                         return bare(400, "invalid json", &c, &id);
@@ -490,15 +512,15 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                         }
                     }
                     let prefs = setjoin_user_settings::go_marshal(&value);
-                    failed(db::view_put(&exec, actor, &prefs, operation).await)
+                    failed(db::view_put(&factory, &user, &prefs, operation).await)
                 }
-                Action::UndoGet => json(db::undo_get(&exec, actor).await, 200),
+                Action::UndoGet => json(db::undo_get(&factory, &user).await, 200),
                 Action::UndoPut => {
                     let Some(body) = decode_body::<DelayBody>(&mut r, UNCAPPED).await else {
                         return bare(400, "invalid json", &c, &id);
                     };
                     let delay = db::clamp_delay(body.delay);
-                    match db::undo_put(&exec, actor, delay, operation).await {
+                    match db::undo_put(&factory, &user, delay, operation).await {
                         CommandOutcome::Committed(()) => json(db::undo_body(delay), 200),
                         CommandOutcome::RolledBack(_) => bare(500, "database error", &c, &id),
                         CommandOutcome::Unknown { operation } => {
@@ -506,7 +528,7 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                         }
                     }
                 }
-                Action::NewsletterGet => json(db::newsletter_get(&exec, actor).await, 200),
+                Action::NewsletterGet => json(db::newsletter_get(&factory, &user).await, 200),
                 Action::NewsletterPut => {
                     let Some(body) = decode_body::<NewsletterBody>(&mut r, UNCAPPED).await else {
                         return bare(400, "invalid json", &c, &id);
@@ -520,9 +542,9 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                     }
                     let patch =
                         setjoin_user_settings::go_marshal(&serde_json::Value::Object(patch));
-                    failed(db::newsletter_put(&exec, actor, &patch, operation).await)
+                    failed(db::newsletter_put(&factory, &user, &patch, operation).await)
                 }
-                Action::SignatureList => match db::signature_list(&exec, actor).await {
+                Action::SignatureList => match db::signature_list(&factory, &user).await {
                     Ok(body) => json(body, 200),
                     Err(_) => bare(500, "database error", &c, &id),
                 },
@@ -543,7 +565,7 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                     if body.text.len() > 8 << 10 {
                         return bare(400, "signature_text is too long", &c, &id);
                     }
-                    match db::signature_others(&exec, actor, &body.alias).await {
+                    match db::signature_others(&factory, &user, &body.alias).await {
                         Ok(others) if others >= db::MAX_SIGNATURES => {
                             return bare(400, "signature limit reached", &c, &id);
                         }
@@ -559,8 +581,8 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                         return bare(400, "invalid default_for", &c, &id);
                     }
                     match db::signature_put(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user,
                         &body.alias,
                         &body.html,
                         &body.text,
@@ -580,7 +602,7 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                         }
                     }
                 }
-                Action::NotificationGet => match prefs::notification_get(&exec, actor).await {
+                Action::NotificationGet => match prefs::notification_get(&factory, &user).await {
                     Ok(body) => json(body, 200),
                     Err(_) => bare(500, "database error", &c, &id),
                 },
@@ -617,11 +639,11 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                         chat_notifications: p.chat,
                     };
                     saved(
-                        prefs::notification_put(&exec, actor, &put, operation).await,
+                        prefs::notification_put(&factory, &user, &put, operation).await,
                         None,
                     )
                 }
-                Action::VipGet => match prefs::vip_get(&exec, actor).await {
+                Action::VipGet => match prefs::vip_get(&factory, &user).await {
                     Ok(body) => json(body, 200),
                     Err(_) => bare(500, "database error", &c, &id),
                 },
@@ -633,15 +655,27 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                         return bare(400, "email required", &c, &id);
                     }
                     saved(
-                        prefs::vip_put(&exec, actor, &body.email, body.vip, operation).await,
+                        prefs::vip_put(&factory, &user, &body.email, body.vip, operation).await,
                         None,
                     )
                 }
                 Action::VacationGet => {
-                    if prefs::primary_mailbox(&exec, actor).await.is_none() {
+                    let Some(mb_id) = prefs::primary_mailbox(&factory, &user)
+                        .await
+                        .and_then(|n| setjoin_contracts::ids::MailboxId::new(n).ok())
+                    else {
                         return bare(404, "mailbox not found", &c, &id);
-                    }
-                    match prefs::vacation_get(&exec, actor).await {
+                    };
+                    let Ok(mb_p) = factory
+                        .mint_mailbox_from_authorized(&auth, mb_id, &client_ip)
+                        .await
+                    else {
+                        return bare(404, "mailbox not found", &c, &id);
+                    };
+                    let Ok(read_cap) = mb_p.require_read() else {
+                        return bare(404, "mailbox not found", &c, &id);
+                    };
+                    match prefs::vacation_get(&factory, &read_cap).await {
                         Ok(body) => json(body, 200),
                         Err(_) => bare(500, "database error", &c, &id),
                     }
@@ -656,9 +690,21 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                     if !prefs::valid_external_audience(&body.external_audience) {
                         return bare(400, "invalid external_audience", &c, &id);
                     }
-                    if prefs::primary_mailbox(&exec, actor).await.is_none() {
+                    let Some(mb_id) = prefs::primary_mailbox(&factory, &user)
+                        .await
+                        .and_then(|n| setjoin_contracts::ids::MailboxId::new(n).ok())
+                    else {
                         return bare(404, "mailbox not found", &c, &id);
-                    }
+                    };
+                    let Ok(mb_p) = factory
+                        .mint_mailbox_from_authorized(&auth, mb_id, &client_ip)
+                        .await
+                    else {
+                        return bare(404, "mailbox not found", &c, &id);
+                    };
+                    let Ok(mutate_cap) = mb_p.require_mutate() else {
+                        return bare(404, "mailbox not found", &c, &id);
+                    };
                     let put = prefs::VacationPut {
                         enabled: body.enabled,
                         subject: body.subject,
@@ -671,14 +717,38 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                         external_audience: body.external_audience,
                     };
                     saved(
-                        prefs::vacation_put(&exec, actor, &put, operation).await,
+                        prefs::vacation_put(&factory, &mutate_cap, &put, operation).await,
                         Some((&["BZ046", "BZ047"], "invalid automatic-reply settings")),
                     )
                 }
-                Action::DelegationGet => match prefs::delegation_get(&exec, actor).await {
-                    Ok(body) => json(body, 200),
-                    Err(_) => bare(500, "database error", &c, &id),
-                },
+                Action::DelegationGet => {
+                    let uid = user.user().get();
+                    let worker_exec = worker.as_ref().unwrap_or(&exec);
+                    let result = match worker_exec.try_worker_pool() {
+                        Some(wp) => match wp.begin_repeatable_read_only().await {
+                            Ok(mut tx) => {
+                                let rows = tx
+                                    .query_contract(
+                                        &setjoin_user_settings::sql::DELEGATION_GET,
+                                        &[&uid],
+                                    )
+                                    .await;
+                                let _ = tx.rollback().await;
+                                rows.and_then(|rows| prefs::parse_delegation_get(&rows))
+                            }
+                            Err(e) => Err(e),
+                        },
+                        None => Err(setjoin_pg::StatementFailure {
+                            sqlstate: None,
+                            hint: None,
+                            message: "worker pool unavailable".into(),
+                        }),
+                    };
+                    match result {
+                        Ok(body) => json(body, 200),
+                        Err(_) => bare(500, "database error", &c, &id),
+                    }
+                }
                 Action::DelegationPut => {
                     let Some(body) = decode_body::<DelegationBody>(&mut r, UNCAPPED).await else {
                         return bare(400, "invalid JSON", &c, &id);
@@ -690,7 +760,7 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                         ends = body.ends_at;
                     }
                     saved(
-                        prefs::delegation_put(&exec, actor, delegate, &starts, &ends, operation)
+                        prefs::delegation_put(&factory, &user, delegate, &starts, &ends, operation)
                             .await,
                         Some((&["BZ119"], "invalid approval-delegation settings")),
                     )
@@ -709,22 +779,34 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                         );
                         response
                     };
-                    let user = actor.user_id();
-                    let Ok(flags) = sync::toggles(&exec).await else {
+                    let Ok(flags) = sync::toggles(&factory).await else {
                         return absent();
                     };
                     if !flags[0] || !flags[1] {
                         return absent();
                     }
-                    let Some(mailbox) = sync::primary_mailbox(&exec, user).await else {
+                    let Some(mb_id) = sync::primary_mailbox(&factory, &user)
+                        .await
+                        .and_then(|n| setjoin_contracts::ids::MailboxId::new(n).ok())
+                    else {
                         return absent();
                     };
-                    let Some(device) = sync::device(&exec, user, auth.device_id()).await else {
+                    let Ok(mb_p) = factory
+                        .mint_mailbox_from_authorized(&auth, mb_id, &client_ip)
+                        .await
+                    else {
+                        return absent();
+                    };
+                    let (Ok(read_cap), Ok(mutate_cap)) =
+                        (mb_p.require_read(), mb_p.require_mutate())
+                    else {
+                        return absent();
+                    };
+                    let Some(device) = sync::device(&factory, &user, auth.device_id()).await else {
                         return absent();
                     };
                     let current =
-                        sync::capabilities(&exec, actor, mailbox, device, [flags[2], flags[3]])
-                            .await;
+                        sync::capabilities(&factory, &read_cap, device, [flags[2], flags[3]]).await;
                     if matches!(sync::mode(&current), "off" | "") {
                         return absent();
                     }
@@ -734,12 +816,11 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                     if request.window_days > i64::from(i32::MAX) {
                         return bare(500, "sync preferences update failed", &c, &id);
                     }
-                    match sync::put(&exec, actor, device, &request, operation).await {
+                    match sync::put(&factory, &mutate_cap, device, &request, operation).await {
                         CommandOutcome::Committed(()) => {
                             let refreshed = sync::capabilities(
-                                &exec,
-                                actor,
-                                mailbox,
+                                &factory,
+                                &read_cap,
                                 device,
                                 [flags[2], flags[3]],
                             )
@@ -765,12 +846,12 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                     }
                 }
                 Action::SessionsList => {
-                    match security::sessions_list(&exec, actor, auth.token_id()).await {
+                    match security::sessions_list(&factory, &user, auth.token_id()).await {
                         Ok(body) => json(body, 200),
                         Err(_) => bare(500, "database error", &c, &id),
                     }
                 }
-                Action::DevicesList => json(security::devices_list(&exec, actor).await, 200),
+                Action::DevicesList => json(security::devices_list(&factory, &user).await, 200),
                 Action::LoginHistory => {
                     // Go's `ParseLimitOffset(r, 50, 200)`: Atoi errors are ignored, the ceiling applies.
                     let uri = r.uri();
@@ -786,8 +867,8 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                     let outcome =
                         crate::admin_identity_input::query(uri, "outcome").unwrap_or_default();
                     match security::login_history(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user,
                         auth.token_id(),
                         &outcome,
                         limit,
@@ -810,7 +891,7 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                     if name.chars().count() > profile::MAX_NAME_RUNES {
                         return bare(400, "display name is too long", &c, &id);
                     }
-                    match profile::profile_update(&exec, actor, name, operation).await {
+                    match profile::profile_update(&factory, &user, name, operation).await {
                         CommandOutcome::Committed(()) => json(profile::updated_body(name), 200),
                         CommandOutcome::RolledBack(_) => {
                             bare(500, "failed to update profile", &c, &id)
@@ -820,17 +901,17 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                         }
                     }
                 }
-                Action::QuotaGet => match profile::quota_get(&exec, actor).await {
+                Action::QuotaGet => match profile::quota_get(&factory, &user).await {
                     Some(body) => json(body, 200),
                     None => bare(500, "database error", &c, &id),
                 },
-                Action::SecurityScore => json(security::security_score(&exec, actor).await, 200),
+                Action::SecurityScore => json(security::security_score(&factory, &user).await, 200),
                 Action::SessionRevoke => {
                     let target = segment(&path, 4);
                     if target.is_empty() {
                         return bare(400, "session id required", &c, &id);
                     }
-                    match security::session_revoke(&exec, actor, &target, operation).await {
+                    match security::session_revoke(&factory, &user, &target, operation).await {
                         CommandOutcome::Committed(security::Revoked::Revoked) => {
                             json(status_body("revoked"), 200)
                         }
@@ -844,7 +925,7 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                     }
                 }
                 Action::SessionsRevokeAll => {
-                    match security::sessions_revoke_all(&exec, actor, operation).await {
+                    match security::sessions_revoke_all(&factory, &user, operation).await {
                         CommandOutcome::Committed(()) => json(status_body("revoked-all"), 200),
                         CommandOutcome::RolledBack(_) => bare(500, "database error", &c, &id),
                         CommandOutcome::Unknown { operation } => {
@@ -853,8 +934,7 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                     }
                 }
                 Action::SecureAccount => {
-                    let ip = c.identity.client_ip.to_string();
-                    match security::secure_account(&exec, actor, &ip, operation).await {
+                    match security::secure_account(&factory, &user, &client_ip, operation).await {
                         CommandOutcome::Committed(()) => json(status_body("secured"), 200),
                         CommandOutcome::RolledBack(_) => bare(500, "database error", &c, &id),
                         CommandOutcome::Unknown { operation } => {
@@ -866,7 +946,7 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                     let Ok(target) = segment(&path, 4).parse::<i64>() else {
                         return bare(400, "invalid signature id", &c, &id);
                     };
-                    match db::signature_delete(&exec, actor, target, operation).await {
+                    match db::signature_delete(&factory, &user, target, operation).await {
                         CommandOutcome::Committed(true) => {
                             let mut response = json(String::new(), 204);
                             response.headers_mut().remove("content-type");

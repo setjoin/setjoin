@@ -53,23 +53,40 @@ impl Snapshot {
         })
     }
 }
-/// Go resolves group and role membership with explicit user predicates. These
-/// reads deliberately preserve its request-pool RLS view (no worker credential).
+/// Resolve CA group and live JIT-active role-group membership (#542).
+///
+/// Runs `user_group_members` (`V045` `FORCE RLS`) inside `read_user_scoped`
+/// (`app.current_user_id = user`) via `crate::groups`, fixing the zero-row bug
+/// under `setjoin_app`, and filters `admin_role_assignments` by
+/// `admin_assignment_active(eligible, activated_until)` so dormant JIT roles
+/// are never treated as active in Conditional Access.
 pub async fn resolve_scope(
     exec: &ScopedExecutor,
     user: i64,
 ) -> Result<(Vec<i64>, Vec<i64>), StatementFailure> {
-    let groups = exec
+    let groups = crate::groups::resolve_ca_groups_with_executor(exec, user).await?;
+    let roles = resolve_active_roles(exec, user).await?;
+    Ok((groups, roles))
+}
+
+/// Live active, unexpired, JIT-activated role-group IDs for CA evaluation.
+pub(crate) async fn resolve_active_roles(
+    exec: &ScopedExecutor,
+    user: i64,
+) -> Result<Vec<i64>, StatementFailure> {
+    let roles = exec
         .read(
-            "SELECT group_id FROM user_group_members WHERE user_id=$1",
+            "SELECT role_group_id FROM admin_role_assignments \
+              WHERE user_id = $1 \
+                AND (expires_at IS NULL OR expires_at > now()) \
+                AND admin_assignment_active(eligible, activated_until)",
             &[(&user, Type::INT8)],
         )
         .await?
         .iter()
         .map(|r| r.get(0))
         .collect();
-    let roles=exec.read("SELECT role_group_id FROM admin_role_assignments WHERE user_id=$1 AND (expires_at IS NULL OR expires_at>now())",&[(&user,Type::INT8)]).await?.iter().map(|r|r.get(0)).collect();
-    Ok((groups, roles))
+    Ok(roles)
 }
 /// Go's advisory device tier, with its two user-scoped FORCE-RLS reads.
 pub async fn resolve_trust(exec: &ScopedExecutor, c: &Context) -> String {

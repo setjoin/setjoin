@@ -75,7 +75,7 @@ async fn run(kill: bool, rollback: bool) -> Result<(), BoxError> {
         let mut command=Command::new(env!("CARGO_BIN_EXE_setjoin-server"));command.arg0("gofree-drive1-gateway").env_clear();
         for(key,value)in[
             ("GATEWAY_LISTEN",address.to_string()),("GATEWAY_ENABLED",(!kill).to_string()),("GATEWAY_AUTH_UPSTREAM",format!("http://{jwks}")),
-            ("DB_DSN",db.app.as_deref().unwrap_or(&db.dsn).to_owned()),("DB_WORKER_DSN",db.dsn.clone()),("DB_DIRECT_DSN",db.direct.clone()),
+            ("DB_DSN", db.app_dsn().to_owned()),("DB_WORKER_DSN", db.worker_dsn().to_owned()),("DB_DIRECT_DSN",db.direct.clone()),
             ("DB_ENCRYPTION_KEY","22".repeat(32)),("AUTHSERVER_JWKS_URL",format!("http://{jwks}/.well-known/jwks.json")),("CORE_RATE_LIMIT","100000".into()),("ADMIN_RATE_LIMIT","100000".into()),
         ]{command.env(key,value);}
         if kill||rollback{command.env("GATEWAY_UPSTREAM",format!("http://{go}"));}

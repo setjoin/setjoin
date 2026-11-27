@@ -89,7 +89,7 @@ catalog owns scheduling/singleton lifetime for `chat-chain-anchor` (02:40,
 toggle. Transfer requires a recorded one-tick effects oracle and explicit
 executable registration; catalog presence alone transfers nothing. The TTL task now has that qualification and an executable runtime key
 `chat-unfurl-reap`, paired with the same Go OFF key. Both cron tasks now have native callbacks
-(`workers::chain_anchor`, `purge_expired`: exactly Go's one reducer statement)
+(gateway `chat_workers::chain_anchor`, `purge_expired`: exactly Go's one reducer statement)
 qualified by `chat_cron_recorded` and run via `RUST_WORKERS_ON=cron:<task>`
 paired with `GO_WORKERS_OFF=cron:<task>` (per-task locks, #365). Presence
 is process-local state and Go's copy is retained until Go deletion.
@@ -227,8 +227,8 @@ credentials/private literals. Bounds: three redirects, 10 seconds/request,
 the cap; image failures preserve text. Reducers own metadata bounds.
 
 Lookup/claim, fetch, cache-write and apply retain Go's separate commits. Each
-mutation has an F12 receipt. The image PUT precedes one receipted global blob
-INSERT; cache triggers maintain references. Pending/error hits and lost claims
+mutation has an F12 receipt. The image PUT precedes one receipted `rust_blob_register_metadata`
+call; cache triggers maintain references. Pending/error hits and lost claims
 never fetch/retry. Existing TTL/cron transfer gates stay unchanged.
 
 Han-script search dispatch uses foundation `setjoin_contracts::han`, whose

@@ -95,8 +95,9 @@ async fn removal(cut: commit::CommitCut) {
             .unwrap()
             .as_bytes(),
     );
+    let lookup_db = setjoin_pg::AuthDb::from_executors(lookup_exec.clone(), lookup_exec.clone());
     let found = setjoin_identity::totp::lookup_operation(
-        &lookup_exec,
+        &lookup_db,
         &proof,
         op,
         setjoin_identity::totp::Operation::Remove,
@@ -112,7 +113,7 @@ async fn removal(cut: commit::CommitCut) {
     let foreign =
         setjoin_identity::session::Session::verify(&foreign, None, &legacy, "mailserver").unwrap();
     assert!(!setjoin_identity::totp::lookup_operation(
-        &lookup_exec,
+        &lookup_db,
         &foreign,
         op,
         setjoin_identity::totp::Operation::Remove
@@ -152,7 +153,7 @@ async fn removal(cut: commit::CommitCut) {
         .await
         .unwrap();
     assert!(setjoin_identity::totp::lookup_operation(
-        &lookup_exec,
+        &lookup_db,
         &proof,
         op,
         setjoin_identity::totp::Operation::Remove

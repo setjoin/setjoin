@@ -114,6 +114,7 @@ async fn observe(db: &Db, failed: &'static str, record: bool) -> Result<(), BoxE
         RouteTable::proxy_all().with(setjoin_gateway::surface::SurfaceRoute {
             discovery: None,
             exec: common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 2)?,
+            worker: None,
             keys: Arc::new(common::recovery_keys()),
             issuer: "mailserver".into(),
             config: Arc::new(setjoin_gateway::surface::SurfaceConfig::from_env()),

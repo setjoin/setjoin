@@ -107,7 +107,10 @@ pub async fn switches() -> Result<(), BoxError> {
             )?;
             if !global {
                 if gateway.with_inventory(&inventory.to_string()).is_ok() {
-                    return Err("OFF/go-mail F04 retention-audit inventory should have been rejected".into());
+                    return Err(
+                        "OFF/go-mail F04 retention-audit inventory should have been rejected"
+                            .into(),
+                    );
                 }
                 golden::compare(&json!([]), &json!(*calls.lock().unwrap()))?;
                 continue;
@@ -135,7 +138,10 @@ pub async fn switches() -> Result<(), BoxError> {
                     )
                     .await;
                     if response.status().as_u16() == 299 {
-                        return Err(format!("legacy with_enabled(false) forwarded {method} {uri} to Go").into());
+                        return Err(format!(
+                            "legacy with_enabled(false) forwarded {method} {uri} to Go"
+                        )
+                        .into());
                     }
                 }
                 let response = common::send(
@@ -146,7 +152,9 @@ pub async fn switches() -> Result<(), BoxError> {
                 let status = response.status().as_u16();
                 let text = String::from_utf8(common::body_bytes(response).await.to_vec())?;
                 if status != 200
-                    || !text.lines().any(|l| l == "setjoin_gateway_proxied_to_go_total 0")
+                    || !text
+                        .lines()
+                        .any(|l| l == "setjoin_gateway_proxied_to_go_total 0")
                     || !text.lines().any(|l| {
                         l == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 0"
                     })

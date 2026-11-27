@@ -11,9 +11,7 @@ use super::seam::{
     self, ics, not_found, parse_id_list, query, read, read_rows, read_sql, rsvp_on_behalf,
     send_imip, since_state, write, write_sql, Imip, ScopedQuery, Type,
 };
-use super::{
-    always, go_compact, parse_id, Answer, Cx, Gate, Handled, Method, MethodError, Reply,
-};
+use super::{always, go_compact, parse_id, Answer, Cx, Gate, Handled, Method, MethodError, Reply};
 
 const CAPABILITY: &str = "urn:ietf:params:jmap:calendars";
 const MAX_IMPORT_ICS_BYTES: usize = 1 << 20;

@@ -21,6 +21,17 @@ DECLARE
   v_primary_cal BIGINT;
   v_level       TEXT;
 BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    IF p_viewer_user_id IS DISTINCT FROM NULLIF(current_setting('app.current_user_id', true), '')::bigint
+       AND NOT EXISTS (
+         SELECT 1 FROM public.mailboxes m
+          WHERE m.user_id = p_viewer_user_id
+            AND public.rls_mailbox_in_scope(m.id)
+       ) THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   IF p_viewer_user_id = p_owner_user_id THEN
     RETURN 'admin';
   END IF;
@@ -50,4 +61,6 @@ BEGIN
 
   RETURN sharing_default_resolve(p_viewer_user_id, p_owner_user_id, 'calendar');
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.calendar_effective_acl(bigint,bigint)'::regprocedure);

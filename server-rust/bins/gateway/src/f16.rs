@@ -14,6 +14,22 @@ use setjoin_authz::token::KeySource;
 use setjoin_pg::ScopedExecutor;
 use std::sync::Arc;
 
+/// Harmonized scoped attachment-transfer token secret resolution:
+/// prefers `MAIL_ATTACHMENT_TOKEN_SECRET`, then `JWT_MAIL_ATTACHMENT_SECRET`,
+/// then falls back to `JWT_SECRET` in co-located / legacy deployments.
+pub fn attachment_secrets_from_env() -> (Vec<u8>, Option<Vec<u8>>) {
+    let env = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
+    let current = env("MAIL_ATTACHMENT_TOKEN_SECRET")
+        .or_else(|| env("JWT_MAIL_ATTACHMENT_SECRET"))
+        .or_else(|| env("JWT_SECRET"))
+        .unwrap_or_default()
+        .into_bytes();
+    let previous = env("MAIL_ATTACHMENT_TOKEN_PREVIOUS_SECRET")
+        .or_else(|| env("JWT_MAIL_ATTACHMENT_PREVIOUS_SECRET"))
+        .map(String::into_bytes);
+    (current, previous)
+}
+
 pub struct F16Config<K: KeySource> {
     pub exec: ScopedExecutor,
     pub worker_exec: ScopedExecutor,
@@ -59,10 +75,7 @@ impl<K: KeySource> F16Config<K> {
         };
         let scanner =
             env("CLAMAV_ADDR").map(|addr| Arc::new(ClamAV::new(addr)) as Arc<dyn MalwareScanner>);
-        let secret = env("JWT_MAIL_ATTACHMENT_SECRET")
-            .or_else(|| env("JWT_SECRET"))
-            .unwrap_or_default()
-            .into_bytes();
+        let (secret, previous_secret) = attachment_secrets_from_env();
         Ok(Some(Self {
             exec,
             worker_exec,
@@ -73,8 +86,7 @@ impl<K: KeySource> F16Config<K> {
             continuity,
             scanner,
             attachment_secret: secret,
-            attachment_previous_secret: env("JWT_MAIL_ATTACHMENT_PREVIOUS_SECRET")
-                .map(String::into_bytes),
+            attachment_previous_secret: previous_secret,
         }))
     }
 }
@@ -135,7 +147,9 @@ impl<K: KeySource + 'static> F16Route<K> {
     }
 }
 impl<K: KeySource + 'static> Intercept for F16Route<K> {
-    fn requires_session(&self, r: &Request<Body>) -> bool { self.adapter(r).is_some_and(|a| a.requires_session(r)) }
+    fn requires_session(&self, r: &Request<Body>) -> bool {
+        self.adapter(r).is_some_and(|a| a.requires_session(r))
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         self.adapter(r).is_some()
     }

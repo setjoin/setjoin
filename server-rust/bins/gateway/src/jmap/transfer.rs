@@ -1,18 +1,19 @@
 //! Five-minute, one-blob credentials. ring owns HKDF and HMAC; the verified
 //! parent supplies identity/origin. No refresh, authority or signing-key API.
 use super::{
-    JmapCommands, reply,
+    reply,
     token::{self, KeySource},
+    JmapCommands,
 };
 use crate::{Body, RequestContext};
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use http_body_util::BodyExt;
 use hyper::{Request, Response};
 use serde::{
-    Deserialize, Serialize,
     de::{self, MapAccess, Visitor},
+    Deserialize, Serialize,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use setjoin_pg::MailboxAuthContext;
 use sha2::{Digest, Sha256};
 
@@ -39,14 +40,12 @@ impl Signer {
         })
     }
     pub(super) fn from_env() -> Option<Self> {
-        let master = zeroize::Zeroizing::new(
-            std::env::var("MAIL_ATTACHMENT_TOKEN_SECRET")
-                .ok()
-                .filter(|s| !s.is_empty())
-                .or_else(|| std::env::var("JWT_SECRET").ok())
-                .filter(|s| !s.is_empty())?,
-        );
-        Self::from_master(master.as_bytes()).ok()
+        let (secret, _) = crate::f16::attachment_secrets_from_env();
+        let master = zeroize::Zeroizing::new(secret);
+        if master.is_empty() {
+            return None;
+        }
+        Self::from_master(&master).ok()
     }
     fn sign(&self, claims: &Claims<'_>) -> Option<String> {
         let header = URL_SAFE_NO_PAD
@@ -234,18 +233,31 @@ impl<K: KeySource> JmapCommands<K> {
         if authorized.context().mailbox_id() == 0 {
             return plain404(ctx, id);
         }
-        let Some(device_id) = setjoin_jmap::http_blob::transfer_device(
-            &services.worker,
-            auth,
-            &device.id,
-            &device.platform,
-        )
-        .await
-        .ok()
-        .flatten() else {
+        let Some(tx) = self.tx_factory() else {
+            return fail(500, "attachment transfer unavailable");
+        };
+        let client_ip = ctx.identity.client_ip.to_string();
+        let Ok(user) = tx.mint_user_from_authorized(authorized, &client_ip).await else {
+            return fail(500, "attachment transfer unavailable");
+        };
+        let Ok(mb) = tx
+            .mint_primary_mailbox_from_authorized(authorized, &client_ip)
+            .await
+        else {
+            return fail(403, "attachment transfer is not allowed by current policy");
+        };
+        let Ok(read_cap) = mb.require_read() else {
+            return fail(403, "attachment transfer is not allowed by current policy");
+        };
+        let Some(device_id) =
+            setjoin_jmap::http_blob::transfer_device(&tx, &user, &device.id, &device.platform)
+                .await
+                .ok()
+                .flatten()
+        else {
             return fail(403, "approved native device required");
         };
-        let raw = setjoin_jmap::http_blob::transfer_policy(&services.worker, auth, device_id)
+        let raw = setjoin_jmap::http_blob::transfer_policy(&tx, &read_cap, device_id)
             .await
             .unwrap_or_default();
         let policy = serde_json::from_str::<Value>(&raw).unwrap_or(json!({}));
@@ -259,9 +271,12 @@ impl<K: KeySource> JmapCommands<K> {
             return fail(403, "attachment transfer is not allowed by current policy");
         }
         let generation = format!("{:x}", Sha256::digest(raw.as_bytes()));
-        if !setjoin_jmap::http_blob::download_allowed(
+        let primary_mailbox = auth.mailbox_optional().map(|m| m.get());
+        if !super::download_allowed(
             &services.worker,
-            auth,
+            &tx,
+            &user,
+            primary_mailbox,
             &args.account,
             &args.hash,
         )
@@ -270,7 +285,7 @@ impl<K: KeySource> JmapCommands<K> {
         {
             return plain404(ctx, id);
         }
-        let Some((size, _)) = setjoin_jmap::http_blob::metadata(&services.worker, &args.hash)
+        let Some((size, _)) = setjoin_jmap::http_blob::metadata(&tx, &user, &args.hash)
             .await
             .ok()
             .flatten()

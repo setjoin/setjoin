@@ -270,7 +270,7 @@ fn flag_into(target: &mut Option<bool>, value: &Value) -> Decoded<()> {
     }
 }
 /// An object (or `null`, which is a no-op) whose fields are walked case-folded.
-fn object<'a>(value: &'a Value) -> Decoded<Option<&'a serde_json::Map<String, Value>>> {
+fn object(value: &Value) -> Decoded<Option<&serde_json::Map<String, Value>>> {
     match value {
         Value::Null => Ok(None),
         Value::Object(map) => Ok(Some(map)),

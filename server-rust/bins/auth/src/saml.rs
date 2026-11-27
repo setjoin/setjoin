@@ -34,7 +34,7 @@ impl AuthServer {
             .map(|s| s.into_owned())
             .unwrap_or_default();
         if parts.len() == 5 && parts[4] == "link" && req.method() == Method::POST {
-            return self.saml_link(req, &idp).await;
+            return boxed(|| self.saml_link(req, &idp)).await;
         }
         // Same-site completion of a link the ACS held (the IdP's cross-site POST carries
         // no SameSite=Strict cookie, this request does).
@@ -51,7 +51,7 @@ impl AuthServer {
             let Some(reg) = self.saml.as_ref().and_then(|r| r.registration(&idp)) else {
                 return Self::not_found();
             };
-            return self.saml_link_complete(req, reg).await;
+            return boxed(|| self.saml_link_complete(req, reg)).await;
         }
         let Some(reg) = self
             .saml
@@ -62,7 +62,7 @@ impl AuthServer {
             return Self::not_found();
         };
         if parts[4] == "acs" && req.method() == Method::POST {
-            return self.saml_acs(req, reg).await;
+            return boxed(|| self.saml_acs(req, reg)).await;
         }
         if parts[4] == "login" {
             self.saml_login_reply(&req, &reg, "login", None)
@@ -108,14 +108,14 @@ impl AuthServer {
             Ok(s) => s,
             Err(r) => return r,
         };
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
             return Self::not_found();
         }
         match setjoin_identity::identity_links::list(
-            self.recovery_worker.as_ref().unwrap_or(&self.exec),
+            self.recovery_worker.as_ref().unwrap_or(&self.auth_db),
             &session,
         )
         .await
@@ -141,7 +141,7 @@ impl AuthServer {
                 )))
                 .unwrap();
         }
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -157,7 +157,7 @@ impl AuthServer {
         let worker = self
             .recovery_worker
             .as_ref()
-            .unwrap_or(&self.exec)
+            .unwrap_or(&self.auth_db)
             .clone()
             .with_audit_keys(
                 self.config.db_encryption_key.clone(),
@@ -227,7 +227,7 @@ impl AuthServer {
                 )))
                 .unwrap();
         }
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -273,7 +273,7 @@ impl AuthServer {
         let worker = self
             .recovery_worker
             .as_ref()
-            .unwrap_or(&self.exec)
+            .unwrap_or(&self.auth_db)
             .clone()
             .with_audit_keys(
                 self.config.db_encryption_key.clone(),
@@ -321,6 +321,17 @@ impl AuthServer {
             None => None,
         }
     }
+
+    /// Start SAML cache invalidation multiplexed onto a shared [`setjoin_pg::ListenHub`] (#543).
+    pub async fn start_saml_listener_with_hub(
+        &self,
+        hub: &setjoin_pg::ListenHub,
+    ) -> Option<setjoin_identity::saml::Listener> {
+        match &self.saml {
+            Some(registry) => Some(registry.listen_with_hub(hub).await),
+            None => None,
+        }
+    }
 }
 
 /// Largest ACS form body: a 1 MiB document is 1.4 MiB of base64, which URL-encoding can
@@ -354,7 +365,7 @@ impl AuthServer {
         ip: &str,
         clear: Option<String>,
     ) -> Response<Body> {
-        setjoin_identity::saml::audit(&self.exec, reg.id(), class, None, ip, detail).await;
+        setjoin_identity::saml::audit(&self.auth_db, reg.id(), class, None, ip, detail).await;
         let mut reply = Self::failure(
             status,
             match status {
@@ -499,7 +510,7 @@ impl AuthServer {
                     .await;
             }
         };
-        let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
+        let worker = self.recovery_worker.as_ref().unwrap_or(&self.auth_db);
         match reg.consume(worker, &claims, request_id).await {
             setjoin_identity::saml::Consumed::Fresh => {}
             setjoin_identity::saml::Consumed::Replayed => {
@@ -568,7 +579,7 @@ impl AuthServer {
                     )
                     .await;
             };
-            setjoin_identity::saml::audit(&self.exec, reg.id(), "link_held", None, &ip, "link")
+            setjoin_identity::saml::audit(&self.auth_db, reg.id(), "link_held", None, &ip, "link")
                 .await;
             let next = format!("{}?token={token}", reg.link_complete_path());
             let page = format!(
@@ -593,9 +604,8 @@ impl AuthServer {
         let req = Request::from_parts(parts, body(raw.clone()));
         let linking = unbound && link_flow.is_some();
         let (mut reply, actor) = if let (true, Some(flow)) = (linking, link_flow) {
-            let (mut reply, actor) = self
-                .saml_link_callback(&req, Some(&assertion), None, &reg, &flow)
-                .await;
+            let (mut reply, actor) =
+                boxed(|| self.saml_link_callback(&req, Some(&assertion), None, &reg, &flow)).await;
             reply.headers_mut().append(
                 "set-cookie",
                 format!(
@@ -607,12 +617,11 @@ impl AuthServer {
             );
             (reply, actor)
         } else {
-            self.saml_login(&req, &raw, &assertion, &reg, &claims, &target)
-                .await
+            boxed(|| self.saml_login(&req, &raw, &assertion, &reg, &claims, &target)).await
         };
         if reply.status().is_redirection() {
             setjoin_identity::saml::audit(
-                &self.exec,
+                &self.auth_db,
                 reg.id(),
                 "success",
                 actor,
@@ -622,7 +631,7 @@ impl AuthServer {
             .await;
         } else {
             setjoin_identity::saml::audit(
-                &self.exec,
+                &self.auth_db,
                 reg.id(),
                 "refused",
                 None,
@@ -666,8 +675,8 @@ impl AuthServer {
                 )
             }
         };
-        let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
-        let resolution = match assertion.resolve(&self.exec, worker).await {
+        let worker = self.recovery_worker.as_ref().unwrap_or(&self.auth_db);
+        let resolution = match assertion.resolve(&self.auth_db, worker).await {
             Ok(setjoin_identity::rp::Lookup::Existing(resolution)) => resolution,
             Ok(setjoin_identity::rp::Lookup::Missing(miss)) => {
                 // The OIDC RP's provisioning policy, unchanged (#546).
@@ -689,21 +698,24 @@ impl AuthServer {
                 // The address is no proof of identity, but a provisioned user must not collide
                 // with one that exists (the legacy JIT does not check aliases).
                 let address = setjoin_authz::address::canonical(&email);
-                let taken = self
-                    .exec
-                    .read(
-                        "SELECT identity_address_claim_count(lower($1))>0",
-                        &[(&address.as_str(), setjoin_pg::Type::TEXT)],
-                    )
-                    .await
-                    .map(|r| r[0].get::<_, bool>(0));
+                let taken = crate::policy_composition::pre_auth_read(
+                    self.pre_auth_pool.as_ref(),
+                    "SELECT identity_address_claim_count(lower($1))>0",
+                    &[(&address.as_str(), setjoin_pg::Type::TEXT)],
+                )
+                .await
+                .map(|r| {
+                    r.first()
+                        .and_then(|row| row.try_get::<_, bool>(0).ok())
+                        .unwrap_or(true)
+                });
                 if taken.unwrap_or(true) && !setjoin_identity::mutants::on("saml-jit-collision") {
                     return (
                         Self::failure(409, "explicit account linking is required", path),
                         None,
                     );
                 }
-                match miss.create(&self.exec, worker).await {
+                match miss.create(&self.auth_db, worker).await {
                     Ok(resolution) => resolution,
                     Err(error) if error.message == "explicit account linking is required" => {
                         return (Self::failure(409, &error.message, path), None)
@@ -728,8 +740,8 @@ impl AuthServer {
             }
         };
         let actor = resolution.user().user();
-        let reply = self
-            .rp_complete(
+        let reply = boxed(|| {
+            self.rp_complete(
                 req,
                 Some(raw_body),
                 assertion,
@@ -740,7 +752,8 @@ impl AuthServer {
                 dt_enabled,
                 "saml",
             )
-            .await;
+        })
+        .await;
         if reply.status() != 200 {
             return (reply, None);
         }
@@ -764,7 +777,7 @@ impl AuthServer {
         reg: &Arc<setjoin_identity::saml::Registration>,
         raw_flow: &str,
     ) -> (Response<Body>, Option<i64>) {
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -790,7 +803,7 @@ impl AuthServer {
         }) else {
             return (Self::failure(403, "linking session changed", ""), None);
         };
-        let flow = match flow.authorize(&session, &raw, &self.exec).await {
+        let flow = match flow.authorize(&session, &raw, &self.auth_db).await {
             Ok(f) => f,
             Err(detail) => {
                 return (
@@ -810,7 +823,7 @@ impl AuthServer {
         let worker = self
             .recovery_worker
             .as_ref()
-            .unwrap_or(&self.exec)
+            .unwrap_or(&self.auth_db)
             .clone()
             .with_audit_keys(
                 self.config.db_encryption_key.clone(),
@@ -899,9 +912,8 @@ impl AuthServer {
         if token.is_empty() {
             return Self::failure(400, "invalid identity link flow", req.uri().path());
         }
-        let (mut reply, actor) = self
-            .saml_link_callback(&req, None, Some(&token), &reg, &flow)
-            .await;
+        let (mut reply, actor) =
+            boxed(|| self.saml_link_callback(&req, None, Some(&token), &reg, &flow)).await;
         reply.headers_mut().append(
             "set-cookie",
             format!(
@@ -912,11 +924,11 @@ impl AuthServer {
             .unwrap(),
         );
         if reply.status().is_redirection() {
-            setjoin_identity::saml::audit(&self.exec, reg.id(), "success", actor, &ip, "link")
+            setjoin_identity::saml::audit(&self.auth_db, reg.id(), "success", actor, &ip, "link")
                 .await;
         } else {
             setjoin_identity::saml::audit(
-                &self.exec,
+                &self.auth_db,
                 reg.id(),
                 "refused",
                 None,

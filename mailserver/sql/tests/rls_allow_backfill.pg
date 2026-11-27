@@ -140,16 +140,17 @@ SELECT is((SELECT count(*) FROM device_enroll_events WHERE device_id = :bafdevid
 RESET ROLE;
 
 -- ══════════════════════════════════════════════════════════════════════════
--- Group 4: session revocation — session_revocations_app_insert is
--- FOR INSERT WITH CHECK (true), the widest-open write policy in the suite;
--- still unproven under a real setjoin_app connection until now.
+-- Group 4: session revocation — V289 closed the legacy open TO PUBLIC policies
+-- and tightened session_revocations to strict user-scoped SELECT + INSERT for
+-- setjoin_app (session_revocations_self / session_revocations_app_self_insert).
 -- ══════════════════════════════════════════════════════════════════════════
 SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :u2::text, true);
 SELECT lives_ok(
   $$ SELECT revoke_user_sessions($$ || :u2 || $$, 'jti', 'baf test revoke', $$ || :u2 || $$, 'baf-jti-1', NULL) $$,
-  'revoke_user_sessions: app role inserts a revocation row under setjoin_app (session_revocations ALLOW — WITH CHECK (true))');
+  'revoke_user_sessions: app role inserts a revocation row under setjoin_app (session_revocations ALLOW — user-scoped self policy)');
 SELECT is((SELECT count(*) FROM session_revocations WHERE user_id = :u2 AND jti = 'baf-jti-1')::int, 1,
-  'the revocation row is readable back');
+  'the revocation row is readable back by the same GUC');
 RESET ROLE;
 
 -- ══════════════════════════════════════════════════════════════════════════

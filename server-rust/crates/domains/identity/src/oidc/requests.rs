@@ -65,15 +65,14 @@ impl Authorization {
         })
     }
 }
-pub async fn request(
-    exec: &ScopedExecutor,
-    id: &str,
-) -> Result<Option<Authorization>, StatementFailure> {
-    let rows=exec.read("SELECT id,client_id,redirect_uri,state,nonce,code_challenge,scopes,user_id,done,COALESCE(auth_time,created_at),COALESCE(acr,''),amr FROM oidc_auth_requests WHERE id=$1 AND expires_at>now()",&[(&id,Type::TEXT)]).await?;
+pub async fn request(exec: &AuthDb, id: &str) -> Result<Option<Authorization>, StatementFailure> {
+    let rows = exec
+        .read_contract(&crate::sql::OIDC_REQUESTS_L72, &[(&id, Type::TEXT)])
+        .await?;
     rows.first().map(Authorization::decode).transpose()
 }
 pub async fn bind_code(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     request: &Authorization,
     code: &str,
     operation: setjoin_contracts::ids::OperationId,
@@ -84,7 +83,21 @@ pub async fn bind_code(
     };
     let actor = setjoin_contracts::ids::ActorId::new(user).expect("positive stored user");
     let hash = Sha256::digest(code.as_bytes()).to_vec();
-    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"oidc-code"}).run_user_command(actor,operation,
-        "UPDATE oidc_auth_requests SET code_hash=$3 WHERE id=$1 AND user_id=$2 AND expires_at>now() AND done=true AND code_hash IS NULL RETURNING id",
-        &[(&request.id,Type::TEXT),(&user,Type::INT8),(&hash,Type::BYTEA)],|rows|Ok(rows.len()==1)).await
+    exec.clone()
+        .with_user_receipt(setjoin_pg::ReceiptCommand {
+            family: "F21",
+            command: "oidc-code",
+        })
+        .run_user_command_contract(
+            actor,
+            operation,
+            &crate::sql::OIDC_REQUESTS_L88,
+            &[
+                (&request.id, Type::TEXT),
+                (&user, Type::INT8),
+                (&hash, Type::BYTEA),
+            ],
+            |rows| Ok(rows.len() == 1),
+        )
+        .await
 }

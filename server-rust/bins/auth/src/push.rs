@@ -11,7 +11,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.password_grant_admitted(req).await;
+        let reply = boxed(|| self.password_grant_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn password_grant_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -62,7 +62,7 @@ impl AuthServer {
         }
         if session.claims().get("act").is_some_and(|v| !v.is_null()) {
             totp::audit(
-                &self.exec,
+                &self.auth_db,
                 &session,
                 &ip,
                 "mfa_reauth_refused",
@@ -82,7 +82,7 @@ impl AuthServer {
         });
         let Some(fields) = fields else {
             totp::audit(
-                &self.exec,
+                &self.auth_db,
                 &session,
                 &ip,
                 "mfa_reauth_refused",
@@ -94,7 +94,7 @@ impl AuthServer {
         let get = |k| fields.get(k).map_or("", String::as_str);
         if get("password").is_empty() {
             totp::audit(
-                &self.exec,
+                &self.auth_db,
                 &session,
                 &ip,
                 "mfa_reauth_refused",
@@ -107,7 +107,7 @@ impl AuthServer {
             Ok(t) => t,
             Err(r) => {
                 totp::audit(
-                    &self.exec,
+                    &self.auth_db,
                     &session,
                     &ip,
                     "mfa_reauth_refused",
@@ -118,7 +118,7 @@ impl AuthServer {
             }
         };
         match push::password_grant(
-            &self.exec,
+            &self.auth_db,
             &session,
             get("password"),
             get("operation"),
@@ -128,12 +128,12 @@ impl AuthServer {
         {
             setjoin_pg::CommandOutcome::Committed(v) => match v["status"].as_str() {
                 Some("issued") => {
-                    totp::audit(&self.exec, &session, &ip, "mfa_reauth_authorized", "").await;
+                    totp::audit(&self.auth_db, &session, &ip, "mfa_reauth_authorized", "").await;
                     Self::json(200, json!({"expires_in":300,"reauth_token":v["token"]}))
                 }
                 Some("invalid") => {
                     totp::audit(
-                        &self.exec,
+                        &self.auth_db,
                         &session,
                         &ip,
                         "mfa_reauth_refused",
@@ -144,7 +144,7 @@ impl AuthServer {
                 }
                 Some("revoked") => {
                     totp::audit(
-                        &self.exec,
+                        &self.auth_db,
                         &session,
                         &ip,
                         "mfa_reauth_refused",
@@ -155,7 +155,7 @@ impl AuthServer {
                 }
                 Some("possession") => {
                     totp::audit(
-                        &self.exec,
+                        &self.auth_db,
                         &session,
                         &ip,
                         "mfa_reauth_refused",
@@ -190,7 +190,7 @@ impl AuthServer {
                 if e.hint.as_deref() == Some("possession_invalid_target") =>
             {
                 totp::audit(
-                    &self.exec,
+                    &self.auth_db,
                     &session,
                     &ip,
                     "mfa_reauth_refused",
@@ -211,7 +211,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.possession_totp_admitted(req).await;
+        let reply = boxed(|| self.possession_totp_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn possession_totp_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -284,7 +284,15 @@ impl AuthServer {
         if get("code").is_empty() {
             return Self::failure(400, "code is required", &path);
         }
-        match push::totp_grant(&self.exec, &session, get("code"), get("operation"), target).await {
+        match push::totp_grant(
+            &self.auth_db,
+            &session,
+            get("code"),
+            get("operation"),
+            target,
+        )
+        .await
+        {
             setjoin_pg::CommandOutcome::Committed(v) => match v["status"].as_str() {
                 Some("issued") => {
                     Self::json(200, json!({"expires_in":300,"reauth_token":v["token"]}))
@@ -334,7 +342,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.generate_backups_admitted(req).await;
+        let reply = boxed(|| self.generate_backups_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn generate_backups_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -385,13 +393,13 @@ impl AuthServer {
                 .and_then(|mut f| f.remove("reauth_token"))
                 .unwrap_or_default()
         };
-        match push::generate_backups(&self.exec, &session, &proof, &ip).await {
+        match push::generate_backups(&self.auth_db, &session, &proof, &ip).await {
             setjoin_pg::CommandOutcome::Committed(v) => match v["status"].as_str() {
                 Some("generated") => Self::json(200, json!({"backup_codes":v["codes"]})),
                 Some("revoked") => Self::totp_reauth(&path),
                 Some("reauth") => {
                     totp::audit(
-                        &self.exec,
+                        &self.auth_db,
                         &session,
                         &ip,
                         "mfa_reauth_refused",
@@ -453,7 +461,7 @@ impl AuthServer {
             .unwrap_or_else(|| get("reauth_token"));
         let ip = self.client_ip(req).to_string();
         match push::register_native(
-            &self.exec,
+            &self.auth_db,
             proof,
             token,
             get("provider"),
@@ -492,7 +500,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.push_verify_admitted(req).await;
+        let reply = boxed(|| self.push_verify_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn push_verify_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -661,11 +669,11 @@ impl AuthServer {
         };
         // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
         // here, so no factor is spent and no token is signed or stored.
-        let risk = match pending.risk(&self.exec).await {
+        let risk = match pending.risk(&self.auth_db).await {
             Ok(risk) => risk,
             Err(_) => return Self::failure(500, "token issue failed", &path),
         };
-        match push::harvest(&self.exec, &pending, nonce, token).await {
+        match push::harvest(&self.auth_db, &pending, nonce, token).await {
             setjoin_pg::CommandOutcome::Committed(true) => {}
             setjoin_pg::CommandOutcome::Unknown { operation } => {
                 let mut r = Self::failure(
@@ -686,26 +694,28 @@ impl AuthServer {
         }
         let factors = push::approval_factors(&pending);
         let uri = parts.uri.path_and_query().map_or("/", |p| p.as_str());
-        self.mfa_finish(
-            pending,
-            path,
-            ip,
-            agent,
-            secure,
-            Some(factors),
-            (500, "user lookup failed"),
-            dpop_jkt,
-            setjoin_authz::device::DeviceRequest {
-                headers: &parts.headers,
-                method: parts.method.as_str(),
-                uri,
-                body: &raw,
-            },
-            risk,
-            ca_enabled,
-            dt_enabled,
-            false,
-        )
+        boxed(|| {
+            self.mfa_finish(
+                pending,
+                path,
+                ip,
+                agent,
+                secure,
+                Some(factors),
+                (500, "user lookup failed"),
+                dpop_jkt,
+                setjoin_authz::device::DeviceRequest {
+                    headers: &parts.headers,
+                    method: parts.method.as_str(),
+                    uri,
+                    body: &raw,
+                },
+                risk,
+                ca_enabled,
+                dt_enabled,
+                false,
+            )
+        })
         .await
     }
 }
@@ -720,7 +730,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.push_approve_admitted(req).await;
+        let reply = boxed(|| self.push_approve_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn push_approve_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -772,7 +782,7 @@ impl AuthServer {
         if self.config.vapid_private_key.is_empty() {
             return Self::failure(503, "push MFA not configured", &path);
         }
-        match push::approve(&self.exec, &assertion).await {
+        match push::approve(&self.auth_db, &assertion).await {
             setjoin_pg::CommandOutcome::Committed(v) if v == "accepted" => {
                 Response::builder().status(204).body(body("")).unwrap()
             }
@@ -809,7 +819,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.push_send_admitted(req).await;
+        let reply = boxed(|| self.push_send_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn push_send_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -841,10 +851,10 @@ impl AuthServer {
                 &path,
             );
         }
-        match push::generate_pending(&self.exec, &pending, token).await {
+        match push::generate_pending(&self.auth_db, &pending, token).await {
             setjoin_pg::CommandOutcome::Committed(push::Generated::Created(challenge)) => {
                 let nonce = challenge.nonce().to_owned();
-                self.native_push.enqueue(self.exec.clone(), challenge);
+                self.native_push.enqueue(self.auth_db.clone(), challenge);
                 Self::wire_json(200,json!({"challenge_id":pending.user().to_string(),"mfa_method":"push","nonce":nonce,"ttl_seconds":120,"timeout":120}).to_string()+"\n")
             }
             setjoin_pg::CommandOutcome::Committed(push::Generated::Limited) => {
@@ -902,10 +912,10 @@ impl AuthServer {
     ) -> Response<Body> {
         if !self.config.vapid_private_key.is_empty() {
             if let Ok((token, _)) = self.password_pending(proof) {
-                match push::generate_login(&self.exec, proof, &token).await {
+                match push::generate_login(&self.auth_db, proof, &token).await {
                     setjoin_pg::CommandOutcome::Committed(push::Generated::Created(challenge)) => {
                         let nonce = challenge.nonce().to_owned();
-                        self.native_push.enqueue(self.exec.clone(), challenge);
+                        self.native_push.enqueue(self.auth_db.clone(), challenge);
                         return Self::json(
                             202,
                             json!({"status":"mfa_required","mfa_required":true,"mfa_method":"push","mfa_token":token,"nonce":nonce,"ttl_seconds":120,"fallback":["totp","backup_codes"]}),

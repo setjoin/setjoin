@@ -34,6 +34,12 @@ DECLARE
     v_gate       BOOLEAN;
     v_viewer_uid BIGINT;
 BEGIN
+    IF NOT public.rls_caller_is_privileged() THEN
+        IF NOT public.rls_mailbox_in_scope(p_account_id) THEN
+            RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+        END IF;
+    END IF;
+
     -- Defaults gate (computed once; see header). OFF ⇒ org-open, byte-identical.
     v_gate := COALESCE((SELECT enabled FROM feature_toggles WHERE key = 'sharing.defaults'), FALSE);
     -- Verify the caller is a real account. p_account_id is the caller's primary
@@ -106,4 +112,6 @@ BEGIN
 
     RETURN v_result;
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.calendar_free_busy_multi(bigint,bigint[],timestamptz,timestamptz)'::regprocedure);

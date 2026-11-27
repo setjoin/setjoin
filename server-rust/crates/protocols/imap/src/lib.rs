@@ -41,6 +41,8 @@ pub(crate) enum TlsMode {
 
 pub struct Server {
     pub(crate) db: setjoin_pg::ScopedExecutor,
+    pub(crate) auth_db: Option<setjoin_pg::ScopedExecutor>,
+    pub(crate) tx_factory: Option<setjoin_authz::principals::TxFactory>,
     pub(crate) tls: Option<Arc<ServerConfig>>,
     /// Certificate files reloaded for every STARTTLS upgrade, as Go does.
     pub(crate) tls_files: Option<(PathBuf, PathBuf)>,
@@ -62,8 +64,13 @@ impl Server {
         threat: ThreatPolicy,
         webhooks: WebhookPolicy,
     ) -> Self {
+        let tx_factory = db
+            .try_app_pool()
+            .map(setjoin_authz::principals::TxFactory::new);
         Self {
             db,
+            auth_db: None,
+            tx_factory,
             tls: None,
             tls_files: None,
             mode: TlsMode::None,
@@ -74,6 +81,27 @@ impl Server {
             passwords: setjoin_authz::basic::PasswordCache::new(),
             max_connections: 0,
         }
+    }
+
+    /// Attach the dedicated pre-auth credential-lookup executor (`DB_WORKER_DSN`
+    /// / `setjoin_worker`, `BYPASSRLS`) for `users`/`app_passwords` verification
+    /// under `V288` `FORCE RLS`. Post-auth IMAP commands stay on `self.db` /
+    /// `self.tx_factory` (`setjoin_app`, `NOBYPASSRLS`).
+    pub fn with_auth_db(mut self, auth_db: setjoin_pg::ScopedExecutor) -> Self {
+        self.auth_db = Some(auth_db);
+        self
+    }
+
+    /// Attach a shared capability-gated [`setjoin_authz::principals::TxFactory`]
+    /// backed by `AppPool` (`setjoin_app`, `NOBYPASSRLS`).
+    pub fn with_tx_factory(mut self, tx_factory: setjoin_authz::principals::TxFactory) -> Self {
+        self.tx_factory = Some(tx_factory);
+        self
+    }
+
+    /// Whether a capability-gated `TxFactory` is wired for authenticated commands.
+    pub fn tx_factory_wired(&self) -> bool {
+        self.tx_factory.is_some()
     }
 
     /// Implicit TLS (`SetTLS`): plaintext authentication is refused.

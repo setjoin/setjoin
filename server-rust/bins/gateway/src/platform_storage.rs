@@ -134,14 +134,15 @@ pub enum Failure {
 impl Runtime {
     pub async fn reconcile(
         &self,
-        exec: &setjoin_pg::ScopedExecutor,
-        actor: &setjoin_authz::AuthContext,
+        factory: &setjoin_authz::principals::TxFactory,
+        user: &setjoin_authz::principals::UserPrincipal,
+        admin: &setjoin_authz::principals::AdminPermissionProof,
         id: i64,
         operation: [u8; 16],
     ) -> Result<String, Failure> {
         use setjoin_pg::CommandOutcome;
         use setjoin_platform::storage;
-        let Some((status, raw)) = storage::reconcile_details(exec, id)
+        let Some((status, raw)) = storage::reconcile_details(factory, admin, id)
             .await
             .map_err(|_| Failure::Problem(500, "database error".into()))?
         else {
@@ -187,8 +188,9 @@ impl Runtime {
                 return Err(Failure::Problem(503, "service unavailable".into()));
             };
             match storage::reimport_blob(
-                exec,
-                actor,
+                factory,
+                user,
+                admin,
                 blob_operation,
                 sha,
                 &format!("{}/{sha}", bucket.name()),
@@ -198,12 +200,12 @@ impl Runtime {
             .await
             {
                 CommandOutcome::Committed(()) => reimported += 1,
-                CommandOutcome::RolledBack(_) => {} // Go logs and continues, including constraint errors.
+                CommandOutcome::RolledBack(_) => {}
                 CommandOutcome::Unknown { operation } => return Err(Failure::Unknown(operation)),
             }
         }
         if let CommandOutcome::Unknown { operation } =
-            storage::reconcile_count(exec, actor, operation, id, reimported).await
+            storage::reconcile_count(factory, user, admin, operation, id, reimported).await
         {
             return Err(Failure::Unknown(operation));
         }
@@ -322,8 +324,9 @@ impl Runtime {
     }
     pub async fn start_scan(
         self: &Arc<Self>,
-        exec: &setjoin_pg::ScopedExecutor,
-        actor: &setjoin_authz::AuthContext,
+        factory: &setjoin_authz::principals::TxFactory,
+        user: &setjoin_authz::principals::UserPrincipal,
+        admin: &setjoin_authz::principals::AdminPermissionProof,
         operation: [u8; 16],
     ) -> Result<String, Failure> {
         let _admission = self.admit()?;
@@ -331,7 +334,8 @@ impl Runtime {
             .db
             .clone()
             .ok_or_else(|| Failure::Problem(500, "database error".into()))?;
-        let id = match setjoin_platform::storage::begin_scan(exec, actor, operation).await {
+        let id = match setjoin_platform::storage::begin_scan(factory, user, admin, operation).await
+        {
             setjoin_pg::CommandOutcome::Committed(id) => id,
             setjoin_pg::CommandOutcome::RolledBack(_) => {
                 return Err(Failure::Problem(500, "database error".into()))
@@ -355,10 +359,9 @@ impl Runtime {
         Ok(format!("{{\"id\":{id}}}\n"))
     }
     async fn scan(&self, db: &setjoin_pg::workers::WorkerDatabase, id: i64) {
-        use setjoin_platform::storage;
         let Ok(db) = db.connect().await else { return };
-        let Ok(mut keys) = storage::scan_keys(&db).await else {
-            storage::scan_failed(&db, id).await;
+        let Ok(mut keys) = scan_keys(&db).await else {
+            scan_failed(&db, id).await;
             return;
         };
         let mut counts = [0i64; 4];
@@ -384,7 +387,7 @@ impl Runtime {
                         );
                     }
                     if counts[0] % 1000 == 0 {
-                        storage::scan_progress(&db, id, counts, &details, false).await;
+                        scan_progress(&db, id, counts, &details, false).await;
                         details.clear();
                     }
                 }
@@ -398,13 +401,13 @@ impl Runtime {
             counts[2] += 1;
             details.push(json!({"sha256":sha,"issue":"missing"}));
         }
-        if let Ok(rows) = storage::scan_drift(&db).await {
+        if let Ok(rows) = scan_drift(&db).await {
             for (sha, expected, actual) in rows {
                 counts[3] += 1;
                 details.push(json!({"sha256":sha,"issue":"refcount_drift","refCountExpected":expected,"refCountActual":actual}));
             }
         }
-        storage::scan_progress(&db, id, counts, &details, true).await;
+        scan_progress(&db, id, counts, &details, true).await;
     }
 }
 
@@ -427,7 +430,7 @@ impl Runtime {
         let Some(db) = &self.db else { return };
         let observed = async {
             let db = db.connect().await.map_err(|e| e.to_string())?;
-            setjoin_platform::storage::migration_orphans(&db).await
+            migration_orphans(&db).await
         }
         .await;
         match observed {
@@ -441,8 +444,9 @@ impl Runtime {
     }
     pub async fn start_migration(
         self: &Arc<Self>,
-        exec: &setjoin_pg::ScopedExecutor,
-        actor: &setjoin_authz::AuthContext,
+        factory: &setjoin_authz::principals::TxFactory,
+        user: &setjoin_authz::principals::UserPrincipal,
+        admin: &setjoin_authz::principals::AdminPermissionProof,
         operation: [u8; 16],
         requested: &str,
     ) -> Result<String, Failure> {
@@ -502,8 +506,10 @@ impl Runtime {
             && !config.endpoint.trim().is_empty()
             && !config.endpoint.trim().starts_with("https://");
         let provider = if target == "backup_s3" { "s3" } else { target };
-        let id = match setjoin_platform::storage::begin_migration(exec, actor, operation, provider)
-            .await
+        let id = match setjoin_platform::storage::begin_migration(
+            factory, user, admin, operation, provider,
+        )
+        .await
         {
             setjoin_pg::CommandOutcome::Committed(id) => id,
             setjoin_pg::CommandOutcome::RolledBack(_) => {
@@ -589,7 +595,7 @@ impl Runtime {
     ) {
         let result = tokio::time::timeout(
             Duration::from_secs(10),
-            setjoin_platform::storage::migration_status_write(db, id, status),
+            migration_status_write(db, id, status),
         )
         .await;
         match result { Ok(Ok(()))=>{},result=>eprintln!("storage migration {id} intended {status}; persistence failed {result:?}; reconcile row manually"), }
@@ -606,7 +612,7 @@ impl Runtime {
         aws_plaintext_upload: bool,
     ) -> Result<usize, String> {
         let reader = db.connect().await.map_err(|e| e.to_string())?;
-        let mut rows = setjoin_platform::storage::migration_rows(&reader).await?;
+        let mut rows = migration_rows(&reader).await?;
         let (mut migrated, mut failed) = (0i64, 0usize);
         loop {
             let next = tokio::select! {biased;_=stop.cancelled()=>return Err("migration stopped".into()),next=rows.next()=>next?};
@@ -634,13 +640,7 @@ impl Runtime {
                 Ok(()) => {
                     migrated += 1;
                     if migrated % 1000 == 0 && !stop.is_cancelled() {
-                        setjoin_platform::storage::migration_progress(
-                            writer,
-                            id,
-                            migrated,
-                            Some(&sha),
-                        )
-                        .await;
+                        migration_progress(writer, id, migrated, Some(&sha)).await;
                     }
                 }
                 Err(error) => {
@@ -655,7 +655,7 @@ impl Runtime {
         if stop.is_cancelled() {
             return Err("migration stopped".into());
         }
-        setjoin_platform::storage::migration_progress(writer, id, migrated, None).await;
+        migration_progress(writer, id, migrated, None).await;
         Ok(failed)
     }
     async fn verified(target: &setjoin_backup::store::Store, key: &str, size: i64) -> bool {
@@ -765,10 +765,11 @@ impl Runtime {
 impl Runtime {
     pub async fn cancel_migration(
         &self,
-        exec: &setjoin_pg::ScopedExecutor,
+        factory: &setjoin_authz::principals::TxFactory,
+        admin: &setjoin_authz::principals::AdminPermissionProof,
         id: i64,
     ) -> Result<String, Failure> {
-        let status = setjoin_platform::storage::migration_row_status(exec, id)
+        let status = setjoin_platform::storage::migration_row_status(factory, admin, id)
             .await
             .ok_or_else(|| Failure::Problem(404, "migration not found".into()))?;
         let quote = |s: &str| setjoin_contracts::go_quote::quote(s.as_bytes());
@@ -818,4 +819,156 @@ impl Runtime {
             other=>Err(Failure::Problem(409,format!("migration: not in a cancellable state: migration {id} stopped at {} — not the cancelled outcome",quote(other)))),
         }
     }
+}
+
+async fn scan_keys(
+    db: &setjoin_pg::workers::WorkerConnection,
+) -> Result<std::collections::BTreeSet<String>, String> {
+    let mut rows = db.rows("SELECT sha256 FROM blobs", &[]).await?;
+    let mut keys = std::collections::BTreeSet::new();
+    while let Ok(Some(row)) = rows.next().await {
+        if let Ok(key) = row.try_get::<_, String>(0) {
+            keys.insert(key);
+        }
+    }
+    Ok(keys)
+}
+
+async fn scan_drift(
+    db: &setjoin_pg::workers::WorkerConnection,
+) -> Result<Vec<(String, i64, i64)>, String> {
+    let mut rows = db
+        .rows(
+            "SELECT b.sha256, b.ref_count::bigint, COUNT(ma.id) FROM blobs b LEFT JOIN message_attachments ma ON ma.blob_sha256=b.sha256 GROUP BY b.sha256,b.ref_count HAVING b.ref_count!=COUNT(ma.id)",
+            &[],
+        )
+        .await?;
+    let mut drift = vec![];
+    while let Ok(Some(row)) = rows.next().await {
+        if let (Ok(key), Ok(expected), Ok(actual)) =
+            (row.try_get(0), row.try_get(1), row.try_get(2))
+        {
+            drift.push((key, expected, actual));
+        }
+    }
+    Ok(drift)
+}
+
+async fn scan_failed(db: &setjoin_pg::workers::WorkerConnection, id: i64) {
+    let _ = db
+        .execute(
+            "UPDATE storage_dr_scans SET status='failed',completed_at=now() WHERE id=$1",
+            &[(&id, setjoin_pg::Type::INT8)],
+        )
+        .await;
+}
+
+async fn scan_progress(
+    db: &setjoin_pg::workers::WorkerConnection,
+    id: i64,
+    counts: [i64; 4],
+    details: &[serde_json::Value],
+    complete: bool,
+) {
+    let [total, orphaned, missing, drift] = counts;
+    let mut params: Vec<setjoin_pg::Param<'_>> = vec![
+        (&total, setjoin_pg::Type::INT8),
+        (&orphaned, setjoin_pg::Type::INT8),
+        (&missing, setjoin_pg::Type::INT8),
+        (&drift, setjoin_pg::Type::INT8),
+        (&id, setjoin_pg::Type::INT8),
+    ];
+    let text = if details.is_empty() {
+        "null".into()
+    } else {
+        serde_json::to_string(details).unwrap_or_else(|_| "[]".into())
+    };
+    let sql = if complete {
+        params.push((&text, setjoin_pg::Type::TEXT));
+        "UPDATE storage_dr_scans SET status='completed',total_scanned=$1,orphaned_count=$2,missing_count=$3,refcount_drift_count=$4,details=COALESCE(details,'[]'::jsonb)||$6::jsonb,completed_at=now() WHERE id=$5"
+    } else if details.is_empty() {
+        "UPDATE storage_dr_scans SET total_scanned=$1,orphaned_count=$2,missing_count=$3,refcount_drift_count=$4 WHERE id=$5"
+    } else {
+        params.push((&text, setjoin_pg::Type::TEXT));
+        "UPDATE storage_dr_scans SET total_scanned=$1,orphaned_count=$2,missing_count=$3,refcount_drift_count=$4,details=COALESCE(details,'[]'::jsonb)||$6::jsonb WHERE id=$5"
+    };
+    if let Err(e) = db.execute(sql, &params).await {
+        eprintln!("storage scan {id} progress failed: {e}");
+    }
+}
+
+async fn migration_rows(
+    db: &setjoin_pg::workers::WorkerConnection,
+) -> Result<setjoin_pg::workers::WorkerRows, String> {
+    db.rows(
+        "SELECT sha256,size_bytes FROM blobs WHERE ref_count>0 ORDER BY sha256",
+        &[],
+    )
+    .await
+}
+
+async fn migration_status_write(
+    db: &setjoin_pg::workers::WorkerConnection,
+    id: i64,
+    status: &str,
+) -> Result<(), String> {
+    let sql = if matches!(status, "failed" | "cancelled" | "completed") {
+        "UPDATE storage_migrations SET status=$1,completed_at=now() WHERE id=$2"
+    } else {
+        "UPDATE storage_migrations SET status=$1 WHERE id=$2"
+    };
+    db.execute(
+        sql,
+        &[
+            (&status, setjoin_pg::Type::TEXT),
+            (&id, setjoin_pg::Type::INT8),
+        ],
+    )
+    .await
+    .map(|_| ())
+}
+
+async fn migration_progress(
+    db: &setjoin_pg::workers::WorkerConnection,
+    id: i64,
+    count: i64,
+    last: Option<&str>,
+) {
+    let result = if let Some(key) = last {
+        db.execute(
+            "UPDATE storage_migrations SET migrated=$1,last_key=$2 WHERE id=$3",
+            &[
+                (&count, setjoin_pg::Type::INT8),
+                (&key, setjoin_pg::Type::TEXT),
+                (&id, setjoin_pg::Type::INT8),
+            ],
+        )
+        .await
+    } else {
+        db.execute(
+            "UPDATE storage_migrations SET migrated=$1,total_blobs=$1 WHERE id=$2",
+            &[
+                (&count, setjoin_pg::Type::INT8),
+                (&id, setjoin_pg::Type::INT8),
+            ],
+        )
+        .await
+    };
+    if let Err(error) = result {
+        eprintln!("storage migration {id} progress failed: {error}");
+    }
+}
+
+async fn migration_orphans(
+    db: &setjoin_pg::workers::WorkerConnection,
+) -> Result<Vec<(i64, String)>, String> {
+    Ok(db
+        .query(
+            "SELECT id,status FROM storage_migrations WHERE status IN('dual_write','backfill') ORDER BY id",
+            &[],
+        )
+        .await?
+        .iter()
+        .filter_map(|r| Some((r.try_get(0).ok()?, r.try_get(1).ok()?)))
+        .collect())
 }
