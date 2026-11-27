@@ -74,6 +74,10 @@ pub fn run_legacy_cli() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let sd_notify = SdNotify::from_env_and_scrub();
+    if let Some(err) = crate::acme::retirement_error_from_env() {
+        eprintln!("setjoin-gateway: {err}");
+        return ExitCode::FAILURE;
+    }
     let environment: Vec<(String, String)> = std::env::vars().collect();
     let env_get = |k: &str| {
         environment
@@ -186,11 +190,8 @@ pub async fn run_with_options(
         return Err("at least one subsystem must be enabled".into());
     }
     options.activated.validate_for_subsystems(subsystems)?;
-    if let Some(warning) = crate::acme::deprecation_warning(
-        &|name| std::env::var(name).ok(),
-        options.activated.acme.is_some(),
-    ) {
-        eprintln!("setjoin-gateway: {warning}");
+    if let Some(err) = crate::acme::retirement_error_from_env() {
+        return Err(err);
     }
     if !options.allow_route_inventory_env
         && std::env::var("GATEWAY_ROUTE_INVENTORY")
@@ -250,7 +251,9 @@ pub async fn run_with_options(
                 &|name| std::env::var(name).ok(),
                 verifier,
             )?
-            .ok_or("the https descriptor requires TLS_CERT/TLS_KEY or TLS_AUTOCERT_DOMAINS")?,
+            .ok_or(
+                "the https descriptor requires TLS_CERT/TLS_KEY (or TLS_CERT_FILE/TLS_KEY_FILE)",
+            )?,
         )
     } else {
         None
@@ -632,58 +635,6 @@ pub async fn run_with_options(
         None => None,
     };
 
-    if subsystems.http {
-        crate::acme::guard(
-            std::env::var("RUST_WORKERS_ON").ok().as_deref(),
-            std::env::var("GO_WORKERS_OFF").ok().as_deref(),
-            activated.acme.is_some(),
-            tls_frontend.is_some(),
-            &std::env::var("TLS_AUTOCERT_CHALLENGE").unwrap_or_default(),
-        )?;
-    }
-    let acme_store = setjoin_acme::Http01Store::default();
-    let dns_degraded = std::env::var("TLS_AUTOCERT_CHALLENGE").as_deref() == Ok("dns-01");
-    let acme_settings = if subsystems.http || subsystems.workers {
-        crate::acme::settings(&|name| std::env::var(name).ok()).or_else(|e| {
-            if workers::listed("RUST_WORKERS_ON", crate::acme::RENEWAL) && !dns_degraded {
-                Err(e)
-            } else {
-                if workers::listed("RUST_WORKERS_ON", crate::acme::RENEWAL) {
-                    eprintln!("TLS: managed ACME client creation failed: {e}");
-                }
-                Ok(None)
-            }
-        })?
-    } else {
-        None
-    };
-    let acme_hostname = acme_settings
-        .as_ref()
-        .map(|s| s.hostname.clone())
-        .unwrap_or_else(|| std::env::var("HOSTNAME").unwrap_or_default());
-    let acme_renewal = if subsystems.http || subsystems.workers {
-        acme_settings
-            .filter(|_| workers::listed("RUST_WORKERS_ON", crate::acme::RENEWAL))
-            .map(|s| {
-                crate::acme::Renewal::new(
-                    s,
-                    acme_store.clone(),
-                    tls_frontend.as_ref().map(|f| f.tls_alpn_store()),
-                )
-            })
-            .transpose()
-            .or_else(|e| {
-                if dns_degraded {
-                    eprintln!("TLS: managed ACME client creation failed: {e}");
-                    Ok(None)
-                } else {
-                    Err(e)
-                }
-            })?
-    } else {
-        None
-    };
-
     let setup_control_ready = if subsystems.workers
         && workers::listed("RUST_WORKERS_ON", crate::setup_control::NAME)
     {
@@ -811,30 +762,12 @@ pub async fn run_with_options(
         });
     }
 
-    if let Some(worker) = acme_renewal {
-        let stop = root_stop.clone();
-        bg_tasks.spawn(async move {
-            worker.run_until(stop.cancelled_owned()).await;
-            ("acme-renewal", Ok(()))
-        });
-    }
     if let Some((socket, path, control)) = setup_control_ready {
         let stop = root_stop.clone();
         bg_tasks.spawn(async move {
             crate::setup_control::serve(socket, path, control, stop.cancelled_owned()).await;
             ("setup-control", Ok(()))
         });
-    }
-    if subsystems.http {
-        if let Some(listener) = activated.acme {
-            let stop = root_stop.clone();
-            let store = acme_store.clone();
-            let host = acme_hostname.clone();
-            bg_tasks.spawn(async move {
-                crate::acme::serve_http80(listener, store, host, stop.cancelled_owned()).await;
-                ("acme-http80", Ok(()))
-            });
-        }
     }
 
     if let Some((denylist, direct)) = session_worker {

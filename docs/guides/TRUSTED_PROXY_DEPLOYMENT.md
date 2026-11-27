@@ -190,7 +190,7 @@ patterns:
 **L4 pass-through with source preservation** (AWS NLB with instance targets, GCP
 passthrough Network LB): the gateway's socket peer IS the client and no XFF is
 involved. Leave `TRUSTED_PROXY_IP` unset and run the gateway in direct TLS mode
-(`TLS_AUTOCERT_DOMAINS` or `TLS_CERT`/`TLS_KEY`) — client identity comes from
+(`TLS_CERT`/`TLS_KEY`) — client identity comes from
 the socket, which is the strongest possible posture.
 
 **L7 LB → stable-IP last hop:** keep a small nginx/Caddy/HAProxy on the origin

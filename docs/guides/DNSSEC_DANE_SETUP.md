@@ -30,9 +30,8 @@ TLS_KEY=/etc/mail/tls/server-key.pem
 
 ### Path B: DANE-TA (2 1 1) — Pin the CA (legacy autocert / Let's Encrypt)
 
-> **Deprecated in Release N (#559):** Built-in ACME/autocert is deprecated and
-> scheduled for removal in Release N+1 (#560). Prefer Path A with certbot
-> `--reuse-key` or Caddy + `export-edge-pem.sh` (see
+> **Retired in Release N+1 (#560):** Built-in ACME/autocert has been removed.
+> Use Path A with certbot `--reuse-key` or Caddy + `export-edge-pem.sh` (see
 > `docs/guides/EDGE_TLS_ACME_MIGRATION.md`).
 
 Go's autocert generates new keypairs on each renewal. Since Go 1.26's autocert

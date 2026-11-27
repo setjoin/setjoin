@@ -297,35 +297,17 @@ see the [gateway HTTPS contract](bins/gateway/DOX.md#https-runtime-413).
 Shutdown cancels and drains an in-flight health insert; if cancellation
 or connection draining fails, a sent write may have an unknown outcome.
 
-The ticket rotation oracle `mailserver/internal/tlsutil/ticket_worker_oracle_test.go`
-starts the frozen Go manager with a seeded `system_config` row and observes one
-timer tick. Set `GOFREE_RECORD_TICKET_WORKER` to a nonexistent absolute path to
-record `bins/gateway/tests/golden/go-ticket-rotation.json`; the Rust replay is
-`ticket_rotation_matches_go_worker_oracle`. The manager loads on startup without
-writing, rotates after the configured interval (default 24 hours), persists
-new current and old current as previous, and Go's production wiring stores
-plaintext JSON despite its `encrypted` label. The #413 HTTPS runtime consumes these
-keys and translates Go-compatible encrypted session state, with archived Go TLS 1.2/1.3
-resumption proof in `crates/tls/tests/go_interchange.rs`. `TicketKeys::run` supplies `None` for Go's all-zero previous
-sentinel, takes an injected entropy source and listener consumer, and cancels
-and drains an in-flight DB write on shutdown. Entropy failures stop the worker;
-Go 1.26's `crypto/rand.Read` terminates the process on failure; the #413 HTTPS
-runtime treats the worker error as fatal and shuts down the listeners.
+The Go TLS session-ticket DB rotation worker (`tls-ticket-keys`) and Go session-ticket
+wire-interchange bridge (`crates/tls/src/{state,tickets}.rs`, `crates/tls/tests/go_interchange.rs`,
+`bins/gateway/src/ticket_keys.rs`) were retired in Release N+1 (`#560`). TLS session
+resumption is now handled natively in-process by `rustls`'s standard `Ticketer` inside
+`setjoin-tls`; a legacy `RUST_WORKERS_ON=tls-ticket-keys` entry is tolerated with a
+deprecation log until stripped by `upgrade.sh refresh-gateway-env`.
 
-Per #261's orchestrator clarification, these TLS tasks are process-local. #413
-wires the HTTPS swap; other listener owners keep Go's copies ON until their swaps (Platform ACME/control #305, LDAP #342, IMAP #345,
-federation #347, SMTP #351);
-the listener ticket owns cross-swap resumption proof. The experimental TLS
-bridge is retained only as ignored task evidence, never shipped. The named
-launcher regression `TestLaunchWorkerHonorsWorkersOff` includes `cert-monitor`
-and `tls-ticket-keys` for those later swaps. HTTP shutdown is mandatory in Go
-and has no worker switch. Rust's `http_lifecycle.rs` observes listener closure,
-completion of active requests and the 30-second drain limit over HTTP sockets.
-`ticket_rotation_matches_go_worker_oracle` also checks elapsed intervals and
-that the second rotation retains only the immediately previous generation.
-Startup rejects malformed JSON field types and stops on entropy failure;
-`ticket_worker_fresh_key_and_entropy_failure_follow_go_startup` covers these
-through the seeded worker and its listener consumer.
+Per #261's orchestrator clarification, `cert-monitor` is process-local. #413 wires the
+HTTPS swap; HTTP shutdown has no worker switch, and Rust's `http_lifecycle.rs` observes
+listener closure, completion of active requests, and the 30-second drain limit over HTTP
+sockets.
 
 Cron's lifetime advisory lock is also held by the Go scheduler. Disabling a
 single Go cron task does not release that lock, so a Rust scheduler built with
@@ -444,11 +426,11 @@ can be accepted by the next process. Existing accepted connections are not
 preserved when the process exits. The gateway listener is HTTP, not TLS.
 Executable test: `activated_listener_keeps_connections_queued_across_restart`.
 
-With `LISTEN_FDNAMES` the gateway also adopts up to five descriptors (#345/#347,
-`activation.rs`): `imap` and `imaps` are the IMAP listeners served in-process
-(see `crates/protocols/imap/DOX.md#activation-345`), `acme` is HTTP-01,
-`federation` is the native peer listener (see its protocol DOX); any other single name (systemd's default
-is the unit name) is HTTP, unnamed counts above one are refused.
+With `LISTEN_FDNAMES` the server adopts up to nine active descriptors (#345/#347/#413/#501/#544,
+`activation.rs`): `http` (or systemd's default unit name), `https`, `imap`, `imaps`, `smtp`,
+`smtps`, `submission`, `federation` (see its protocol DOX), and `auth` (in `setjoind`).
+The retired `acme` descriptor is refused fail-closed (`#560`), and unnamed counts above one
+are refused.
 
 On a root/systemd host, `python3 scripts/test-gateway-systemd.py <gateway>`
 additionally checks real `Accept=no` socket activation, a default-ON health

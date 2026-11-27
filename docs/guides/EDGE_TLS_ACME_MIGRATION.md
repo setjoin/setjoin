@@ -1,10 +1,13 @@
 # Edge TLS & ACME Migration Guide (Release N → N+1)
 
-> **Deprecation Notice (Release N / #559):** Built-in ACME (`setjoin-acme`,
+> **Retirement Notice (Release N+1 / #560):** Built-in ACME (`setjoin-acme`,
 > `TLS_AUTOCERT_DOMAINS`, `RUST_WORKERS_ON=acme-renewal`, `setjoin-acme.socket`,
 > `TLS_AUTOCERT_EMAIL`, `TLS_AUTOCERT_KEY_FILE`, `TLS_DNS_PROVIDER`,
-> `TLS_DNS_CONFIG`, `TLS_AUTOCERT_ROLLOUT`) is **deprecated in Release N** and
-> will be **removed in Release N+1 (#560)**.
+> `TLS_DNS_CONFIG`, `TLS_AUTOCERT_ROLLOUT`, and `ACME_*` variables) was
+> deprecated in Release N (`#559`) and **removed in Release N+1 (`#560`)**.
+> `setjoind` and `setjoin-server` now **refuse to start fail-closed** if any
+> retired ACME variable or socket descriptor is present, directing operators to
+> this guide and `TLS_CERT` / `TLS_KEY` (`TLS_CERT_FILE` / `TLS_KEY_FILE`).
 
 Starting in Release N, every Setjoin TLS listener (direct HTTPS, standalone
 auth, IMAPS `:993`, IMAP STARTTLS `:143`, SMTPS `:465`, SMTP Submission
@@ -168,21 +171,30 @@ rm -f /tmp/migrated-key.pem /tmp/migrated-chain.pem
 2. Update `/etc/setjoin/config.env`:
    - Set `TLS_CERT=/etc/mail/tls/server.pem` and
      `TLS_KEY=/etc/mail/tls/server-key.pem`.
-   - If terminating HTTPS at Caddy/Angie, set `HTTP_MODE=proxy`,
-     `TRUSTED_PROXY_IP=127.0.0.1`, and `GATEWAY_TRUSTED_PROXIES=127.0.0.1`
+   - If terminating HTTPS at Caddy/Angie on the same host, set
+     `TLS_EDGE_PROXY=true`, `HTTP_MODE=proxy`, `TRUSTED_PROXY_IP=127.0.0.1`,
+     and `GATEWAY_TRUSTED_PROXIES=127.0.0.1`, then run
+     `sudo mailserver/deploy/scripts/upgrade.sh refresh-gateway-env` so Setjoin
+     stops/disables `setjoin-https.socket` (freeing `:443` for Caddy/Angie)
+     while retaining `TLS_CERT`/`TLS_KEY` for SMTPS/IMAPS/LDAPS
      (see `docs/guides/TRUSTED_PROXY_DEPLOYMENT.md`).
    - Clear deprecated built-in ACME keys (`TLS_AUTOCERT_DOMAINS`,
      `TLS_AUTOCERT_EMAIL`, `TLS_AUTOCERT_KEY_FILE`, `TLS_DNS_PROVIDER`,
      `TLS_DNS_CONFIG`, `TLS_AUTOCERT_ROLLOUT`) and remove `acme-renewal` from
      `RUST_WORKERS_ON`.
-3. Disable the deprecated `:80` ACME socket if active and restart Setjoin:
+3. If upgrading from Release N with the retired `:80` ACME socket unit, disable
+   and stop it, remove `/etc/systemd/system/setjoin-acme.socket`, reload
+   systemd, and restart Setjoin:
 
 ```bash
-sudo systemctl disable --now setjoin-acme.socket || true
+sudo systemctl disable --now setjoin-acme.socket
+sudo rm -f /etc/systemd/system/setjoin-acme.socket
+sudo systemctl daemon-reload
 sudo systemctl restart setjoind
 ```
 
-4. Confirm startup logs show **no** `DEPRECATION WARNING: built-in ACME` line:
+4. Confirm `setjoind` starts cleanly without any Release N+1 ACME retirement
+   error:
 
 ```bash
 sudo journalctl -u setjoind -n 50 --no-pager

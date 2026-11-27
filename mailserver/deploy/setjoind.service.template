@@ -22,7 +22,7 @@ TimeoutStartSec=180
 # 1. federation.env precedes config.env so operator worker switches in
 #    config.env are not overwritten by federation.env's narrower subset.
 # 2. setjoind.env provides gateway/WORM/protocol/LISTEN_ADDR=127.0.0.1:0 overrides.
-# 3. tls.env provides TLS/ACME paths and DNS-01 credentials.
+# 3. tls.env provides static PEM TLS paths (HOSTNAME, TLS_CERT, TLS_KEY).
 # 4. setjoind-auth.env (0600 root:root) provides DB_WORKER_DSN only.
 # Never source auth.env or db-credentials.env from this unit.
 EnvironmentFile=-{{FEDERATION_ENV}}

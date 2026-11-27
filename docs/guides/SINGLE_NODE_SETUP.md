@@ -217,9 +217,13 @@ A self-signed cert for your hostname is written to
 `/etc/setjoin/tls/server.pem` + `server-key.pem` (valid 825 days). For a
 **publicly-trusted** cert, either:
 
-- enable ACME: set `TLS_AUTOCERT_DOMAINS=<host>` in `config.env` and open `:80`
-  for the HTTP-01 challenge; or
-- drop a real cert/key at the `TLS_CERT` / `TLS_KEY` paths and restart.
+- terminate ACME at the edge (Caddy or certbot) and export PEM files to
+  `/etc/mail/tls/server.pem` + `server-key.pem` via
+  `mailserver/deploy/scripts/export-edge-pem.sh` (see
+  `docs/guides/EDGE_TLS_ACME_MIGRATION.md`; all listeners hot-reload
+  automatically without restarting); or
+- drop a real cert/key at the `TLS_CERT` / `TLS_KEY` paths (hot-reloaded
+  automatically).
 
 ### 7. Load the schema + constrained runtime roles
 

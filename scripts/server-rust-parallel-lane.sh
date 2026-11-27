@@ -104,7 +104,6 @@ if [[ "$MODE" == parallel ]]; then
   export SERVER_RUST_NEXTEST=1
 fi
 cargo deny --version >/dev/null 2>&1 || { echo "✗ lane: cargo-deny not installed" >&2; exit 1; }
-[[ -x "${PEBBLE_BIN:-}" ]] || { echo "✗ lane: PEBBLE_BIN is not an executable" >&2; exit 1; }
 docker image inspect setjoin-ci-linux-tc:local-amd64 >/dev/null 2>&1 || { echo "✗ lane: image setjoin-ci-linux-tc:local-amd64 missing" >&2; exit 1; }
 
 # ── quick debug run ───────────────────────────────────────────────────────────────────

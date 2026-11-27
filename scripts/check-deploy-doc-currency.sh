@@ -171,6 +171,7 @@ declare -A DOCUMENTED_SYMBOL_SOURCE=(
   [LOCK_FILE]="$ROOT/mailserver/deploy/scripts/export-edge-pem.sh"
   [RENEWED_LINEAGE]="$ROOT/mailserver/deploy/certbot-deploy-hook.sh.template"
   [EXPECTED_LINEAGE]="$ROOT/mailserver/deploy/certbot-deploy-hook.sh.template"
+  [TLS_EDGE_PROXY]="$ROOT/mailserver/deploy/scripts/lib-livekit.sh"
 )
 
 # ── third-party systemd units the box also runs, not ours + OUR OWN units
@@ -208,6 +209,11 @@ fi
 declare -A INFRA_UNIT_ALLOW=(
   [postgresql]=1 [minio]=1 ["clamav@scan"]=1 [pgpool]=1 [pgbouncer]=1
   [caddy]=1 [angie]=1 [certbot.timer]=1 [certbot.service]=1
+)
+# Retired units that migration docs/scripts may explicitly `stop` or `disable`
+# during upgrade cleanup (#560), but never `enable` or `start`.
+declare -A RETIRED_CLEANUP_UNIT_ALLOW=(
+  [setjoin-acme.socket]=1
 )
 
 # env_to_koanf_key NAME — mirrors shared/config/koanf.go's makeEnvTransform:
@@ -301,10 +307,14 @@ echo "-- systemd units --"
 n3=0
 while IFS=: read -r file line match; do
   [ -z "$match" ] && continue
+  verb="$(printf '%s' "$match" | awk '{print $2}')"
   unit="$(printf '%s' "$match" | awk '{print $NF}')"
   n3=$((n3 + 1))
   [ -n "${OUR_UNIT_ALLOW[$unit]:-}" ] && continue
   [ -n "${INFRA_UNIT_ALLOW[$unit]:-}" ] && continue
+  if [ -n "${RETIRED_CLEANUP_UNIT_ALLOW[$unit]:-}" ] && { [ "$verb" = "disable" ] || [ "$verb" = "stop" ]; }; then
+    continue
+  fi
   echo "  [DEPLOY-DOC] $file:$line: systemd reference names unit '$unit' — it is not in the generated Setjoin unit catalog or the known infrastructure list" >&2
   fail=1
 done < <(grep -rHnoE '(^|[[:space:];|&(!])systemctl [a-z-]+( --?[A-Za-z0-9@._=-]+)* [A-Za-z0-9_][A-Za-z0-9@._-]*|(^|[[:space:];|&(!])journalctl -u [A-Za-z0-9_][A-Za-z0-9@._-]*' "${DOC_FILES[@]}" "${SCRIPT_FILES[@]}" 2>/dev/null)

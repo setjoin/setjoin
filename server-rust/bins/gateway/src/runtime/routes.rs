@@ -851,7 +851,7 @@ async fn build_with_keys<K: KeySource + 'static>(
             .map_err(|e| format!("push DB_WORKER_DSN: {e}"))?,
     );
     push.production = env("TLS_CERT_FILE").is_some()
-        || env("TLS_AUTOCERT_DOMAINS").is_some()
+        || env("TLS_CERT").is_some()
         || env("HTTP_MODE").as_deref() == Some("proxy");
     let hostname = env("HOSTNAME").unwrap_or_else(|| "localhost".into());
     if push.production && hostname != "localhost" {

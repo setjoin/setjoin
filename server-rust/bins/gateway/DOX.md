@@ -395,20 +395,13 @@ and the public bootstrap predicate: [static contract](../../crates/domains/stati
 `SETJOIN_CONFIG` root pages use the resolved startup configuration (#414);
 the executable serves them without a Go upstream.
 
-## ACME :80, `acme-renewal` and the setup control socket (#305)
+## ACME retirement (#560) and the setup control socket (#305)
 
-Contract and rollback: [Platform DOX](../../crates/domains/platform/DOX.md#slice-acme-control-305);
-issuance engine: [setjoin-acme](../../crates/acme/DOX.md). Startup guards (executable tests
-`tests/acme_startup.rs`): `RUST_WORKERS_ON=acme-renewal` needs `GO_WORKERS_OFF=acme-renewal`.
-HTTP-01 requires the :80 descriptor `acme`, TLS-ALPN-01 shares the active :443 frontend `https`,
-and DNS-01 requires no HTTP descriptor. DNS manager creation/config-file errors log and leave
-cached/static HTTPS serving, matching frozen Go; other managed challenge startup failures stay fatal.
-Configuration and provider contracts live in the ACME crate;
-an activated `acme` descriptor needs `GO_WORKERS_OFF=http-port80`;
-`RUST_WORKERS_ON=setup-control` needs `GO_WORKERS_OFF=setup-control` (Go gates its control
-socket on that name since #305). Oracles: `acme_renewal_recorded.rs` (seed plus one tick against
-pebble, `GOFREE_RECORD_ACME`), `acme_http80_recorded.rs` (`GOFREE_RECORD_HTTP80`),
-`setup_control_recorded.rs` (`GOFREE_RECORD_CONTROL` with the private Go binary).
+Built-in ACME (`crates/acme`, `setjoin-acme.socket`, `acme-renewal` worker, HTTP-01 / TLS-ALPN-01 / DNS-01 issuance) and Go TLS session-ticket DB rotation (`tls-ticket-keys`) were retired in Release N+1 (`#560`).
+
+- **Fail-closed startup guard (`src/acme.rs`):** `acme::retirement_error_from_env` (invoked via `vars_os()` before `std::env::vars()`, boot, DB pools, or listener binds in both `setjoin-server` and `setjoind`) refuses startup whenever any non-empty `ACME_*`, `TLS_DNS_*`, or `TLS_AUTOCERT_*` variable (exempting `TLS_AUTOCERT_CACHE_DIR` for `POST /admin/tls/import-cert`, and preserving Go/Rust bool parity on `TLS_AUTOCERT_ROLLOUT`), or `RUST_WORKERS_ON=acme-renewal`, is set — logging sorted trigger names only (never secret or non-Unicode values) and pointing operators to `docs/guides/EDGE_TLS_ACME_MIGRATION.md` and `TLS_CERT`/`TLS_KEY` (`TLS_CERT_FILE`/`TLS_KEY_FILE`). `activation::plan` also refuses the retired `acme` socket descriptor fail-closed.
+- **Certificate monitoring (`src/tls_runtime.rs`):** `cert-monitor` remains active with `ReloadingPem`-backed `setjoin_tls::Frontend::served_chain()`.
+- **Setup control socket (`src/setup_control.rs`):** `RUST_WORKERS_ON=setup-control` serves the local setup/restore Unix socket (`setup_control_recorded.rs`). Contract: [Platform DOX](../../crates/domains/platform/DOX.md#slice-acme-control-305).
 
 JMAP1 (#315): `Email/changes` is served by `src/jmap/changes.rs` with no feature
 toggle (`authorize_request`; the inventory entry is the switch). Order as Go:
@@ -480,8 +473,9 @@ to libpq defaults or use the request pool. Its process-local device snapshot
 uses `DB_WORKER_DSN` (fallback `DB_DSN`) for global reads, refreshes on demand
 at five seconds and fails closed before its first successful snapshot. Keep Go's
 process-local caches running until Go is deleted; no shared-effect worker is
-transferred here. Production origin policy mirrors Go's TLS_CERT_FILE,
-TLS_AUTOCERT_DOMAINS and HTTP_MODE=proxy test, including its second upgrader check.
+transferred here. Production origin policy mirrors Go's `TLS_CERT_FILE` and `HTTP_MODE=proxy` test
+(built-in `TLS_AUTOCERT_DOMAINS` was retired in Release N+1, `#560`), including its
+second upgrader check.
 Cookie authentication, 1000-client and 10MiB bounds, ping30/pong70/revalidate300,
 app admission and targeted revocation are exercised over live sockets.
 HS256/SM2 push credentials are verified natively by the shared legacy key seam
@@ -638,18 +632,18 @@ an all-Go proxy. Plain HTTP/h2c and HTTPS share route dispatch, limits, metrics 
 ALPN selects the HTTP engine. Direct TLS overrides a trusted plaintext scheme header, and
 HTTP/2 `:authority` becomes Host before forwarding. TLS handshakes have a single 30s budget.
 
-`tls_runtime` starts `cert-monitor` / `tls-ticket-keys` only when explicitly selected, their
-Go copies are off, and the HTTPS listener is present. They use `DB_WORKER_DSN` (fallback
-`DB_DSN`), never an owner credential. Persisted keys are applied before the first handshake;
-rotation defaults to 24h (`TLS_SESSION_TICKET_KEY_ROTATE_SECS`, nonpositive → default), keeps
-one prior generation, and a fatal entropy error shuts down the HTTP listeners. The monitor
-probes the first usable configured SNI's actual served chain, immediately then every 24h;
-renewed cache blobs are seen on its next check. Both SQL adapters cancel/drain and join on
-shutdown. Frozen Go's missing codec wiring/plaintext persisted key JSON is retained for parity.
+`tls_runtime` starts `cert-monitor` only when explicitly selected, its Go copy is off,
+and the HTTPS listener is present. It uses `DB_WORKER_DSN` (fallback `DB_DSN`), never an
+owner credential, probes the actual `ReloadingPem` served chain immediately then every 24h
+(picking up atomic PEM swaps on the next check), and cancels/drains on shutdown. TLS
+session resumption uses `rustls`'s built-in in-process `Ticketer` (`tls-ticket-keys` and
+Go ticket-key DB interchange were retired in `#560`; a lingering `RUST_WORKERS_ON=tls-ticket-keys`
+token is tolerated with a deprecation log so immutable binary upgrades survive before
+`upgrade.sh refresh-gateway-env` strips it).
 
-Checks: `tls_front`, `tls_startup`, `http_lifecycle`, `cert_monitor`, `ticket_worker`, `proxy`.
+Checks: `tls_front`, `tls_startup`, `http_lifecycle`, `cert_monitor`, `proxy`.
 The DB-backed live-worker case compares the actual chain's health row to the recorded Go
-seven-day oracle, and proves loaded keys resume a client across fresh listener instances.
+seven-day oracle and verifies in-process TLS session resumption.
 The executable case adopts separate HTTP/HTTPS descriptors and exits cleanly on SIGTERM.
 Shared authenticated runtime gates, cache lifecycle and DSN split (#405): [runtime contract](runtime-access.DOX.md).
 
@@ -928,12 +922,9 @@ F17 CalDAV HTTP method transfer (#426): [Calendar contract](../../crates/domains
 
 ## Owner-approved security fixes (SECFIX3, #509, 2026-11-05)
 
-Persisted TLS ticket keys are sealed in the `system_config` secret envelope (`ticket_keys::codec`
-from `identity.deployment_id` plus `IDENTITY_CONFIG_SECRET_KEY`/`DB_ENCRYPTION_KEY`); legacy
-plaintext rows are never trusted and are replaced at startup; without key material the keys
-stay in memory only and a legacy plaintext row is deleted (a sealed row is kept) (#503). The global CSRF gate runs before the over-budget branch (#491). Every over-budget request (core and route buckets) is answered with Go's 429; nothing defers to Go (#357). An `/auth/*` spelling no inventory row claims (matched on decoded first segment, excluding `%2F`) bypasses guest admission when unclaimed and gets the root mux's answer (decoded-segment slash redirect to an F21 subtree row, else `CatchallRoute` SPA/404) (#357, #378, src/unmatched.rs). Adapter-less local rows still fall back to Go until DELETE (#142).
+The global CSRF gate runs before the over-budget branch (#491). Every over-budget request (core and route buckets) is answered with Go's 429; nothing defers to Go (#357). An `/auth/*` spelling no inventory row claims (matched on decoded first segment, excluding `%2F`) bypasses guest admission when unclaimed and gets the root mux's answer (decoded-segment slash redirect to an F21 subtree row, else `CatchallRoute` SPA/404) (#357, #378, src/unmatched.rs). (Persisted Go TLS ticket keys `#503` were retired alongside `tls-ticket-keys` in `#560` in favor of rustls's in-memory ring `Ticketer`.)
 Failed live authority lookups fail closed in rules, `system.config` and the JMAP session (#484).
-Tests: `secfix3_csrf`, `secfix3_rules`, `ticket_worker`; divergences in `tests/golden/secfix3-divergences.json`.
+Tests: `secfix3_csrf`, `secfix3_rules`; divergences in `tests/golden/secfix3-divergences.json`.
 OIDC OP public namespace closure (#339): `oidc_namespace::Namespace` is installed
 by the executable before generic adapters and the positional final catch-all in both
 public-only and database-backed tables. Appending it afterward breaks root fallback

@@ -66,8 +66,6 @@ tokio-rustls = { version = "=0.26.6", default-features = false, features = ["rin
 ipnet = "=2.12.2"
 setjoin-office = { path = "../../crates/domains/office" }
 setjoin-backup = { path = "../../crates/backup" }
-# ACME http-01 renewal worker and :80 challenge responder (#305).
-setjoin-acme = { path = "../../crates/acme" }
 
 setjoin-approvals = { path = "../../crates/domains/approvals" }
 setjoin-drive = { path = "../../crates/domains/drive" }
@@ -104,7 +102,7 @@ tokio = { version = "=1.54.1", features = ["fs", "io-util", "macros", "net", "pr
 rust-s3 = { version = "=0.38.0", default-features = false, features = ["with-tokio"] }
 quick-xml = { version = "=0.41.0", features = ["serialize"] }
 serde = { version = "=1.0.229", features = ["derive"] }
-reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls-native-roots", "gzip"] }
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls-native-roots", "gzip", "json"] }
 
 ring = "=0.17.14"
 # LiveKit's empty RemoveParticipant protobuf reply still needs wire validation.

@@ -25,7 +25,6 @@ GATE = ("setjoin-gateway", "secfix3_rules")
 CA = ("setjoin-conditional-access", "secfix3_policy")
 AUTHZ_G = ("setjoin-authz", "runtime_gates")
 AUTHZ_D = ("setjoin-authz", "device_credential")
-TICKET = ("setjoin-gateway", "ticket_worker")
 IDENT = ("setjoin-identity", None)  # lib tests
 
 REFRESH_SQL = (
@@ -58,11 +57,9 @@ MUTANTS = [
     ("policy-invalidate-keeps-loaded", CA, "invalidated_policy_cache_fails_closed_when_the_reload_fails", None),
     ("step-up-not-enforcing", CA, "legacy_step_up_policy_counts_as_enforcing_on_evaluation_errors", None),
     ("geo-error-is-low-risk", CA, "geo_tier_lookup_error_takes_the_checked_failure_path", None),
-    ("ticket-keys-plaintext", TICKET, "persisted_ticket_keys_are_sealed_and_legacy_plaintext_is_replaced", None),
     ("safetynet-accepted", IDENT, "a_fresh_chained_response_is_refused", None),
     ("login-dummy-always-bcrypt", AUTH, "unknown_email_login_costs_a_password_hash_under_every_profile", None),
     ("dpop-replay-evicts-live", AUTHZ_G, "dpop_replay_cache_refuses_new_proofs_instead_of_evicting_live_ones", None),
-    ("ticket-legacy-row-kept", TICKET, "without_a_codec_the_legacy_plaintext_row_is_deleted_and_a_sealed_row_kept", None),
     ("csrf-after-over-budget", ("setjoin-gateway", "secfix3_csrf"), "over_budget_cross_site_mutation_is_denied_by_csrf", None),
 ]
 

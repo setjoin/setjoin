@@ -93,7 +93,7 @@ impl ClientSessionStore for CountingStore {
     }
 }
 
-fn prepare(work: &Work, a: &Value, c: &Value) -> Vec<String> {
+fn prepare(work: &Work, a: &Value) {
     std::fs::write(work.0.join("cert.pem"), a["certificate"].as_str().unwrap()).unwrap();
     std::fs::write(
         work.0.join("key.pem"),
@@ -101,57 +101,6 @@ fn prepare(work: &Work, a: &Value, c: &Value) -> Vec<String> {
     )
     .unwrap();
     std::fs::write(work.0.join("roots.pem"), a["roots"].as_str().unwrap()).unwrap();
-    let cache_dir = work.0.join("cache");
-    if cache_dir.exists() {
-        std::fs::remove_dir_all(&cache_dir).unwrap();
-    }
-    std::fs::create_dir_all(&cache_dir).unwrap();
-    let kind = c["cache"].as_str().unwrap();
-    if kind == "none" {
-        return vec![];
-    }
-    let domains = if kind == "wildcard" {
-        vec!["*.example.test".into()]
-    } else {
-        vec!["managed.localhost".into()]
-    };
-    let cache = setjoin_acme::cache::DirCache::new(&cache_dir);
-    match kind {
-        "managed" | "both" => cache
-            .put(
-                "managed.localhost",
-                a["managed_blob"].as_str().unwrap().as_bytes(),
-            )
-            .unwrap(),
-        "expired" => cache
-            .put(
-                "managed.localhost",
-                a["expired_blob"].as_str().unwrap().as_bytes(),
-            )
-            .unwrap(),
-        "corrupt" => cache.put("managed.localhost", b"corrupt").unwrap(),
-        "wildcard" => cache
-            .put(
-                "*.example.test",
-                a["wildcard_blob"].as_str().unwrap().as_bytes(),
-            )
-            .unwrap(),
-        _ => {}
-    }
-    if matches!(kind, "autocert" | "both" | "wrong") {
-        std::fs::write(
-            cache_dir.join("managed.localhost-rsa"),
-            a[if kind == "wrong" {
-                "wrong_blob"
-            } else {
-                "autocert_blob"
-            }]
-            .as_str()
-            .unwrap(),
-        )
-        .unwrap();
-    }
-    domains
 }
 
 fn http_version_label(version: hyper::Version) -> &'static str {
@@ -335,7 +284,7 @@ async fn probe(work: &Work, addr: SocketAddr, c: &Value) -> Value {
 }
 
 async fn replay(work: &Work, a: &Value, c: &Value, aes: bool) -> Value {
-    let domains = prepare(work, a, c);
+    prepare(work, a);
     let gateway = Gateway::new(
         Config {
             upstream: None,
@@ -353,8 +302,6 @@ async fn replay(work: &Work, a: &Value, c: &Value, aes: bool) -> Value {
         &|key| match key {
             "TLS_CERT_FILE" => Some(work.0.join("cert.pem").display().to_string()),
             "TLS_KEY_FILE" => Some(work.0.join("key.pem").display().to_string()),
-            "TLS_AUTOCERT_DOMAINS" => Some(domains.join(",")),
-            "TLS_AUTOCERT_CACHE_DIR" => Some(work.0.join("cache").display().to_string()),
             _ => None,
         },
         aes,
@@ -396,9 +343,17 @@ async fn https_h2c_and_sni_match_recorded_go() {
             .join("server-rust/tests/conformance/tlsfront")
             .join(name);
         let recorded: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-        for case in recorded["cases"].as_array().unwrap() {
+        let mut replayed = 0usize;
+        for case in recorded["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["cache"].as_str() == Some("none"))
+        {
             let actual = replay(&work, &recorded["fixtures"], case, aes).await;
             assert_eq!(actual, case["observation"], "AES={aes}, {}", case["name"]);
+            replayed += 1;
         }
+        assert_eq!(replayed, 4, "expected 4 static-PEM/h2c cases for AES={aes}");
     }
 }

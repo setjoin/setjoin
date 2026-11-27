@@ -18,9 +18,7 @@ named|identity-metrics|func(ctx context.Context) { metricsH.RunIdentityCollector
 named|backup-engine|func(ctx context.Context) { backupEngine.Worker(ctx, backupCh) }
 named|exchange-assessment-deletion|adminExchangeAssessmentH.RunDeletionWorker
 gated|setup-control
-managed|acme-renewal|mgr.Start
 named|cert-monitor|func(ctx context.Context) { certMon.Run(ctx, 24*time.Hour) }
-named|http-port80|func(context.Context) { logger.Info("HTTP redirect server starting", "addr", ":80") if err := http80Server.ListenAndServe(); err != nil && err != http.ErrServerClosed { logger.Error("HTTP server error", "error", err) } }
 named|http-tls|func(context.Context) { logger.Info("gateway starting (TLS + HTTP/2)", "addr", state.Address) if err := httpServer.Serve(tlsListener); err != nil && err != http.ErrServerClosed { logger.Error("TLS server error", "error", err) stop() } }
 named|http-h2c|func(context.Context) { logger.Info("gateway starting (h2c dev mode)", "addr", state.Address) if err := httpServer.Serve(state.Listener); err != nil && err != http.ErrServerClosed { logger.Error("server error", "error", err) stop() } }
 gated|smime-trust-listener
@@ -28,7 +26,6 @@ named|outbound-mail|outboundWorker.Run
 named|dmarc-report|dmarcReportWorker.Run
 named|tls-rpt-report|tlsRPTWorker.Run
 managed|ad-sync|adminADH.StartSync
-named|tls-ticket-keys|ticketKeyMgr.Start
 named|cron|cronWorker.Run
 named|security-event-delivery|seceventsWorker.Run
 named|email-address-policy-jobs|eapjobs.NewWorker(workerPool, logger).Run

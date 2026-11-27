@@ -1048,9 +1048,10 @@ The reaper runs even with peering unconfigured or the product toggle OFF.
 
 A flat `upgrade.sh` invocation with the new gateway (argument 5) also re-renders
 its unit/socket/config surfaces and enables configured native federation/TLS before
-restarting Go. It snapshots the gateway service and gateway/federation/HTTPS/ACME sockets,
+restarting. It snapshots the gateway service and gateway/federation/HTTPS (plus any
+legacy pre-#560 `setjoin-acme.socket` being retired on cutover) sockets,
 config.env, gateway.env, federation.env, storage.env, smtp.env and tls.env (including file absence/modes), and
-the federation/HTTPS/ACME sockets' active/enabled state below the root-only
+the federation/HTTPS/legacy-ACME sockets' active/enabled state below the root-only
 `$INSTALL_DIR/federation-deploy.prev`. A render/start/readiness or migration
 failure restores that snapshot alongside matching *.prev binaries: stop the
 new federation socket before restarting an older gateway that cannot accept its
@@ -1058,18 +1059,19 @@ FD name. No runtime switch back to Go is added. Immutable installations continue
 using signed Updates and its whole-release recovery workflow.
 
 For a later manual flat rollback, stop setjoin-gateway, setjoin-federation.socket,
-setjoin-https.socket, setjoin-acme.socket and setjoin; disable the three public sockets;
-restore matching *.prev binaries
+and setjoin-https.socket (plus legacy setjoin-acme.socket if reverting to a pre-#560 release);
+disable the public sockets; restore matching *.prev binaries
 (and webmail.prev when supplied). For each of setjoin-gateway.service,
-setjoin-gateway.socket, setjoin-federation.socket, setjoin-https.socket and
-setjoin-acme.socket, replace the live file with
+setjoin-gateway.socket, setjoin-federation.socket, setjoin-https.socket, and any
+snapshotted setjoin-acme.socket, replace the live file with
 its copy under federation-deploy.prev/units, removing it if the snapshot has no
 copy. Do the same for config.env, gateway.env, federation.env, storage.env, smtp.env and tls.env from
 federation-deploy.prev/config, preserving modes/ownership with `cp -a`.
 Run `systemctl daemon-reload`, re-enable/start the federation socket only if the
-snapshot has socket-enabled/socket-active markers; restore HTTPS/ACME using their
-`<socket-name>-enabled` / `<socket-name>-active` markers. Then restart the matching
-auth, Go and gateway processes. Keep the private snapshot with the binary backups.
+snapshot has socket-enabled/socket-active markers; restore HTTPS (and any snapshotted
+legacy ACME socket) using their `<socket-name>-enabled` / `<socket-name>-active` markers.
+Then restart the matching auth and gateway processes. Keep the private snapshot with the
+binary backups.
 
 Protocol/runtime oracle details:
 [agreement](../server-rust/crates/protocols/federation/DOX.md#native-activation-and-delivery-347).
@@ -1078,14 +1080,22 @@ Checks: `deploy/scripts/test-federation-socket.sh`, `test-federation-upgrade.sh`
 
 ## Native HTTPS deployment (#413)
 
-`configure_tls_front` transfers `http-tls,http-h2c,cert-monitor,tls-ticket-keys` when
-TLS_CERT or TLS_AUTOCERT_DOMAINS is configured. Go's overseer LISTEN_ADDR becomes
-127.0.0.1:0 before restart: it binds even when Go's serving workers are disabled.
+`configure_tls_front` strips retired Release N workers (`tls-ticket-keys`, `http-port80`)
+from existing `config.env` files and transfers `http-tls,http-h2c,cert-monitor` when
+`TLS_CERT` is configured and `TLS_EDGE_PROXY` is not truthy (`true`/`1`/`yes`). When
+`TLS_EDGE_PROXY=true`, a same-host edge proxy such as Caddy/Angie owns `:443`, so
+`http-tls`/`cert-monitor` and `setjoin-https.socket` are omitted (and any existing
+`setjoin-https.socket` is stopped, disabled, and removed on refresh/upgrade) while
+`TLS_CERT`/`TLS_KEY` remain in `tls.env` for SMTPS/IMAPS/LDAPS. Built-in ACME (`TLS_AUTOCERT_*` except `TLS_AUTOCERT_CACHE_DIR`,
+`TLS_DNS_*`, `ACME_*`, `acme-renewal`, and `setjoin-acme.socket`) was retired in Release
+N+1 (`#560`): `check_no_retired_acme_config` fails closed in `install.sh` and `upgrade.sh`,
+and cutover stops, disables, and removes any legacy `setjoin-acme.socket` (restoring it on
+rollback). Go's overseer `LISTEN_ADDR` becomes `127.0.0.1:0` before restart.
 The Rust gateway accepts public TLS on `setjoin-https.socket` (FD `https`, port 443
-or GATEWAY_HTTPS_LISTEN), without CAP_NET_BIND_SERVICE. The renderer attaches
-optional federation/ACME sockets through Wants/After, never Requires on Go services.
-`tls.env` is a literal 0640 allowlist of TLS paths/provider credentials; broad
-config.env and owner credentials never enter the internet-facing gateway unit.
+or `GATEWAY_HTTPS_LISTEN`), without `CAP_NET_BIND_SERVICE`. The renderer attaches
+optional federation sockets through Wants/After.
+`tls.env` is a literal 0640 allowlist of `HOSTNAME`, `TLS_CERT`, and `TLS_KEY`; broad
+`config.env` and owner credentials never enter the internet-facing gateway unit.
 `storage.env` is a dedicated literal 0640 allowlist carrying only S3/MinIO
 endpoint and credentials (resolved via pure-stdlib `deploy/scripts/yaml-config.py`,
 covering the YAML subset for mappings, anchors/aliases/`<<` merges, standard tags,
@@ -1094,12 +1104,9 @@ duplicate-key rejection, and flow/block scalars alongside `systemd.exec(5)`
 `smtp.env` emits the identical resolved
 `S3_*` lines when SMTP is enabled) independent of SMTP enablement (#289 legal
 holds, blobs, attachments), and is rolled back alongside the deployment env files.
-App/worker/LISTEN credentials and the transferred worker names stay in federation.env.
+App/worker/LISTEN credentials and the transferred worker names stay in `federation.env`.
 
-Managed TLS-ALPN-01 (default) and DNS-01 move `acme-renewal` with the TLS listener.
-HTTP-01 also transfers `http-port80` and renders `setjoin-acme.socket` (FD `acme`)
-only for HTTP_MODE=redirect (including unset). Go :80 proxy/serve remains owned by
-Platform #305. Managed settings (including `SETJOIN_CONFIG`, `HOSTNAME`,
+Managed settings (including `SETJOIN_CONFIG`, `HOSTNAME`,
 `INTERNAL_DOMAINS`, `WORM_MODE`, `WORM_RETENTION_DAYS`, and explicit
 `WORM_LEGAL_HOLD_ENABLED`) survive install config regeneration; explicit
 operator environment values take precedence (`WORM_LEGAL_HOLD_ENABLED` follows Go's
@@ -1113,9 +1120,9 @@ preflight checks WORM, storage, and `LIVEKIT_*` parity while systemd-activated
 `setjoin-gateway` startup validates `WORM_MODE` and storage provenance (and
 without `LIVEKIT_*` returns 404 on `/api/rtc` while `/rtc` falls through to
 the catch-all SPA or 404). The TLS
-import/ACME cache directory (`tls_import_cache_dir`, resolved from
+import cache directory (`tls_import_cache_dir`, resolved from
 `TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG` YAML `tls.autocert_cache_dir` via
-`yaml-config.py`) is validated lexically and
+`yaml-config.py`, used by `POST /admin/tls/import-cert`) is validated lexically and
 canonically (`validate_tls_cache_target`: rejects control chars, quotes, backslashes,
 `%` systemd specifiers, trailing-slash and intermediate component symlinks outside
 OS-managed `/tmp` and `/var/run`, filesystem roots, `.`/`..` traversal, top-level
@@ -1128,9 +1135,8 @@ cache directory existence/mode/owner/`dev:ino` in `tls-cache.meta` and verifies
 matching `dev:ino` before rollback mutation, while non-root upgrade rehearsals
 skip only host `/var/cache/mailserver/autocert`), emitted solely into `gateway.env`
 alongside resolved `WORM_*` and Go-matched trace identity (`HOSTNAME`/`INTERNAL_DOMAINS`)
-settings, and granted a narrow `ReadWritePaths` in `setjoin-gateway.service`;
-ACME account-key parent directories gain `ReadWritePaths` when
-`TLS_AUTOCERT_DOMAINS` is set. Static certificates remain read-only.
+settings, and granted a narrow `ReadWritePaths` in `setjoin-gateway.service`.
+Static certificates remain read-only.
 
 Install and flat upgrade require a real local TLS handshake plus the native
 /_gateway/healthz response. The local probe accepts the installation's self-signed

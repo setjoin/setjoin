@@ -384,3 +384,225 @@ fn rejects_oversized_and_mismatched_files_at_startup() {
     let err = ReloadingPem::load(&cert_path, &key_path).unwrap_err();
     assert!(err.contains("exceeds"), "{err}");
 }
+
+#[tokio::test]
+async fn frontend_direct_https_and_mtls_peer_certificate_survive_atomic_pem_swap() {
+    use rustls::pki_types::{pem::PemObject, PrivateKeyDer};
+    use setjoin_tls::PeerCertificate;
+
+    let dir = TempDir::new("mtls-swap");
+    let cert_path = dir.0.join("server.pem");
+    let key_path = dir.0.join("server-key.pem");
+
+    // 1. Server generation 1 & 2 (separate keys).
+    let (cert1_pem, key1_pem, cert1_der, _) = gen_cert("mtls-srv-1.localhost", None);
+    let (cert2_pem, key2_pem, cert2_der, _) = gen_cert("mtls-srv-2.localhost", None);
+    std::fs::write(&cert_path, &cert1_pem).unwrap();
+    std::fs::write(&key_path, &key1_pem).unwrap();
+
+    // 2. Trusted client CA + leaf client cert, plus an untrusted client cert.
+    let ca_key = rcgen::KeyPair::generate().unwrap();
+    let mut ca_params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+    ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    ca_params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, "Setjoin Test Client CA");
+    ca_params.not_after = rcgen::date_time_ymd(2037, 1, 1);
+    let ca_cert = ca_params.self_signed(&ca_key).unwrap();
+    let issuer = rcgen::Issuer::new(ca_params, ca_key);
+
+    let client_key = rcgen::KeyPair::generate().unwrap();
+    let mut client_params =
+        rcgen::CertificateParams::new(vec!["alice@example.test".into()]).unwrap();
+    client_params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, "alice@example.test");
+    client_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ClientAuth];
+    client_params.not_after = rcgen::date_time_ymd(2037, 1, 1);
+    let client_cert = client_params.signed_by(&client_key, &issuer).unwrap();
+    let client_der = client_cert.der().clone();
+    let client_key_pem = client_key.serialize_pem();
+
+    let untrusted_key = rcgen::KeyPair::generate().unwrap();
+    let mut untrusted_params =
+        rcgen::CertificateParams::new(vec!["mallory@evil.test".into()]).unwrap();
+    untrusted_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ClientAuth];
+    untrusted_params.not_after = rcgen::date_time_ymd(2037, 1, 1);
+    let untrusted_cert = untrusted_params.self_signed(&untrusted_key).unwrap();
+
+    let mut client_roots = RootCertStore::empty();
+    client_roots.add(ca_cert.der().clone()).unwrap();
+    let verifier = rustls::server::WebPkiClientVerifier::builder_with_provider(
+        Arc::new(client_roots),
+        Arc::new(rustls::crypto::ring::default_provider()),
+    )
+    .allow_unauthenticated()
+    .build()
+    .unwrap();
+
+    let frontend = Frontend::from_env_with_client_verifier(
+        &|k| match k {
+            "TLS_CERT_FILE" => Some(cert_path.display().to_string()),
+            "TLS_KEY_FILE" => Some(key_path.display().to_string()),
+            _ => None,
+        },
+        verifier,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(frontend.served_chain(), vec![cert1_der.clone()]);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let fe = frontend.clone();
+    let (peer_tx, mut peer_rx) = tokio::sync::mpsc::unbounded_channel::<Option<PeerCertificate>>();
+
+    let server = tokio::spawn(async move {
+        let mut tasks = Vec::new();
+        for _ in 0..4 {
+            let (stream, _) = listener.accept().await.unwrap();
+            let fe = fe.clone();
+            let peer_tx = peer_tx.clone();
+            tasks.push(tokio::spawn(async move {
+                match fe.accept(stream).await {
+                    Ok(mut tls) => {
+                        let peer = tls
+                            .get_ref()
+                            .1
+                            .peer_certificates()
+                            .and_then(|chain| chain.first())
+                            .cloned()
+                            .map(PeerCertificate);
+                        let _ = peer_tx.send(peer);
+                        let mut buf = [0u8; 4];
+                        if tls.read_exact(&mut buf).await.is_ok() {
+                            let _ = tls.write_all(b"pong").await;
+                            if tls.read_exact(&mut buf).await.is_ok() {
+                                let _ = tls.write_all(b"done").await;
+                            }
+                        }
+                        let _ = tls.shutdown().await;
+                    }
+                    Err(_) => {
+                        // Untrusted client cert handshake failure is expected.
+                    }
+                }
+            }));
+        }
+        for t in tasks {
+            t.await.unwrap();
+        }
+    });
+
+    let mtls_connector = |server_root: CertificateDer<'static>,
+                          c_cert: CertificateDer<'static>,
+                          c_key_pem: &str| {
+        let mut roots = RootCertStore::empty();
+        roots.add(server_root).unwrap();
+        let key = PrivateKeyDer::from_pem_slice(c_key_pem.as_bytes()).unwrap();
+        let mut cfg =
+            ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(roots)
+                .with_client_auth_cert(vec![c_cert], key)
+                .unwrap();
+        cfg.alpn_protocols = vec![b"h2".to_vec()];
+        tokio_rustls::TlsConnector::from(Arc::new(cfg))
+    };
+
+    // Connection 1 (mTLS under server cert1, kept open across atomic swap).
+    let mut active = mtls_connector(cert1_der.clone(), client_der.clone(), &client_key_pem)
+        .connect(
+            ServerName::try_from("localhost").unwrap(),
+            TcpStream::connect(addr).await.unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        active.get_ref().1.peer_certificates().unwrap()[0],
+        cert1_der
+    );
+    active.write_all(b"ping").await.unwrap();
+    let mut buf = [0u8; 4];
+    active.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"pong");
+    let peer1 = peer_rx
+        .recv()
+        .await
+        .unwrap()
+        .expect("mTLS PeerCertificate gen1");
+    assert_eq!(peer1.0, client_der);
+
+    // Atomic server PEM swap (cert2 + key2).
+    atomic_write(&key_path, key2_pem.as_bytes());
+    atomic_write(&cert_path, cert2_pem.as_bytes());
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    assert_eq!(frontend.served_chain(), vec![cert2_der.clone()]);
+
+    // Connection 2 (mTLS under rotated server cert2).
+    let mut conn2 = mtls_connector(cert2_der.clone(), client_der.clone(), &client_key_pem)
+        .connect(
+            ServerName::try_from("localhost").unwrap(),
+            TcpStream::connect(addr).await.unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(conn2.get_ref().1.peer_certificates().unwrap()[0], cert2_der);
+    conn2.write_all(b"ping").await.unwrap();
+    conn2.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"pong");
+    drop(conn2);
+    let peer2 = peer_rx
+        .recv()
+        .await
+        .unwrap()
+        .expect("mTLS PeerCertificate gen2");
+    assert_eq!(peer2.0, client_der);
+
+    // Connection 3 (unauthenticated direct HTTPS without client cert still works).
+    let mut conn3 = client_connector(std::slice::from_ref(&cert2_der), Some(b"http/1.1"))
+        .connect(
+            ServerName::try_from("localhost").unwrap(),
+            TcpStream::connect(addr).await.unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(conn3.get_ref().1.peer_certificates().unwrap()[0], cert2_der);
+    conn3.write_all(b"ping").await.unwrap();
+    conn3.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"pong");
+    drop(conn3);
+    assert!(
+        peer_rx.recv().await.unwrap().is_none(),
+        "unauthenticated client must not populate PeerCertificate"
+    );
+
+    // Connection 4 (untrusted client cert rejected by verifier after swap).
+    let untrusted_conn = mtls_connector(
+        cert2_der.clone(),
+        untrusted_cert.der().clone(),
+        &untrusted_key.serialize_pem(),
+    )
+    .connect(
+        ServerName::try_from("localhost").unwrap(),
+        TcpStream::connect(addr).await.unwrap(),
+    )
+    .await;
+    if let Ok(mut s) = untrusted_conn {
+        // TLS 1.3 delivers client-auth alert post-handshake on first read/write.
+        let _ = s.write_all(b"ping").await;
+        assert!(
+            s.read_exact(&mut buf).await.is_err(),
+            "untrusted client certificate must be rejected"
+        );
+    }
+
+    // Active pre-rotation mTLS connection still passes traffic cleanly.
+    active.write_all(b"more").await.unwrap();
+    active.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"done");
+    drop(active);
+
+    server.await.unwrap();
+}

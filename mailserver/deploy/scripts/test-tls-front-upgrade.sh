@@ -83,7 +83,6 @@ ENV
       echo 'previous federation socket' > "$fx/units/setjoin-federation.socket"
       echo 'previous federation env' > "$fx/config/federation.env"
       echo 'previous HTTPS socket' > "$fx/units/setjoin-https.socket"
-      echo 'previous ACME socket' > "$fx/units/setjoin-acme.socket"
       echo 'previous IMAP socket' > "$fx/units/setjoin-imap.socket"
       echo 'previous IMAPS socket' > "$fx/units/setjoin-imaps.socket"
       echo 'previous TLS env' > "$fx/config/tls.env"
@@ -108,10 +107,10 @@ ENV
       if grep -Eq '^EnvironmentFile=.*(config.env|db-credentials.env)$' "$fx/units/setjoin-gateway.service"; then echo 'privileged env leaked into gateway unit' >&2; exit 1; fi
       grep -qx "EnvironmentFile=-$fx/config/federation.env" "$fx/units/setjoin-gateway.service"
       grep -qx "ExecStart=$fx/install/setjoin-server" "$fx/units/setjoin-gateway.service"
-      grep -qx 'GO_WORKERS_OFF=backup-engine,federation-service,federation-residue-reap,cert-monitor,tls-ticket-keys,http-tls,http-h2c' "$fx/config/config.env"
-      grep -qx 'RUST_WORKERS_ON=notify-intent-drain,federation-residue-reap,cert-monitor,tls-ticket-keys,http-tls,http-h2c' "$fx/config/config.env"
-      grep -qx 'GO_WORKERS_OFF=federation-service,federation-residue-reap,cert-monitor,tls-ticket-keys,http-tls,http-h2c' "$fx/config/federation.env"
-      grep -qx 'RUST_WORKERS_ON=federation-residue-reap,cert-monitor,tls-ticket-keys,http-tls,http-h2c' "$fx/config/federation.env"
+      grep -qx 'GO_WORKERS_OFF=backup-engine,federation-service,federation-residue-reap,cert-monitor,http-tls,http-h2c' "$fx/config/config.env"
+      grep -qx 'RUST_WORKERS_ON=notify-intent-drain,federation-residue-reap,cert-monitor,http-tls,http-h2c' "$fx/config/config.env"
+      grep -qx 'GO_WORKERS_OFF=federation-service,federation-residue-reap,cert-monitor,http-tls,http-h2c' "$fx/config/federation.env"
+      grep -qx 'RUST_WORKERS_ON=federation-residue-reap,cert-monitor,http-tls,http-h2c' "$fx/config/federation.env"
       if grep -Eq 'OWNER_DSN|S3_SECRET' "$fx/config/federation.env"; then echo 'secret leaked into federation.env' >&2; exit 1; fi
       test "$(mode_of "$fx/config/federation.env")" = 640
       grep -qx 'LISTEN_ADDR=127.0.0.1:0' "$fx/config/config.env"
@@ -341,4 +340,104 @@ ENV
     diff -ru "$im/before-im-units" "$im/units"
   fi
 fi
+# Release N -> N+1 static-HTTPS upgrade (with default install.sh HTTP_MODE=proxy)
+# keeps setjoin-https.socket, strips retired tls-ticket-keys / http-port80,
+# and stops/disables/removes legacy setjoin-acme.socket (and restores it on rollback).
+for reln_health in 0 1; do
+  rn="$tmp/reln-$reln_health"
+  mkdir -p "$rn/install" "$rn/new" "$rn/config" "$rn/units" "$rn/before-units"
+  echo 'old setjoin-server' > "$rn/install/setjoin-server"
+  echo 'new setjoin-server' > "$rn/new/setjoin-server"
+  printf '#!/bin/sh\nexit 0\n' > "$rn/new/mailctl"
+  chmod 755 "$rn/new/mailctl"
+  cat > "$rn/config/config.env" <<ENV
+TLS_CERT=/fixture/leaf.crt
+TLS_KEY=/fixture/leaf.key
+HTTP_MODE=proxy
+LISTEN_ADDR=:443
+DB_DSN=postgres://app@fixture/db
+DB_DIRECT_DSN=postgres://app@fixture/db
+GO_WORKERS_OFF="backup-engine,tls-ticket-keys,http-port80"
+RUST_WORKERS_ON="notify-intent-drain,tls-ticket-keys,http-port80"
+TLS_AUTOCERT_CACHE_DIR=$rn/autocert
+ENV
+  echo 'GATEWAY_LISTEN=127.0.0.1:18090' > "$rn/config/gateway.env"
+  echo 'previous gateway service' > "$rn/units/setjoin-gateway.service"
+  echo 'previous gateway socket' > "$rn/units/setjoin-gateway.socket"
+  echo 'previous ACME socket' > "$rn/units/setjoin-acme.socket"
+  cp -a "$rn/units/." "$rn/before-units/"
+  rn_rc=0
+  PATH="$tmp/bin:$PATH" INSTALL_DIR="$rn/install" SETJOIN_CONFIG_DIR="$rn/config" \
+    SYSTEMD_DIR="$rn/units" FED_TEST_HEALTH="$reln_health" FED_TEST_LOG="$rn/actions" \
+    FED_TEST_ENABLED_SOCKETS="setjoin-acme.socket" \
+    bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" "$rn/new/setjoin-server" "$rn/new/mailctl" \
+    > "$rn/output" 2>&1 || rn_rc=$?
+  if [ "$reln_health" = 0 ]; then
+    [ "$rn_rc" = 0 ] || { cat "$rn/output" >&2; exit 1; }
+    if grep -Eq '(tls-ticket-keys|http-port80)' "$rn/config/config.env" "$rn/config/federation.env"; then
+      echo 'Release N retired worker leaked after upgrade' >&2
+      exit 1
+    fi
+    grep -qx 'RUST_WORKERS_ON=notify-intent-drain,federation-residue-reap,cert-monitor,http-tls,http-h2c' "$rn/config/config.env"
+    test -s "$rn/units/setjoin-https.socket"
+    grep -qx 'stop setjoin-acme.socket' "$rn/actions"
+    grep -qx 'disable setjoin-acme.socket' "$rn/actions"
+    test ! -e "$rn/units/setjoin-acme.socket"
+  else
+    [ "$rn_rc" != 0 ] || { echo 'expected failed Release N upgrade rollback' >&2; exit 1; }
+    diff -ru "$rn/before-units" "$rn/units"
+    grep -qx 'enable setjoin-acme.socket' "$rn/actions"
+    grep -qx 'start setjoin-acme.socket' "$rn/actions"
+  fi
+done
+
+# Switching an active native-HTTPS host to TLS_EDGE_PROXY=true via refresh-gateway-env
+# explicitly stops, disables, and removes setjoin-https.socket so port 443 is freed.
+ep="$tmp/edge-proxy-transition"
+mkdir -p "$ep/install/releases/r1" "$ep/config" "$ep/units"
+if ln -s "$ep/install/releases/r1" "$ep/install/current" 2>/dev/null && [ -L "$ep/install/current" ]; then
+  echo 'immut server' > "$ep/install/current/setjoin-server"
+  cat > "$ep/config/config.env" <<ENV
+TLS_CERT=/fixture/leaf.crt
+TLS_KEY=/fixture/leaf.key
+HTTP_MODE=proxy
+TLS_EDGE_PROXY=true
+GO_WORKERS_OFF=backup-engine,cert-monitor,http-tls,http-h2c
+RUST_WORKERS_ON=notify-intent-drain,cert-monitor,http-tls,http-h2c
+DB_DSN=postgres://app@fixture/db
+DB_DIRECT_DSN=postgres://app@fixture/db
+TLS_AUTOCERT_CACHE_DIR=$ep/autocert
+ENV
+  echo 'GATEWAY_LISTEN=127.0.0.1:18090' > "$ep/config/gateway.env"
+  echo 'active https socket' > "$ep/units/setjoin-https.socket"
+  PATH="$tmp/bin:$PATH" INSTALL_DIR="$ep/install" SETJOIN_CONFIG_DIR="$ep/config" \
+    SYSTEMD_DIR="$ep/units" FED_TEST_LOG="$ep/actions" \
+    bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env
+  grep -qx 'stop setjoin-https.socket' "$ep/actions"
+  grep -qx 'disable setjoin-https.socket' "$ep/actions"
+  test ! -e "$ep/units/setjoin-https.socket"
+  grep -qx 'TLS_CERT=/fixture/leaf.crt' "$ep/config/tls.env"
+  if grep -Eq '(http-tls|cert-monitor)' "$ep/config/config.env" "$ep/config/federation.env"; then
+    echo 'TLS_EDGE_PROXY=true refresh retained http-tls/cert-monitor' >&2
+    exit 1
+  fi
+fi
+
+# Flat upgrade with retired ACME config fails closed BEFORE stopping services or running migrations.
+ra="$tmp/retired-acme-preflight"
+mkdir -p "$ra/install" "$ra/new" "$ra/config" "$ra/units"
+echo 'old setjoin-server' > "$ra/install/setjoin-server"
+echo 'new setjoin-server' > "$ra/new/setjoin-server"
+printf '#!/bin/sh\necho RAN_MIGRATION > "%s/mig.log"\nexit 0\n' "$ra" > "$ra/new/mailctl"
+chmod 755 "$ra/new/mailctl"
+printf 'TLS_AUTOCERT_DOMAINS=mail.example.test\nDB_DSN=postgres://app@fixture/db\n' > "$ra/config/config.env"
+ra_rc=0
+PATH="$tmp/bin:$PATH" INSTALL_DIR="$ra/install" SETJOIN_CONFIG_DIR="$ra/config" \
+  SYSTEMD_DIR="$ra/units" FED_TEST_HEALTH=0 FED_TEST_LOG="$ra/actions" \
+  bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" "$ra/new/setjoin-server" "$ra/new/mailctl" \
+  > "$ra/output" 2>&1 || ra_rc=$?
+[ "$ra_rc" != 0 ] || { echo 'expected flat upgrade to refuse retired ACME config' >&2; exit 1; }
+[ ! -e "$ra/mig.log" ] || { echo 'flat upgrade ran migration before ACME preflight' >&2; exit 1; }
+[ ! -s "$ra/actions" ] || { echo 'flat upgrade invoked service manager before ACME preflight' >&2; exit 1; }
+
 echo 'TLS front upgrade activation and previous-release rollback: PASS'
