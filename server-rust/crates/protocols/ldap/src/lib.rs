@@ -37,6 +37,7 @@ pub struct Server {
     tls: Option<Arc<tokio_rustls::rustls::ServerConfig>>,
     threat: ThreatPolicy,
     db: Option<setjoin_pg::ScopedExecutor>,
+    auth_db: Option<setjoin_pg::ScopedExecutor>,
     tx_factory: Option<TxFactory>,
     domain: String,
     starttls: bool,
@@ -51,6 +52,7 @@ impl Default for Server {
             tls: None,
             threat: ThreatPolicy::Disabled,
             db: None,
+            auth_db: None,
             tx_factory: None,
             domain: String::new(),
             starttls: false,
@@ -62,6 +64,14 @@ impl Default for Server {
     }
 }
 impl Server {
+    /// Attach the dedicated pre-auth credential-lookup executor (`DB_WORKER_DSN`
+    /// / `setjoin_worker`, `BYPASSRLS`) for `users` password verification under
+    /// `V288` `FORCE RLS`. Post-bind LDAP checks and directory searches stay on
+    /// `self.db` / `self.tx_factory` (`setjoin_app`, `NOBYPASSRLS`).
+    pub fn with_auth_db(mut self, auth_db: setjoin_pg::ScopedExecutor) -> Self {
+        self.auth_db = Some(auth_db);
+        self
+    }
     pub fn with_threat_gate(mut self, gate: Arc<dyn setjoin_threat::ThreatGate>) -> Self {
         self.threat = ThreatPolicy::Enforced(gate);
         self
@@ -252,11 +262,12 @@ impl Server {
         })
     }
     async fn credential(&self, email: &str, password: String) -> Option<i64> {
-        let db = self.db.as_ref()?;
+        let auth_db = self.auth_db.as_ref().or(self.db.as_ref())?;
         let policy = setjoin_authz::policy_gate::ProtocolSurface::Ldap
             .basic_policy()
             .expect("ldap basic policy");
-        match setjoin_authz::basic::verify(db, &self.passwords, email, &password, policy).await {
+        match setjoin_authz::basic::verify(auth_db, &self.passwords, email, &password, policy).await
+        {
             setjoin_authz::basic::Verdict::AccountPassword(verified) => Some(verified.user_id),
             setjoin_authz::basic::Verdict::AppPassword(_)
             | setjoin_authz::basic::Verdict::Refused => None,

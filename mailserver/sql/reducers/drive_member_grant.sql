@@ -20,6 +20,11 @@ DECLARE
   v_req_id   bigint;
   v_bump     record;
 BEGIN
+  IF NOT public.rls_caller_is_privileged()
+     AND p_user_id IS DISTINCT FROM NULLIF(current_setting('app.current_user_id', true), '')::bigint THEN
+    RAISE EXCEPTION 'space not found' USING ERRCODE='BZ139',
+      HINT='{"type":"notFound","detail":"space not found"}';
+  END IF;
   IF NOT public.drive_user_has_space_access(p_user_id,p_space_id) THEN
     RAISE EXCEPTION 'space not found' USING ERRCODE='BZ139',
       HINT='{"type":"notFound","detail":"space not found"}';
@@ -33,7 +38,7 @@ BEGIN
     RAISE EXCEPTION 'invalid role' USING ERRCODE='BZ141',
       HINT='{"type":"invalidArguments","detail":"role must be manager|editor|viewer"}';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_grantee) THEN
+  IF NOT EXISTS (SELECT 1 FROM public.users WHERE id = p_grantee) THEN
     RAISE EXCEPTION 'grantee not found' USING ERRCODE='BZ141',
       HINT='{"type":"invalidArguments","detail":"grantee does not exist"}';
   END IF;
@@ -45,12 +50,12 @@ BEGIN
   -- guest grantee (and BZ221 forbids member->guest conversion in flight, so
   -- a pending request cannot MUTATE into one — the decide-time belt is
   -- deliberately omitted).
-  IF is_guest_account(p_grantee) THEN
+  IF public.is_guest_account(p_grantee) THEN
     RAISE EXCEPTION 'guest accounts cannot be granted drive space membership'
       USING ERRCODE='BZ215', HINT='{"type":"forbidden","detail":"guest accounts cannot receive direct Drive grants"}';
   END IF;
 
-  SELECT * INTO v_space FROM drive_spaces WHERE id = p_space_id;
+  SELECT * INTO v_space FROM public.drive_spaces WHERE id = p_space_id;
 
   -- BZ175 belt (DES-009 D2, meeting-space parity Meet B2): chat-bound and
   -- meeting-bound spaces derive membership from chat_channel_members /
@@ -65,34 +70,34 @@ BEGIN
 
   -- G1: share blocked while the space has WORM locks pending.
   IF v_space.classification = 'gxp' AND EXISTS (
-       SELECT 1 FROM drive_chunks c
+       SELECT 1 FROM public.drive_chunks c
         WHERE c.scope_key = 's' || v_space.id
           AND c.worm_pending) THEN
     RAISE EXCEPTION 'space WORM locks pending' USING ERRCODE='BZ145',
       HINT='{"type":"immutable","detail":"share blocked until the retention lock is applied"}';
   END IF;
 
-  IF drive_policy_resolve(p_space_id)->>'share' = 'approval' THEN
-    SELECT * INTO v_match FROM approval_match_policies('drive.share',
+  IF public.drive_policy_resolve(p_space_id)->>'share' = 'approval' THEN
+    SELECT * INTO v_match FROM public.approval_match_policies('drive.share',
       jsonb_build_object('classification', v_space.classification, 'space_id', v_space.id));
     IF v_match.required THEN
-      SELECT * INTO v_resolved FROM approval_resolve_approver(p_user_id, v_match.approver_spec);
+      SELECT * INTO v_resolved FROM public.approval_resolve_approver(p_user_id, v_match.approver_spec);
     ELSE
       -- Fail-closed: no policy (or only skip policies) may NEVER share directly.
-      SELECT * INTO v_resolved FROM approval_resolve_approver(p_user_id, '{"kind":"manager"}'::jsonb);
+      SELECT * INTO v_resolved FROM public.approval_resolve_approver(p_user_id, '{"kind":"manager"}'::jsonb);
     END IF;
     IF v_resolved.skip THEN
-      SELECT * INTO v_resolved FROM approval_resolve_approver(p_user_id, '{"kind":"manager"}'::jsonb);
+      SELECT * INTO v_resolved FROM public.approval_resolve_approver(p_user_id, '{"kind":"manager"}'::jsonb);
     END IF;
 
-    v_req_id := approval_request_create(
+    v_req_id := public.approval_request_create(
       'drive.share', p_user_id,
       format('Drive share: space %s -> user %s (%s)', p_space_id, p_grantee, p_role),
       jsonb_build_object('space_id', p_space_id, 'grantee', p_grantee, 'role', p_role),
       v_match.winner_policy_id, v_resolved.kind, v_resolved.ref,
-      coalesce((SELECT (value)::int FROM system_config WHERE key = 'approval.request_ttl_minutes'), 2880));
+      coalesce((SELECT (value)::int FROM public.system_config WHERE key = 'approval.request_ttl_minutes'), 2880));
 
-    PERFORM drive_access_audit(p_user_id, p_space_id, 'share.requested', 'member', p_grantee, NULL,
+    PERFORM public.drive_access_audit(p_user_id, p_space_id, 'share.requested', 'member', p_grantee, NULL,
       jsonb_build_object('userId', p_grantee, 'role', p_role, 'requestId', v_req_id), NULL, NULL);
     RETURN jsonb_build_object('status', 'pending', 'requestId', v_req_id);
   END IF;
@@ -101,17 +106,19 @@ BEGIN
   PERFORM public.drive_require_space_root_mutation_capability(
     p_user_id,p_space_id,'manage_acl');
 
-  INSERT INTO drive_space_members (space_id, user_id, role, granted_by)
+  INSERT INTO public.drive_space_members (space_id, user_id, role, granted_by)
   VALUES (p_space_id, p_grantee, p_role, p_user_id)
   ON CONFLICT (space_id, user_id) DO UPDATE SET role = EXCLUDED.role, granted_by = EXCLUDED.granted_by;
 
-  PERFORM drive_access_audit(p_user_id, p_space_id, 'member.grant', 'member', p_grantee, NULL,
+  PERFORM public.drive_access_audit(p_user_id, p_space_id, 'member.grant', 'member', p_grantee, NULL,
     jsonb_build_object('userId', p_grantee, 'role', p_role), NULL, NULL);
   IF v_space.acl_mode='acl' THEN
     SELECT * INTO v_bump FROM public.drive_acl_bump(
       p_space_id,'user',p_grantee,NULL,'member_grant');
   END IF;
-  PERFORM drive_notify_change(p_space_id, 0, 'member');
+  PERFORM public.drive_notify_change(p_space_id, 0, 'member');
   RETURN jsonb_build_object('status', 'granted');
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.drive_member_grant(bigint,bigint,bigint,text)'::regprocedure);

@@ -1327,21 +1327,46 @@ async fn credential_proof_and_reducer_share_transaction_scope_and_snapshot() {
 #[tokio::test]
 async fn async_credential_proof_keeps_the_user_fence_until_reducer_commit() {
     with_env("async_credential_proof", async |env: &Env| {
-        let user=env.a.user;
-        let out=env.exec.run_user_async_proof_command_with_tail(ActorId::new(user).unwrap(),OperationId([0x35;16]),
-            "SELECT txid_current() FROM users WHERE id=$1 FOR NO KEY UPDATE",&[(&user,Type::INT8)],
-            |rows| {
-                let transaction: i64=rows[0].get(0);
-                async move {
-                    env.owner.batch_execute("BEGIN;SET LOCAL lock_timeout='50ms'").await.unwrap();
-                    let refusal=env.owner.execute("UPDATE users SET display_name='must-not-commit' WHERE id=$1",&[&user]).await.unwrap_err();
-                    assert_eq!(refusal.as_db_error().map(|e|e.code().code()),Some("55P03"),"credential read must retain its fence across await");
-                    env.owner.batch_execute("ROLLBACK").await.unwrap();
-                    Ok(setjoin_pg::ProvenStatement::new("SELECT txid_current()=$1").bind(transaction,Type::INT8))
-                }
-            },|rows|Ok(rows[0].get::<_,bool>(0)),|_|std::future::ready(())).await;
-        assert!(matches!(out,CommandOutcome::Committed(true)),"{out:?}");
-    }).await;
+        let user = env.a.user;
+        let out = env
+            .exec
+            .run_user_async_proof_command_with_tail(
+                ActorId::new(user).unwrap(),
+                OperationId([0x35; 16]),
+                "SELECT txid_current() FROM users WHERE id=$1 FOR NO KEY UPDATE",
+                &[(&user, Type::INT8)],
+                |rows| {
+                    let transaction: i64 = rows[0].get(0);
+                    async move {
+                        env.owner
+                            .batch_execute("BEGIN;SET LOCAL lock_timeout='50ms'")
+                            .await
+                            .unwrap();
+                        let refusal = env
+                            .owner
+                            .execute(
+                                "UPDATE users SET display_name='must-not-commit' WHERE id=$1",
+                                &[&user],
+                            )
+                            .await
+                            .unwrap_err();
+                        assert_eq!(
+                            refusal.as_db_error().map(|e| e.code().code()),
+                            Some("55P03"),
+                            "credential read must retain its fence across await"
+                        );
+                        env.owner.batch_execute("ROLLBACK").await.unwrap();
+                        Ok(setjoin_pg::ProvenStatement::new("SELECT txid_current()=$1")
+                            .bind(transaction, Type::INT8))
+                    }
+                },
+                |rows| Ok(rows[0].get::<_, bool>(0)),
+                |_| std::future::ready(()),
+            )
+            .await;
+        assert!(matches!(out, CommandOutcome::Committed(true)), "{out:?}");
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -1430,11 +1455,14 @@ async fn protocol_tx_admits_clears_gucs_skips_receipts_reuses_on_error_and_drops
         );
 
         // 4. Decode error rolls back cleanly (writes do not commit) and reuses the pooled connection.
+        //    `run_protocol_tx` clears tenant GUCs, so use a non-RLS table (`rate_limit_counters`)
+        //    that `setjoin_app` is allowed to insert into without tenant GUCs.
+        let rollback_key = format!("protocol_tx_473_rollback_{}", env.a.mailbox);
         let decode_err = env
             .exec
             .run_protocol_tx(
-                "INSERT INTO mailbox_audit_log (mailbox_id, actor_user_id, action) VALUES ($1, $2, 'protocol_tx_473_rollback') RETURNING id",
-                &[(&env.a.mailbox, Type::INT8), (&env.a.user, Type::INT8)],
+                "INSERT INTO rate_limit_counters (key, count) VALUES ($1, 1) RETURNING key",
+                &[(&rollback_key, Type::TEXT)],
                 |_| -> Result<(), setjoin_pg::StatementFailure> {
                     Err(setjoin_pg::StatementFailure {
                         sqlstate: None,
@@ -1449,8 +1477,8 @@ async fn protocol_tx_admits_clears_gucs_skips_receipts_reuses_on_error_and_drops
         let leaked_rows: i64 = env
             .owner
             .query_one(
-                "SELECT count(*) FROM mailbox_audit_log WHERE mailbox_id = $1 AND action = 'protocol_tx_473_rollback'",
-                &[&env.a.mailbox],
+                "SELECT count(*) FROM rate_limit_counters WHERE key = $1",
+                &[&rollback_key],
             )
             .await
             .unwrap()

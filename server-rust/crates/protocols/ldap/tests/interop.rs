@@ -54,6 +54,7 @@ async fn test_ldap_container_clients() {
         setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap(),
         "ldap1.test",
     )
+    .with_auth_db(setjoin_pg::ScopedExecutor::from_dsn(db.worker_dsn(), 4).unwrap())
     .with_tls(Arc::new(tls));
     let task = tokio::spawn(Arc::new(server).serve(l, rx));
     let outcome = std::panic::AssertUnwindSafe(async {

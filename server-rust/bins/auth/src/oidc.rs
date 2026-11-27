@@ -246,7 +246,7 @@ impl AuthServer {
         let key = self.oidc_key.as_ref().expect("enabled OP key");
         let reply = if req.uri().path() == "/oauth/introspect" {
             if let Some((id, password)) = credentials.as_ref() {
-                if oidc::authenticate(&self.auth_db, id, password).await {
+                if oidc::authenticate(&self.app_db, id, password).await {
                     let access = oidc::access(
                         key,
                         cipher,
@@ -256,7 +256,7 @@ impl AuthServer {
                     Response::builder()
                         .header("content-type", "application/json")
                         .body(body(
-                            oidc::introspect(&self.auth_db, access.as_ref(), id).await,
+                            oidc::introspect(&self.app_db, access.as_ref(), id).await,
                         ))
                         .unwrap()
                 } else {
@@ -284,7 +284,7 @@ impl AuthServer {
                 .unwrap_or_else(|| fields.get("access_token").map(String::as_str).unwrap_or(""));
             match oidc::access(key, cipher, &issuer, token) {
                 None => Self::oidc_plain(401, "access token invalid"),
-                Some(access) => match oidc::userinfo(&self.auth_db, &access).await {
+                Some(access) => match oidc::userinfo(&self.app_db, &access).await {
                     Some(info) => Response::builder()
                         .header("content-type", "application/json")
                         .body(body(info))
@@ -298,7 +298,7 @@ impl AuthServer {
             }
         } else if req.uri().path() == "/revoke" {
             match oidc::revoke(
-                &self.auth_db,
+                &self.app_db,
                 key,
                 cipher,
                 &issuer,
@@ -314,7 +314,7 @@ impl AuthServer {
                 Err(e) => Self::oidc_error(e),
             }
         } else if req.uri().path() == "/end_session" {
-            match oidc::end_session(&self.auth_db, key, &issuer, &fields).await {
+            match oidc::end_session(&self.app_db, key, &issuer, &fields).await {
                 Ok(location) => Self::oidc_redirect(&method, &location),
                 Err(e) => Self::oidc_error(e),
             }
@@ -358,7 +358,7 @@ impl AuthServer {
                 }
             } else if grant == "refresh_token" {
                 match oidc::refresh_exchange(
-                    &self.auth_db,
+                    &self.app_db,
                     self.oidc_key.as_ref().expect("enabled OP key"),
                     &format!("https://{}", self.config.oidc_hostname),
                     &fields,

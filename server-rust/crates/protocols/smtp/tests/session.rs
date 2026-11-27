@@ -50,15 +50,22 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// corpus file the case comes from, so editing the golden breaks the pin. Returns the
 /// path of the expectation and, unless `SECFIX12_WRITE_SECURITY=1` (never CI) is
 /// regenerating it for review against the baseline, the case it holds.
-fn pinned_expectation(corpus: &str, name: &str) -> Option<(std::path::PathBuf, Option<serde_json::Value>)> {
+fn pinned_expectation(
+    corpus: &str,
+    name: &str,
+) -> Option<(std::path::PathBuf, Option<serde_json::Value>)> {
     let records: serde_json::Value =
         serde_json::from_str(include_str!("../oracle/divergences.json")).unwrap();
     let sha = sha256_hex(corpus.as_bytes());
-    let record = records.as_array().unwrap().iter().find(|r| {
-        r["case"] == name && r["go_replay"] == "pinned" && r["sha256"] == sha.as_str()
-    })?;
+    let record =
+        records.as_array().unwrap().iter().find(|r| {
+            r["case"] == name && r["go_replay"] == "pinned" && r["sha256"] == sha.as_str()
+        })?;
     assert_eq!(record["reviewed"], true, "{name}");
-    assert!(record["reason"].as_str().unwrap().contains(SECURITY_REASON), "{name}");
+    assert!(
+        record["reason"].as_str().unwrap().contains(SECURITY_REASON),
+        "{name}"
+    );
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("oracle")
         .join(record["expectation"].as_str().unwrap());
@@ -126,15 +133,27 @@ async fn replay_cases_locked(corpus: &str, only: Option<&str>) {
                 .as_array()
                 .unwrap()
                 .iter()
-                .find(|r| r["case"] == name && r["go_replay"] == "secure-only" && r["sha256"] == sha.as_str())
-                .unwrap_or_else(|| panic!("secure-only case {name} is not pinned in divergences.json"));
+                .find(|r| {
+                    r["case"] == name
+                        && r["go_replay"] == "secure-only"
+                        && r["sha256"] == sha.as_str()
+                })
+                .unwrap_or_else(|| {
+                    panic!("secure-only case {name} is not pinned in divergences.json")
+                });
             assert_eq!(record["reviewed"], true, "{name}");
-            assert!(record["reason"].as_str().unwrap().contains(SECURITY_REASON), "{name}");
+            assert!(
+                record["reason"].as_str().unwrap().contains(SECURITY_REASON),
+                "{name}"
+            );
         }
         let writing = pin.as_ref().is_some_and(|(_, case)| case.is_none())
             || (secure_only && std::env::var_os("SECFIX12_WRITE_SECURITY").is_some());
         let mut observed = baseline.clone();
-        let case = pin.as_ref().and_then(|(_, case)| case.as_ref()).unwrap_or(baseline);
+        let case = pin
+            .as_ref()
+            .and_then(|(_, case)| case.as_ref())
+            .unwrap_or(baseline);
         owner
             .batch_execute(include_str!("../oracle/auth-cleanup.sql"))
             .await
@@ -165,12 +184,24 @@ async fn replay_cases_locked(corpus: &str, only: Option<&str>) {
             }
         }
         let mut notifications = if case["capture"] == true || case["imip_notify"] == true {
-            let n = setjoin_pg::workers::DirectListener::connect(&db.dsn, if case["capture"]==true {"tag:9348021"} else {"calendar:9348021"})
-                .await
-                .unwrap();
-            if case["capture"]==true {n.listen("tag:9348022").await.unwrap(); n.listen("tag:9348023").await.unwrap();}
+            let n = setjoin_pg::workers::DirectListener::connect(
+                &db.dsn,
+                if case["capture"] == true {
+                    "tag:9348021"
+                } else {
+                    "calendar:9348021"
+                },
+            )
+            .await
+            .unwrap();
+            if case["capture"] == true {
+                n.listen("tag:9348022").await.unwrap();
+                n.listen("tag:9348023").await.unwrap();
+            }
             if case["imip_notify"] == true {
-                n.listen("calendar:9348021").await.unwrap(); n.listen("calendar:9348022").await.unwrap(); n.listen("calendar:9348023").await.unwrap();
+                n.listen("calendar:9348021").await.unwrap();
+                n.listen("calendar:9348022").await.unwrap();
+                n.listen("calendar:9348023").await.unwrap();
             }
             Some(n)
         } else {
@@ -382,10 +413,17 @@ async fn replay_cases_locked(corpus: &str, only: Option<&str>) {
                         payload["tag_id"] = serde_json::json!(tag);
                     }
                     if case["imip_notify"] == true {
-                        for (field,query) in [("event_id",include_str!("../oracle/imip-event_id.sql")),("calendar_id",include_str!("../oracle/imip-calendar_id.sql"))] {
-                            if let Some(id)=payload[field].as_i64() {
-                                let raw:String=owner.query_one(query,&[&id]).await.unwrap().get(0);
-                                payload[field]=serde_json::from_str(&raw).unwrap();
+                        for (field, query) in [
+                            ("event_id", include_str!("../oracle/imip-event_id.sql")),
+                            (
+                                "calendar_id",
+                                include_str!("../oracle/imip-calendar_id.sql"),
+                            ),
+                        ] {
+                            if let Some(id) = payload[field].as_i64() {
+                                let raw: String =
+                                    owner.query_one(query, &[&id]).await.unwrap().get(0);
+                                payload[field] = serde_json::from_str(&raw).unwrap();
                             }
                         }
                     }
@@ -481,7 +519,11 @@ async fn replay_cases_locked(corpus: &str, only: Option<&str>) {
                 );
             }
             if let Some(expected) = case.get("imip_effects") {
-                let raw: String=owner.query_one(include_str!("../oracle/imip-observe.sql"),&[]).await.unwrap().get(0);
+                let raw: String = owner
+                    .query_one(include_str!("../oracle/imip-observe.sql"), &[])
+                    .await
+                    .unwrap()
+                    .get(0);
                 let got = serde_json::from_str::<serde_json::Value>(&raw).unwrap();
                 if writing {
                     observed["imip_effects"] = got;
@@ -521,14 +563,17 @@ async fn replay_cases_locked(corpus: &str, only: Option<&str>) {
                     .await
                     .unwrap()
                     .get(0);
-                let mut got:serde_json::Value=serde_json::from_str(&got).unwrap();
-                let mut expected=case["effects"].clone();
+                let mut got: serde_json::Value = serde_json::from_str(&got).unwrap();
+                let mut expected = case["effects"].clone();
                 if case.get("imip_effects").is_some() {
                     // The frozen observer orders by mailbox/state only. Calendar
                     // and email counters tie; SQL promises no order within a tie.
                     // Compare the full rows as a multiset, retaining every value.
-                    for effects in [&mut got,&mut expected] {
-                        effects["journal"].as_array_mut().unwrap().sort_by_key(serde_json::Value::to_string);
+                    for effects in [&mut got, &mut expected] {
+                        effects["journal"]
+                            .as_array_mut()
+                            .unwrap()
+                            .sort_by_key(serde_json::Value::to_string);
                     }
                 }
                 if writing {
@@ -940,6 +985,33 @@ fn divergence_records_name_recorded_cases_and_name_their_secure_test() {
         ),
     ];
     for record in records.as_array().unwrap() {
+        if record["go_replay"] == "unchanged" {
+            assert_eq!(record["reviewed"], true, "{record}");
+            assert_eq!(
+                record["review"], "Wave 1.4 PLAN-542 Rev 2",
+                "unexpected review tag for unchanged divergence record: {record}"
+            );
+            for field in ["issue", "reason", "secure_test", "baseline"] {
+                assert!(
+                    record[field].as_str().is_some_and(|v| !v.is_empty()),
+                    "{record}"
+                );
+            }
+            let oracle_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("oracle");
+            let baseline = oracle_dir.join(record["baseline"].as_str().unwrap());
+            assert!(
+                baseline.is_file(),
+                "missing baseline corpus {}",
+                baseline.display()
+            );
+            let corpus_files = record["corpus"].as_array().unwrap();
+            assert!(!corpus_files.is_empty(), "{record}");
+            for file in corpus_files {
+                let path = oracle_dir.join(file.as_str().unwrap());
+                assert!(path.is_file(), "missing corpus {}", path.display());
+            }
+            continue;
+        }
         assert_eq!(record["review"], "owner-approved security fix 2026-11-05");
         if record["go_replay"] == "secure-only" {
             assert_eq!(record["reviewed"], true, "{record}");
@@ -947,7 +1019,12 @@ fn divergence_records_name_recorded_cases_and_name_their_secure_test() {
             let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("oracle")
                 .join(record["baseline"].as_str().unwrap());
-            assert_eq!(record["sha256"], sha256_hex(&std::fs::read(path).unwrap()), "{}", record["case"]);
+            assert_eq!(
+                record["sha256"],
+                sha256_hex(&std::fs::read(path).unwrap()),
+                "{}",
+                record["case"]
+            );
             continue;
         }
         if record["go_replay"] == "pinned" {
@@ -959,7 +1036,12 @@ fn divergence_records_name_recorded_cases_and_name_their_secure_test() {
                 .iter()
                 .find(|(name, _)| record["baseline"] == *name)
                 .unwrap_or_else(|| panic!("unknown baseline {}", record["baseline"]));
-            assert_eq!(record["sha256"], sha256_hex(text.as_bytes()), "{}", record["case"]);
+            assert_eq!(
+                record["sha256"],
+                sha256_hex(text.as_bytes()),
+                "{}",
+                record["case"]
+            );
             let baseline: serde_json::Value = serde_json::from_str(text).unwrap();
             let baseline = baseline
                 .as_array()
@@ -973,8 +1055,15 @@ fn divergence_records_name_recorded_cases_and_name_their_secure_test() {
             let expectation: serde_json::Value =
                 serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
             assert_eq!(expectation["name"], record["case"]);
-            assert_ne!(&expectation, baseline, "{} must differ from the golden", record["case"]);
-            assert_eq!(expectation["steps"].as_array().unwrap().len(), baseline["steps"].as_array().unwrap().len());
+            assert_ne!(
+                &expectation, baseline,
+                "{} must differ from the golden",
+                record["case"]
+            );
+            assert_eq!(
+                expectation["steps"].as_array().unwrap().len(),
+                baseline["steps"].as_array().unwrap().len()
+            );
         }
         for field in ["issue", "reason", "secure_test", "mutant"] {
             assert!(
@@ -1084,25 +1173,39 @@ async fn enabled_link_qp_framing_matches_frozen_go() {
 }
 
 #[tokio::test]
-async fn enabled_imip_requests_match_frozen_go() { replay(include_str!("../oracle/security-imip-requests-go.json")).await; }
+async fn enabled_imip_requests_match_frozen_go() {
+    replay(include_str!("../oracle/security-imip-requests-go.json")).await;
+}
 
 #[tokio::test]
-async fn enabled_imip_roles_match_frozen_go() { replay(include_str!("../oracle/security-imip-roles-go.json")).await; }
+async fn enabled_imip_roles_match_frozen_go() {
+    replay(include_str!("../oracle/security-imip-roles-go.json")).await;
+}
 
 #[tokio::test]
-async fn enabled_imip_smime_matches_frozen_go() { replay(include_str!("../oracle/security-imip-smime-go.json")).await; }
+async fn enabled_imip_smime_matches_frozen_go() {
+    replay(include_str!("../oracle/security-imip-smime-go.json")).await;
+}
 
 #[tokio::test]
-async fn enabled_imip_dkim_matches_frozen_go() { replay(include_str!("../oracle/security-imip-dkim-go.json")).await; }
+async fn enabled_imip_dkim_matches_frozen_go() {
+    replay(include_str!("../oracle/security-imip-dkim-go.json")).await;
+}
 
 #[tokio::test]
-async fn enabled_joint_pipeline_matches_frozen_go() { replay(include_str!("../oracle/security-joint-go.json")).await; }
+async fn enabled_joint_pipeline_matches_frozen_go() {
+    replay(include_str!("../oracle/security-joint-go.json")).await;
+}
 
 #[tokio::test]
-async fn enabled_joint_pipeline_effects_match_frozen_go() { replay(include_str!("../oracle/security-joint-pipeline-go.json")).await; }
+async fn enabled_joint_pipeline_effects_match_frozen_go() {
+    replay(include_str!("../oracle/security-joint-pipeline-go.json")).await;
+}
 
 #[tokio::test]
-async fn enabled_imip_signed_bytes_match_frozen_go() { replay(include_str!("../oracle/security-imip-bytes-go.json")).await; }
+async fn enabled_imip_signed_bytes_match_frozen_go() {
+    replay(include_str!("../oracle/security-imip-bytes-go.json")).await;
+}
 
 // Owner-approved security fixes of 2026-11-05 (#544). The first four replay the recorded
 // frozen-Go case through its reviewed expectation (`oracle/security/`, pinned in
@@ -1136,7 +1239,10 @@ async fn secfix12_trailing_unsigned_part_is_not_fully_signed() {
         Some("smime-cancel-trailing-unsigned-request"),
     )
     .await;
-    replay(include_str!("../oracle/security/secfix12-trailing-part-links.json")).await;
+    replay(include_str!(
+        "../oracle/security/secfix12-trailing-part-links.json"
+    ))
+    .await;
 }
 
 #[tokio::test]
@@ -1145,13 +1251,20 @@ async fn secfix12_preamble_part_cannot_hide_behind_a_signed_message() {
     // signed message's preamble. The signed message is not fully signed, so the part is
     // rewritten like any unsigned mail (its link never reaches the reader verbatim).
     let _guard = RegenGuard;
-    replay(include_str!("../oracle/security/secfix12-preamble-part-links.json")).await;
+    replay(include_str!(
+        "../oracle/security/secfix12-preamble-part-links.json"
+    ))
+    .await;
 }
 
 #[tokio::test]
 async fn secfix12_anti_phish_rejection_is_refused_not_silently_dropped() {
     let _guard = RegenGuard;
-    for case in ["phish-exact-rejected", "phish-strict-upgrades-warn", "phish-homoglyph-reject"] {
+    for case in [
+        "phish-exact-rejected",
+        "phish-strict-upgrades-warn",
+        "phish-homoglyph-reject",
+    ] {
         replay_cases(include_str!("../oracle/security-phish-go.json"), Some(case)).await;
     }
     replay_cases(

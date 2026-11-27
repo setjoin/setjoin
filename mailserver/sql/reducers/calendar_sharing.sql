@@ -213,9 +213,16 @@ DECLARE
   v_result JSONB := '[]'::JSONB;
   v_row    RECORD;
 BEGIN
+  IF NOT public.rls_caller_is_privileged()
+     AND NOT public.rls_mailbox_in_scope(p_mailbox_id) THEN
+    RAISE EXCEPTION 'Calendar not found in this account'
+      USING ERRCODE = 'BZ001',
+            HINT = '{"type":"forbidden","calendar_id":"' || p_calendar_id || '"}';
+  END IF;
+
   -- Ownership: the calendar must belong to the account's mailbox.
   IF NOT EXISTS (
-    SELECT 1 FROM calendars WHERE id = p_calendar_id AND mailbox_id = p_mailbox_id
+    SELECT 1 FROM public.calendars WHERE id = p_calendar_id AND mailbox_id = p_mailbox_id
   ) THEN
     RAISE EXCEPTION 'Calendar not found in this account'
       USING ERRCODE = 'BZ001',
@@ -224,8 +231,8 @@ BEGIN
 
   FOR v_row IN
     SELECT a.permission, u.email, u.display_name
-    FROM calendar_acls a
-    JOIN users u ON u.id = a.user_id
+    FROM public.calendar_acls a
+    JOIN public.users u ON u.id = a.user_id
     WHERE a.calendar_id = p_calendar_id
     ORDER BY u.email
   LOOP
@@ -242,7 +249,9 @@ BEGIN
     'list', v_result
   );
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public;
+
+SELECT public.apply_worker_ownership('public.jmap_calendar_share_get(bigint,bigint)'::regprocedure);
 
 -- jmap_calendar_share_set: grant/revoke calendar_acls rows. Only the calendar owner (the
 -- account whose mailbox owns it) or a viewer holding an 'admin' grant may change shares.

@@ -209,7 +209,9 @@ fn shim_refuses_conflicting_subsystems_and_symlinked_setjoind_fail_closed() {
 
 #[tokio::test]
 async fn server_shim_inherits_nine_fds_including_fd_10_11_without_jwt_secret() {
-    let dsn = common::test_db_dsn();
+    let owner_dsn = common::test_db_dsn();
+    let app_dsn = common::app_db_dsn();
+    let worker_dsn = common::worker_db_dsn();
     let tmp = tempfile::tempdir().expect("tempdir");
     let (_, server_shim, _) = stage_release_n_dir(tmp.path());
     let cfg_path = common::temp_config_file(tmp.path());
@@ -248,8 +250,10 @@ async fn server_shim_inherits_nine_fds_including_fd_10_11_without_jwt_secret() {
         &listeners,
         &fd_names,
         &[
-            ("DB_DSN", &dsn),
-            ("DB_DIRECT_DSN", &dsn),
+            ("DB_DSN", &app_dsn),
+            ("DB_WORKER_DSN", &worker_dsn),
+            ("DB_OWNER_DSN", &owner_dsn),
+            ("DB_DIRECT_DSN", &app_dsn),
             ("CONFIG_PATH", cfg_str),
             ("NOTIFY_SOCKET", notify_str),
             ("TLS_CERT", cert_str),
@@ -323,7 +327,9 @@ async fn server_shim_inherits_nine_fds_including_fd_10_11_without_jwt_secret() {
 
 #[tokio::test]
 async fn auth_shim_serves_health_and_jwks_and_unified_mode_supports_static_tls_and_acme() {
-    let dsn = common::test_db_dsn();
+    let owner_dsn = common::test_db_dsn();
+    let app_dsn = common::app_db_dsn();
+    let worker_dsn = common::worker_db_dsn();
 
     // 1. Real setjoin-auth-shim with config.env + auth.env semantics.
     {
@@ -336,9 +342,10 @@ async fn auth_shim_serves_health_and_jwks_and_unified_mode_supports_static_tls_a
 
         let mut cmd = Command::new(&auth_shim);
         cmd.env_clear()
-            .env("DB_DSN", &dsn)
-            .env("DB_DIRECT_DSN", &dsn)
-            .env("DB_WORKER_DSN", &dsn)
+            .env("DB_DSN", &app_dsn)
+            .env("DB_DIRECT_DSN", &app_dsn)
+            .env("DB_WORKER_DSN", &worker_dsn)
+            .env("DB_OWNER_DSN", &owner_dsn)
             .env("CONFIG_PATH", &cfg_path)
             .env("NOTIFY_SOCKET", &notify_path)
             .env("LISTEN_ADDR", &listen_str)
@@ -400,9 +407,10 @@ async fn auth_shim_serves_health_and_jwks_and_unified_mode_supports_static_tls_a
         let mut cmd = Command::new(&setjoind_exe);
         cmd.env_clear()
             .arg("--subsystems=all")
-            .env("DB_DSN", &dsn)
-            .env("DB_DIRECT_DSN", &dsn)
-            .env("DB_WORKER_DSN", &dsn)
+            .env("DB_DSN", &app_dsn)
+            .env("DB_DIRECT_DSN", &app_dsn)
+            .env("DB_WORKER_DSN", &worker_dsn)
+            .env("DB_OWNER_DSN", &owner_dsn)
             .env("CONFIG_PATH", &cfg_path)
             .env("NOTIFY_SOCKET", &notify_path)
             .env("GATEWAY_ENABLED", "true")

@@ -57,7 +57,7 @@ fn acme_renewal_needs_the_challenge_descriptor() {
 /// Parent-owned sockets stand in for systemd's: fd 3 is the gateway, fd 4 the `acme` :80 listener.
 fn activated(mut command: Command, extra: &[&std::net::TcpListener]) -> Child {
     let fds: Vec<i32> = extra.iter().map(|l| l.as_raw_fd()).collect();
-    let names = ["gateway", "acme"][..extra.len()].join(":");
+    let names = ["http", "acme"][..extra.len()].join(":");
     command
         .arg("-c")
         .arg(format!(

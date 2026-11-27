@@ -610,12 +610,13 @@ impl AuthServer {
         user: i64,
         path: &str,
     ) -> Result<bool, Response<Body>> {
-        let rows = crate::policy_composition::pre_auth_read(
-            self.pre_auth_pool.as_ref(),
-            "SELECT is_guest_account($1)",
-            &[(&user, setjoin_pg::Type::INT8)],
-        )
-        .await;
+        let rows = self
+            .auth_db
+            .protocol_query_contract(
+                &setjoin_identity::sql::IS_GUEST_ACCOUNT,
+                &[(&user, setjoin_pg::Type::INT8)],
+            )
+            .await;
         match rows {
             Ok(rows) => match rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()) {
                 Some(guest) => Ok(guest),

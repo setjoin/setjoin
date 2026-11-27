@@ -4,8 +4,8 @@ use crate::{Body, RequestContext};
 use hyper::Response;
 use serde_json::Value;
 use setjoin_authz::principals::{TxFactory, UserPrincipal};
-use setjoin_calendar::carddav;
-use setjoin_pg::CommandOutcome;
+use setjoin_calendar::{carddav, sql as cal_sql};
+use setjoin_pg::{CommandOutcome, ScopedExecutor};
 fn string<'a>(v: &'a Value, name: &str) -> &'a str {
     v[name].as_str().unwrap_or("")
 }
@@ -72,17 +72,33 @@ fn render(v: &Value) -> String {
     body
 }
 async fn rows(
-    tx: &TxFactory,
+    worker: &ScopedExecutor,
     user: &UserPrincipal,
     id: Option<i64>,
     text: &str,
     limit: Option<i64>,
 ) -> Vec<Value> {
-    carddav::gal_users(tx, user, id, text, limit)
-        .await
-        .unwrap_or_default()
+    let uid = user.user().get();
+    let pattern = format!("%{text}%");
+    let contract = if setjoin_contracts::mutants::on("gal-manager-disclosed") {
+        &cal_sql::CARDDAV_GAL_USERS_MUTANT
+    } else {
+        &cal_sql::CARDDAV_GAL_USERS
+    };
+    let Some(wp) = worker.try_worker_pool() else {
+        return Vec::new();
+    };
+    let Ok(mut tx) = wp.begin_repeatable_read_only().await else {
+        return Vec::new();
+    };
+    let res = tx
+        .query_contract(contract, &[&uid, &id, &text, &pattern, &limit])
+        .await;
+    let _ = tx.rollback().await;
+    res.unwrap_or_default()
         .iter()
-        .filter_map(|raw| serde_json::from_str(raw).ok())
+        .filter_map(|r| r.try_get::<_, String>(0).ok())
+        .filter_map(|raw| serde_json::from_str(&raw).ok())
         .collect()
 }
 async fn record(tx: &TxFactory, user: &UserPrincipal, rows: &[Value]) {
@@ -117,6 +133,7 @@ async fn enabled(tx: &TxFactory) -> bool {
 }
 pub(super) async fn get(
     tx: &TxFactory,
+    worker: &ScopedExecutor,
     user: &UserPrincipal,
     parts: &[String],
     c: &RequestContext,
@@ -128,7 +145,7 @@ pub(super) async fn get(
     let Some(member) = member(&parts[1]) else {
         return reply(404, String::new(), None, c.identity.proto, id);
     };
-    let rows = rows(tx, user, Some(member), "", None).await;
+    let rows = rows(worker, user, Some(member), "", None).await;
     let Some(row) = rows.first() else {
         return reply(404, String::new(), None, c.identity.proto, id);
     };
@@ -147,6 +164,7 @@ pub(super) async fn get(
 }
 pub(super) async fn propfind(
     tx: &TxFactory,
+    worker: &ScopedExecutor,
     user: &UserPrincipal,
     parts: &[String],
     req: Option<&[&str]>,
@@ -166,7 +184,7 @@ pub(super) async fn propfind(
             "Company directory (read-only)",
         ));
         if depth {
-            let rows = rows(tx, user, None, "", None).await;
+            let rows = rows(worker, user, None, "", None).await;
             record(tx, user, &rows).await;
             for row in rows {
                 responses.push(props(
@@ -180,7 +198,7 @@ pub(super) async fn propfind(
         let Some(member) = member(&parts[1]) else {
             return reply(404, String::new(), None, c.identity.proto, id);
         };
-        let rows = rows(tx, user, Some(member), "", None).await;
+        let rows = rows(worker, user, Some(member), "", None).await;
         let Some(row) = rows.first() else {
             return reply(404, String::new(), None, c.identity.proto, id);
         };
@@ -200,6 +218,7 @@ pub(super) fn read_only(c: &RequestContext, id: String) -> Response<Body> {
 }
 pub(super) async fn report(
     tx: &TxFactory,
+    worker: &ScopedExecutor,
     user: &UserPrincipal,
     bytes: &[u8],
     c: &RequestContext,
@@ -317,7 +336,7 @@ pub(super) async fn report(
             let value = href.text.trim_matches('/');
             let value = value.strip_prefix("gal/").unwrap_or(value);
             if let Some(id) = member(value) {
-                selected.extend(rows(tx, user, Some(id), "", None).await);
+                selected.extend(rows(worker, user, Some(id), "", None).await);
             }
         }
     } else {
@@ -334,7 +353,7 @@ pub(super) async fn report(
                     .find(|n| n.name == "text-match" && n.ns == xml::CARD)
             })
             .map_or("", |n| n.text.as_str());
-        selected = rows(tx, user, None, text, Some(1000)).await;
+        selected = rows(worker, user, None, text, Some(1000)).await;
     }
     record(tx, user, &selected).await;
     let responses = selected

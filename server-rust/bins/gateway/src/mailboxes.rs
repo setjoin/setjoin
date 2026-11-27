@@ -799,7 +799,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                     } else {
                         db::Filter::None
                     };
-                    match db::list(&factory, &user, scope, filter, limit, offset).await {
+                    match db::list(&factory, &proof, scope, filter, limit, offset).await {
                         Ok(body) => reply(body),
                         Err(_) => database(),
                     }

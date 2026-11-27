@@ -13,6 +13,7 @@ mod xml;
 
 pub struct CardDavRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
     basic: crate::dav_auth::DavBasicAuth,
@@ -21,10 +22,15 @@ impl<K: KeySource + 'static> CardDavRoute<K> {
     pub fn new(exec: ScopedExecutor, keys: Arc<K>, issuer: String) -> Self {
         Self {
             exec,
+            worker: None,
             keys,
             issuer,
             basic: crate::dav_auth::DavBasicAuth::default(),
         }
+    }
+    pub fn with_worker(mut self, worker: ScopedExecutor) -> Self {
+        self.worker = Some(worker);
+        self
     }
     pub fn with_basic_auth(mut self, basic: crate::dav_auth::DavBasicAuth) -> Self {
         self.basic = basic;
@@ -48,8 +54,9 @@ impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer, basic) = (
+        let (exec, worker, keys, issuer, basic) = (
             self.exec.clone(),
+            self.worker.clone(),
             self.keys.clone(),
             self.issuer.clone(),
             self.basic.clone(),
@@ -168,13 +175,15 @@ impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
             if matches!(*r.method(), hyper::Method::PUT | hyper::Method::DELETE) {
                 return write::handle(&tx, &user_principal, r, &c, id).await;
             }
+            let worker_exec = worker.as_ref().unwrap_or(&exec);
             if r.method().as_str() == "REPORT" {
-                return report::handle(&tx, &auth, &user_principal, &mut r, &c, id).await;
+                return report::handle(&tx, worker_exec, &auth, &user_principal, &mut r, &c, id)
+                    .await;
             }
             if r.method() == hyper::Method::GET {
                 let (_, parts) = path(&r);
                 if parts.first().is_some_and(|p| p == "gal") {
-                    return gal::get(&tx, &user_principal, &parts, &c, id).await;
+                    return gal::get(&tx, worker_exec, &user_principal, &parts, &c, id).await;
                 }
                 if parts.len() != 2 {
                     return reply(404, String::new(), None, c.identity.proto, id);
@@ -217,6 +226,7 @@ impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
                 if parts.first().is_some_and(|p| p == "gal") {
                     return gal::propfind(
                         &tx,
+                        worker_exec,
                         &user_principal,
                         &parts,
                         req.as_deref(),

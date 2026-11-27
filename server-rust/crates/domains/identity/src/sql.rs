@@ -237,7 +237,7 @@ pub const ISSUANCE_L258: SqlContract = SqlContract {
     sql: "UPDATE oauth_tokens SET revoked_at=now() WHERE user_id=$1 AND token_hash=$2 AND revoked_at IS NULL AND (client_id=$3 OR client_id IS NULL)",
     params: &[Type::INT8, Type::BYTEA, Type::TEXT],
     columns: &[],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -549,7 +549,7 @@ pub const OIDC_CONSUMERS_L186: SqlContract = SqlContract {
     sql: "UPDATE oidc_tokens SET revoked_at=now() WHERE (refresh_token_hash=$1 OR id=$2) AND client_id=$3 AND user_id=$4 AND revoked_at IS NULL",
     params: &[Type::TEXT, Type::TEXT, Type::TEXT, Type::INT8],
     columns: &[],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -571,7 +571,7 @@ pub const OIDC_CONSUMERS_L258: SqlContract = SqlContract {
     sql: "UPDATE oidc_tokens SET revoked_at=now() WHERE user_id=$1 AND client_id=$2 AND revoked_at IS NULL",
     params: &[Type::INT8, Type::TEXT],
     columns: &[],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -604,7 +604,7 @@ pub const OIDC_CONSUMERS_L64: SqlContract = SqlContract {
     sql: "SELECT scopes,client_id FROM oidc_tokens WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL AND expires_at>now()",
     params: &[Type::TEXT, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::TEXT_ARRAY), ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -619,7 +619,7 @@ pub const OIDC_CONSUMERS_L66: SqlContract = SqlContract {
         ColumnSpec::unnamed(Type::TEXT_ARRAY),
         ColumnSpec::unnamed(Type::TEXT),
     ],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -633,7 +633,7 @@ pub const OIDC_CONSUMERS_L96: SqlContract = SqlContract {
         ColumnSpec::unnamed(Type::TEXT),
         ColumnSpec::unnamed(Type::TEXT),
     ],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -668,7 +668,7 @@ pub const OIDC_GRANTS_L159: SqlContract = SqlContract {
         ColumnSpec::unnamed(Type::TEXT),
         ColumnSpec::unnamed(Type::TEXT_ARRAY),
     ],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -679,7 +679,7 @@ pub const OIDC_GRANTS_L301: SqlContract = SqlContract {
     sql: "INSERT INTO oidc_tokens(id,client_id,user_id,subject,scopes,expires_at) VALUES($1,$2,$3,$4,$5,$6) RETURNING id",
     params: &[Type::TEXT, Type::TEXT, Type::INT8, Type::TEXT, Type::TEXT_ARRAY, Type::TIMESTAMPTZ],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -690,7 +690,7 @@ pub const OIDC_GRANTS_L314: SqlContract = SqlContract {
     sql: "UPDATE oidc_tokens SET refresh_token_hash=$3,refresh_expires_at=$4,refresh_family=$1,refresh_family_expires_at=$5 WHERE id=$1 AND user_id=$2",
     params: &[Type::TEXT, Type::INT8, Type::TEXT, Type::TIMESTAMPTZ, Type::TIMESTAMPTZ],
     columns: &[],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -730,7 +730,7 @@ pub const OIDC_GRANTS_L458: SqlContract = SqlContract {
     sql: "SELECT revoked FROM rust_identity_oidc_reuse($1,$2,$3)",
     params: &[Type::INT8, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -748,7 +748,7 @@ pub const OIDC_GRANTS_L505: SqlContract = SqlContract {
         Type::TEXT,
     ],
     columns: &[ColumnSpec::unnamed(Type::TIMESTAMPTZ)],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -758,6 +758,35 @@ pub const USER_OPERATION_LOOKUP: SqlContract = SqlContract {
     domain: "identity",
     sql: "SELECT EXISTS(SELECT 1 FROM rust_operation_receipts WHERE operation_id=substr(encode(digest($2::text || ':' || $1::text,'sha256'),'hex'),1,32)::uuid AND family='F21' AND command=$3) WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=$1 AND u.enabled AND identity_transition_admission_allowed(u.id) AND (COALESCE($4::text::jsonb->>'credential_fence','')='' OR rtrim(translate(encode(digest(u.password_hash,'sha256'),'base64'),'+/','-_'),'=')=$4::text::jsonb->>'credential_fence')) AND NOT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND (expires_at IS NULL OR expires_at>now()) AND ((scope='jti' AND jti=COALESCE($4::text::jsonb->>'jti','')) OR (scope='family' AND family_id=COALESCE($4::text::jsonb->>'fam','')) OR (scope='all' AND to_timestamp(COALESCE(($4::text::jsonb->>'iat')::double precision,0))<=not_before)))",
     params: &[Type::INT8, Type::TEXT, Type::TEXT, Type::TEXT],
+    columns: &[ColumnSpec::unnamed(Type::BOOL)],
+    scope: SqlScope::UserScoped,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
+};
+
+pub const RP_OUTCOME_LOOKUP_ASSERTION: SqlContract = SqlContract {
+    id: "identity.rp_outcome_lookup_assertion",
+    domain: "identity",
+    sql: "SELECT EXISTS(SELECT 1 FROM rust_operation_receipts WHERE operation_id=substr(encode(digest($2::text || ':' || $1::text,'sha256'),'hex'),1,32)::uuid AND family='F21' AND command=$3) WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=$1 AND u.enabled AND NOT is_guest_account(u.id) AND identity_transition_admission_allowed(u.id) AND ((NOT $6 AND u.oidc_subject=$4 AND u.oidc_issuer=$5) OR ($6 AND EXISTS(SELECT 1 FROM user_identity_links l JOIN identity_sources s ON s.id=l.source_id WHERE l.user_id=u.id AND l.external_subject=$4 AND l.state='active' AND 'authenticate'=ANY(l.purposes) AND s.state='active' AND s.kind='oidc' AND s.source_key='oidc:'||substr(encode(digest($5,'sha256'),'hex'),1,48)))))",
+    params: &[
+        Type::INT8,
+        Type::TEXT,
+        Type::TEXT,
+        Type::TEXT,
+        Type::TEXT,
+        Type::BOOL,
+    ],
+    columns: &[ColumnSpec::unnamed(Type::BOOL)],
+    scope: SqlScope::WorkerBypass,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
+};
+
+pub const RP_OUTCOME_LOOKUP_SESSION: SqlContract = SqlContract {
+    id: "identity.rp_outcome_lookup_session",
+    domain: "identity",
+    sql: "SELECT EXISTS(SELECT 1 FROM rust_operation_receipts WHERE operation_id=substr(encode(digest($2::text || ':' || $1::text,'sha256'),'hex'),1,32)::uuid AND family='F21' AND command=$3) WHERE EXISTS(SELECT 1 FROM users u JOIN sessions s ON s.user_id=u.id WHERE u.id=$1 AND u.enabled AND s.user_id=$1 AND s.token_hash=$5 AND s.expires_at>now() AND identity_transition_admission_allowed(u.id)) AND NOT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND (expires_at IS NULL OR expires_at>now()) AND ((scope='jti' AND jti=COALESCE($4::text::jsonb->>'jti','')) OR (scope='family' AND family_id=COALESCE($4::text::jsonb->>'fam','')) OR (scope='all' AND to_timestamp(COALESCE(($4::text::jsonb->>'iat')::double precision,0))<=not_before)))",
+    params: &[Type::INT8, Type::TEXT, Type::TEXT, Type::TEXT, Type::BYTEA],
     columns: &[ColumnSpec::unnamed(Type::BOOL)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
@@ -781,7 +810,7 @@ pub const OIDC_REQUESTS_L88: SqlContract = SqlContract {
     sql: "UPDATE oidc_auth_requests SET code_hash=$3 WHERE id=$1 AND user_id=$2 AND expires_at>now() AND done=true AND code_hash IS NULL RETURNING id",
     params: &[Type::TEXT, Type::INT8, Type::BYTEA],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -1100,7 +1129,7 @@ pub const PUSH_L525: SqlContract = SqlContract {
     sql: "SELECT rust_identity_push_approval_read($1,$2,$3)::text",
     params: &[Type::INT8, Type::BYTEA, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -1111,7 +1140,7 @@ pub const PUSH_L544: SqlContract = SqlContract {
     sql: "SELECT rust_identity_push_approval_finish($1,$2,$3)",
     params: &[Type::INT8, Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -1356,7 +1385,7 @@ pub const RP_ACCOUNT_L449: SqlContract = SqlContract {
     sql: "SELECT rust_identity_rp_mint($1,$2::text::jsonb,$3,$4,$5::text::uuid)::text",
     params: &[Type::INT8, Type::TEXT, Type::BYTEA, Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -2311,7 +2340,7 @@ pub const WEBAUTHN_L1482: SqlContract = SqlContract {
     sql: "SELECT COALESCE(totp_enabled,FALSE),COALESCE(push_mfa_enabled,FALSE) FROM users WHERE id=$1 AND enabled",
     params: &[Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::BOOL), ColumnSpec::unnamed(Type::BOOL)],
-    scope: SqlScope::WorkerBypass,
+    scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -2490,6 +2519,8 @@ pub const CONTRACTS: &[SqlContract] = &[
     OIDC_GRANTS_L458,
     OIDC_GRANTS_L505,
     USER_OPERATION_LOOKUP,
+    RP_OUTCOME_LOOKUP_ASSERTION,
+    RP_OUTCOME_LOOKUP_SESSION,
     OIDC_REQUESTS_L72,
     OIDC_REQUESTS_L88,
     PASSWORD_L127,

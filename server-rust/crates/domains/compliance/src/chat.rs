@@ -1,8 +1,7 @@
 //! F04 chat-compliance, organization-wide authority rather than channel membership.
-//! Sensitive hold reads enforce `AdminSensitiveRead` (Tx 1 core audit -> Tx 2 `BEGIN READ ONLY`).
 use super::{command as receipt_cmd, deadline, envelope, finish, invalid, quote, sql};
 use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
-use setjoin_pg::{AuditEvent, CommandOutcome, StatementFailure};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 
 pub async fn policies(
     factory: &TxFactory,
@@ -54,26 +53,18 @@ pub async fn cases(
     Ok(finish(format!("[{}]", entries.join(","))))
 }
 
-/// Sensitive read enforcing `AdminSensitiveRead`: Tx 1 commits
-/// `audit_write(actor, 'chat_case_hold_list', 'ediscovery_case', case, ..., ip, '', 'core')`
-/// before Tx 2 reads `chat_case_holds` under `BEGIN READ ONLY` on `AdminWorkerPool`.
+/// Organization-wide hold list followed by Go's separate best-effort core audit
+/// (a failed hold query writes no audit row, matching frozen Go).
 pub async fn holds(
     factory: &TxFactory,
+    user: &UserPrincipal,
     admin: &AdminPermissionProof,
     case: i64,
     ip: &str,
+    operation: [u8; 16],
 ) -> Result<String, StatementFailure> {
-    let mut audit = AuditEvent::new("chat_case_hold_list", "ediscovery_case")
-        .map_err(|_| invalid())?
-        .with_target_id(case)
-        .with_notes("");
-    if !ip.is_empty() {
-        audit = audit.with_ip(ip);
-    }
     let rows = factory
-        .run_admin_sensitive_read_with(admin, &audit, async move |tx| {
-            tx.query_contract(&sql::CHAT_HOLDS_LIST, &[&case]).await
-        })
+        .run_admin_read_contract(admin, &sql::CHAT_HOLDS_LIST, &[&case])
         .await?;
     let mut out = Vec::new();
     for r in rows {
@@ -103,6 +94,24 @@ pub async fn holds(
         fields += &format!(",\"channels\":{channels}}}");
         out.push(fields);
     }
+    let actor_id = admin.actor().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("chat_case_hold_list:{case}"),
+    );
+    let _ = factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::CHAT_HOLDS_AUDIT,
+            &[&actor_id, &case, &ip],
+            Some(receipt_cmd("chat.audit")),
+            |_| Ok(()),
+        )
+        .await;
     Ok(finish(format!("[{}]", out.join(","))))
 }
 
@@ -214,11 +223,23 @@ pub async fn policy(
         .await
 }
 
-/// Case-bound chat oversight command (`hold`, `release`, `search`, `read`, `export`)
-/// executed via `AdminWriteTx` (`ReducerWritesCoreAudit`).
+/// Decode the JSON verdict returned by [`sql::CHAT_COMMAND`].
+pub fn parse_command_result(
+    rows: &[setjoin_pg::Row],
+) -> Result<serde_json::Value, StatementFailure> {
+    rows.first()
+        .and_then(|r| r.try_get::<_, String>(0).ok())
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .ok_or_else(invalid)
+}
+
+/// Case-bound chat oversight command (`hold`, `release`, `search`, `read`, `export`).
+/// Calls worker-owned `SECURITY DEFINER` `rust_compliance_chat_command`, which owns
+/// live admin-grant fencing and frozen Go's best-effort core audit.
 #[allow(clippy::too_many_arguments)]
 pub async fn command(
     factory: &TxFactory,
+    user: &UserPrincipal,
     admin: &AdminPermissionProof,
     signed_non_admin: bool,
     action: &str,
@@ -226,27 +247,23 @@ pub async fn command(
     ip: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<serde_json::Value, StatementFailure> {
+    let actor_id = admin.actor().get();
     let data = data.to_string();
     let env = envelope(
-        admin.actor(),
-        admin.generation(),
+        user.user(),
+        user.generation(),
         operation,
         &serde_json::json!([action, data]).to_string(),
     );
     factory
-        .run_admin_audited_reducer_contract(
-            admin,
+        .run_user_write_contract_pipelined(
+            user,
             &env,
             deadline(),
             &sql::CHAT_COMMAND,
-            &[&signed_non_admin, &action, &data, &ip],
+            &[&actor_id, &signed_non_admin, &action, &data, &ip],
             Some(receipt_cmd("chat.oversight")),
-            |rows, _audited| {
-                rows.first()
-                    .and_then(|r| r.try_get::<_, String>(0).ok())
-                    .and_then(|raw| serde_json::from_str(&raw).ok())
-                    .ok_or_else(invalid)
-            },
+            |rows| parse_command_result(&rows),
         )
         .await
 }

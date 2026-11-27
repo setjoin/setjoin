@@ -1450,7 +1450,7 @@ pub const ACL_SUBJECTS: SqlContract = SqlContract {
         ColumnSpec::named("label", Type::TEXT),
         ColumnSpec::named("secondary", Type::TEXT),
     ],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -1474,7 +1474,7 @@ pub const FOLDER_ADMINS: SqlContract = SqlContract {
         ColumnSpec::named("granted_by", Type::INT8),
         ColumnSpec::named("granted_at", Type::TEXT),
     ],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
