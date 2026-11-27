@@ -138,12 +138,17 @@ async fn imap_auth_webhooks() -> Result<(), BoxError> {
                 }
                 .run_with(&[("internal/webhook", "gofree_unguarded_export.go", "webhook_unguarded_export.go.txt")])?;
             } else {
-                let executor = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).map_err(|e| e.0)?;
+                let executor =
+                    setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
+                        .map_err(|e| e.0)?;
+                let auth_executor =
+                    setjoin_pg::ScopedExecutor::from_dsn(db.worker_dsn(), 4).map_err(|e| e.0)?;
                 let server = Server::new(
                     executor,
                     ThreatPolicy::Unwired,
                     WebhookPolicy::Wired(Arc::new(AuthEvents(dispatcher.clone()))),
-                );
+                )
+                .with_auth_db(auth_executor);
                 assert!(server.webhooks_wired());
                 play(server, session).await?;
             }

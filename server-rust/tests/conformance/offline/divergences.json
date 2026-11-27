@@ -106,5 +106,45 @@
     "review": "owner-approved security fix 2026-11-05",
     "secure_test": "bins/gateway/tests/secfix5.rs::offline_devices_are_confined_to_the_callers_reach",
     "mutant": "offline-foreign-device"
+  },
+  {
+    "baseline": "goldens/approve-rls.json",
+    "sha256": "7ccce1ba9beb3ab1dcf5e87f9cbba3211abef2c0191d52f765b2bb9612466a44",
+    "expectation": "security/approve-rls.json",
+    "reason": "owner-approved security fix 2026-11-26 (#546e Wave 1.8e V289: dropped legacy open TO PUBLIC user_devices_admin_read SELECT policy; rust_offline_command clears app.current_user_id so under setjoin_app the initial SELECT fails closed as 409 BZ100 device not found instead of leaking device existence and failing later on UPDATE with transition race or RLS filter)",
+    "issue": "#546",
+    "reviewer": "owner 2026-11-26",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-26"
+  },
+  {
+    "baseline": "goldens/deny-rls.json",
+    "sha256": "60d802c6664ec1055700ce5083b4d7612efce2b72c6fbc6dd52f3ef68c2ef9d4",
+    "expectation": "security/deny-rls.json",
+    "reason": "owner-approved security fix 2026-11-26 (#546e Wave 1.8e V289: dropped legacy open TO PUBLIC user_devices_admin_read SELECT policy; rust_offline_command clears app.current_user_id so under setjoin_app the initial SELECT fails closed as 409 BZ100 device not found instead of leaking device existence and failing later on UPDATE with transition race or RLS filter)",
+    "issue": "#546",
+    "reviewer": "owner 2026-11-26",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-26"
+  },
+  {
+    "baseline": "goldens/revoke-rls.json",
+    "sha256": "594513360431d2b3b1542acca27157dd17b4266646ebb2b4673c749180b518d8",
+    "expectation": "security/revoke-rls.json",
+    "reason": "owner-approved security fix 2026-11-26 (#546e Wave 1.8e V289: dropped legacy open TO PUBLIC user_devices_admin_read SELECT policy; rust_offline_command clears app.current_user_id so under setjoin_app the initial SELECT fails closed as 409 BZ100 device not found instead of leaking device existence and failing later on UPDATE with transition race or RLS filter)",
+    "issue": "#546",
+    "reviewer": "owner 2026-11-26",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-26"
+  },
+  {
+    "baseline": "goldens/wipe-rls.json",
+    "sha256": "51a1448ba0f1f96956eb86aa0c0ce3a61b18fb56ce4896c98b28e927358f950f",
+    "expectation": "security/wipe-rls.json",
+    "reason": "owner-approved security fix 2026-11-26 (#546e Wave 1.8e V289: dropped legacy open TO PUBLIC user_devices_admin_read SELECT policy; rust_offline_command clears app.current_user_id so under setjoin_app the initial SELECT fails closed as 409 BZ100 device not found instead of leaking device existence and failing later on UPDATE with transition race or RLS filter)",
+    "issue": "#546",
+    "reviewer": "owner 2026-11-26",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-26"
   }
 ]

@@ -217,7 +217,7 @@ impl AuthServer {
         if !ca_enabled {
             return Ok(0);
         }
-        let result = self.policy_engine().evaluate(ctx.clone()).await;
+        let result = boxed(|| self.policy_engine().evaluate(ctx.clone())).await;
         self.record_ca_signin(&ctx, &result).await;
 
         if result.decision == "block" && result.remediation.is_empty() {

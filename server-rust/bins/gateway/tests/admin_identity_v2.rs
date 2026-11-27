@@ -973,7 +973,7 @@ async fn cut_authority_proxy(
         }
     }
     let task = tokio::spawn(async move {
-        const MARKER: &[u8] = b"public.admin_role_assignments";
+        const MARKER: &[u8] = b"rg.permissions";
         loop {
             let Ok((client, _)) = listener.accept().await else {
                 break;

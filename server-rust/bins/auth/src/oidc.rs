@@ -139,7 +139,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.oidc_oauth_admitted(req).await;
+        let reply = boxed(|| self.oidc_oauth_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn oidc_oauth_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -427,7 +427,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.oidc_callback_admitted(req, bypass).await;
+        let reply = boxed(|| self.oidc_callback_admitted(req, bypass)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn oidc_callback_admitted(&self, req: Request<Body>, bypass: bool) -> Response<Body> {
@@ -681,7 +681,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.oidc_authorize_admitted(req).await;
+        let reply = boxed(|| self.oidc_authorize_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn oidc_authorize_admitted(&self, req: Request<Body>) -> Response<Body> {

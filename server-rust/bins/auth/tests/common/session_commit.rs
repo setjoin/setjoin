@@ -95,6 +95,7 @@ async fn connection(
     let pending = Arc::new(AtomicBool::new(false));
     let pending_response = pending.clone();
     let requests = async move {
+        let mut in_read_only = false;
         loop {
             let tag = cr.read_u8().await?;
             let len = cr.read_u32().await?;
@@ -103,15 +104,28 @@ async fn connection(
             }
             let mut data = vec![0; len as usize - 4];
             cr.read_exact(&mut data).await?;
-            if tag == b'Q'
-                && data.eq_ignore_ascii_case(b"COMMIT\0")
-                && active.load(Ordering::SeqCst)
-                && count.fetch_add(1, Ordering::SeqCst) + 1 == nth
-            {
-                if cut == Cut::Before {
-                    return Ok(Some(cut));
+            if tag == b'Q' {
+                if data.starts_with(b"BEGIN READ ONLY")
+                    || data.starts_with(b"BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY")
+                    || data.starts_with(b"BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                {
+                    in_read_only = true;
+                } else if data.starts_with(b"BEGIN") {
+                    in_read_only = false;
+                } else if data.eq_ignore_ascii_case(b"ROLLBACK\0") {
+                    in_read_only = false;
+                } else if data.eq_ignore_ascii_case(b"COMMIT\0") {
+                    if in_read_only {
+                        in_read_only = false;
+                    } else if active.load(Ordering::SeqCst)
+                        && count.fetch_add(1, Ordering::SeqCst) + 1 == nth
+                    {
+                        if cut == Cut::Before {
+                            return Ok(Some(cut));
+                        }
+                        pending.store(true, Ordering::SeqCst);
+                    }
                 }
-                pending.store(true, Ordering::SeqCst);
             }
             sw.write_u8(tag).await?;
             sw.write_u32(len).await?;

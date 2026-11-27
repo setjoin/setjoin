@@ -869,9 +869,8 @@ async fn scim_list_users(
             })
         }
         scim::Page::Sync(token, count) => {
-            let cursor = scim::decode_sync_token(&token, source).map_err(|()| {
-                scim::ListError::Http(patch::http(400, "Invalid syncToken", "invalidValue"))
-            })?;
+            let cursor =
+                scim::decode_sync_token(&token, source).map_err(|()| scim::ListError::Query)?;
             let rows = worker_query(
                 worker,
                 &sql::SCIM_USERS_SYNC_LIST,
