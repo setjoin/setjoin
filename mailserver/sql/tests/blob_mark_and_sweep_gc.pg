@@ -7,27 +7,27 @@
 BEGIN;
 SELECT plan(79);
 
--- ── 1. Migration bookkeeping, V289 retirement, zero feature_toggles, FORCE RLS
+-- ── 1. Migration bookkeeping, V293 retirement, zero feature_toggles, FORCE RLS
 SELECT is(
-  (SELECT count(*)::int FROM public.schema_migrations WHERE version = 288),
-  1, 'schema_migrations records version 288');
+  (SELECT count(*)::int FROM public.schema_migrations WHERE version = 292),
+  1, 'schema_migrations records version 292');
 
 SELECT is(
-  (SELECT count(*)::int FROM public.schema_migrations WHERE version = 289),
-  1, 'schema_migrations records version 289');
+  (SELECT count(*)::int FROM public.schema_migrations WHERE version = 293),
+  1, 'schema_migrations records version 293');
 
 SELECT is(
   (SELECT mode FROM public.blob_gc_config WHERE id = 1),
-  'live', 'V289 flipped blob_gc_config.mode to live');
+  'live', 'V293 flipped blob_gc_config.mode to live');
 
 SELECT is(
   (SELECT count(*)::int FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'blobs' AND column_name = 'ref_count'),
-  0, 'V289 dropped public.blobs.ref_count column');
+  0, 'V293 dropped public.blobs.ref_count column');
 
 SELECT is(
   to_regclass('public.blob_cleanup_queue'),
-  NULL, 'V289 dropped public.blob_cleanup_queue table');
+  NULL, 'V293 dropped public.blob_cleanup_queue table');
 
 SELECT is(
   (SELECT count(*)::int FROM pg_trigger t
@@ -42,7 +42,7 @@ SELECT is(
         'trg_hr_expense_receipts_dec',
         'chat_link_preview_blob_refcount'
       )),
-  0, 'V289 dropped all 6 legacy blobs.ref_count / blob_cleanup_queue triggers');
+  0, 'V293 dropped all 6 legacy blobs.ref_count / blob_cleanup_queue triggers');
 
 SELECT is(
   (SELECT count(*)::int FROM information_schema.columns
@@ -381,7 +381,7 @@ SELECT is(
 --       promote_recover, noncanonical sha256 skip ────────────────────────────
 SELECT is(
   to_regprocedure('public.blob_gc_shadow_reconcile(integer,integer,integer)'),
-  NULL, 'V289 retired blob_gc_shadow_reconcile');
+  NULL, 'V293 retired blob_gc_shadow_reconcile');
 
 -- Verify set-based blob_live_catalog() works as non-superuser setjoin_owner!
 SET LOCAL ROLE setjoin_owner;

@@ -10,7 +10,7 @@
 -- accounting.
 --
 -- Requires: blob_upload_account, blobs, blob_user_charges, blob_user_usage (V235),
--- blob_gc_state (V288), V289 cutover, work_items (V287).
+-- blob_gc_state (V292), V293 cutover, work_items (V290).
 BEGIN;
 SELECT plan(41);
 
@@ -216,8 +216,8 @@ SELECT is(
   (SELECT count(*)::int FROM schema_migrations WHERE version = 243),
   1, 'schema_migrations records version 243');
 SELECT is(
-  (SELECT count(*)::int FROM schema_migrations WHERE version = 289),
-  1, 'schema_migrations records version 289');
+  (SELECT count(*)::int FROM schema_migrations WHERE version = 293),
+  1, 'schema_migrations records version 293');
 
 SELECT * FROM finish();
 ROLLBACK;

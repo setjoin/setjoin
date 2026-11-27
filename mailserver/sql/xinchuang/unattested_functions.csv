@@ -48,6 +48,7 @@ admin_sod_precheck,admin_sod_precheck.sql
 app_notify,app_notify.sql
 app_notify_enqueue_intent,app_notify.sql
 append_change,append_change.sql
+append_chat_change,chat_changes.sql
 append_email_change,append_change.sql
 approval_active_delegate,approval_active_delegate.sql
 approval_decide,approval_decide.sql
@@ -128,6 +129,7 @@ chat_case_hold_release,chat_case_hold_release.sql
 chat_case_hold_set,chat_case_hold_set.sql
 chat_chain_anchor,chat_chain_anchor.sql
 chat_chain_anchor_verify,chat_chain_anchor.sql
+chat_changes_since,chat_changes.sql
 chat_channel_create,chat_channel_create.sql
 chat_channel_join,chat_channel_join.sql
 chat_channel_readers,chat_readers.sql
@@ -354,6 +356,7 @@ drive_watch_remove,drive_watch_remove.sql
 drive_watch_set,drive_watch_set.sql
 drive_worm_pending,drive_worm_pending.sql
 effective_capabilities,effective_capabilities.sql
+effective_journal_retention_days,chat_changes.sql
 email_address_policy_apply,email_address_policy_apply.sql
 email_address_policy_apply_bulk,email_address_policy_apply_bulk.sql
 email_address_policy_match_count,email_address_policy_match_count.sql
@@ -363,6 +366,7 @@ email_header_value,utils.sql
 email_template_delete,email_templates.sql
 email_template_list,email_templates.sql
 email_template_set,email_templates.sql
+emit_scope_revoked,scope_revocations.sql
 emit_wakeup_bell,work_queue.sql
 enqueue_scheduled_action,scheduled_action_enqueue.sql
 entity_state,entity_state.sql
@@ -530,9 +534,11 @@ identity_upgrade_rollback,identity_upgrade_rollback.sql
 identity_upgrade_shadow,identity_upgrade_shadow.sql
 identity_upgrade_status,identity_upgrade_status.sql
 imap_batch_move_location,imap_batch_move_location.sql
+imap_mailbox_highestmodseq,imap_modseq.sql
 imap_membership_uid_allocate,imap_membership_uid_allocate.sql
 imap_membership_uid_backfill_batch,imap_membership_uid_backfill_batch.sql
 imap_membership_uid_readiness,imap_membership_uid_readiness.sql
+imap_vanished_uids_since,imap_modseq.sql
 is_guest_account,guest_account.sql
 jmap_calendar_event_counter,calendar_itip.sql
 jmap_calendar_event_get_shared,calendar_sharing.sql
@@ -788,10 +794,13 @@ policy_session_view,policy_session_view.sql
 promote_due_scheduled_actions,work_queue.sql
 provision_account,provision_account.sql
 prune_changes_journal,prune_changes_journal.sql
+prune_chat_changes,chat_changes.sql
 prune_dmarc_reports,prune_dmarc_reports.sql
+prune_drive_changes,drive_maintenance_sweep.sql
 prune_greylist_entries,prune_greylist_entries.sql
 prune_health_history,prune_health_history.sql
 prune_rust_operation_receipts,prune_rust_operation_receipts.sql
+prune_scope_revocations,scope_revocations.sql
 prune_session_runtime,prune_session_runtime.sql
 prune_spam,prune_spam.sql
 prune_vacation_replies,prune_vacation_replies.sql
@@ -1065,6 +1074,7 @@ smime_harvest_recipient_cert,smime_harvest_recipient_cert.sql
 smtp_inbound_deliver,smtp_inbound_deliver.sql
 smtp_submission_send,smtp_submission_send.sql
 stale_thread_nudges_list,nudges.sql
+sync_tombstone_floor_at,chat_changes.sql
 system_has_users,system_has_users.sql
 task_activity_list,jmap_task_comment.sql
 task_assignee_set_status,tasks_assigned.sql

@@ -8,6 +8,8 @@ BEGIN
   IF NOT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.shared_mail_drafts'),false) THEN
     RAISE EXCEPTION 'shared mail drafts are disabled' USING ERRCODE='BZ300';
   END IF;
+  -- Canonical #481 lock order: acquire mailboxes lock before draft/message rows.
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
   SELECT * INTO v_draft FROM mail_draft_collaboration WHERE draft_session_id=p_draft_session_id
     AND mailbox_id=p_mailbox_id FOR UPDATE;
   IF NOT FOUND OR v_draft.state<>'active' OR v_draft.lease_holder_user_id<>p_actor_user_id

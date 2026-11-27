@@ -25,14 +25,47 @@ DECLARE
   v_affected    BIGINT[] := '{}';
   v_mailbox_ids BIGINT[] := '{}';
   v_mbid        BIGINT;
+  v_imap_uid    BIGINT;
+  v_folder_id   BIGINT;
+  v_primary_tag BIGINT;
+  v_state       BIGINT;
 BEGIN
+  -- Lock affected mailboxes in deterministic ascending order before deleting
+  -- messages (#481 canonical lock order: mailboxes -> messages).
+  PERFORM 1
+    FROM mailboxes
+   WHERE id IN (
+     SELECT DISTINCT mailbox_id
+       FROM messages
+      WHERE id = ANY(p_message_ids)
+   )
+   ORDER BY id
+   FOR UPDATE;
+
   FOREACH v_id IN ARRAY p_message_ids LOOP
     BEGIN
-      DELETE FROM messages WHERE id = v_id RETURNING mailbox_id INTO v_mbid;
+      SELECT mt.tag_id INTO v_primary_tag
+        FROM message_tags mt
+        JOIN messages m ON m.id = mt.message_id AND m.received_at = mt.received_at
+       WHERE m.id = v_id AND mt.is_primary = TRUE
+       LIMIT 1;
+
+      DELETE FROM messages WHERE id = v_id
+      RETURNING mailbox_id, imap_uid, folder_id INTO v_mbid, v_imap_uid, v_folder_id;
       IF NOT FOUND THEN
         v_not_found := v_not_found + 1;
         CONTINUE;
       END IF;
+
+      -- Emit precise 'destroyed' journal delta + state bump so JMAP/IMAP QRESYNC
+      -- clients immediately observe compliance-purged UIDs (#554).
+      v_state := notify_state_change(v_mbid, NULL, v_id, 'destroyed');
+      IF v_state IS NOT NULL AND (v_imap_uid IS NOT NULL OR COALESCE(v_primary_tag, v_folder_id) IS NOT NULL) THEN
+        PERFORM append_email_change(
+          v_mbid, v_state, v_id, 'destroyed', COALESCE(v_primary_tag, v_folder_id), v_imap_uid
+        );
+      END IF;
+
       v_deleted := v_deleted + 1;
       v_affected := array_append(v_affected, v_id);
       IF NOT v_mbid = ANY(v_mailbox_ids) THEN

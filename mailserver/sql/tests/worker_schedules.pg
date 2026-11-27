@@ -1,4 +1,4 @@
--- worker_schedules.pg — Wave 2.2 (#549, V287): SKIP LOCKED cron schedule
+-- worker_schedules.pg — Wave 2.2 (#549, V291): SKIP LOCKED cron schedule
 -- leases, RLS/ACL denial, fencing, clock_timestamp() expiry, schedule_tz
 -- drift rejection, work_release, worm_arm_dead_letters health check, and
 -- guest_notification_intent WorkQueue coalescing.
@@ -10,16 +10,16 @@ SELECT set_config('app.capture_notify', 'on', false);
 -- ── 1. Isolation posture (deny-all FORCE RLS) ────────────────────────────────
 SELECT is(
   (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.worker_schedules'::regclass),
-  true, 'V287: worker_schedules has RLS enabled');
+  true, 'V291: worker_schedules has RLS enabled');
 SELECT is(
   (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.worker_schedules'::regclass),
-  true, 'V287: worker_schedules RLS is FORCEd');
+  true, 'V291: worker_schedules RLS is FORCEd');
 SELECT is(
   (SELECT count(*)::int FROM pg_policies WHERE tablename = 'worker_schedules'),
-  0, 'V287: worker_schedules has ZERO permissive policies');
+  0, 'V291: worker_schedules has ZERO permissive policies');
 SELECT is(
   (SELECT tableowner FROM pg_tables WHERE tablename = 'worker_schedules'),
-  'setjoin_owner', 'V287: worker_schedules owned by setjoin_owner');
+  'setjoin_owner', 'V291: worker_schedules owned by setjoin_owner');
 
 -- ── 2. Function ACLs & preflight hygiene (zero SECURITY DEFINER drift) ───────
 SELECT is(

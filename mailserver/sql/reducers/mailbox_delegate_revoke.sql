@@ -43,5 +43,8 @@ BEGIN
                        'permissions', v_removed),
     NULL,
     NULL, NULL, 'core');
+  PERFORM public.emit_scope_revoked(
+    p_grantee_user_id, 'mailbox', p_mailbox_id, 'delegate_revoked', NULL
+  );
 END;
 $$ LANGUAGE plpgsql;

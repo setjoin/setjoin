@@ -32,11 +32,11 @@ SELECT is(jsonb_array_length(chat_saves_list(931)), 1, 'saves_list returns the s
 -- notify_count is captured BEFORE the save (932 already received the earlier
 -- chat_message_send's 'message_created' push) so this asserts the DELTA is
 -- zero, not that the log is empty.
-SELECT notify_count('chat:932') AS n_before \gset
+SELECT notify_count('chat:932') + notify_count('sync') AS n_before \gset
 SELECT chat_save_toggle(932, :msg_id) AS saved2 \gset
 SELECT is(:'saved2'::boolean, true, 'a different member saves the same message independently');
 SELECT is(jsonb_array_length(chat_saves_list(931)), 1, '931''s save list is unaffected by 932''s save (self-scoped)');
-SELECT is(notify_count('chat:932'), :n_before, 'saving never fans out a notify to other members (self-only state)');
+SELECT is(notify_count('chat:932') + notify_count('sync'), :n_before, 'saving never fans out a notify to other members (self-only state)');
 
 -- ── un-save ────────────────────────────────────────────────────────────────
 SELECT chat_save_toggle(931, :msg_id) AS unsaved \gset

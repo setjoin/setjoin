@@ -1,4 +1,4 @@
--- V288__blob_mark_and_sweep_gc.sql — Wave 2.3 (#550):
+-- V292__blob_mark_and_sweep_gc.sql — Wave 2.3 (#550):
 -- Expand-only companion schema, partial 64-hex root-lookup indexes, FORCE RLS
 -- worker-only posture, and Mark-and-Sweep S3 Blob GC reducers.
 --
@@ -12,7 +12,7 @@
 --
 -- MAINTENANCE WINDOW NOTE (docs/standards/DATABASE_SECURITY.md:270):
 --   CREATE INDEX statements below (notably on public.messages and queue tables)
---   acquire a SHARE lock on each target table during index build. Apply V288 in
+--   acquire a SHARE lock on each target table during index build. Apply V292 in
 --   a scheduled maintenance window (or pre-build CONCURRENTLY out of band with
 --   the exact index names so IF NOT EXISTS is a no-op).
 
@@ -378,7 +378,7 @@ $$;
 -- Authoritative live-root catalog checked by Mark-and-Sweep GC.
 -- Every EXISTS arm MUST match config/blob-reference-manifest.json live_roots
 -- 1:1 (enforced bidirectionally by scripts/check-blob-reference-manifest.py)
--- and preserve exact predicate parity with partial btree indexes from V286.
+-- and preserve exact predicate parity with partial btree indexes from V292.
 CREATE OR REPLACE FUNCTION blob_has_live_reference(p_sha256 text)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -1402,5 +1402,5 @@ END $$;
 SELECT apply_worker_ownership('mail_recovery_upload_item_verify(bigint,uuid,text,text)'::regprocedure);
 
 INSERT INTO public.schema_migrations (version, applied_at)
-VALUES (288, now())
+VALUES (292, now())
 ON CONFLICT (version) DO NOTHING;

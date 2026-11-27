@@ -2,7 +2,7 @@
 //! Mark-and-Sweep GC under `WorkerSupervisor` in Wave 2.4 #551).
 //!
 //! Legacy `blob_cleanup_queue` / `blobs.ref_count` polling and `reap_candidate`
-//! are retired in V289. All canonical blob reclamation, lock-safe prefixed
+//! are retired in V293. All canonical blob reclamation, lock-safe prefixed
 //! `orphaned_message_blobs` cleanup, and abandoned `tmp/blob-upload/*` staging
 //! sweeps execute through [`crate::blob_gc::BlobGcWorker`], scheduled via
 //! `WorkerSupervisor`'s distributed `worker_schedules` runner (`safe_to_release = false`).

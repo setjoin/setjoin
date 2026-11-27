@@ -222,7 +222,7 @@ $e6_corpus$;
 -- ── Attachments: 40 per account, content-addressed in S3 ──────────────────
 -- 16 KiB deterministic bytes each; one attachment on each of the first 40
 -- corpus messages (has_attachment TRUE above matches). Live references are
--- tracked by Mark-and-Sweep GC (V288/V289).
+-- tracked by Mark-and-Sweep GC (V292/V293).
 INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
 SELECT encode(sha256(convert_to(a.content, 'UTF8')), 'hex'),
        'mailblobs/' || encode(sha256(convert_to(a.content, 'UTF8')), 'hex'),

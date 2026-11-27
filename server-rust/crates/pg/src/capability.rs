@@ -592,12 +592,16 @@ async fn begin_read_only_with_retry(
     pool: &SetjoinPool,
     preamble: &Preamble,
 ) -> Result<ManagedLease, StatementFailure> {
+    begin_read_only_mode_with_retry(pool, preamble, "BEGIN READ ONLY").await
+}
+
+async fn begin_read_only_mode_with_retry(
+    pool: &SetjoinPool,
+    preamble: &Preamble,
+    begin_stmt: &str,
+) -> Result<ManagedLease, StatementFailure> {
     let preamble_step = preamble.to_step()?;
-    let begin_sql = build_begin_sql(
-        "BEGIN READ ONLY",
-        pool.timeouts.statement,
-        pool.plan_cache_hint,
-    );
+    let begin_sql = build_begin_sql(begin_stmt, pool.timeouts.statement, pool.plan_cache_hint);
     let deadline = Instant::now() + pool.timeouts.statement * 2;
 
     for attempt in 0..2 {
@@ -2359,6 +2363,28 @@ impl AppPool {
         })
     }
 
+    /// Begin an interactive `MailboxTx<ReadOnly>` with `REPEATABLE READ` isolation
+    /// (`BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY` + merged preamble).
+    pub async fn begin_mailbox_read_repeatable(
+        &self,
+        principal: &VerifiedMailbox,
+    ) -> Result<MailboxTx<ReadOnly>, StatementFailure> {
+        let preamble = self.mailbox_preamble(principal, None, None);
+        let lease = begin_read_only_mode_with_retry(
+            &self.pool,
+            &preamble,
+            "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY",
+        )
+        .await?;
+        Ok(MailboxTx {
+            lease,
+            principal: principal.clone(),
+            lifecycle: None,
+            failure: None,
+            _mode: PhantomData,
+        })
+    }
+
     /// Run a 1-RTT pipelined `BEGIN READ ONLY` mailbox query (`tokio::join!(biased; ...)`).
     pub async fn run_mailbox_read_pipelined(
         &self,
@@ -3575,7 +3601,7 @@ impl AdminWorkerPool {
 #[derive(Clone)]
 pub struct WorkerPool {
     pool: SetjoinPool,
-    dsn: Arc<str>,
+    dsn: Option<Arc<str>>,
     audit_keys: Option<Arc<AuditKeys>>,
 }
 
@@ -3587,8 +3613,16 @@ pub const MAX_BOUNDED_WORKER_TIMEOUT: Duration = Duration::from_secs(600);
 
 #[cfg(feature = "worker-pool")]
 impl WorkerPool {
-    pub(crate) fn from_parts(pool: SetjoinPool, audit_keys: Option<Arc<AuditKeys>>) -> Self {
-        Self { pool, audit_keys }
+    pub(crate) fn from_parts(
+        pool: SetjoinPool,
+        dsn: Option<Arc<str>>,
+        audit_keys: Option<Arc<AuditKeys>>,
+    ) -> Self {
+        Self {
+            pool,
+            dsn,
+            audit_keys,
+        }
     }
 
     pub fn from_dsn(dsn: &str, max_size: usize) -> Result<Self, ConfigError> {
@@ -3609,7 +3643,7 @@ impl WorkerPool {
         )?;
         Ok(Self {
             pool,
-            dsn: Arc::from(dsn),
+            dsn: Some(Arc::from(dsn)),
             audit_keys: None,
         })
     }
@@ -3625,7 +3659,11 @@ impl WorkerPool {
     /// Derive a dedicated session-capable [`crate::workers::WorkerDatabase`]
     /// inheriting this boot-verified `WorkerPool`'s DSN and audit keys (#551).
     pub fn worker_database(&self) -> Result<crate::workers::WorkerDatabase, String> {
-        let mut db = crate::workers::WorkerDatabase::new(&self.dsn).map_err(|e| e.to_string())?;
+        let dsn = self
+            .dsn
+            .as_deref()
+            .ok_or_else(|| "worker pool has no DSN configured".to_owned())?;
+        let mut db = crate::workers::WorkerDatabase::new(dsn).map_err(|e| e.to_string())?;
         if let Some(keys) = &self.audit_keys {
             db = db.with_audit_keys(keys.encryption.clone(), keys.audit_hmac.clone());
         }

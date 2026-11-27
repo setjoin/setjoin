@@ -1,4 +1,4 @@
--- V286__work_queue.sql — Wave 2.1 (#548): durable WorkQueue (FOR UPDATE SKIP LOCKED),
+-- V290__work_queue.sql — Wave 2.1 (#548): durable WorkQueue (FOR UPDATE SKIP LOCKED),
 -- dead-letter queue (work_dead_letters), scheduled_actions 'enqueued' handoff state,
 -- and notify_intents retention index.
 --
@@ -59,7 +59,7 @@ CREATE INDEX work_items_leased_expiry_idx
     WHERE status = 'leased';
 
 COMMENT ON TABLE public.work_items IS
-  'Durable background work queue (V286, #548): SKIP LOCKED claimable jobs with '
+  'Durable background work queue (V290, #548): SKIP LOCKED claimable jobs with '
   'monotonic claim_generation fencing, optional per-kind idempotency_key coalescing, '
   'and bounded error storage. FORCE RLS deny-all to setjoin_app; worker/operator only.';
 
@@ -99,7 +99,7 @@ CREATE INDEX work_dead_letters_replayed_idx
     WHERE replayed_at IS NOT NULL;
 
 COMMENT ON TABLE public.work_dead_letters IS
-  'Dead-letter queue for permanently failed or attempt-exhausted work_items (V286, #548). '
+  'Dead-letter queue for permanently failed or attempt-exhausted work_items (V290, #548). '
   'FORCE RLS deny-all to setjoin_app; inspected/replayed/purged via mailctl work dlq.';
 
 -- Extend scheduled_actions status vocabulary with 'enqueued' (ZERO new columns so
@@ -179,7 +179,7 @@ END $$;
 
 -- ── Upgrade-safe reducer definitions (canonical sources under mailserver/sql/reducers/)
 --    so `upgrade.sh` -> `mailctl schema apply --yes` updates every Wave 2.1 reducer
---    atomically alongside V286 DDL while fresh installs stay byte-identical under
+--    atomically alongside V290 DDL while fresh installs stay byte-identical under
 --    scripts/reload-reducers.sh and scripts/check-schema-determinism.sh.
 
 -- [embedded from reducers/app_notify.sql]
@@ -3212,5 +3212,5 @@ $$ LANGUAGE plpgsql;
 -- [pg_cron→Go cron worker] SELECT cron.schedule('health-check', '*/5 * * * *', $$ SELECT health_check(); $$);
 
 INSERT INTO public.schema_migrations (version, applied_at)
-VALUES (286, now())
+VALUES (290, now())
 ON CONFLICT (version) DO NOTHING;

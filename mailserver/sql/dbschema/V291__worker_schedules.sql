@@ -1,9 +1,9 @@
--- V287__worker_schedules.sql — Wave 2.2 (#549): SKIP LOCKED distributed cron
+-- V291__worker_schedules.sql — Wave 2.2 (#549): SKIP LOCKED distributed cron
 -- schedule leases (public.worker_schedules), fenced work_release / work_cancel_pending /
 -- work_expedite reducers, durable WORM DLQ health check, and guest digest WorkQueue
 -- coalescing.
 --
--- Isolation posture (V253/V281/V286 pattern):
+-- Isolation posture (V253/V281/V290 pattern):
 --   * public.worker_schedules (named outside *_queue|*_jobs) is ENABLE + FORCE
 --     ROW LEVEL SECURITY with ZERO permissive policies (deny-all to setjoin_app).
 --   * Ownership sits with setjoin_owner; PUBLIC and setjoin_app have zero table
@@ -49,7 +49,7 @@ CREATE INDEX worker_schedules_leased_expiry_idx
     WHERE lease_owner IS NOT NULL;
 
 COMMENT ON TABLE public.worker_schedules IS
-  'Distributed SKIP LOCKED cron schedule leases (V287, #549) with monotonic '
+  'Distributed SKIP LOCKED cron schedule leases (V291, #549) with monotonic '
   'fencing_token, HA schedule_tz drift check, and bounded error storage. '
   'FORCE RLS deny-all to setjoin_app; worker/operator only.';
 
@@ -74,7 +74,7 @@ END $$;
 
 -- ── Upgrade-safe reducer definitions (canonical sources under mailserver/sql/reducers/)
 --    so `upgrade.sh` -> `mailctl schema apply --yes` updates every Wave 2.2 reducer
---    atomically alongside V287 DDL while fresh installs stay byte-identical under
+--    atomically alongside V291 DDL while fresh installs stay byte-identical under
 --    scripts/reload-reducers.sh and scripts/check-schema-determinism.sh.
 
 -- [embedded verbatim from reducers/worker_schedules.sql]
@@ -859,5 +859,5 @@ END;
 $$ LANGUAGE plpgsql;
 
 INSERT INTO public.schema_migrations (version, applied_at)
-VALUES (287, now())
+VALUES (291, now())
 ON CONFLICT (version) DO NOTHING;

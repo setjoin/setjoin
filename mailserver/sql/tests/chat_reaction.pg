@@ -27,9 +27,10 @@ SELECT is(:'added'::boolean, true, 'first toggle adds the reaction (returns true
 SELECT is((SELECT count(*)::int FROM chat_message_reactions
             WHERE message_id = :msg_id AND user_id = 901 AND emoji = '👍'), 1,
   'reaction row inserted');
-SELECT is(last_notify_event('chat:902'), 'reaction_added', 'toggle-add notifies reaction_added');
-SELECT is((SELECT (last_notify_payload('chat:902')::jsonb ->> 'seq')::bigint), :msg_seq::bigint,
-  'the notify payload carries the reacted-to message''s CURRENT seq');
+SELECT is(last_notify_payload('sync'), format('channel:%s:0', :ch_id),
+  'toggle-add emits O(1) sync bell with seq=0 so #555 never drops non-seq-advancing reactions');
+SELECT is(split_part(last_notify_payload('sync'), ':', 3)::bigint, 0::bigint,
+  'reaction sync bell emits seq=0 (does not reuse stale message seq)');
 
 -- ── toggle remove (idempotent flip) ───────────────────────────────────────
 SELECT chat_reaction_toggle(901, :msg_id, '👍') AS removed \gset
@@ -37,7 +38,8 @@ SELECT is(:'removed'::boolean, false, 'second toggle removes the reaction (retur
 SELECT is((SELECT count(*)::int FROM chat_message_reactions
             WHERE message_id = :msg_id AND user_id = 901 AND emoji = '👍'), 0,
   'reaction row deleted');
-SELECT is(last_notify_event('chat:902'), 'reaction_removed', 'toggle-remove notifies reaction_removed');
+SELECT is(last_notify_payload('sync'), format('channel:%s:0', :ch_id),
+  'toggle-remove emits O(1) sync bell with seq=0');
 
 -- ── independent emoji / independent user ──────────────────────────────────
 SELECT chat_reaction_toggle(901, :msg_id, '❤️') AS added2 \gset

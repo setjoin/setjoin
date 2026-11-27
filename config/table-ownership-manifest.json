@@ -741,6 +741,13 @@
         }
       ]
     },
+    "chat_changes": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "channel_id -> chat_channel_members.user_id",
+      "read_contracts": []
+    },
     "chat_channels": {
       "owner": "chat",
       "security_class": "user_scoped",
@@ -3395,6 +3402,18 @@
       "owner": "directory-sync",
       "security_class": "org_global",
       "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "scope_revocations": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "sync_tombstone_floor": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
       "read_contracts": []
     },
     "system_config": {

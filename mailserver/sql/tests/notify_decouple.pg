@@ -11,16 +11,16 @@ SELECT set_config('app.capture_notify', 'on', false);
 SELECT is((SELECT enabled FROM feature_toggles WHERE key = 'feature.notify_decouple'),
   FALSE, 'feature.notify_decouple seed row remains untouched (V088/V275 parity)');
 
--- ── V286: notify_intents FORCE RLS deny-all posture ─────────────────────────
+-- ── V290: notify_intents FORCE RLS deny-all posture ─────────────────────────
 SELECT is(
   (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.notify_intents'::regclass),
-  true, 'V286: notify_intents has RLS enabled');
+  true, 'V290: notify_intents has RLS enabled');
 SELECT is(
   (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.notify_intents'::regclass),
-  true, 'V286: notify_intents RLS is FORCEd');
+  true, 'V290: notify_intents RLS is FORCEd');
 SELECT is(
   (SELECT count(*)::int FROM pg_policies WHERE tablename = 'notify_intents'),
-  0, 'V286: notify_intents has ZERO permissive policies');
+  0, 'V290: notify_intents has ZERO permissive policies');
 SELECT is(
   has_function_privilege('public', 'public.app_notify_enqueue_intent(text,text)', 'EXECUTE'),
   false, 'PUBLIC has NO EXECUTE on SECURITY DEFINER app_notify_enqueue_intent');

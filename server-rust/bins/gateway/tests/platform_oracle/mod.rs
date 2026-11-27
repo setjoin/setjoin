@@ -889,7 +889,7 @@ fn record(path: &std::path::Path, value: &Value) -> Result<(), BoxError> {
     }
 }
 
-/// Wave 2.4 (#551) retired `blobs.ref_count` in V289. Normalize immutable
+/// Wave 2.4 (#551) retired `blobs.ref_count` in V293. Normalize immutable
 /// frozen-Go storage effects in memory without mutating golden JSON files.
 pub(super) fn normalize_storage_v289_effects(action: &str, effects: &mut Value) {
     let Some(items) = effects.as_array_mut() else {

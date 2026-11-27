@@ -47,7 +47,7 @@ admin_sod_precheck.sql	admin_sod_precheck	READ_ONLY	-	pure read path (guard re-d
 app_notify.sql	app_notify	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
 app_notify.sql	app_notify_enqueue_intent	EXEMPT	-	narrow worker-owned SECURITY DEFINER enqueue seam for FORCE-RLS notify_intents; not an authority transition
 append_change.sql	append_change	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
-append_change.sql	append_email_change	READ_ONLY	-	pure read path (guard re-derives no DML)
+append_change.sql	append_email_change	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; stamps messages.imap_modseq and appends email change journal row (ownership-scoped)
 rule_engine.sql	apply_action	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
 rule_engine_or.sql	apply_rules	READ_ONLY	-	pure read path (guard re-derives no DML)
 approval_active_delegate.sql	approval_active_delegate	READ_ONLY	-	pure read path (guard re-derives no DML)
@@ -558,6 +558,8 @@ identity_upgrade_rollback.sql	identity_upgrade_rollback	EXEMPT	-	IdP-sync/JIT ma
 identity_upgrade_shadow.sql	identity_upgrade_shadow	READ_ONLY	-	pure read path (guard re-derives no DML)
 identity_upgrade_status.sql	identity_upgrade_status	READ_ONLY	-	pure read path (guard re-derives no DML)
 imap_batch_move_location.sql	imap_batch_move_location	EXEMPT	-	write-by-delegation front door (loops PERFORM transition_message_location per message); per-message location mechanics, the cross-PR coordination class from a2f5196ae
+imap_modseq.sql	imap_mailbox_highestmodseq	READ_ONLY	-	pure read path (guard re-derives no DML)
+imap_modseq.sql	imap_vanished_uids_since	READ_ONLY	-	pure read path (guard re-derives no DML)
 imap_membership_uid_allocate.sql	imap_membership_uid_allocate	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
 imap_membership_uid_backfill_batch.sql	imap_membership_uid_backfill_batch	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
 imap_membership_uid_readiness.sql	imap_membership_uid_readiness	READ_ONLY	-	pure read path (guard re-derives no DML)
@@ -1253,3 +1255,11 @@ worker_schedules.sql	worker_schedule_complete	EXEMPT	-	fenced periodic schedule 
 worker_schedules.sql	worker_schedule_heartbeat	EXEMPT	-	fenced periodic schedule lease heartbeat; operational transport
 worker_schedules.sql	worker_schedule_register	EXEMPT	-	periodic schedule catalog registration with HA timezone validation; operational metadata
 worker_schedules.sql	worker_schedule_release	EXEMPT	-	fenced graceful shutdown schedule lease handoff; operational transport
+scope_revocations.sql	emit_scope_revoked	EXEMPT	-	durable scope-revocation notification journal emitter called inside audited authority-revoking reducers; operational transport
+scope_revocations.sql	prune_scope_revocations	EXEMPT	-	worker-only retention pruner for scope_revocations; operational maintenance
+chat_changes.sql	append_chat_change	EXEMPT	-	transactional per-channel sync change journal append helper; callers own business audit
+chat_changes.sql	chat_changes_since	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_changes.sql	effective_journal_retention_days	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_changes.sql	prune_chat_changes	EXEMPT	-	worker-only retention pruner for chat_changes; operational maintenance
+chat_changes.sql	sync_tombstone_floor_at	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_maintenance_sweep.sql	prune_drive_changes	EXEMPT	-	worker-only retention pruner for drive_changes; operational maintenance

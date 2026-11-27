@@ -156,6 +156,11 @@ impl Session {
         }
         let first = args.split(' ').next().unwrap_or("");
         let folder = crate::session::canonical_mailbox(first.trim_matches('"'));
+        let wants_highestmodseq = args
+            .get(first.len()..)
+            .unwrap_or("")
+            .split(|c: char| c.is_ascii_whitespace() || c == '(' || c == ')')
+            .any(|tok| tok.eq_ignore_ascii_case("HIGHESTMODSEQ"));
         let (Some(tx_factory), Some(user_principal)) = (self.tx_factory(), self.user_principal())
         else {
             self.reply(tag, "NO No such mailbox");
@@ -165,7 +170,8 @@ impl Session {
             .run_user_read_pipelined(
                 user_principal,
                 "SELECT COALESCE(t.total_count, 0)::bigint, COALESCE(t.unread_count, 0)::bigint, \
-                 COALESCE(t.imap_uid_validity, 0)::bigint, COALESCE(t.imap_uid_next, 1)::bigint \
+                 COALESCE(t.imap_uid_validity, 0)::bigint, COALESCE(t.imap_uid_next, 1)::bigint, \
+                 (COALESCE(m.jmap_email_state, 0) + 1)::bigint \
                  FROM tags t JOIN mailboxes m ON m.id = t.mailbox_id \
                  WHERE m.user_id = $1 AND (t.name = $2 OR t.imap_name = $2) \
                    AND t.imap_expose = TRUE LIMIT 1",
@@ -182,21 +188,31 @@ impl Session {
             row.try_get::<_, i64>(2),
             row.try_get::<_, i64>(3),
         ) else {
-            self.reply(tag, "NO No such mailbox");
+            self.reply(tag, "NO Server error");
             return;
         };
+        let highest_modseq: i64 = row.try_get::<_, i64>(4).unwrap_or(1).max(1);
         if validity == 0 {
             validity = 1;
         }
         if next < 1 {
             next = 1;
         }
-        self.out.extend_from_slice(
+        if wants_highestmodseq {
+            // RFC 7162 §3.1: STATUS (... HIGHESTMODSEQ) is a CONDSTORE-enabling command.
+            // If a mailbox is already selected on first activation, emit untagged HIGHESTMODSEQ.
+            self.activate_condstore().await;
+        }
+        let line = if wants_highestmodseq {
+            format!(
+                "* STATUS \"{folder}\" (MESSAGES {total} UNSEEN {unread} UIDVALIDITY {validity} UIDNEXT {next} HIGHESTMODSEQ {highest_modseq}) \r\n"
+            )
+        } else {
             format!(
                 "* STATUS \"{folder}\" (MESSAGES {total} UNSEEN {unread} UIDVALIDITY {validity} UIDNEXT {next}) \r\n"
             )
-            .as_bytes(),
-        );
+        };
+        self.out.extend_from_slice(line.as_bytes());
         self.reply(tag, "OK STATUS completed");
     }
 
@@ -361,12 +377,12 @@ impl Session {
     }
 
     /// One scoped transaction that purges the selected folder's `\Deleted`
-    /// messages through the reducer (`jmap_email_purge`, no notify: the STORE
-    /// already pushed `destroyed`). `announce` collects each expunged sequence
-    /// number the way Go streams them before the purge statement runs.
-    async fn purge_deleted(&mut self, all_rows: bool, announce: &mut Vec<i64>) -> bool {
+    /// messages through the reducer (`jmap_email_purge(..., TRUE)`), parses the
+    /// actually purged IDs (excluding litigation-held `notPurged` rows), and
+    /// returns the committed sequence/UID announcements + new `HIGHESTMODSEQ`.
+    async fn purge_deleted(&mut self, all_rows: bool) -> Option<PurgeOutcome> {
         let (Some(tx_factory), Some(mutate_cap)) = (self.tx_factory(), self.mutate_cap()) else {
-            return false;
+            return None;
         };
         let envelope = self.mailbox_envelope(&mutate_cap, b"imap-purge-deleted");
         let (tag_id, mailbox, uid) = (self.tag_id, mutate_cap.mailbox().get(), self.uid_column());
@@ -375,7 +391,21 @@ impl Session {
                 &mutate_cap,
                 &envelope,
                 Instant::now() + PURGE_DEADLINE,
-                async |tx: &mut MailboxTx<ReadWrite>| -> Result<(), StatementFailure> {
+                async |tx: &mut MailboxTx<ReadWrite>| -> Result<PurgeOutcome, StatementFailure> {
+                    // Canonical #481 lock order: mailboxes -> messages.
+                    let mb_rows = tx
+                        .query(
+                            "SELECT (COALESCE(jmap_email_state, 0) + 1)::bigint \
+                             FROM mailboxes WHERE id = $1 FOR UPDATE",
+                            &[(&mailbox, Type::INT8)],
+                        )
+                        .await?;
+                    let before_modseq = mb_rows
+                        .first()
+                        .and_then(|r| r.try_get::<_, i64>(0).ok())
+                        .unwrap_or(1)
+                        .max(1);
+                    let mut highest_modseq = before_modseq;
                     let order = if all_rows {
                         format!("ORDER BY {uid}")
                     } else {
@@ -385,40 +415,88 @@ impl Session {
                     let rows = tx
                         .query(
                             &format!(
-                                "SELECT m.id, m.is_deleted FROM messages m \
+                                "SELECT m.id, m.is_deleted, {uid} FROM messages m \
                                  JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at \
                                  WHERE mt.tag_id = $1 AND m.mailbox_id = $2 AND mt.is_primary = TRUE{filter} {order}"
                             ),
                             &[(&tag_id, Type::INT8), (&mailbox, Type::INT8)],
                         )
                         .await?;
-                    let mut ids = Vec::<i64>::new();
-                    let (mut current, mut gone) = (0i64, 0i64);
+                    let mut entries = Vec::<(i64, bool, i64)>::with_capacity(rows.len());
+                    let mut candidate_ids = Vec::<i64>::new();
                     for row in &rows {
                         let (Ok(id), Ok(deleted)) =
                             (row.try_get::<_, i64>(0), row.try_get::<_, bool>(1))
                         else {
                             continue;
                         };
-                        current += 1;
+                        let row_uid = row.try_get::<_, Option<i64>>(2).ok().flatten().unwrap_or(0);
                         if deleted {
-                            announce.push((current - gone).max(1));
-                            ids.push(id);
-                            gone += 1;
+                            candidate_ids.push(id);
+                        }
+                        entries.push((id, deleted, row_uid));
+                    }
+                    let mut purged_set = std::collections::HashSet::<i64>::new();
+                    if !candidate_ids.is_empty() {
+                        let purge_rows = tx
+                            .query(
+                                "SELECT jmap_email_purge($1, $2::bigint[], TRUE)::text",
+                                &[(&mailbox, Type::INT8), (&candidate_ids, Type::INT8_ARRAY)],
+                            )
+                            .await?;
+                        let text = purge_rows
+                            .first()
+                            .and_then(|r| r.try_get::<_, String>(0).ok())
+                            .ok_or_else(|| crate::messages::failure("jmap_email_purge returned no payload"))?;
+                        let payload: serde_json::Value = serde_json::from_str(&text)
+                            .map_err(|_| crate::messages::failure("invalid jmap_email_purge JSON"))?;
+                        if let Some(arr) = payload.get("purged").and_then(serde_json::Value::as_array)
+                        {
+                            for item in arr {
+                                if let Some(id) = item
+                                    .as_str()
+                                    .and_then(|s| s.parse::<i64>().ok())
+                                    .or_else(|| item.as_i64())
+                                {
+                                    purged_set.insert(id);
+                                }
+                            }
+                        }
+                        if let Some(st) = payload
+                            .get("newState")
+                            .and_then(|v| v.as_str().and_then(|s| s.parse::<i64>().ok()).or_else(|| v.as_i64()))
+                        {
+                            highest_modseq = st.max(0) + 1;
                         }
                     }
-                    if !ids.is_empty() {
-                        tx.execute(
-                            "SELECT jmap_email_purge($1, $2::bigint[], FALSE)",
-                            &[(&mailbox, Type::INT8), (&ids, Type::INT8_ARRAY)],
-                        )
-                        .await?;
+                    let mut announced = Vec::new();
+                    let mut vanished_uids = Vec::new();
+                    if all_rows && !purged_set.is_empty() {
+                        let (mut current, mut gone) = (0i64, 0i64);
+                        for (id, _deleted, row_uid) in entries {
+                            current += 1;
+                            if purged_set.contains(&id) {
+                                announced.push((current - gone).max(1));
+                                if row_uid > 0 {
+                                    vanished_uids.push(row_uid);
+                                }
+                                gone += 1;
+                            }
+                        }
                     }
-                    Ok(())
+                    Ok(PurgeOutcome {
+                        announced,
+                        vanished_uids,
+                        before_modseq,
+                        highest_modseq,
+                    })
                 },
             )
             .await;
-        matches!(outcome, CommandOutcome::Committed(()))
+        match outcome {
+            CommandOutcome::Committed(res) => Some(res),
+            _ => None,
+        }
     }
 
     pub(crate) async fn expunge(&mut self, tag: &str) {
@@ -430,17 +508,42 @@ impl Session {
             self.reply(tag, "NO [READ-ONLY] Mailbox selected as read-only");
             return;
         }
-        let mut announced = Vec::new();
-        let ok = self.purge_deleted(true, &mut announced).await;
-        for seq in announced {
-            self.out
-                .extend_from_slice(format!("* {seq} EXPUNGE\r\n").as_bytes());
-        }
-        if !ok {
+        let Some(res) = self.purge_deleted(true).await else {
             self.reply(tag, "NO Server error");
             return;
+        };
+        // Emit untagged VANISHED / EXPUNGE strictly AFTER tx.commit() succeeded.
+        if self.qresync_enabled {
+            if !res.vanished_uids.is_empty() {
+                let formatted = crate::messages::format_uid_set(&res.vanished_uids);
+                self.reply("*", &format!("VANISHED {formatted}"));
+            }
+        } else {
+            for seq in &res.announced {
+                self.out
+                    .extend_from_slice(format!("* {seq} EXPUNGE\r\n").as_bytes());
+            }
         }
-        self.reply(tag, "OK EXPUNGE completed");
+        // RFC 7162 §6: only emit [HIGHESTMODSEQ <n>] when EXPUNGE actually
+        // expunged at least one message AND no unseen concurrent flag mutation
+        // advanced the mailbox ahead of this session's observed MODSEQ.
+        let can_emit_highestmodseq = self.condstore_enabled
+            && !res.announced.is_empty()
+            && self
+                .selected_highest_modseq
+                .is_some_and(|seen| res.before_modseq <= seen);
+        if can_emit_highestmodseq {
+            self.selected_highest_modseq = Some(res.highest_modseq);
+            self.reply(
+                tag,
+                &format!(
+                    "OK [HIGHESTMODSEQ {}] EXPUNGE completed",
+                    res.highest_modseq
+                ),
+            );
+        } else {
+            self.reply(tag, "OK EXPUNGE completed");
+        }
         self.audit("imap_expunge").await;
     }
 
@@ -452,10 +555,16 @@ impl Session {
             self.reply(tag, "NO No mailbox selected");
             return;
         }
-        let _ = self.purge_deleted(false, &mut Vec::new()).await;
+        let _ = self.purge_deleted(false).await;
         self.reply("*", "OK [CLOSED] Previous mailbox closed");
-        self.selected.clear();
-        self.mailbox_id = 0;
+        self.reset_selected();
         self.reply(tag, "OK CLOSE completed");
     }
+}
+
+struct PurgeOutcome {
+    announced: Vec<i64>,
+    vanished_uids: Vec<i64>,
+    before_modseq: i64,
+    highest_modseq: i64,
 }

@@ -414,7 +414,7 @@ impl<S: ObjectStore + 'static> WormArmConsumer<S> {
 }
 
 /// Minimal supervised drain-only consumer for residual pre-cutover `blob.s3_reap_retry`
-/// items (#551). No new `blob.s3_reap_retry` items are enqueued post-V289; this consumer
+/// items (#551). No new `blob.s3_reap_retry` items are enqueued post-V293; this consumer
 /// drains any pre-cutover items safely under `pg_advisory_xact_lock` + version-aware
 /// `delete_blob_checked` so pre-cutover objects never leak.
 pub struct BlobReapRetryConsumer<S: ObjectStore> {

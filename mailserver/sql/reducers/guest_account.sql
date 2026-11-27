@@ -293,6 +293,10 @@ DECLARE
     v_expires        timestamptz;
     v_new_status     text;
     v_channel_id     bigint;
+    v_bound_space    bigint;
+    v_prior_channels bigint[] := ARRAY[]::bigint[];
+    v_prior_spaces   bigint[] := ARRAY[]::bigint[];
+    v_revoke_reason  text;
     v_system_expire  boolean := p_admin_user_id IS NULL AND p_action = 'expire';
     v_transition_id  uuid;
     v_eviction_count integer := 0;
@@ -396,6 +400,42 @@ BEGIN
         -- ponytail: no owner-succession copy — a guest cannot create channels
         -- (BZ215), so it can only own one via an explicit role promotion; if
         -- G1 opens that path it owes the succession arm here.
+        -- Snapshot ALL channels and Drive spaces (direct, chat-bound, meeting-
+        -- bound, and ACL-granted) BEFORE mutations so disable emits revocations
+        -- for every scope whose access is being terminated.
+        SELECT COALESCE(array_agg(DISTINCT cm.channel_id ORDER BY cm.channel_id), ARRAY[]::bigint[])
+          INTO v_prior_channels
+          FROM chat_channel_members cm
+         WHERE cm.user_id = p_guest_user_id;
+
+        SELECT COALESCE(array_agg(DISTINCT s_id ORDER BY s_id), ARRAY[]::bigint[])
+          INTO v_prior_spaces
+          FROM (
+            SELECT dsm.space_id AS s_id
+              FROM drive_space_members dsm
+             WHERE dsm.user_id = p_guest_user_id
+            UNION
+            SELECT s.id AS s_id
+              FROM drive_spaces s
+             WHERE s.owner_user_id = p_guest_user_id
+            UNION
+            SELECT s.id AS s_id
+              FROM drive_spaces s
+              JOIN chat_channel_members cm ON cm.channel_id = s.chat_channel_id
+             WHERE cm.user_id = p_guest_user_id
+            UNION
+            SELECT s.id AS s_id
+              FROM drive_spaces s
+              JOIN meeting_participants mp ON mp.meeting_id = s.meeting_id
+             WHERE mp.user_id = p_guest_user_id
+            UNION
+            SELECT g.space_id AS s_id
+              FROM drive_acl_grants g
+             WHERE g.subject_kind = 'user'
+               AND g.subject_user_id = p_guest_user_id
+               AND g.revoked_at IS NULL
+          ) all_spaces;
+
         FOR v_channel_id IN
             SELECT channel_id FROM chat_channel_members
              WHERE user_id = p_guest_user_id
@@ -420,6 +460,40 @@ BEGIN
             RAISE EXCEPTION 'guest_set_status: expire requires active status'
                 USING ERRCODE='BZ162', HINT='{"type":"invalidArguments","detail":"expire is only valid for an active guest"}';
         END IF;
+        -- Snapshot ALL channels and Drive spaces before freezing so expire
+        -- emits durable scope_revocations for every active guest scope.
+        SELECT COALESCE(array_agg(DISTINCT cm.channel_id ORDER BY cm.channel_id), ARRAY[]::bigint[])
+          INTO v_prior_channels
+          FROM chat_channel_members cm
+         WHERE cm.user_id = p_guest_user_id;
+
+        SELECT COALESCE(array_agg(DISTINCT s_id ORDER BY s_id), ARRAY[]::bigint[])
+          INTO v_prior_spaces
+          FROM (
+            SELECT dsm.space_id AS s_id
+              FROM drive_space_members dsm
+             WHERE dsm.user_id = p_guest_user_id
+            UNION
+            SELECT s.id AS s_id
+              FROM drive_spaces s
+             WHERE s.owner_user_id = p_guest_user_id
+            UNION
+            SELECT s.id AS s_id
+              FROM drive_spaces s
+              JOIN chat_channel_members cm ON cm.channel_id = s.chat_channel_id
+             WHERE cm.user_id = p_guest_user_id
+            UNION
+            SELECT s.id AS s_id
+              FROM drive_spaces s
+              JOIN meeting_participants mp ON mp.meeting_id = s.meeting_id
+             WHERE mp.user_id = p_guest_user_id
+            UNION
+            SELECT g.space_id AS s_id
+              FROM drive_acl_grants g
+             WHERE g.subject_kind = 'user'
+               AND g.subject_user_id = p_guest_user_id
+               AND g.revoked_at IS NULL
+          ) all_spaces;
         v_new_status := 'expired';  -- P9 EXPIRY = freeze: grant rows kept
     WHEN 'enable' THEN
         IF v_status <> 'disabled' THEN
@@ -543,6 +617,28 @@ BEGIN
                SET left_at = COALESCE(left_at, now()),
                    banned_at = COALESCE(banned_at, now())
              WHERE user_id = p_guest_user_id;
+        END IF;
+
+        -- Wave 2.5 (#552): now that guest_accounts.status and users.enabled are
+        -- committed in this tx (and participant rows are closed on disable),
+        -- emit durable scope_revocations for EVERY prior channel and Drive
+        -- space (direct, chat-bound, meeting-bound, and ACL-granted).
+        IF p_action IN ('disable', 'expire') THEN
+            v_revoke_reason := CASE WHEN p_action = 'disable' THEN 'guest_disabled' ELSE 'guest_expired' END;
+            FOREACH v_channel_id IN ARRAY v_prior_channels
+            LOOP
+                PERFORM public.emit_scope_revoked(
+                    p_guest_user_id, 'channel', v_channel_id, v_revoke_reason, NULL
+                );
+            END LOOP;
+            FOREACH v_bound_space IN ARRAY v_prior_spaces
+            LOOP
+                IF NOT public.drive_user_has_space_access(p_guest_user_id, v_bound_space) THEN
+                    PERFORM public.emit_scope_revoked(
+                        p_guest_user_id, 'space', v_bound_space, v_revoke_reason, NULL
+                    );
+                END IF;
+            END LOOP;
         END IF;
     END IF;
 

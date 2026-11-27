@@ -65,11 +65,14 @@ CREATE OR REPLACE FUNCTION apply_rules(
   p_rule_id     BIGINT DEFAULT NULL
 ) RETURNS VOID AS $$
 DECLARE
-  v_msg       RECORD;
-  v_rule      RECORD;
-  v_item      JSONB;
-  v_action    JSONB;
-  v_matched   BOOL;
+  v_msg        RECORD;
+  v_orig_msgid TEXT;
+  v_orig_from  TEXT;
+  v_discarded  BOOL := FALSE;
+  v_rule       RECORD;
+  v_item       JSONB;
+  v_action     JSONB;
+  v_matched    BOOL;
 BEGIN
   -- Bound delivery-path latency only. The retro sweep (p_organize_only=TRUE)
   -- runs up to c_cap statements in ONE transaction as a background scheduled
@@ -98,6 +101,11 @@ BEGIN
   SELECT * INTO v_msg FROM messages
   WHERE id = p_message_id AND received_at = p_received_at
     AND mailbox_id = p_mailbox_id;
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+  v_orig_msgid := v_msg.message_id;
+  v_orig_from  := v_msg.from_addr;
 
   FOR v_rule IN
     SELECT r.* FROM rules r
@@ -138,23 +146,28 @@ BEGIN
       FOR v_action IN SELECT * FROM jsonb_array_elements(v_rule.actions) LOOP
         PERFORM apply_action(p_message_id, p_received_at, p_mailbox_id, v_action, v_rule.id, p_organize_only);
         SELECT * INTO v_msg FROM messages
-        WHERE id = p_message_id AND received_at = p_received_at;
+        WHERE id = p_message_id AND received_at = p_received_at
+          AND mailbox_id = p_mailbox_id;
+        IF NOT FOUND THEN
+          v_discarded := TRUE;
+          EXIT;
+        END IF;
       END LOOP;
 
-      PERFORM trace(v_msg.message_id, 'rule_applied', v_msg.from_addr, '',
+      PERFORM trace(COALESCE(v_msg.message_id, v_orig_msgid), 'rule_applied', COALESCE(v_msg.from_addr, v_orig_from), '',
         NULL, jsonb_build_object('rule_id', v_rule.id, 'rule_name', v_rule.name));
 
-      IF v_rule.stop_processing THEN
+      IF v_discarded OR v_rule.stop_processing THEN
         EXIT;
       END IF;
 
     EXCEPTION
       WHEN invalid_text_representation OR invalid_regular_expression THEN
-        PERFORM trace(v_msg.message_id, 'rule_applied', v_msg.from_addr, '',
+        PERFORM trace(COALESCE(v_msg.message_id, v_orig_msgid), 'rule_applied', COALESCE(v_msg.from_addr, v_orig_from), '',
           NULL, jsonb_build_object('rule_id', v_rule.id, 'status', 'skipped_invalid_condition'));
         CONTINUE;
       WHEN OTHERS THEN
-        PERFORM trace(v_msg.message_id, 'rule_applied', v_msg.from_addr, '',
+        PERFORM trace(COALESCE(v_msg.message_id, v_orig_msgid), 'rule_applied', COALESCE(v_msg.from_addr, v_orig_from), '',
           NULL, jsonb_build_object('rule_id', v_rule.id, 'status', 'skipped_error', 'error', 'rule evaluation failed'));
         CONTINUE;
     END;

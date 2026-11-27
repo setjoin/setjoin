@@ -379,7 +379,7 @@ async fn install_mutant(
     Ok(restore)
 }
 
-/// Wave 2.4 (#551) retired `blobs.ref_count` in V289. Strip retired `ref_count`
+/// Wave 2.4 (#551) retired `blobs.ref_count` in V293. Strip retired `ref_count`
 /// from immutable frozen-Go `avatar_blob` snapshots in memory without editing goldens.
 fn strip_retired_avatar_refcount(effects: &mut Value) {
     let Some(items) = effects.as_array_mut() else {

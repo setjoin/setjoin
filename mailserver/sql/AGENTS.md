@@ -1,6 +1,6 @@
 # mailserver/sql — DOX child AGENTS.md
 
-Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Reducers commit authorization/data/state/audit/notify atomically. Preserve authenticated identity currency and same-statement ownership. Reducer bodies use CREATE OR REPLACE, p_/v_, registered BZ errors and no NOT NULL function parameters; schema/seed changes alone require forward migrations. Do not hand-edit the collapsed baseline. Loader is deterministic fixed-point, failing loudly. Preserve Mark-and-Sweep blob GC live-root manifest (`config/blob-reference-manifest.json`, V288/V289) and domain-specific RLS. Query work requires docs/standards/DATABASE_SECURITY.md; RLS helpers require ARCH-018-force-rls-scope-helper-recipe.md. Read the owning reducers/README.md entry and relevant local contract, then affected pgTAP/consumer proofs. No children.
+Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Reducers commit authorization/data/state/audit/notify atomically. Preserve authenticated identity currency and same-statement ownership. Reducer bodies use CREATE OR REPLACE, p_/v_, registered BZ errors and no NOT NULL function parameters; schema/seed changes alone require forward migrations. Do not hand-edit the collapsed baseline. Loader is deterministic fixed-point, failing loudly. Preserve Mark-and-Sweep blob GC live-root manifest (`config/blob-reference-manifest.json`, V292/V293) and domain-specific RLS. Query work requires docs/standards/DATABASE_SECURITY.md; RLS helpers require ARCH-018-force-rls-scope-helper-recipe.md. Read the owning reducers/README.md entry and relevant local contract, then affected pgTAP/consumer proofs. No children.
 
 ## DOX sections
 
@@ -129,9 +129,6 @@ Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Re
 - [Rust SAML link begin (#341)](DOX.md#rust-saml-link-begin-341) — elevation, receipt.
 - [SAML ACS (#546)](DOX.md#saml-acs-546)
 - [Rust shared unlink (#341)](DOX.md#rust-shared-identity-unlink-341) — owned detach/revocation and opaque receipt.
-- [Identity S/MIME](DOX.md#rust-identity-self-service-smime-494) (#494).
-- [SMTP security](DOX.md#rust-smtp-inbound-security-transaction-526) (#526).
-- [SMTP iMIP](DOX.md#rust-smtp-imip-transactions-526) (#526).
-- WorkQueue/schedules (V286–V287, #548–#549).
-- [Blob GC](DOX.md#blob-gc-v288-v289-550-551) (V288–V289, #550–#551).
+- [Identity S/MIME](DOX.md#rust-identity-self-service-smime-494) (#494), [SMTP](DOX.md#rust-smtp-inbound-security-transaction-526) (#526).
+- WorkQueue/schedules (V290–V291, #548–#549); [Blob GC](DOX.md#blob-gc-v292-v293-550-551) (V292–V293, #550–#551); SyncWakeup (V294, #552); `chat_changes` (V295, #553); IMAP MODSEQ/journal (V296, #554).
 - Table manifest: `config/table-ownership-manifest.json` (#539).

@@ -1,6 +1,6 @@
 //! Distributed `FOR UPDATE SKIP LOCKED` periodic schedule store (Wave 2.2, #549).
 //!
-//! Backed by `public.worker_schedules` (`V287`) and `SECURITY INVOKER`
+//! Backed by `public.worker_schedules` (`V291`) and `SECURITY INVOKER`
 //! `worker_schedule_*` reducers over a verified `WorkerPool` (`BYPASSRLS`).
 
 use setjoin_pg::{Row, StatementFailure, Type, WorkerPool, WorkerTx};

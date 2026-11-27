@@ -343,7 +343,13 @@ BEGIN
         ('public.blob_is_held_or_retained(text,integer)'),
         ('public.blob_gc_mark(integer,integer,integer)'),
         ('public.blob_gc_claim_purging(text,integer,integer,integer)'),
-        ('public.blob_gc_record_worm_lock(text,timestamptz,text)')
+        ('public.blob_gc_record_worm_lock(text,timestamptz,text)'),
+        -- #552 (V294): scope_revocations retention pruner stays strictly worker-only.
+        ('public.prune_scope_revocations(integer)'),
+        -- #553 (V295): journal retention pruners stay strictly worker-only.
+        ('public.prune_changes_journal(integer,integer)'),
+        ('public.prune_chat_changes(integer,integer)'),
+        ('public.prune_drive_changes(integer,integer)')
       ) AS exact_worker(signature)
      WHERE to_regprocedure(signature) IS NOT NULL
   LOOP
@@ -453,7 +459,7 @@ DECLARE
   t     text;
   v_seq text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['work_items','work_dead_letters','notify_intents','worker_schedules'] LOOP
+  FOREACH t IN ARRAY ARRAY['work_items','work_dead_letters','notify_intents','worker_schedules','scope_revocations','sync_tombstone_floor'] LOOP
     IF to_regclass('public.' || t) IS NOT NULL THEN
       EXECUTE format('ALTER TABLE public.%I OWNER TO setjoin_owner', t);
       EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC, setjoin_app, setjoin_worker', t);
@@ -529,4 +535,16 @@ BEGIN
       REVOKE CREATE ON SCHEMA public FROM setjoin_worker;
     END IF;
   END;
+END $$;
+
+-- public.chat_changes (V295, #553): append-only per-channel monotonic journal.
+-- setjoin_app may SELECT/INSERT (scoped by FORCE RLS chat_member_role policies),
+-- never UPDATE/DELETE; worker-only pruning runs on setjoin_worker (BYPASSRLS).
+DO $$ BEGIN
+  IF to_regclass('public.chat_changes') IS NOT NULL THEN
+    ALTER TABLE public.chat_changes OWNER TO setjoin_owner;
+    REVOKE ALL ON public.chat_changes FROM PUBLIC, setjoin_app, setjoin_worker;
+    GRANT SELECT, INSERT ON public.chat_changes TO setjoin_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON public.chat_changes TO setjoin_worker;
+  END IF;
 END $$;

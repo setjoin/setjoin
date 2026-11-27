@@ -760,7 +760,7 @@ def validate(
         )
 
     # 4. SQL_CATALOG_DRIFT (bidirectional against blob_has_live_reference in both
-    # canonical reducers/blob_gc.sql AND latest migration embedding it, e.g. V286)
+    # canonical reducers/blob_gc.sql AND latest migration embedding it, e.g. V293)
     sql_targets: List[Tuple[str, Path]] = [(gc_sql_path.name, gc_sql_path)]
     mig_gc = _find_latest_migration_with_live_ref(schema_dir)
     if mig_gc is None and "blob_gc_state" in tables:

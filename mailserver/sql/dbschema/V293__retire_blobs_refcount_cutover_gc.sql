@@ -1,4 +1,4 @@
--- V289__retire_blobs_refcount_cutover_gc.sql — Wave 2.4 (#551):
+-- V293__retire_blobs_refcount_cutover_gc.sql — Wave 2.4 (#551):
 -- Cut over blob cleanup to Mark-and-Sweep GC under WorkerSupervisor, retire
 -- public.blobs.ref_count triggers/column and public.blob_cleanup_queue, add
 -- set-based owner-callable public.blob_live_catalog(), proactive purging_at
@@ -7,14 +7,14 @@
 --
 -- ROLLING-UPGRADE & ROLLBACK BOUNDARY (ARCH-019):
 --   Mandatory 2-step production rollout order:
---     Step 1: Run Wave 2.3 (#550) binaries on V288 with BLOB_GC_MODE=shadow
+--     Step 1: Run Wave 2.3 (#550) binaries on V292 with BLOB_GC_MODE=shadow
 --             and verify zero shadow discrepancies.
 --     Step 2: During cutover, drain all old / Wave 2.3 replicas and in-flight
---             legacy deletes, apply V289 (which flips public.blob_gc_config.mode
+--             legacy deletes, apply V293 (which flips public.blob_gc_config.mode
 --             = 'live' and contracts public.blobs.ref_count +
 --             public.blob_cleanup_queue past the reversible schema boundary),
 --             and start Wave 2.4 (#551) binaries with BLOB_GC_MODE unset or live.
---   Emergency halt after V289: set BLOB_GC_MODE=off (halts live sweeping
+--   Emergency halt after V293: set BLOB_GC_MODE=off (halts live sweeping
 --   immediately without re-enabling legacy ref_count cleanup).
 --
 -- Invariants preserved:
@@ -70,7 +70,7 @@ BEGIN
      WHERE id = 1;
     GET DIAGNOSTICS v_updated = ROW_COUNT;
     IF v_updated <> 1 THEN
-        RAISE EXCEPTION 'V289: expected to update 1 blob_gc_config row to mode=live, updated %', v_updated;
+        RAISE EXCEPTION 'V293: expected to update 1 blob_gc_config row to mode=live, updated %', v_updated;
     END IF;
 END
 $$;
@@ -132,7 +132,7 @@ $$;
 -- on the per-sha256 transaction advisory lock and reactivate any reclaim_eligible
 -- or purging row in FORCE-RLS deny-all public.blob_gc_state without granting
 -- setjoin_app direct table access or WORM-lock mutation privileges.
--- Signature intentionally unchanged across V288->V289 (zero ACL churn).
+-- Signature intentionally unchanged across V292->V293 (zero ACL churn).
 CREATE OR REPLACE FUNCTION blob_gc_reactivate(
     p_sha256 text
 )
@@ -491,7 +491,7 @@ $$;
 -- Authoritative live-root catalog checked by Mark-and-Sweep GC.
 -- Every EXISTS arm MUST match config/blob-reference-manifest.json live_roots
 -- 1:1 (enforced bidirectionally by scripts/check-blob-reference-manifest.py)
--- and preserve exact predicate parity with partial btree indexes from V288.
+-- and preserve exact predicate parity with partial btree indexes from V292.
 CREATE OR REPLACE FUNCTION blob_has_live_reference(p_sha256 text)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -1416,7 +1416,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_worker')
        AND NOT has_schema_privilege('setjoin_worker', 'public', 'CREATE') THEN
         GRANT CREATE ON SCHEMA public TO setjoin_worker;
-        PERFORM set_config('app._v289_granted_worker_create', '1', false);
+        PERFORM set_config('app._v293_granted_worker_create', '1', false);
     END IF;
 END
 $$;
@@ -1448,7 +1448,7 @@ $$;
 --      registered the blobs row via blob_gc_register_and_reactivate by this
 --      point), to record the final ok/error state and reactivate the image
 --      blob under Mark-and-Sweep GC (chat_link_previews.image_blob_sha256 is
---      an authoritative live root; legacy blobs.ref_count was retired in V289).
+--      an authoritative live root; legacy blobs.ref_count was retired in V293).
 --   3. chat_message_unfurl_apply — merges the cached preview into ONE
 --      message's payload + fans out a message_edited-style notify. Called by
 --      both the claim-winner (after cache_write) and every subsequent poster
@@ -2057,9 +2057,9 @@ $$ LANGUAGE plpgsql;
 
 DO $$
 BEGIN
-    IF current_setting('app._v289_granted_worker_create', true) = '1' THEN
+    IF current_setting('app._v293_granted_worker_create', true) = '1' THEN
         REVOKE CREATE ON SCHEMA public FROM setjoin_worker;
-        PERFORM set_config('app._v289_granted_worker_create', '0', false);
+        PERFORM set_config('app._v293_granted_worker_create', '0', false);
     END IF;
 END
 $$;
@@ -2067,5 +2067,5 @@ $$;
 -- ── 5. Migration bookkeeping ──────────────────────────────────────────────────
 
 INSERT INTO public.schema_migrations (version, applied_at)
-VALUES (289, now())
+VALUES (293, now())
 ON CONFLICT (version) DO NOTHING;

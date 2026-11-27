@@ -113,6 +113,40 @@ pub fn catalog_tasks(schedule_tz: &str) -> Vec<ScheduledTask> {
         .collect()
 }
 
+/// Wave 2+ native supervised maintenance tasks outside the frozen Go 31-task
+/// `cron_catalog::CATALOG` (`#552` `scope_revocations` + `#553` `chat_changes`
+/// retention; `prune-changes-journal` remains owned by `cron_catalog::CATALOG`).
+pub fn wave2_maintenance_tasks(schedule_tz: &str) -> Vec<ScheduledTask> {
+    vec![
+        ScheduledTask {
+            spec: ScheduleSpec {
+                task_name: "prune-scope-revocations".to_owned(),
+                schedule_spec: "35 4 * * *".to_owned(),
+                timeout_secs: 60,
+                schedule_tz: schedule_tz.to_owned(),
+                credential: ScheduleCredential::Worker,
+            },
+            handler: ScheduleHandler::Sql {
+                sql: "SELECT public.prune_scope_revocations(90)",
+                credential: ScheduleCredential::Worker,
+            },
+        },
+        ScheduledTask {
+            spec: ScheduleSpec {
+                task_name: "prune-chat-changes".to_owned(),
+                schedule_spec: "40 4 * * *".to_owned(),
+                timeout_secs: 60,
+                schedule_tz: schedule_tz.to_owned(),
+                credential: ScheduleCredential::Worker,
+            },
+            handler: ScheduleHandler::Sql {
+                sql: "SELECT public.prune_chat_changes(30, COALESCE((SELECT (value #>> '{}')::int FROM public.system_config WHERE key = 'offline_journal_high_water'), 50000))",
+                credential: ScheduleCredential::Worker,
+            },
+        },
+    ]
+}
+
 /// Parse a schedule spec (`@every <N>s|m|h` or 5-field UTC cron `m h dom mon dow`)
 /// and compute the next strictly-future UTC instant after `now_utc`.
 pub fn next_due_utc(spec: &str, now_utc: DateTime<Utc>) -> Result<DateTime<Utc>, String> {
@@ -818,5 +852,28 @@ mod tests {
             .map(|t| t.spec.task_name.as_str())
             .collect();
         assert_eq!(owner_tasks, vec!["create-monthly-partitions"]);
+
+        let wave2 = wave2_maintenance_tasks("UTC");
+        let wave2_names: Vec<&str> = wave2.iter().map(|t| t.spec.task_name.as_str()).collect();
+        assert_eq!(
+            wave2_names,
+            vec!["prune-scope-revocations", "prune-chat-changes"]
+        );
+        let catalog_names: std::collections::HashSet<&str> =
+            tasks.iter().map(|t| t.spec.task_name.as_str()).collect();
+        for task in &wave2 {
+            assert!(
+                !catalog_names.contains(task.spec.task_name.as_str()),
+                "wave2_maintenance_tasks must be disjoint from catalog_tasks: {}",
+                task.spec.task_name
+            );
+            assert_eq!(task.spec.credential, ScheduleCredential::Worker);
+            assert!(
+                next_due_utc(&task.spec.schedule_spec, now).is_ok(),
+                "failed to parse schedule for {}: {}",
+                task.spec.task_name,
+                task.spec.schedule_spec
+            );
+        }
     }
 }

@@ -1,18 +1,31 @@
 -- Allocate the next UID in one tag-local namespace.
+-- Single MODSEQ currency (#554): tags.imap_modseq tracks GREATEST(mailboxes.jmap_email_state, 1)
+-- rather than maintaining a divergent per-tag counter.
 CREATE OR REPLACE FUNCTION imap_membership_uid_allocate(p_tag_id bigint)
 RETURNS bigint
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
-DECLARE v_uid bigint;
+DECLARE
+  v_uid        bigint;
+  v_mailbox_id bigint;
+  v_modseq     bigint;
 BEGIN
-  SELECT GREATEST(t.imap_uid_next,
-         COALESCE((SELECT max(l.imap_uid)+1 FROM public.imap_membership_uid_ledger l
-                   WHERE l.tag_id=t.id),1))
-    INTO v_uid FROM public.tags t WHERE t.id=p_tag_id FOR UPDATE;
+  SELECT t.mailbox_id,
+         GREATEST(t.imap_uid_next,
+           COALESCE((SELECT max(l.imap_uid)+1 FROM public.imap_membership_uid_ledger l
+                     WHERE l.tag_id=t.id),1))
+    INTO v_mailbox_id, v_uid
+    FROM public.tags t WHERE t.id=p_tag_id FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'IMAP tag not found' USING ERRCODE='BZ268';
   END IF;
-  UPDATE public.tags SET imap_uid_next=v_uid+1, imap_modseq=imap_modseq+1,
-    updated_at=now() WHERE id=p_tag_id;
+  SELECT COALESCE(mb.jmap_email_state, 0) + 1
+    INTO v_modseq
+    FROM public.mailboxes mb WHERE mb.id=v_mailbox_id;
+  UPDATE public.tags
+     SET imap_uid_next=v_uid+1,
+         imap_modseq=GREATEST(COALESCE(imap_modseq, 0), COALESCE(v_modseq, 1)),
+         updated_at=now()
+   WHERE id=p_tag_id;
   RETURN v_uid;
 END;
 $$;

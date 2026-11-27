@@ -37,7 +37,7 @@ pub use worker::{
 };
 
 /// Maximum UTF-8 byte length persisted in `work_items.last_error` and
-/// `work_dead_letters.last_error` (matching the V286 `CHECK` constraint).
+/// `work_dead_letters.last_error` (matching the V290 `CHECK` constraint).
 pub const MAX_ERROR_BYTES: usize = 4096;
 
 /// Content-free wakeup bus channel for durable work queue notifications.

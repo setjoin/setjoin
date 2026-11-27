@@ -258,10 +258,10 @@ async fn cleanup_blob(owner: &tokio_postgres::Client, digest: &str) {
         .await;
 }
 
-async fn auth_context(
+async fn authorize_user(
     exec: &ScopedExecutor,
     user_id: i64,
-) -> Result<setjoin_authz::AuthContext, BoxError> {
+) -> Result<setjoin_authz::Authorized, BoxError> {
     let mut headers = hyper::HeaderMap::new();
     headers.insert("host", "mail.test".parse()?);
     headers.insert("origin", "http://mail.test".parse()?);
@@ -277,8 +277,62 @@ async fn auth_context(
         "http",
     )
     .await
-    .ok_or("failed to build verified AuthContext")?;
-    Ok(auth.context().clone())
+    .ok_or("failed to build verified Authorized")?;
+    Ok(auth)
+}
+
+fn tx_factory(
+    app: &ScopedExecutor,
+    worker: Option<&ScopedExecutor>,
+) -> Result<setjoin_authz::principals::TxFactory, BoxError> {
+    setjoin_gateway::policy_composition::tx_factory_from_executors(app, worker)
+        .ok_or_else(|| BoxError::from("tx_factory unavailable"))
+}
+
+async fn mint_user(
+    factory: &setjoin_authz::principals::TxFactory,
+    exec: &ScopedExecutor,
+    user_id: i64,
+) -> Result<setjoin_authz::principals::UserPrincipal, BoxError> {
+    let auth = authorize_user(exec, user_id).await?;
+    factory
+        .mint_user_from_authorized(&auth, "127.0.0.1")
+        .await
+        .map_err(|e| BoxError::from(e.to_string()))
+}
+
+async fn mint_storage_admin(
+    owner: &tokio_postgres::Client,
+    factory: &setjoin_authz::principals::TxFactory,
+    exec: &ScopedExecutor,
+    user_id: i64,
+    label: &str,
+) -> Result<(setjoin_authz::principals::AdminPermissionProof, i64), BoxError> {
+    let role_name = format!("blob-gc-{label}-{user_id}");
+    let role_id: i64 = owner
+        .query_one(
+            "INSERT INTO admin_role_groups(name, permissions) VALUES($1, ARRAY['system.storage']) \
+             ON CONFLICT (name) DO UPDATE SET permissions = EXCLUDED.permissions RETURNING id",
+            &[&role_name],
+        )
+        .await?
+        .get(0);
+    owner
+        .execute(
+            "INSERT INTO admin_role_assignments(user_id, role_group_id) VALUES($1, $2) \
+             ON CONFLICT DO NOTHING",
+            &[&user_id, &role_id],
+        )
+        .await?;
+    let auth = authorize_user(exec, user_id).await?;
+    let admin = factory
+        .mint_admin_from_authorized(&auth, "127.0.0.1")
+        .await
+        .map_err(|e| BoxError::from(e.to_string()))?;
+    let proof = admin
+        .require_permission("system.storage")
+        .map_err(|e| BoxError::from(e.to_string()))?;
+    Ok((proof, role_id))
 }
 
 /// Scenario A: Tx 2B pauses inside fake-S3 DELETE while holding the per-sha256
@@ -301,7 +355,11 @@ async fn scenario_a_uploaders_block_on_advisory_lock_during_tx2b_s3_delete() -> 
     let worker_exec = ScopedExecutor::from_dsn(&db.dsn, 4)
         .map_err(|e| e.0)?
         .with_audit_keys("22".repeat(32), String::new());
-    let actor = auth_context(&app_exec, account.user).await?;
+    let app_factory = tx_factory(&app_exec, Some(&worker_exec))?;
+    let worker_factory = tx_factory(&worker_exec, Some(&worker_exec))?;
+    let actor = mint_user(&app_factory, &app_exec, account.user).await?;
+    let (admin_proof, admin_role_id) =
+        mint_storage_admin(&owner, &app_factory, &app_exec, account.user, "race-a").await?;
 
     for uploader in [
         "blobs_put",
@@ -325,16 +383,18 @@ async fn scenario_a_uploaders_block_on_advisory_lock_during_tx2b_s3_delete() -> 
             .map_err(|_| format!("{uploader}: Tx 2B never entered paused S3 DELETE"))?
             .map_err(|_| "pause channel closed")?;
 
-        let app_c = app_exec.clone();
+        let app_f = app_factory.clone();
+        let worker_f = worker_factory.clone();
         let worker_c = worker_exec.clone();
         let actor_c = actor.clone();
+        let admin_c = admin_proof.clone();
         let sha_u = digest.clone();
         let uploader_task = tokio::spawn(async move {
             let op = op_id(&format!("op-a-{uploader}-{sha_u}"));
             match uploader {
                 "blobs_put" => {
                     let out = setjoin_blobs::account_upload(
-                        &app_c,
+                        &app_f,
                         &actor_c,
                         &sha_u,
                         &format!("mailblobs/{sha_u}"),
@@ -351,7 +411,7 @@ async fn scenario_a_uploaders_block_on_advisory_lock_during_tx2b_s3_delete() -> 
                 }
                 "chat_unfurl" => {
                     let out = setjoin_chat::members::unfurl_blob(
-                        &app_c,
+                        &app_f,
                         &actor_c,
                         &sha_u,
                         &format!("mailblobs/{sha_u}"),
@@ -376,8 +436,9 @@ async fn scenario_a_uploaders_block_on_advisory_lock_during_tx2b_s3_delete() -> 
                 }
                 "reimport_blob" => {
                     let out = setjoin_platform::storage::reimport_blob(
-                        &worker_c,
+                        &worker_f,
                         &actor_c,
+                        &admin_c,
                         op,
                         &sha_u,
                         &format!("mailblobs/{sha_u}"),
@@ -427,6 +488,18 @@ async fn scenario_a_uploaders_block_on_advisory_lock_during_tx2b_s3_delete() -> 
         cleanup_blob(&owner, &digest).await;
     }
 
+    let _ = owner
+        .execute(
+            "DELETE FROM admin_role_assignments WHERE role_group_id = $1",
+            &[&admin_role_id],
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM admin_role_groups WHERE id = $1",
+            &[&admin_role_id],
+        )
+        .await;
     common::remove_blob_account(&owner, &account).await?;
     Ok(())
 }
@@ -450,7 +523,11 @@ async fn scenario_b_uploader_between_tx2a_and_tx2b_aborts_s3_delete() -> Result<
     let worker_exec = ScopedExecutor::from_dsn(&db.dsn, 4)
         .map_err(|e| e.0)?
         .with_audit_keys("22".repeat(32), String::new());
-    let actor = auth_context(&app_exec, account.user).await?;
+    let app_factory = tx_factory(&app_exec, Some(&worker_exec))?;
+    let worker_factory = tx_factory(&worker_exec, Some(&worker_exec))?;
+    let actor = mint_user(&app_factory, &app_exec, account.user).await?;
+    let (admin_proof, admin_role_id) =
+        mint_storage_admin(&owner, &app_factory, &app_exec, account.user, "race-b").await?;
 
     let wdb = WorkerDatabase::new(&db.dsn)?;
     let wconn = wdb.connect().await?;
@@ -498,7 +575,7 @@ async fn scenario_b_uploader_between_tx2a_and_tx2b_aborts_s3_delete() -> Result<
         match uploader {
             "blobs_put" => {
                 let out = setjoin_blobs::account_upload(
-                    &app_exec,
+                    &app_factory,
                     &actor,
                     &digest,
                     &format!("mailblobs/{digest}"),
@@ -512,7 +589,7 @@ async fn scenario_b_uploader_between_tx2a_and_tx2b_aborts_s3_delete() -> Result<
             }
             "chat_unfurl" => {
                 let out = setjoin_chat::members::unfurl_blob(
-                    &app_exec,
+                    &app_factory,
                     &actor,
                     &digest,
                     &format!("mailblobs/{digest}"),
@@ -549,7 +626,7 @@ async fn scenario_b_uploader_between_tx2a_and_tx2b_aborts_s3_delete() -> Result<
                     &[&session, &digest],
                 ).await?;
                 let out = setjoin_blobs::verify_item(
-                    &worker_exec,
+                    &worker_factory,
                     &actor,
                     &session,
                     "raw",
@@ -562,8 +639,9 @@ async fn scenario_b_uploader_between_tx2a_and_tx2b_aborts_s3_delete() -> Result<
             }
             "reimport_blob" => {
                 let out = setjoin_platform::storage::reimport_blob(
-                    &worker_exec,
+                    &worker_factory,
                     &actor,
+                    &admin_proof,
                     op,
                     &digest,
                     &format!("mailblobs/{digest}"),
@@ -616,6 +694,18 @@ async fn scenario_b_uploader_between_tx2a_and_tx2b_aborts_s3_delete() -> Result<
         cleanup_blob(&owner, &digest).await;
     }
 
+    let _ = owner
+        .execute(
+            "DELETE FROM admin_role_assignments WHERE role_group_id = $1",
+            &[&admin_role_id],
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM admin_role_groups WHERE id = $1",
+            &[&admin_role_id],
+        )
+        .await;
     common::remove_blob_account(&owner, &account).await?;
     Ok(())
 }
@@ -1161,7 +1251,8 @@ async fn stress_a_16_concurrent_dedup_uploads_racing_purging() -> Result<(), Box
     let app_exec = ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 16)
         .map_err(|e| e.0)?
         .with_audit_keys("22".repeat(32), String::new());
-    let actor = auth_context(&app_exec, account.user).await?;
+    let app_factory = tx_factory(&app_exec, None)?;
+    let actor = mint_user(&app_factory, &app_exec, account.user).await?;
     let wdb = WorkerDatabase::new(&db.dsn)?;
     let store = ControlledStore::new();
 
@@ -1176,7 +1267,7 @@ async fn stress_a_16_concurrent_dedup_uploads_racing_purging() -> Result<(), Box
     let mut handles = Vec::new();
     // Spawn 16 concurrent uploaders (stage -> account_upload -> promote -> complete/cleanup)
     for (i, digest) in shas.iter().cloned().enumerate() {
-        let app_c = app_exec.clone();
+        let app_f = app_factory.clone();
         let actor_c = actor.clone();
         let store_c = store.clone();
         handles.push(tokio::spawn(async move {
@@ -1184,7 +1275,7 @@ async fn stress_a_16_concurrent_dedup_uploads_racing_purging() -> Result<(), Box
             store_c.seed(&staging, format!("payload-{i}").as_bytes());
             let op = op_id(&format!("stress-a-up-{i}-{digest}"));
             let out = setjoin_blobs::account_upload(
-                &app_c,
+                &app_f,
                 &actor_c,
                 &digest,
                 &format!("mailblobs/{digest}"),
@@ -1202,8 +1293,16 @@ async fn stress_a_16_concurrent_dedup_uploads_racing_purging() -> Result<(), Box
                 serde_json::from_str(&raw).map_err(|e| format!("parse acct: {e}"))?;
             store_c.promote_object(&staging, &digest).await?;
             if let Some(wid) = acct["promoteWorkItemId"].as_i64() {
-                let _ =
-                    setjoin_blobs::complete_promote_recover(&app_c, wid, &digest, &staging).await;
+                let complete_op = op_id(&format!("stress-a-complete-{i}-{digest}"));
+                let _ = setjoin_blobs::complete_promote_recover(
+                    &app_f,
+                    &actor_c,
+                    wid,
+                    &digest,
+                    &staging,
+                    complete_op,
+                )
+                .await;
             }
             if acct["verifyWorkItemId"].is_null() {
                 let _ = store_c.remove(&staging).await;
@@ -1270,7 +1369,7 @@ async fn stress_a_16_concurrent_dedup_uploads_racing_purging() -> Result<(), Box
 
 /// Wave 2.4 Stress B: 32 concurrent attachment inserts referencing the same
 /// shared `sha256` produce `pg_stat_user_tables.n_tup_upd` delta == 0 on
-/// `public.blobs` (zero hot-row lock contention after V289 retired triggers).
+/// `public.blobs` (zero hot-row lock contention after V293 retired triggers).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stress_b_32_concurrent_attachments_zero_blobs_updates() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
@@ -1667,7 +1766,8 @@ async fn stress_e_unversioned_timeout_reactivation_promote_verify_restores_canon
     let app_exec = ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
         .map_err(|e| e.0)?
         .with_audit_keys("22".repeat(32), String::new());
-    let actor = auth_context(&app_exec, account.user).await?;
+    let app_factory = tx_factory(&app_exec, None)?;
+    let actor = mint_user(&app_factory, &app_exec, account.user).await?;
     let digest = sha(&format!("stress-e-verify-{}", account.user));
     let staging = "tmp/blob-upload/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
@@ -1677,7 +1777,7 @@ async fn stress_e_unversioned_timeout_reactivation_promote_verify_restores_canon
     store.seed(staging, b"canonical-bytes");
 
     let out = setjoin_blobs::account_upload(
-        &app_exec,
+        &app_factory,
         &actor,
         &digest,
         &format!("mailblobs/{digest}"),
@@ -1703,7 +1803,15 @@ async fn stress_e_unversioned_timeout_reactivation_promote_verify_restores_canon
     // If a sibling blob.promote_recover item was also created, cancel it after initial promote
     // just as blobs.rs does, leaving ONLY blob.promote_verify pending for the 60s window.
     if let Some(prom_id) = acct["promoteWorkItemId"].as_i64() {
-        let _ = setjoin_blobs::complete_promote_recover(&app_exec, prom_id, &digest, staging).await;
+        let _ = setjoin_blobs::complete_promote_recover(
+            &app_factory,
+            &actor,
+            prom_id,
+            &digest,
+            staging,
+            op_id(&format!("stress-e-complete-{digest}")),
+        )
+        .await;
     }
 
     // Simulate a timed-out unversioned S3 DELETE landing late after dedup committed!
@@ -1758,7 +1866,8 @@ async fn stress_f_post_commit_crash_promote_recover_restores_canonical() -> Resu
     let app_exec = ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
         .map_err(|e| e.0)?
         .with_audit_keys("22".repeat(32), String::new());
-    let actor = auth_context(&app_exec, account.user).await?;
+    let app_factory = tx_factory(&app_exec, None)?;
+    let actor = mint_user(&app_factory, &app_exec, account.user).await?;
     let digest = sha(&format!("stress-f-recover-{}", account.user));
     let staging = "tmp/blob-upload/ffffffffffffffffffffffffffffffff";
 
@@ -1766,7 +1875,7 @@ async fn stress_f_post_commit_crash_promote_recover_restores_canonical() -> Resu
     store.seed(staging, b"fresh-upload-bytes");
 
     let out = setjoin_blobs::account_upload(
-        &app_exec,
+        &app_factory,
         &actor,
         &digest,
         &format!("mailblobs/{digest}"),
@@ -2012,8 +2121,8 @@ async fn supervisor_empty_cron_blob_cleanup_schedule_and_consumers() -> Result<(
 }
 
 /// Wave 2.4 Upgrade & Versioned Abandoned-Staging Sweep:
-/// 1. Replays `V001..V288` + `provision-roles.sql` on a fresh disposable DB,
-///    applies ONLY `V289__retire_blobs_refcount_cutover_gc.sql` as non-superuser
+/// 1. Replays `V001..V292` + `provision-roles.sql` on a fresh disposable DB,
+///    applies ONLY `V293__retire_blobs_refcount_cutover_gc.sql` as non-superuser
 ///    `setjoin_owner` (`NOSUPERUSER NOBYPASSRLS`), and asserts:
 ///    `blob_gc_config.mode = 'live'`, `other_secdef_drifted = 0`, retired
 ///    `blobs.ref_count`/`blob_cleanup_queue`, and `blob_live_catalog()` callable
@@ -2022,14 +2131,14 @@ async fn supervisor_empty_cron_blob_cleanup_schedule_and_consumers() -> Result<(
 ///    old (>24h) hidden concrete version + delete marker under `tmp/blob-upload/`,
 ///    proving `list_object_versions_prefix` discovers and permanently deletes both.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn v288_to_v289_upgrade_as_non_superuser_setjoin_owner_and_versioned_staging_sweep(
+async fn v292_to_v293_upgrade_as_non_superuser_setjoin_owner_and_versioned_staging_sweep(
 ) -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
-    let Some(db) = Db::for_case("blob-gc-v289-upgrade") else {
+    let Some(db) = Db::for_case("blob-gc-v293-upgrade") else {
         return Ok(());
     };
 
-    // Part 1: Real V288 -> V289 upgrade under non-superuser setjoin_owner
+    // Part 1: Real V292 -> V293 upgrade under non-superuser setjoin_owner
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(|p| p.parent())
@@ -2037,7 +2146,7 @@ async fn v288_to_v289_upgrade_as_non_superuser_setjoin_owner_and_versioned_stagi
         .ok_or("resolve repo root")?;
     let schema_dir = repo_root.join("mailserver/sql/dbschema");
     let provision_sql = repo_root.join("scripts/provision-roles.sql");
-    let v289_path = schema_dir.join("V289__retire_blobs_refcount_cutover_gc.sql");
+    let v289_path = schema_dir.join("V293__retire_blobs_refcount_cutover_gc.sql");
 
     let mut parsed_url = url::Url::parse(&db.dsn)?;
     let temp_db_name = format!("mailserver_v289_upg_{}", std::process::id());
@@ -2066,7 +2175,7 @@ async fn v288_to_v289_upgrade_as_non_superuser_setjoin_owner_and_versioned_stagi
             let _ = sup_conn.await;
         });
 
-        // Load pre-pass provision-roles.sql + V001..V288 + post-pass provision-roles.sql
+        // Load pre-pass provision-roles.sql + V001..V292 + post-pass provision-roles.sql
         // via `psql` (V001__baseline.sql uses psql-formatted DDL/seed), mirroring load-test-schema.sh.
         let psql_bin = if std::path::Path::new("/Users/cat/.local/pg17/bin/psql").is_file() {
             "/Users/cat/.local/pg17/bin/psql"
@@ -2105,7 +2214,7 @@ async fn v288_to_v289_upgrade_as_non_superuser_setjoin_owner_and_versioned_stagi
             if let Some(rest) = name.strip_prefix('V') {
                 if let Some((num_str, _)) = rest.split_once("__") {
                     if let Ok(ver) = num_str.parse::<u32>() {
-                        if ver <= 288 {
+                        if ver <= 292 {
                             migrations.push((ver, name.to_owned(), path));
                         }
                     }
@@ -2114,8 +2223,8 @@ async fn v288_to_v289_upgrade_as_non_superuser_setjoin_owner_and_versioned_stagi
         }
         migrations.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
         assert!(
-            migrations.last().is_some_and(|(v, _, _)| *v == 288),
-            "expected V288 as last pre-upgrade migration"
+            migrations.last().is_some_and(|(v, _, _)| *v == 292),
+            "expected V292 as last pre-upgrade migration"
         );
         for (_ver, _name, path) in &migrations {
             run_psql(path)?;
@@ -2142,7 +2251,7 @@ async fn v288_to_v289_upgrade_as_non_superuser_setjoin_owner_and_versioned_stagi
             )
             .await?;
 
-        // Snapshot pre-V289 non-V289 SECURITY DEFINER owners to prove 0 drift.
+        // Snapshot pre-V293 non-V293 SECURITY DEFINER owners to prove 0 drift.
         sup_client
             .batch_execute(
                 "CREATE TEMP TABLE pre_secdef AS \
@@ -2152,7 +2261,7 @@ async fn v288_to_v289_upgrade_as_non_superuser_setjoin_owner_and_versioned_stagi
             )
             .await?;
 
-        // Seed a live avatar blob + unreferenced blob on V288 schema.
+        // Seed a live avatar blob + unreferenced blob on V292 schema.
         let live_sha = sha("v289-upg-live-avatar");
         let dead_sha = sha("v289-upg-dead-blob");
         sup_client
@@ -2181,7 +2290,7 @@ async fn v288_to_v289_upgrade_as_non_superuser_setjoin_owner_and_versioned_stagi
             )
             .await?;
 
-        // Apply ONLY V289 as non-superuser setjoin_owner (NOSUPERUSER NOBYPASSRLS)!
+        // Apply ONLY V293 as non-superuser setjoin_owner (NOSUPERUSER NOBYPASSRLS)!
         sup_client.batch_execute("SET ROLE setjoin_owner;").await?;
         let owner_flags = sup_client
             .query_one(
@@ -2228,12 +2337,12 @@ async fn v288_to_v289_upgrade_as_non_superuser_setjoin_owner_and_versioned_stagi
         );
         sup_client.batch_execute("RESET ROLE;").await?;
 
-        // Verify V289 invariants: mode=live, ref_count dropped, blob_cleanup_queue dropped, 0 secdef drift.
+        // Verify V293 invariants: mode=live, ref_count dropped, blob_cleanup_queue dropped, 0 secdef drift.
         let mode: String = sup_client
             .query_one("SELECT mode FROM public.blob_gc_config WHERE id = 1", &[])
             .await?
             .get(0);
-        assert_eq!(mode, "live", "V289 must flip blob_gc_config.mode to live");
+        assert_eq!(mode, "live", "V293 must flip blob_gc_config.mode to live");
         let ref_count_cols: i64 = sup_client
             .query_one(
                 "SELECT count(*) FROM information_schema.columns \
@@ -2258,7 +2367,7 @@ async fn v288_to_v289_upgrade_as_non_superuser_setjoin_owner_and_versioned_stagi
             )
             .await?
             .get(0);
-        assert_eq!(drifted, 0, "V289 must produce 0 other_secdef_drifted rows");
+        assert_eq!(drifted, 0, "V293 must produce 0 other_secdef_drifted rows");
         Ok(())
     }
     .await;

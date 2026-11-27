@@ -44,10 +44,10 @@ SELECT is((SELECT (elem->>'lastReadSeq')::bigint FROM jsonb_array_elements(chat_
 
 -- ── channel mark_read does NOT fan out member_read to other members
 -- (ADR DES-010: channels refetch on open/focus, no O(members^2) noise) ───
-SELECT last_notify_event('chat:1101') AS ch_last_before \gset
+SELECT notify_count('chat:1101') AS ch_before \gset
 SELECT chat_mark_read(1102, :ch_id, :m1_seq);
-SELECT is(last_notify_event('chat:1101'), :'ch_last_before',
-  'a CHANNEL mark_read does not change what the other member''s last notify event was (no member_read fanout)');
+SELECT is(notify_count('chat:1101'), :ch_before,
+  'a CHANNEL mark_read does not push to the other member''s chat channel (no member_read fanout)');
 
 -- ── DM mark_read DOES fan out member_read to the peer (2 members, cheap) ─
 SELECT chat_mark_read(1101, :dm_id, 0);

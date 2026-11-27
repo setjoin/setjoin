@@ -17,6 +17,10 @@ use std::{
 pub struct EventSourceRoute<K: KeySource + 'static> {
     pub commands: Arc<JmapCommands<K>>,
     pub hub: Arc<super::hub::PushHub>,
+    pub sync_hub: Option<Arc<super::sync_hub::SyncWakeupHub>>,
+    disable_sync_hub: bool,
+    direct_dsn: String,
+    lazy_sync_hub: Arc<std::sync::Mutex<Option<Arc<super::sync_hub::SyncWakeupHub>>>>,
     pub registry: setjoin_jmap::connections::ConnectionRegistry,
     clients: Arc<AtomicUsize>,
     max_clients: usize,
@@ -28,12 +32,32 @@ impl<K: KeySource + 'static> EventSourceRoute<K> {
         Self {
             commands: ws.commands.clone(),
             hub: ws.hub.clone(),
+            sync_hub: ws.sync_hub.clone(),
+            disable_sync_hub: ws.disable_sync_hub,
+            direct_dsn: ws.direct_dsn.clone(),
+            lazy_sync_hub: ws.lazy_sync_hub.clone(),
             registry: ws.registry.clone(),
             clients: ws.clients.clone(),
             max_clients: ws.max_clients,
             production: ws.production,
             allowed_host: ws.allowed_host.clone(),
         }
+    }
+
+    pub fn with_sync_hub(mut self, sync_hub: Arc<super::sync_hub::SyncWakeupHub>) -> Self {
+        self.disable_sync_hub = false;
+        self.sync_hub = Some(sync_hub);
+        self
+    }
+
+    fn resolve_sync_hub(&self) -> Option<Arc<super::sync_hub::SyncWakeupHub>> {
+        if self.disable_sync_hub {
+            return None;
+        }
+        if let Some(hub) = &self.sync_hub {
+            return Some(hub.clone());
+        }
+        super::push::resolve_lazy_sync_hub(&self.lazy_sync_hub, &self.direct_dsn, &self.commands)
     }
 }
 impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
@@ -42,10 +66,19 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
     }
     fn shutdown(&self) {
         self.registry.shutdown();
+        if let Some(hub) = &self.sync_hub {
+            hub.shutdown();
+        }
+        if let Ok(guard) = self.lazy_sync_hub.lock() {
+            if let Some(hub) = guard.as_ref() {
+                hub.shutdown();
+            }
+        }
     }
     fn handle(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let commands = self.commands.clone();
         let hub = self.hub.clone();
+        let sync_hub = self.resolve_sync_hub();
         let registry = self.registry.clone();
         let clients = self.clients.clone();
         let max = if self.max_clients == 0 {
@@ -252,6 +285,27 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
                 let Ok(mut subscription) = subscription else {
                     return;
                 };
+                let (restart_tx, mut restart_rx) =
+                    tokio::sync::watch::channel::<Option<&'static str>>(None);
+                // Keep a clone alive for the full stream lifetime so `sync_hub == None`
+                // never drops `restart_tx` and terminates legacy SSE connections.
+                let _restart_tx_keepalive = restart_tx.clone();
+                let restart_close: Arc<dyn Fn(&'static str) + Send + Sync> = Arc::new(move |r| {
+                    let _ = restart_tx.send(Some(r));
+                });
+                let (hub_guard, mut hub_control_rx, hub_wakeups, mut hub_ephemeral_rx) =
+                    match sync_hub.as_ref().map(|sh| {
+                        sh.register_connection(user, mailbox, auth.is_guest(), restart_close)
+                            .split()
+                    }) {
+                        Some((g, c, w, e)) => (Some(g), Some(c), Some(w), Some(e)),
+                        None => (None, None, None, None),
+                    };
+                if auth.is_guest() {
+                    if let Some(hc) = hub_guard.as_ref() {
+                        let _ = hc.attach_guest_default_scopes().await;
+                    }
+                }
                 if !initial.is_empty() && !write(&output, &mut closed, initial).await {
                     return;
                 }
@@ -283,8 +337,69 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
                 revalidate.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     let event = tokio::select! {
+                        biased;
                         _=output.send.closed()=>break,
                         _=closed.changed()=>break,
+                        res = restart_rx.changed(), if hub_guard.is_some() => {
+                            if res.is_ok() {
+                                break;
+                            }
+                            continue;
+                        }
+                        ctrl = async {
+                            match hub_control_rx.as_mut() {
+                                Some(rx) => rx.recv().await,
+                                None => std::future::pending().await,
+                            }
+                        } => {
+                            let Some(ctrl) = ctrl else { continue };
+                            match ctrl {
+                                super::sync_hub::ControlMessage::ScopeRevoked(ev) => {
+                                    if !write(&output, &mut closed, ev.to_sse_frame()).await {
+                                        break;
+                                    }
+                                    continue;
+                                }
+                                super::sync_hub::ControlMessage::SessionRevoked
+                                | super::sync_hub::ControlMessage::Restart(_) => break,
+                                super::sync_hub::ControlMessage::OfflineWipe(_) => continue,
+                            }
+                        }
+                        wakeup = async {
+                            match hub_wakeups.as_ref() {
+                                Some(w) => w.next_one().await,
+                                None => std::future::pending().await,
+                            }
+                        } => {
+                            let ok = tokio::select! {
+                                biased;
+                                res = restart_rx.changed(), if hub_guard.is_some() => {
+                                    if res.is_ok() {
+                                        false
+                                    } else {
+                                        write(&output, &mut closed, wakeup.to_sse_frame()).await
+                                    }
+                                }
+                                ok = write(&output, &mut closed, wakeup.to_sse_frame()) => ok,
+                            };
+                            if !ok {
+                                break;
+                            }
+                            continue;
+                        }
+                        ephem = async {
+                            match hub_ephemeral_rx.as_mut() {
+                                Some(rx) => rx.recv().await,
+                                None => std::future::pending().await,
+                            }
+                        } => {
+                            if let Some(payload) = ephem {
+                                if !write(&output, &mut closed, format!("event: chat\ndata: {payload}\n\n")).await {
+                                    break;
+                                }
+                            }
+                            continue;
+                        }
                         _=revalidate.tick()=>{
                             if auth.expires_at().is_none_or(|exp|chrono::Utc::now().timestamp()>=exp){break}
                             let mut allowed=true;
@@ -296,13 +411,29 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
                                 if let Some(app)=app {allowed &=super::push::app_allowed(&commands.exec,&auth,app).await;}
                             }
                             if channels.iter().any(|c|c=="drive-alarm"){allowed &=drive_admin(&commands.exec,actor).await;}
-                            if !allowed{break}continue
+                            if !allowed{break}
+                            if auth.is_guest() {
+                                if let Some(hc) = hub_guard.as_ref() {
+                                    let _ = hc.attach_guest_default_scopes().await;
+                                }
+                            }
+                            continue
                         },
                         _=async {match &mut ping {Some(timer)=>{timer.tick().await;},None=>std::future::pending().await}}=>{if !write(&output,&mut closed,format!("event: ping\ndata: {{\"interval\":{ping_secs}}}\n\n")).await{break}continue},
                         event=subscription.events.recv()=>match event {Some(e)=>e,None=>break},
                     };
                     if event.channel == "session_revoke" {
                         if super::push::revoked_payload(&event.payload, &auth) {
+                            if let Some(rx) = hub_control_rx.as_mut() {
+                                while let Ok(ctrl) = rx.try_recv() {
+                                    if let super::sync_hub::ControlMessage::ScopeRevoked(ev) = ctrl
+                                    {
+                                        if !write(&output, &mut closed, ev.to_sse_frame()).await {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
                             break;
                         }
                         continue;
@@ -314,16 +445,45 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
                         let mut batch = vec![event.payload];
                         let end = tokio::time::Instant::now() + Duration::from_millis(20);
                         let mut pending = Vec::new();
+                        let mut priority_controls = Vec::new();
                         loop {
                             tokio::select! {
+                                biased;
                                 _=output.send.closed()=>return,
                                 _=closed.changed()=>return,
+                                res = restart_rx.changed(), if hub_guard.is_some() => {
+                                    if res.is_ok() {
+                                        return;
+                                    }
+                                }
+                                ctrl = async {
+                                    match hub_control_rx.as_mut() {
+                                        Some(rx) => rx.recv().await,
+                                        None => std::future::pending().await,
+                                    }
+                                } => {
+                                    if let Some(ctrl) = ctrl {
+                                        match ctrl {
+                                            super::sync_hub::ControlMessage::ScopeRevoked(ev) => {
+                                                priority_controls.push(ev.to_sse_frame());
+                                            }
+                                            super::sync_hub::ControlMessage::SessionRevoked
+                                            | super::sync_hub::ControlMessage::Restart(_) => return,
+                                            super::sync_hub::ControlMessage::OfflineWipe(_) => {}
+                                        }
+                                    }
+                                }
                                 _=tokio::time::sleep_until(end)=>break,
                                 next=subscription.events.recv()=>match next {
                                     Some(e) if e.channel=="session_revoke"=>{if super::push::revoked_payload(&e.payload,&auth){return}},
                                     Some(e) if ["tag:","calendar:","contact:","task:"].iter().any(|p|e.channel.starts_with(p))=>batch.push(e.payload),
                                     Some(e)=>{let cap=if e.channel=="drive-alarm"{8}else{16};if pending.iter().filter(|p:&&super::hub::Event|p.channel==e.channel).count()<cap{pending.push(e)}},None=>return,
                                 }
+                            }
+                        }
+                        for ctrl_frame in priority_controls {
+                            if !write(&output, &mut closed, ctrl_frame).await {
+                                return;
                             }
                         }
                         if let Some(scope) = &scope {
@@ -445,6 +605,10 @@ fn raw(event: &super::hub::Event) -> Option<String> {
         "drive-alarm"
     } else if event.channel.starts_with("drive-watch:") {
         "drive-watch"
+    } else if event.channel == "sync_wakeup" {
+        "sync_wakeup"
+    } else if event.channel == "scope_revoked" {
+        "scope_revoked"
     } else {
         return None;
     };

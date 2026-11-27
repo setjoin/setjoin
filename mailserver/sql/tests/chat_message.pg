@@ -47,7 +47,7 @@ SELECT (:'send_json'::jsonb ->> 'messageId')::bigint AS msg1_id \gset
 SELECT (:'send_json'::jsonb ->> 'seq')::bigint AS msg1_seq \gset
 SELECT is(:msg1_seq::bigint, (SELECT change_seq FROM chat_channels WHERE id = :gen_id),
   'returned seq matches the channel change_seq after the send');
-SELECT is(last_notify_event('chat:702'), 'message_created', 'send notifies message_created');
+SELECT is(last_notify_payload('sync'), format('channel:%s:%s', :gen_id, :msg1_seq), 'send emits O(1) sync bell with channel seq');
 
 -- ── broadcast (@channel/@all): owner/admin only ──────────────────────────
 SELECT throws_ok(format($$ SELECT chat_message_send(702, %s, 'urgent', NULL, '{}'::bigint[], 'channel') $$, :gen_id),

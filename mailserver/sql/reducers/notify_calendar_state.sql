@@ -54,6 +54,7 @@ BEGIN
       'calendar_id', p_calendar_id
     )::TEXT
   );
+  PERFORM public.emit_wakeup_bell('sync', 'mailbox:' || p_owner_mailbox_id || ':0:Calendar');
 
   RETURN v_state;
 END;

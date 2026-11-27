@@ -47,7 +47,7 @@ BEGIN
   -- NULL from bump_email_state → skip the append (no-op, not a crash).
   IF v_email_state IS NOT NULL THEN
     IF p_message_id IS NOT NULL AND p_op IS NOT NULL THEN
-      PERFORM append_email_change(p_mailbox_id, v_email_state, p_message_id, p_op);
+      PERFORM append_email_change(p_mailbox_id, v_email_state, p_message_id, p_op, p_tag_id);
     ELSE
       PERFORM append_email_change(p_mailbox_id, v_email_state, NULL, 'resync');
     END IF;
@@ -55,6 +55,12 @@ BEGIN
 
   IF p_tag_id IS NOT NULL THEN
     PERFORM bump_tag_mailbox_state(p_mailbox_id);
+    IF v_email_state IS NOT NULL THEN
+      UPDATE tags
+         SET imap_modseq = GREATEST(COALESCE(imap_modseq, 0), GREATEST(v_email_state, 0) + 1)
+       WHERE id = p_tag_id
+         AND mailbox_id = p_mailbox_id;
+    END IF;
   END IF;
 
   PERFORM app_notify(
@@ -65,6 +71,7 @@ BEGIN
       'state',  v_email_state
     )::TEXT
   );
+  PERFORM public.emit_wakeup_bell('sync', 'mailbox:' || p_mailbox_id || ':0:Email');
 
   RETURN v_email_state;
 END;

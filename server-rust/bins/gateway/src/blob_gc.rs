@@ -2,7 +2,7 @@
 //! `tmp/blob-upload/*` staging sweep, and lock-safe `orphaned_message_blobs` cleaner.
 //!
 //! Operates in three modes controlled by `BLOB_GC_MODE=off|shadow|live` (env override)
-//! or worker-only `public.blob_gc_config.mode` (`live` after V289):
+//! or worker-only `public.blob_gc_config.mode` (`live` after V293):
 //! - `off`: operator emergency kill-switch (halts live sweeping immediately without
 //!   invoking any retired legacy `ref_count` cleanup).
 //! - `shadow`: runs Phase 1 Mark ONLY (zero S3 deletes, zero `DELETE FROM blobs`).
@@ -125,13 +125,13 @@ impl BlobGcMetrics {
             ),
             (
                 "setjoin_blob_gc_shadow_only_in_mark_and_sweep_total",
-                "Historical pre-V289 ref_count shadow discrepancy counter (always 0 post-V289).",
+                "Historical pre-V293 ref_count shadow discrepancy counter (always 0 post-V293).",
                 self.shadow_only_in_mark_and_sweep_total
                     .load(Ordering::Relaxed),
             ),
             (
                 "setjoin_blob_gc_shadow_only_in_refcount_zero_total",
-                "Historical pre-V289 ref_count shadow discrepancy counter (always 0 post-V289).",
+                "Historical pre-V293 ref_count shadow discrepancy counter (always 0 post-V293).",
                 self.shadow_only_in_refcount_zero_total
                     .load(Ordering::Relaxed),
             ),
@@ -529,7 +529,7 @@ impl<S: ObjectStore> BlobGcWorker<S> {
                 ..TickSummary::default()
             }),
             GcMode::Shadow => {
-                // Post-V289 shadow mode executes Phase 1 Mark only (zero S3/DB deletes).
+                // Post-V293 shadow mode executes Phase 1 Mark only (zero S3/DB deletes).
                 let worm_days = self.resolve_worm_days()?;
                 self.run_shadow_mark_only(&conn, &cfg, worm_days).await
             }

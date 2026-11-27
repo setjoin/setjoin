@@ -3,6 +3,25 @@ use crate::{deadline, envelope, receipt, sql};
 use setjoin_authz::principals::{TxFactory, UserPrincipal};
 use setjoin_pg::{CommandOutcome, Row, SqlContract, StatementFailure, ToSql};
 
+/// Wave 2.6 (#553): monotonic per-channel delta replay from `public.chat_changes`.
+pub async fn changes(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    channel: i64,
+    since_seq: i64,
+    limit: Option<i32>,
+) -> Result<String, StatementFailure> {
+    let actor = user.user().get();
+    let rows = factory
+        .run_user_read_contract(
+            user,
+            &sql::CHANNEL_CHANGES,
+            &[&actor, &channel, &since_seq, &limit],
+        )
+        .await?;
+    first_string(&rows)
+}
+
 fn invalid_result() -> StatementFailure {
     StatementFailure {
         hint: None,

@@ -49,22 +49,22 @@ Engines: polardb = PolarDB for PostgreSQL · opengauss = openGauss · gaussdb = 
 
 Counting unit: the function NAME. Live universe extracted from `mailserver/sql/reducers/*.sql`:
 
-- Reducer files: 813 · declarations: 1218 · unique names: 1215
+- Reducer files: 819 · declarations: 1268 · unique names: 1265
 - Represented in `compatibility_matrix.csv`: 106 names (106 rows) — representation is not attestation
 - Names with any evidence-bearing cell (attested anywhere): 0
-- Canonical complement (no CSV row): 1109 → `unattested_functions.csv`
+- Canonical complement (no CSV row): 1159 → `unattested_functions.csv`
 
-Per-engine attestation against the full 1215-name universe (a name is attested-for-engine iff its cell is non-`untested`):
+Per-engine attestation against the full 1265-name universe (a name is attested-for-engine iff its cell is non-`untested`):
 
 | Engine | Attested | Not attested |
 |---|---|---|
-| polardb | 0 | 1215 |
-| opengauss | 0 | 1215 |
-| gaussdb | 0 | 1215 |
-| kingbase | 0 | 1215 |
-| dameng | 0 | 1215 |
-| oceanbase_pg | 0 | 1215 |
-| oceanbase_oracle | 0 | 1215 |
+| polardb | 0 | 1265 |
+| opengauss | 0 | 1265 |
+| gaussdb | 0 | 1265 |
+| kingbase | 0 | 1265 |
+| dameng | 0 | 1265 |
+| oceanbase_pg | 0 | 1265 |
+| oceanbase_oracle | 0 | 1265 |
 
 `uses_digest` is SOURCE-DERIVED USAGE — a non-comment `digest(` call exists in the defining file (73 files / 142 call sites repo-wide). It is never a parity attestation; pgcrypto parity is attested (or not) per engine via `pgcrypto_digest_parity` above. Covered rows with `uses_digest`: 17 of 106.
 
@@ -103,11 +103,11 @@ The reducers below are the certification critical path for the primary combinati
 | account | 1 |
 | ad | 1 |
 | admin | 22 |
-| app | 1 |
+| app | 2 |
 | append | 2 |
 | approval | 7 |
 | audit | 1 |
-| blob | 1 |
+| blob | 14 |
 | booking | 9 |
 | boot | 1 |
 | build | 1 |
@@ -115,7 +115,7 @@ The reducers below are the certification critical path for the primary combinati
 | ca | 25 |
 | caldav | 1 |
 | calendar | 16 |
-| chat | 67 |
+| chat | 72 |
 | check | 2 |
 | cjk | 1 |
 | classify | 1 |
@@ -127,7 +127,7 @@ The reducers below are the certification critical path for the primary combinati
 | device | 2 |
 | directory | 11 |
 | dlp | 1 |
-| drive | 138 |
+| drive | 139 |
 | effective | 1 |
 | email | 8 |
 | entity | 2 |
@@ -141,7 +141,7 @@ The reducers below are the certification critical path for the primary combinati
 | guest | 30 |
 | hr | 2 |
 | identity | 80 |
-| imap | 4 |
+| imap | 6 |
 | import | 1 |
 | jmap | 29 |
 | journal | 3 |
@@ -182,6 +182,7 @@ The reducers below are the certification critical path for the primary combinati
 | saved | 3 |
 | scheduled | 13 |
 | scim | 5 |
+| scope | 2 |
 | secure | 1 |
 | security | 2 |
 | sender | 4 |
@@ -199,7 +200,9 @@ The reducers below are the certification critical path for the primary combinati
 | utils | 2 |
 | vip | 2 |
 | webhook | 10 |
-| Total | 1109 across 100 families |
+| work | 21 |
+| worker | 5 |
+| Total | 1159 across 103 families |
 
 <!-- END GENERATED -->
 

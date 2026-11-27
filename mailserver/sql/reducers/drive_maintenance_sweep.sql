@@ -22,20 +22,99 @@
 -- gcChunks/gcDeleteOne (worker.go, untouched) does the actual DB-row +
 -- storage-object delete, re-verifying ref_count=0 atomically. A
 -- version-referenced chunk (ref_count>0) is never selected.
+-- Wave 2.6 (#553): worker-only Drive change-journal pruner aligned onto
+-- effective_journal_retention_days(COALESCE(p_max_window_days, 90)) + per-space
+-- high-water cap so Drive journal retention never undercuts configured offline
+-- windows or the 30-day floor while keeping the existing 90-day default intact.
+CREATE OR REPLACE FUNCTION prune_drive_changes(
+  p_max_window_days INT DEFAULT 90,
+  p_high_water      INT DEFAULT 50000
+) RETURNS BIGINT
+LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_deleted        BIGINT := 0;
+  v_n              BIGINT;
+  v_retention_days INT;
+  v_high_water     INT;
+  v_cutoff         TIMESTAMPTZ;
+BEGIN
+  PERFORM public.work_queue_require_worker();
+
+  v_retention_days := public.effective_journal_retention_days(COALESCE(p_max_window_days, 90));
+  v_high_water     := GREATEST(COALESCE(p_high_water, 50000), 0);
+  v_cutoff         := now() - make_interval(days => v_retention_days);
+
+  -- Arm 1: contiguous prefix-only age prune per space_id.
+  WITH bounds AS (
+    SELECT space_id,
+           MIN(seq) FILTER (WHERE at >= v_cutoff) AS keep_from_seq
+      FROM public.drive_changes
+     GROUP BY space_id
+  ),
+  del AS (
+    DELETE FROM public.drive_changes d
+     USING bounds b
+     WHERE d.space_id = b.space_id
+       AND (b.keep_from_seq IS NULL OR d.seq < b.keep_from_seq)
+    RETURNING 1
+  )
+  SELECT count(*) INTO v_n FROM del;
+  v_deleted := v_deleted + v_n;
+
+  WITH ranked AS (
+    SELECT space_id, seq,
+           dense_rank() OVER (PARTITION BY space_id ORDER BY seq DESC) AS rnk
+      FROM public.drive_changes
+  ),
+  del2 AS (
+    DELETE FROM public.drive_changes d
+     USING ranked r
+     WHERE d.space_id = r.space_id
+       AND d.seq      = r.seq
+       AND r.rnk > v_high_water
+    RETURNING 1
+  )
+  SELECT count(*) INTO v_n FROM del2;
+  v_deleted := v_deleted + v_n;
+
+  RETURN v_deleted;
+END;
+$$;
+
+DO $$
+BEGIN
+  REVOKE ALL ON FUNCTION public.prune_drive_changes(integer, integer) FROM PUBLIC;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_app') THEN
+    REVOKE ALL ON FUNCTION public.prune_drive_changes(integer, integer) FROM setjoin_app;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_worker') THEN
+    GRANT EXECUTE ON FUNCTION public.prune_drive_changes(integer, integer) TO setjoin_worker;
+  END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION drive_maintenance_sweep() RETURNS JSONB AS $$
 DECLARE
   v_journal INT; v_access_journal INT; v_claims INT; v_grants_pruned INT;
   v_aged INT; v_destroyed INT;
   v_fired INT; v_orphan_chunks INT;
+  v_retention_days INT; v_high_water INT;
 BEGIN
-  -- ponytail: 1-line DELETE, inline — its own reducer would be a shallower
-  -- interface than the body it wraps.
-  DELETE FROM drive_changes WHERE at < now() - interval '90 days';
-  GET DIAGNOSTICS v_journal = ROW_COUNT;
+  v_retention_days := public.effective_journal_retention_days(90);
+  v_high_water     := COALESCE(
+    (SELECT (value #>> '{}')::int FROM public.system_config WHERE key = 'offline_journal_high_water'),
+    50000
+  );
+  v_journal := public.prune_drive_changes(v_retention_days, v_high_water)::int;
+  -- Re-clamp after prune_drive_changes (which calls effective_journal_retention_days
+  -- internally) so drive_access_invalidations retention is always >= drive_changes
+  -- retention even under a concurrent offline_policies increase.
+  v_retention_days := GREATEST(v_retention_days, public.effective_journal_retention_days(90));
 
   WITH doomed AS MATERIALIZED (
     SELECT space_id,max(cursor) AS floor FROM public.drive_access_invalidations
-     WHERE created_at<now()-interval '90 days' GROUP BY space_id
+     WHERE created_at<now()-make_interval(days => v_retention_days) GROUP BY space_id
   ), floors AS (
     UPDATE public.drive_acl_generations g
        SET retained_after_cursor=GREATEST(g.retained_after_cursor,d.floor)

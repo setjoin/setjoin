@@ -1681,6 +1681,7 @@ pub fn build_supervised_schedule_tasks<S: crate::recovery_worker::ObjectStore + 
                 },
             });
         }
+        scheduled_tasks.extend(crate::supervisor::schedule::wave2_maintenance_tasks("UTC"));
     }
     if let Some(gc_store) = blob_cleanup_store {
         let handler: crate::supervisor::schedule::ScheduleCallback =

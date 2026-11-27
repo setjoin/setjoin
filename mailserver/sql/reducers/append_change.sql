@@ -10,12 +10,15 @@
 -- delta the CalDAV/CardDAV RFC 6578 sync-collection consumer needs:
 -- collection_id filters the journal to one calendar/addressbook, and resource_uid
 -- recovers a DESTROYED resource's href token (uid / vcard_uid) after the live row
--- is gone. Both DEFAULT NULL — every existing 5-arg caller (email, Task,
--- AddressBook, Calendar, the coarse resync sentinels) resolves here via the
--- defaults, so only the two collection triggers (CalendarEvent/ContactCard) pass
--- them. DROP the old 5-arg signature first: a 5-arg call would otherwise be
--- ambiguous with this 7-param-all-defaulted function.
+-- is gone.
+--
+-- p_imap_uid (V296, Wave 2.7 #554) retains the email's IMAP UID even after a
+-- message row is soft- or hard-deleted so RFC 7162 QRESYNC VANISHED can report
+-- exact vanished UIDs directly from jmap_changes_journal without a parallel
+-- MODSEQ currency. All trailing params DEFAULT NULL so existing 5- and 7-arg
+-- callers resolve unambiguously after dropping the narrower signatures.
 DROP FUNCTION IF EXISTS append_change(bigint, text, bigint, bigint, text);
+DROP FUNCTION IF EXISTS append_change(bigint, text, bigint, bigint, text, bigint, text);
 CREATE OR REPLACE FUNCTION append_change(
   p_mailbox_id    BIGINT,
   p_datatype      TEXT,
@@ -23,7 +26,8 @@ CREATE OR REPLACE FUNCTION append_change(
   p_entity_id     BIGINT,
   p_op            TEXT,
   p_collection_id BIGINT DEFAULT NULL,
-  p_resource_uid  TEXT   DEFAULT NULL
+  p_resource_uid  TEXT   DEFAULT NULL,
+  p_imap_uid      BIGINT DEFAULT NULL
 ) RETURNS VOID AS $$
 DECLARE
   v_entity BIGINT;
@@ -40,24 +44,80 @@ BEGIN
   -- R2: mailbox_id is the reducer's auth-derived p_mailbox_id, never req.*.
   -- ponytail: upsert op on same (mailbox_id, datatype, state_seq, entity_id) — a
   -- same-seq same-id dup (rare, same batch) keeps latest op; collapse is at READ time.
-  INSERT INTO jmap_changes_journal (mailbox_id, datatype, state_seq, entity_id, op, collection_id, resource_uid)
-  VALUES (p_mailbox_id, p_datatype, p_state_seq, v_entity, v_op, p_collection_id, p_resource_uid)
+  INSERT INTO jmap_changes_journal (
+    mailbox_id, datatype, state_seq, entity_id, op, collection_id, resource_uid, imap_uid
+  )
+  VALUES (
+    p_mailbox_id, p_datatype, p_state_seq, v_entity, v_op, p_collection_id, p_resource_uid, p_imap_uid
+  )
   ON CONFLICT (mailbox_id, datatype, state_seq, entity_id)
-    DO UPDATE SET op = EXCLUDED.op,
-                  collection_id = EXCLUDED.collection_id,
-                  resource_uid  = EXCLUDED.resource_uid;
+    DO UPDATE SET op            = EXCLUDED.op,
+                  collection_id = COALESCE(EXCLUDED.collection_id, jmap_changes_journal.collection_id),
+                  resource_uid  = COALESCE(EXCLUDED.resource_uid,  jmap_changes_journal.resource_uid),
+                  imap_uid      = COALESCE(EXCLUDED.imap_uid,      jmap_changes_journal.imap_uid);
 END;
 $$ LANGUAGE plpgsql;
 
--- Compat shim: the existing email callers (notify_state_change, recall, retention)
--- keep working unchanged. email = datatype 'email', entity_id = message_id.
+-- Email journal helper (V296, #554): stamps messages.imap_modseq from the same
+-- monotonic mailboxes.jmap_email_state currency (R3: ownership in WHERE) and
+-- captures (collection_id, imap_uid) for RFC 7162 CONDSTORE / QRESYNC VANISHED.
+-- Existing 4-arg callers resolve via the trailing DEFAULT NULL parameters.
+DROP FUNCTION IF EXISTS append_email_change(bigint, bigint, bigint, text);
 CREATE OR REPLACE FUNCTION append_email_change(
   p_mailbox_id  BIGINT,
   p_state_seq   BIGINT,
   p_message_id  BIGINT,
-  p_op          TEXT
+  p_op          TEXT,
+  p_tag_id      BIGINT DEFAULT NULL,
+  p_imap_uid    BIGINT DEFAULT NULL
 ) RETURNS VOID AS $$
+DECLARE
+  v_uid             BIGINT := p_imap_uid;
+  v_tag_id          BIGINT := p_tag_id;
+  v_msg_uid         BIGINT;
+  v_msg_tag_id      BIGINT;
+  v_msg_received_at TIMESTAMPTZ;
+  v_modseq          BIGINT := GREATEST(COALESCE(p_state_seq, 0), 0) + 1;
 BEGIN
-  PERFORM append_change(p_mailbox_id, 'email', p_state_seq, p_message_id, p_op);
+  IF p_message_id IS NOT NULL AND p_op IS DISTINCT FROM 'resync' THEN
+    IF p_op IN ('created', 'updated', 'destroyed') THEN
+      UPDATE messages
+         SET imap_modseq = v_modseq
+       WHERE id = p_message_id
+         AND mailbox_id = p_mailbox_id
+      RETURNING imap_uid, folder_id, received_at
+        INTO v_msg_uid, v_msg_tag_id, v_msg_received_at;
+
+      IF v_msg_received_at IS NOT NULL THEN
+        UPDATE message_tags
+           SET imap_modseq = v_modseq
+         WHERE message_id = p_message_id
+           AND received_at = v_msg_received_at;
+      END IF;
+    END IF;
+    v_uid    := COALESCE(v_uid, v_msg_uid);
+    v_tag_id := COALESCE(v_tag_id, v_msg_tag_id);
+
+    UPDATE tags
+       SET imap_modseq = GREATEST(COALESCE(imap_modseq, 0), v_modseq)
+     WHERE mailbox_id = p_mailbox_id
+       AND (
+         id = v_tag_id
+         OR (
+           v_msg_received_at IS NOT NULL
+           AND id IN (
+             SELECT tag_id
+               FROM message_tags
+              WHERE message_id = p_message_id
+                AND received_at = v_msg_received_at
+           )
+         )
+       );
+  END IF;
+
+  PERFORM append_change(
+    p_mailbox_id, 'email', p_state_seq, p_message_id, p_op,
+    v_tag_id, NULL, v_uid
+  );
 END;
 $$ LANGUAGE plpgsql;

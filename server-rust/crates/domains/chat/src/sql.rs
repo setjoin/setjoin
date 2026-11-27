@@ -979,6 +979,17 @@ pub const UNFURL_BLOB: SqlContract = SqlContract {
     audit: SqlAuditPosture::Standard,
 };
 
+pub const CHANNEL_CHANGES: SqlContract = SqlContract {
+    id: "chat.channel_changes",
+    domain: "chat",
+    sql: "SELECT chat_changes_since($1,$2,$3,$4)::text",
+    params: &[Type::INT8, Type::INT8, Type::INT8, Type::INT4],
+    columns: &[ColumnSpec::unnamed(Type::TEXT)],
+    scope: SqlScope::UserScoped,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
+};
+
 pub const SQL_CONTRACTS: &[SqlContract] = &[
     COMPLIANCE_ENABLED,
     CHAT_ENABLED,
@@ -1049,4 +1060,5 @@ pub const SQL_CONTRACTS: &[SqlContract] = &[
     UNFURL_CLAIM,
     UNFURL_WRITE,
     UNFURL_BLOB,
+    CHANNEL_CHANGES,
 ];

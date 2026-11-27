@@ -48,14 +48,14 @@ SELECT lives_ok(format($$ SELECT chat_channel_join(602, %s) $$, :eng_id),
   'join a public channel succeeds');
 SELECT is((SELECT count(*)::int FROM chat_channel_members
             WHERE channel_id = :eng_id AND user_id = 602), 1, 'join inserted one member row');
-SELECT is(notify_count('chat:601'), 1, 'join notifies the existing owner (member_added)');
+SELECT is(notify_count('sync'), 1, 'join emits O(1) sync bell (member_added)');
 
-SELECT notify_count('chat:601') AS n_before_rejoin \gset
+SELECT notify_count('sync') AS n_before_rejoin \gset
 SELECT lives_ok(format($$ SELECT chat_channel_join(602, %s) $$, :eng_id),
   'rejoining the same public channel is idempotent (no error)');
 SELECT is((SELECT count(*)::int FROM chat_channel_members
             WHERE channel_id = :eng_id AND user_id = 602), 1, 'still exactly one member row after rejoin');
-SELECT is(notify_count('chat:601'), :n_before_rejoin, 'rejoin fires no duplicate notify');
+SELECT is(notify_count('sync'), :n_before_rejoin, 'rejoin fires no duplicate notify');
 
 SELECT throws_ok(format($$ SELECT chat_channel_join(603, %s) $$, :priv_id),
   'BZ170', NULL, 'joining a private channel raises BZ170');
@@ -144,10 +144,10 @@ SELECT throws_ok(format($$ SELECT chat_member_add(602, %s, 603) $$, :eng_id),
   'BZ161', NULL, 'a plain member cannot add members (BZ161)');
 SELECT lives_ok(format($$ SELECT chat_member_add(601, %s, 603) $$, :eng_id),
   'owner adds a new member');
-SELECT notify_count('chat:601') AS n_before_readd \gset
+SELECT notify_count('sync') AS n_before_readd \gset
 SELECT lives_ok(format($$ SELECT chat_member_add(601, %s, 603) $$, :eng_id),
   're-adding an existing member is a silent no-op');
-SELECT is(notify_count('chat:601'), :n_before_readd, 're-add fires no duplicate notify');
+SELECT is(notify_count('sync'), :n_before_readd, 're-add fires no duplicate notify');
 
 -- ── chat_member_remove + owner succession ────────────────────────────────
 SELECT chat_channel_create(610, 'succ') AS succ_id \gset
@@ -170,7 +170,7 @@ SELECT is((SELECT count(*)::int FROM chat_channel_members
   'the channel is never left ownerless');
 SELECT is((SELECT role FROM chat_channel_members WHERE channel_id = :succ_id AND user_id = 611),
   'owner', 'the longest-tenured admin is auto-promoted to owner');
-SELECT is(last_notify_event('chat:611'), 'owner_changed', 'owner succession fires owner_changed');
+SELECT is(last_notify_payload('sync'), format('channel:%s:0', :succ_id), 'owner succession emits O(1) sync bell for channel');
 
 SELECT throws_ok(format($$ SELECT chat_member_remove(604, %s, 605) $$, :dm_a),
   'BZ162', NULL, 'removing members from a dm is blocked (member sets are immutable)');

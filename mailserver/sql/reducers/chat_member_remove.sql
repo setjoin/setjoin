@@ -15,6 +15,7 @@ DECLARE
     v_kind        text;
     v_target_role text;
     v_new_owner   bigint;
+    v_bound_space bigint;
 BEGIN
     SELECT kind INTO v_kind FROM chat_channels WHERE id = p_channel_id;
     IF v_kind IN ('dm', 'group_dm') THEN
@@ -69,6 +70,24 @@ BEGIN
             jsonb_build_object('userId', p_remove_id, 'role', v_target_role),
             NULL,
             NULL, NULL, 'core');
+    PERFORM public.emit_scope_revoked(
+        p_remove_id,
+        'channel',
+        p_channel_id,
+        CASE WHEN p_user_id = p_remove_id THEN 'member_left' ELSE 'member_removed' END,
+        NULL
+    );
+    FOR v_bound_space IN
+        SELECT s.id
+          FROM public.drive_spaces s
+         WHERE s.chat_channel_id = p_channel_id
+    LOOP
+        IF NOT public.drive_user_has_space_access(p_remove_id, v_bound_space) THEN
+            PERFORM public.emit_scope_revoked(
+                p_remove_id, 'space', v_bound_space, 'channel_member_removed', NULL
+            );
+        END IF;
+    END LOOP;
     PERFORM notify_chat_state(p_channel_id, 'member_removed', NULL, NULL);
 
     -- Owner succession (grill Q7): a channel can never be orphaned. If the

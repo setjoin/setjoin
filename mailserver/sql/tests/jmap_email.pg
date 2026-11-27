@@ -62,13 +62,13 @@ SELECT is(
   (SELECT jmap_email_state FROM mailboxes WHERE id = (SELECT mb_id FROM _acct)),
   :s0::BIGINT, 'purge(p_notify=FALSE) does NOT bump jmap_email_state (IMAP already notified)');
 
--- Test 6: jmap_email_set_create uses 2-arg notify_state_change → resync sentinel →
--- real jmap_email_changes raises BZ011 (cannotCalculateChanges). Task 4 upgrades
--- the call site to precise rows; until then, BZ011 is the correct contract.
-SELECT throws_ok(
-  format($$SELECT jmap_email_changes(%s,'0')$$, (SELECT mb_id FROM _acct))::text,
-  'BZ011', NULL,
-  'jmap_email_changes after set_create → resync sentinel → BZ011');
+-- Test 6: Wave 2.7 (#554) retired hot-path 'resync' sentinels in
+-- jmap_email_set_create / recover / purge — jmap_email_changes now succeeds
+-- incrementally with zero spurious BZ011 (the created+purged message cancels).
+SELECT is(
+  (jmap_email_changes((SELECT mb_id FROM _acct), '0')->>'hasMoreChanges'),
+  'false',
+  'jmap_email_changes after set_create/recover/purge succeeds incrementally (no resync sentinel)');
 
 -- ── Archive filter (A2): inArchive returns only messages with NO location-group
 --    tag (archived = location tag removed → All Mail), excluding Inbox/Trash mail.

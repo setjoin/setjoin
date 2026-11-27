@@ -56,51 +56,16 @@ Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go se
 
 ## Verification
 
-- `python3 scripts/report-gofree-oracle-coverage.py --route <name> --binary
-  <instrumented-test-binary> --source <handler-file> --test <replay-name>`
-  measures per-handler line and region coverage for the selected exact golden
-  replay tests. Repeat `--source` and `--test` as needed. Build the binary with
-  `-C instrument-coverage`; Rust's `llvm-tools` component is required. Each
-  replay must run once with the database and no skip.
-- Route inventory goldens live in `bins/gateway/data/{route_inventory.golden,jmap_methods.golden,worker_launch_inventory.golden,route-inventory.json}` (relocated from deleted Go trees in `#142` and validated by `inventory_guard` and `scripts/check-openapi-{coverage,visibility}.sh`).
-- Gateway `tests/proxy.rs` covers inventory dispatch, direct `setjoin-auth` routing,
-  and proxy metrics through HTTP. `tests/startup.rs` checks `setjoin-server` startup
-  and graceful shutdown through the executable, reaping each owned child process on
-  success or failure.
-- `bash scripts/check-server-rust.sh` — `cargo test --locked` in the workspace,
-  the pilot, schema-simulation and bench-mark-read; red on any failing test or a root with zero
-  tests or ignored tests. Without cargo it prints `SERVER-RUST-SKIP (reason=cargo-not-found …)`.
-  Workspace and pilot fetch their locked dependencies once if uncached.
-  `SERVER_RUST_NEXTEST=1` runs the workspace through nextest with a database per test;
-  the CI full lane is [DOX.md](DOX.md#parallel-full-lane-550).
+- `python3 scripts/report-gofree-oracle-coverage.py` measures per-handler coverage for golden replays (`-C instrument-coverage`, `llvm-tools`, DB-backed, no skip).
+- Route inventory goldens live in `bins/gateway/data/` (validated by `inventory_guard` and `scripts/check-openapi-{coverage,visibility}.sh`).
+- Gateway `tests/proxy.rs` covers dispatch, direct `setjoin-auth` routing, and proxy metrics; `tests/startup.rs` checks startup, direct LISTEN, and graceful shutdown.
+- `bash scripts/check-server-rust.sh` — `cargo test --locked` across workspace, pilot, schema-simulation, and bench-mark-read (`SERVER_RUST_NEXTEST=1` for nextest; [DOX.md](DOX.md#parallel-full-lane-550)).
 - Oracle adequacy gate and coverage: [DOX.md](DOX.md#oracle-adequacy).
-- Historical Go-deletion rehearsal (#141) completed and retired in `#142` ([ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md));
-  `scripts/test-samlacs-mutants.py` continues running in CI `roots` under `REQUIRE_DB=1`.
-  Historical record in [DOX.md](DOX.md#go-deletion-rehearsal-141).
-- `setjoin-pg` DB tests (`crates/pg/tests/db_scope.rs`) need a schema from
-  `scripts/load-test-schema.sh`, owner DSN in `TEST_DB_DSN`/`DB_DSN`, the
-  `setjoin_app` credential in `DB_APP_DSN`, and the `setjoin_worker` credential
-  in `DB_WORKER_DSN` (mandatory for Release N+1 `#547` fail-closed process
-  boot); absent → `SETJOIN-PG-DB-SKIP (reason=no-dsn)` per test, `REQUIRE_DB=1`
-  → FAIL. Rust has no runtime skip, so a skipped DB test still counts as `ok`:
-  a skip line is never a pass. CI's guard step sets all credentials plus
-  `REQUIRE_DB=1`.
-- `crates/pg/tests/workers.rs` exercises the scheduler lock against Go's SQL,
-  worker credential selection and direct LISTEN using the disposable test DB.
-- Gateway `tests/workers.rs` covers the Go task catalog, interval/cron timing,
-  cancellation, lock loss and the recorded Go denylist worker oracle. Gateway
-  `tests/startup.rs` proves the executable opens its direct LISTEN connection.
-- Conformance and JMAP DB test contracts: [DOX.md](DOX.md#conformance-and-jmap-db-tests).
-
-- Guard self-test: [DOX.md](DOX.md#rust-guard-self-test).
-- Gateway test coverage: [DOX.md](DOX.md#gateway-test-coverage).
-- The shared authz HTTP probe in `bins/gateway/tests/jmap_db.rs` checks that
-  the verified context ignores request-supplied user, mailbox and scope;
-  guest and fallback cases check guest belts and whole-request forwarding.
-- RP07 bounds, stalled-read, proxy and recorded-response coverage is in
-  [DOX.md](DOX.md#verification-detail). The guard fails under `REQUIRE_DB=1`
-  on any DB skip marker.
-- Manual evidence and image qualification: [DOX.md](DOX.md#manual-evidence-and-image-qualification).
+- Historical Go-deletion rehearsal (#141, retired `#142`, [ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md)): [DOX.md](DOX.md#go-deletion-rehearsal-141); `scripts/test-samlacs-mutants.py` stays in CI `roots` (`REQUIRE_DB=1`).
+- `setjoin-pg` DB tests (`crates/pg/tests/db_scope.rs`) require `TEST_DB_DSN`/`DB_DSN`, `DB_APP_DSN` (`setjoin_app`), and `DB_WORKER_DSN` (`setjoin_worker`, Release N+1 `#547`); absent → `SETJOIN-PG-DB-SKIP`, `REQUIRE_DB=1` → FAIL.
+- `crates/pg/tests/workers.rs` and `bins/gateway/tests/workers.rs` cover cron/interval scheduling, locks, cancellation, and denylist oracle.
+- Conformance, JMAP DB tests, guard self-test, gateway coverage, RP07/stalled-read, and image qualification: [DOX.md](DOX.md#conformance-and-jmap-db-tests), [DOX.md](DOX.md#verification-detail), [DOX.md](DOX.md#manual-evidence-and-image-qualification).
+- `bins/gateway/tests/jmap_db.rs` verifies shared authz ignores request-supplied identity/scope and enforces guest belts.
 
 - `bins/mailctl` — operator CLI, backups and process oracles: [contract](bins/mailctl/DOX.md) (#352–#355).
 - `crates/push` (`setjoin-push`) — shared push transports; [contract](crates/push/DOX.md) (#354).
@@ -177,4 +142,5 @@ Shared Go UUID identifiers (#455): [contracts](crates/contracts/DOX.md#go-uuid-i
 - `crates/certificates` — shared Go certificate/PEM profile and recipient trust cache; [contract](crates/certificates/DOX.md).
 
 - `crates/calendar-format` — shared Go calendar parser; [contract](crates/calendar-format/DOX.md).
-- `crates/workqueue` (#548/#549) — durable WorkQueue, `worker_schedules` leases, DLQ (`operator`), privileged `worker` feature (family-isolated). `bins/gateway/src/supervisor/` owns `WorkerSupervisor`, boot `BYPASSRLS`, WORM arming, drain-then-retire.
+- `crates/workqueue` (#548/#549) — durable WorkQueue, `worker_schedules` leases, DLQ (`operator`), privileged `worker` (family-isolated). `bins/gateway/src/supervisor/` owns `WorkerSupervisor`, boot `BYPASSRLS`, WORM arming, drain-then-retire.
+- `SyncWakeupHub` (`bins/gateway/src/jmap/sync_hub.rs`, #552), `chat_changes` (`#553`), IMAP CONDSTORE/QRESYNC (`#554`): [gateway DOX](bins/gateway/DOX.md), [IMAP DOX](crates/protocols/imap/DOX.md).

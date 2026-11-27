@@ -351,7 +351,7 @@ $$;
         # Mutant 7: Re-adding dropped blob_cleanup_queue in blobs_internal fails STALE_MANIFEST_ENTRY
         # and blob_cleanup_queue is no longer in BLOBS_INTERNAL_FK_ALLOWED (#551).
         assert ("blob_cleanup_queue", "blob_sha256") not in guard.BLOBS_INTERNAL_FK_ALLOWED, (
-            "blob_cleanup_queue must be removed from BLOBS_INTERNAL_FK_ALLOWED after V289"
+            "blob_cleanup_queue must be removed from BLOBS_INTERNAL_FK_ALLOWED after V293"
         )
         m_stale_q = json.loads(m_path.read_text(encoding="utf-8"))
         m_stale_q["blobs_internal"].append(

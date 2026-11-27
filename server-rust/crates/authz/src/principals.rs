@@ -1479,6 +1479,16 @@ SELECT ra.role_group_id, \
         self.pool.begin_mailbox_read(cap.verified()).await
     }
 
+    /// Begin a `REPEATABLE READ` `MailboxTx<ReadOnly>` from a verified [`ReadCapability`].
+    pub async fn begin_mailbox_read_repeatable(
+        &self,
+        cap: &ReadCapability,
+    ) -> Result<MailboxTx<ReadOnly>, StatementFailure> {
+        self.pool
+            .begin_mailbox_read_repeatable(cap.verified())
+            .await
+    }
+
     /// Run a 1-RTT pipelined `BEGIN READ ONLY` mailbox query from a [`ReadCapability`].
     pub async fn run_mailbox_read_pipelined(
         &self,

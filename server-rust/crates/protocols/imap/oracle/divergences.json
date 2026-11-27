@@ -20,5 +20,15 @@
     "go_source": "shared/pwhash/pwhash.go:100-145; mailserver/internal/imap/imap.go:580-660",
     "goldens": "unchanged: no recorded IMAP fixture grants a guest an app password or revokes/locks down a fixture account prior to login",
     "secure_test": "policy_gate_db::surface_matrix_enforces_revocation_lockdown_guest_entitlement_and_lifecycle"
+  },
+  "imap-condstore-qresync-capability-move-expunge": {
+    "issue": "#554",
+    "reviewed": true,
+    "reviewer": "Wave 2.7 Tier-1 review",
+    "reason": "Wave 2.7 (#554) adds RFC 7162 CONDSTORE/QRESYNC aligned onto mailboxes.jmap_email_state + jmap_changes_journal: (1) authenticated CAPABILITY and LOGIN/AUTHENTICATE [CAPABILITY ...] advertise CONDSTORE QRESYNC; (2) MOVE emits RFC 9051 §6.4.8 untagged * <seq> EXPUNGE (or * VANISHED under QRESYNC) after commit; (3) EXPUNGE/CLOSE passes p_notify=TRUE to jmap_email_purge so hard-purged messages advance jmap_email_state and append exact 'destroyed' journal rows (and skips litigation-held notPurged rows).",
+    "review": "Wave 2.7 (#554) single-currency MODSEQ alignment",
+    "go_source": "mailserver/internal/imap/imap.go; mailserver/internal/imap/folders.go; mailserver/internal/imap/transfer.go",
+    "goldens": "unchanged: replay harnesses normalize these three intentional Wave 2.7 deltas while keeping immutable frozen-Go JSON fixtures byte-identical",
+    "secure_test": "modseq_sync::cross_protocol_imap_condstore_qresync_and_jmap_changes_stay_in_single_currency"
   }
 }

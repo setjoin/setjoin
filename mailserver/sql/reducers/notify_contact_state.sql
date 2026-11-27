@@ -55,6 +55,7 @@ BEGIN
       'contact_id', p_contact_id
     )::TEXT
   );
+  PERFORM public.emit_wakeup_bell('sync', 'mailbox:' || p_mailbox_id || ':0:Contact');
 
   RETURN v_state;
 END;

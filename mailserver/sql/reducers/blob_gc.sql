@@ -51,7 +51,7 @@ $$;
 -- on the per-sha256 transaction advisory lock and reactivate any reclaim_eligible
 -- or purging row in FORCE-RLS deny-all public.blob_gc_state without granting
 -- setjoin_app direct table access or WORM-lock mutation privileges.
--- Signature intentionally unchanged across V288->V289 (zero ACL churn).
+-- Signature intentionally unchanged across V292->V293 (zero ACL churn).
 CREATE OR REPLACE FUNCTION blob_gc_reactivate(
     p_sha256 text
 )
@@ -410,7 +410,7 @@ $$;
 -- Authoritative live-root catalog checked by Mark-and-Sweep GC.
 -- Every EXISTS arm MUST match config/blob-reference-manifest.json live_roots
 -- 1:1 (enforced bidirectionally by scripts/check-blob-reference-manifest.py)
--- and preserve exact predicate parity with partial btree indexes from V288.
+-- and preserve exact predicate parity with partial btree indexes from V292.
 CREATE OR REPLACE FUNCTION blob_has_live_reference(p_sha256 text)
 RETURNS boolean
 LANGUAGE plpgsql

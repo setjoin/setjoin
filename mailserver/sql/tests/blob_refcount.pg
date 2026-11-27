@@ -1,7 +1,7 @@
 -- pgTAP: Wave 2.4 (#551) — Blob reclamation lifecycle under Mark-and-Sweep GC.
 --
 -- Replaces the retired blobs.ref_count / blob_cleanup_queue trigger tests:
---   • verifies blobs.ref_count column and blob_cleanup_queue table are dropped (V289)
+--   • verifies blobs.ref_count column and blob_cleanup_queue table are dropped (V293)
 --   • two message_attachments on one sha256 keep blob_has_live_reference() = true
 --   • deleting one attachment keeps it live (still referenced by the second)
 --   • deleting the last attachment makes blob_has_live_reference() = false
@@ -15,11 +15,11 @@ SELECT plan(6);
 SELECT is(
   (SELECT count(*)::int FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'blobs' AND column_name = 'ref_count'),
-  0, 'V289 retired public.blobs.ref_count column');
+  0, 'V293 retired public.blobs.ref_count column');
 
 SELECT is(
   to_regclass('public.blob_cleanup_queue'),
-  NULL, 'V289 dropped public.blob_cleanup_queue table');
+  NULL, 'V293 dropped public.blob_cleanup_queue table');
 
 INSERT INTO domains (id, name, is_local) VALUES (96010, 'blobrc.test', TRUE)
   ON CONFLICT (id) DO NOTHING;

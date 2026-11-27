@@ -28,6 +28,8 @@ struct Moved {
     validity: i64,
     sources: Vec<i64>,
     destinations: Vec<i64>,
+    expunged_seqs: Vec<i64>,
+    self_move: bool,
     count: usize,
 }
 
@@ -110,6 +112,12 @@ async fn transfer_in_tx(
     target: &str,
 ) -> Result<Moved, Abort> {
     let mut moved = Moved::default();
+    // Canonical #481 lock order: mailboxes -> messages -> message_tags/tags.
+    tx.execute(
+        "SELECT id FROM mailboxes WHERE id = $1 FOR UPDATE",
+        &[(&mailbox, Type::INT8)],
+    )
+    .await?;
     let dest = tx
         .query(
             "SELECT id, exclusive_group, imap_uid_validity FROM tags \
@@ -121,44 +129,64 @@ async fn transfer_in_tx(
     let Some(dest) = dest.first() else {
         return Ok(moved);
     };
-    let (dest_id, group, validity): (i64, Option<String>, i64) = (
-        dest.try_get(0).map_err(|_| Abort::Failed)?,
-        dest.try_get(1).map_err(|_| Abort::Failed)?,
-        dest.try_get(2).map_err(|_| Abort::Failed)?,
-    );
+    let (Ok(dest_id), Ok(group), Ok(validity)) = (
+        dest.try_get::<_, i64>(0),
+        dest.try_get::<_, Option<String>>(1),
+        dest.try_get::<_, i64>(2),
+    ) else {
+        return Err(Abort::Failed);
+    };
     moved.validity = validity;
+    moved.self_move = mov && dest_id == tag_id;
 
     let rows = tx
         .query(
             &format!(
-                "SELECT m.id, {uid_column}, m.received_at::text FROM messages m \
+                "SELECT m.id, {uid_column}, m.received_at::text, m.is_deleted FROM messages m \
                  JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at \
-                 WHERE mt.tag_id = $1 AND m.mailbox_id = $2 AND mt.is_primary = TRUE AND NOT m.is_deleted \
+                 WHERE mt.tag_id = $1 AND m.mailbox_id = $2 AND mt.is_primary = TRUE \
                  ORDER BY {uid_column}"
             ),
             &[(&tag_id, Type::INT8), (&mailbox, Type::INT8)],
         )
         .await?;
-    let mut all = Vec::with_capacity(rows.len());
+    // Frozen Go resolves COPY/MOVE targets over non-deleted rows, while RFC 9051
+    // `* <seq> EXPUNGE` sequence numbers are 1-based over ALL messages in the
+    // selected folder (including unexpunged \Deleted rows, matching SELECT/FETCH).
+    let mut selectable = Vec::with_capacity(rows.len());
     let mut recvs = Vec::with_capacity(rows.len());
-    for (i, row) in rows.iter().enumerate() {
+    let mut full_seqs = Vec::with_capacity(rows.len());
+    for (full_idx, row) in rows.iter().enumerate() {
         // Any row pgx cannot scan (NULL UID) fails and rolls back the command.
-        let uid = row
-            .try_get::<_, Option<i64>>(1)
-            .ok()
-            .flatten()
-            .ok_or(Abort::Failed)?;
-        all.push(Msg {
-            id: row.try_get(0).map_err(|_| Abort::Failed)?,
+        let (Ok(id), Some(uid), Ok(recv), Ok(deleted)) = (
+            row.try_get::<_, i64>(0),
+            row.try_get::<_, Option<i64>>(1).ok().flatten(),
+            row.try_get::<_, String>(2),
+            row.try_get::<_, bool>(3),
+        ) else {
+            return Err(Abort::Failed);
+        };
+        if deleted {
+            continue;
+        }
+        let sel_seq = selectable.len() as i64 + 1;
+        selectable.push(Msg {
+            id,
             uid,
-            seq: i as i64 + 1,
+            seq: sel_seq,
             ..Msg::default()
         });
-        recvs.push(row.try_get::<_, String>(2).map_err(|_| Abort::Failed)?);
+        recvs.push(recv);
+        full_seqs.push(full_idx as i64 + 1);
     }
-    let targets = resolve_seq_set(ranges, &all, is_uid);
+    let targets = resolve_seq_set(ranges, &selectable, is_uid);
     if targets.is_empty() {
         return Ok(moved);
+    }
+    let mut expunged_seqs = Vec::with_capacity(targets.len());
+    for (gone, m) in targets.iter().enumerate() {
+        let full_seq = full_seqs[m.seq as usize - 1];
+        expunged_seqs.push((full_seq - gone as i64).max(1));
     }
     let input = Input {
         ids: targets.iter().map(|m| m.id).collect(),
@@ -169,6 +197,7 @@ async fn transfer_in_tx(
         sources: targets.iter().map(|m| m.uid).collect(),
     };
     moved.sources = input.sources.clone();
+    moved.expunged_seqs = expunged_seqs;
 
     tx.execute(
         "SELECT 1 FROM mailboxes WHERE id = $1 FOR KEY SHARE",
@@ -193,6 +222,15 @@ async fn transfer_in_tx(
         )
         .await?;
         if group.as_deref() == Some("location") {
+            let base_state: i64 = tx
+                .query(
+                    "SELECT COALESCE(jmap_email_state, 0)::bigint FROM mailboxes WHERE id = $1",
+                    &[(&mailbox, Type::INT8)],
+                )
+                .await?
+                .first()
+                .and_then(|r| r.try_get::<_, i64>(0).ok())
+                .unwrap_or(0);
             let inserted = memberships(
                 tx,
                 "SELECT out_message_id, out_received_at::text, out_imap_uid \
@@ -205,6 +243,23 @@ async fn transfer_in_tx(
                 ],
             )
             .await?;
+            // Record explicit source-folder removal metadata (collection_id = source tag_id,
+            // imap_uid = source_uid) on the bumped journal rows so QRESYNC VANISHED
+            // deterministically attributes the move to the source folder (#554).
+            for (idx, (id, src_uid)) in input.ids.iter().zip(&input.sources).enumerate() {
+                let seq = base_state + idx as i64 + 1;
+                tx.execute(
+                    "SELECT append_email_change($1, $2, $3, 'updated', $4, $5)",
+                    &[
+                        (&mailbox, Type::INT8),
+                        (&seq, Type::INT8),
+                        (id, Type::INT8),
+                        (&tag_id, Type::INT8),
+                        (src_uid, Type::INT8),
+                    ],
+                )
+                .await?;
+            }
             moved.destinations = destination_uids(&input, membership, &inserted)?;
             moved.count = input.ids.len();
             return Ok(moved);
@@ -237,17 +292,35 @@ async fn transfer_in_tx(
     moved.destinations = destination_uids(&input, membership, &inserted)?;
     // The raw tag insert bypassed the state bump: one precise 'updated' delta per
     // message in source order (COPY also bumps the destination tag's state).
+    // For MOVE, explicitly record (collection_id = source tag_id, imap_uid = source_uid)
+    // at the exact bumped state_seq so QRESYNC VANISHED is deterministic.
     let tag_arg: Option<i64> = if mov { None } else { Some(dest_id) };
-    for id in &input.ids {
-        tx.execute(
-            "SELECT notify_state_change($1, $2, $3, 'updated')",
-            &[
-                (&mailbox, Type::INT8),
-                (&tag_arg, Type::INT8),
-                (id, Type::INT8),
-            ],
-        )
-        .await?;
+    for (id, src_uid) in input.ids.iter().zip(&input.sources) {
+        let st_rows = tx
+            .query(
+                "SELECT notify_state_change($1, $2, $3, 'updated')",
+                &[
+                    (&mailbox, Type::INT8),
+                    (&tag_arg, Type::INT8),
+                    (id, Type::INT8),
+                ],
+            )
+            .await?;
+        if mov {
+            if let Some(state_seq) = st_rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()) {
+                tx.execute(
+                    "SELECT append_email_change($1, $2, $3, 'updated', $4, $5)",
+                    &[
+                        (&mailbox, Type::INT8),
+                        (&state_seq, Type::INT8),
+                        (id, Type::INT8),
+                        (&tag_id, Type::INT8),
+                        (src_uid, Type::INT8),
+                    ],
+                )
+                .await?;
+            }
+        }
     }
     moved.count = input.ids.len();
     Ok(moved)
@@ -329,6 +402,21 @@ impl Session {
                 )
                 .as_bytes(),
             );
+            // RFC 9051 §6.4.8 / RFC 7162 §3.2.10: after commit, announce source removal
+            // unless this was a self-MOVE to the same selected folder (UIDs remain present).
+            if mov && !moved.self_move {
+                if self.qresync_enabled {
+                    let formatted = crate::messages::format_uid_set(&moved.sources);
+                    if !formatted.is_empty() {
+                        self.reply("*", &format!("VANISHED {formatted}"));
+                    }
+                } else {
+                    for seq in &moved.expunged_seqs {
+                        self.out
+                            .extend_from_slice(format!("* {seq} EXPUNGE\r\n").as_bytes());
+                    }
+                }
+            }
         }
         self.reply(tag, &format!("OK {verb} completed"));
         self.audit(if mov { "imap_move" } else { "imap_copy" })

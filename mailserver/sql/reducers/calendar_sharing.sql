@@ -256,6 +256,7 @@ CREATE OR REPLACE FUNCTION jmap_calendar_share_set(
 ) RETURNS JSONB AS $$
 DECLARE
   v_owner_mbox  BIGINT;
+  v_owner_uid   BIGINT;
   v_caller_uid  BIGINT;
   v_is_owner    BOOLEAN := FALSE;
   v_is_admin    BOOLEAN := FALSE;
@@ -264,6 +265,7 @@ DECLARE
   v_target_uid  BIGINT;
   v_target_uids BIGINT[];
   v_level       TEXT;
+  v_prev_level  TEXT;
 BEGIN
   IF NOT public.rls_caller_is_privileged() THEN
     IF NOT public.rls_mailbox_in_scope(p_mailbox_id) THEN
@@ -312,6 +314,7 @@ BEGIN
   -- Resolve the user behind the caller's mailbox via the one resolver seam
   -- (ADR-003), not a hand-join of `mailboxes`. NULL (shared mailbox) → no admin
   -- grant, identical to the prior hand-join.
+  SELECT user_id INTO v_owner_uid FROM mailboxes WHERE id = v_owner_mbox;
   SELECT user_id INTO v_caller_uid FROM account_scope(p_mailbox_id);
   IF v_caller_uid IS NOT NULL THEN
     v_is_admin := EXISTS (
@@ -340,9 +343,18 @@ BEGIN
       IF v_target_uid IS NULL THEN
         CONTINUE;
       END IF;
+      SELECT permission INTO v_prev_level
+        FROM calendar_acls
+       WHERE calendar_id = p_calendar_id AND user_id = v_target_uid;
       INSERT INTO calendar_acls (calendar_id, user_id, permission)
       VALUES (p_calendar_id, v_target_uid, v_level)
       ON CONFLICT (calendar_id, user_id) DO UPDATE SET permission = EXCLUDED.permission;
+      IF v_level = 'freebusy' AND v_prev_level IS NOT NULL AND v_prev_level <> 'freebusy'
+         AND (v_owner_uid IS NULL OR v_target_uid <> v_owner_uid) THEN
+        PERFORM public.emit_scope_revoked(
+          v_target_uid, 'mailbox', v_owner_mbox, 'calendar_share_revoked', NULL
+        );
+      END IF;
     END LOOP;
   END IF;
 
@@ -354,6 +366,11 @@ BEGIN
       SELECT user_id INTO v_target_uid FROM resolve_identity(v_revoke->>'userEmail');
       IF v_target_uid IS NOT NULL THEN
         DELETE FROM calendar_acls WHERE calendar_id = p_calendar_id AND user_id = v_target_uid;
+        IF FOUND AND (v_owner_uid IS NULL OR v_target_uid <> v_owner_uid) THEN
+          PERFORM public.emit_scope_revoked(
+            v_target_uid, 'mailbox', v_owner_mbox, 'calendar_share_revoked', NULL
+          );
+        END IF;
       END IF;
     END LOOP;
   END IF;

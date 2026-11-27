@@ -1,6 +1,6 @@
 //! #411 / Wave 2.4 (#551): seed-plus-tick verification for the `blob-cleanup`
 //! worker after cutover from retired `blob_cleanup_queue`/`blobs.ref_count` to
-//! Mark-and-Sweep GC (`V288`/`V289`).
+//! Mark-and-Sweep GC (`V292`/`V293`).
 //!
 //! - Immutable frozen-Go goldens (`blob-orphans`, `blob-idle`) are replayed in
 //!   memory without modifying any golden JSON file (filtering out Mark-and-Sweep

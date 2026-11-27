@@ -1,6 +1,6 @@
 -- attachment_outbound.pg — outbound-attachment create path (item #1 P0).
 -- jmap_email_set_create writes message_attachments + has_attachments, enforces the
--- per-message caps, marks the blob live for Mark-and-Sweep GC (V289), and jmap_email_get
+-- per-message caps, marks the blob live for Mark-and-Sweep GC (V293), and jmap_email_get
 -- projects the read-only attachments array.
 BEGIN;
 SELECT plan(8);

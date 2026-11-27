@@ -25,7 +25,7 @@
 --      registered the blobs row via blob_gc_register_and_reactivate by this
 --      point), to record the final ok/error state and reactivate the image
 --      blob under Mark-and-Sweep GC (chat_link_previews.image_blob_sha256 is
---      an authoritative live root; legacy blobs.ref_count was retired in V289).
+--      an authoritative live root; legacy blobs.ref_count was retired in V293).
 --   3. chat_message_unfurl_apply — merges the cached preview into ONE
 --      message's payload + fans out a message_edited-style notify. Called by
 --      both the claim-winner (after cache_write) and every subsequent poster

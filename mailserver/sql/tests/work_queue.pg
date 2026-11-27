@@ -1,4 +1,4 @@
--- work_queue.pg — Wave 2.1 (#548, V286): durable WorkQueue, DLQ, RLS/ACL
+-- work_queue.pg — Wave 2.1 (#548, V290): durable WorkQueue, DLQ, RLS/ACL
 -- isolation, claim_generation fencing, UTF-8 truncation, and wakeup bells.
 BEGIN;
 SELECT plan(45);
@@ -8,29 +8,29 @@ SELECT set_config('app.capture_notify', 'on', false);
 -- ── 1. Isolation posture (V253/V281 deny-all FORCE RLS) ──────────────────────
 SELECT is(
   (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.work_items'::regclass),
-  true, 'V286: work_items has RLS enabled');
+  true, 'V290: work_items has RLS enabled');
 SELECT is(
   (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.work_items'::regclass),
-  true, 'V286: work_items RLS is FORCEd');
+  true, 'V290: work_items RLS is FORCEd');
 SELECT is(
   (SELECT count(*)::int FROM pg_policies WHERE tablename = 'work_items'),
-  0, 'V286: work_items has ZERO permissive policies');
+  0, 'V290: work_items has ZERO permissive policies');
 SELECT is(
   (SELECT tableowner FROM pg_tables WHERE tablename = 'work_items'),
-  'setjoin_owner', 'V286: work_items owned by setjoin_owner');
+  'setjoin_owner', 'V290: work_items owned by setjoin_owner');
 
 SELECT is(
   (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.work_dead_letters'::regclass),
-  true, 'V286: work_dead_letters has RLS enabled');
+  true, 'V290: work_dead_letters has RLS enabled');
 SELECT is(
   (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.work_dead_letters'::regclass),
-  true, 'V286: work_dead_letters RLS is FORCEd');
+  true, 'V290: work_dead_letters RLS is FORCEd');
 SELECT is(
   (SELECT count(*)::int FROM pg_policies WHERE tablename = 'work_dead_letters'),
-  0, 'V286: work_dead_letters has ZERO permissive policies');
+  0, 'V290: work_dead_letters has ZERO permissive policies');
 SELECT is(
   (SELECT tableowner FROM pg_tables WHERE tablename = 'work_dead_letters'),
-  'setjoin_owner', 'V286: work_dead_letters owned by setjoin_owner');
+  'setjoin_owner', 'V290: work_dead_letters owned by setjoin_owner');
 
 -- ── 2. Function ACLs & SECURITY DEFINER preflight hygiene ────────────────────
 SELECT is(
