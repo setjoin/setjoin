@@ -68,8 +68,10 @@ SELECT is((SELECT count(*) FROM guest_invite_domains)::int, 1,
 
 -- Preserve the row ids before the role switch: the constrained role must not
 -- discover either principal's invite through a late fixture lookup.
-SELECT set_config('app.current_user_id',
+SELECT set_config('g1.invite_a_id',
   (SELECT id::text FROM users WHERE email = 'g1-rls-a@guest.invalid'), true);
+SELECT set_config('app.current_user_id',
+  current_setting('g1.invite_a_id'), true);
 SELECT set_config('g1.invite_b_id',
   (SELECT id::text FROM users WHERE email = 'g1-rls-b@guest.invalid'), true);
 SELECT set_config('g1.invite_b_invite_id',
@@ -110,17 +112,16 @@ SELECT is((SELECT count(*) FROM guest_invite_domains)::int, 1,
 
 -- SECURITY DEFINER mutations still make their own reducer-side authority
 -- decision; the constrained app role cannot bypass it by forging actor args.
-SELECT set_config('app.current_user_id',
-  (SELECT id::text FROM users WHERE email='g1-rls-a@guest.invalid'), true);
+SELECT set_config('app.current_user_id', current_setting('g1.invite_a_id'), true);
 SELECT throws_ok(
   format('SELECT guest_invite_revoke(%s,%s,%s)',
-    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    current_setting('g1.invite_a_id'),
     current_setting('g1.invite_b_id'), current_setting('g1.invite_b_invite_id')),
   'BZ002', NULL, 'guest_invite_revoke denies an actor without guests.manage');
 SELECT throws_ok(
   format($q$SELECT guest_invite_domain_set(%s,'unauthorized.example',%s,
     'g1-rls-a@guest.invalid',false)$q$,
-    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    current_setting('g1.invite_a_id'),
     (SELECT id FROM domains WHERE name='g1-rls-host.example')),
   'BZ002', NULL, 'guest_invite_domain_set denies an actor without guests.manage');
 SELECT set_config('app.current_user_id', current_setting('g1.invite_admin_id'), true);

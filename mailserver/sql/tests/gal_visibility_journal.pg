@@ -265,10 +265,14 @@ SELECT is(gal_journal_seen(9841, 7842), true,
 -- rows yet (9844) must still land in the REAL journal — never redirected into
 -- pg_temp (a redirected INSERT would bump ROW_COUNT just the same, so the
 -- shadow's row count and the real table are both asserted).
+-- Bind app.current_mailbox_id to 9844 (mirroring ScopedTx in production; V287
+-- directory_visible_users enforces rls_mailbox_in_scope under setjoin_app).
+SELECT set_config('app.current_mailbox_id', '9844', true);
 SELECT is(gal_visibility_record(9844, ARRAY[7842]::BIGINT[])->>'recorded',
   '1', 'r2: record still journals the seam-visible id with the shadow planted');
 SELECT is((SELECT count(*)::int FROM pg_temp.gal_visibility_journal), 1,
   'r2: nothing was redirected into the TEMP shadow (only the planted forgery row)');
+SELECT set_config('app.current_mailbox_id', '', true);
 RESET ROLE;
 -- The verification reads below QUALIFY the relation on purpose: with the TEMP
 -- shadow still planted in this session, an unqualified reference would itself
@@ -329,8 +333,11 @@ SELECT is(is_guest_account(7842), false,
 -- End-to-end through the record seam: with the shadow in place, recording the
 -- guest id for the caller must journal NOTHING (the seam excludes the guest via
 -- the REAL table). The pre-r3 bug journaled the org-invisible guest here.
+-- Bind app.current_mailbox_id to 9841 so the scope gate passes non-vacuously.
+SELECT set_config('app.current_mailbox_id', '9841', true);
 SELECT is(gal_visibility_record(9841, ARRAY[7871]::BIGINT[])->>'recorded',
   '0', 'r3: record journals NOTHING for the real guest with the shadow planted (the seam excludes it via the REAL table)');
+SELECT set_config('app.current_mailbox_id', '', true);
 RESET ROLE;
 -- Qualified on purpose: the section-10 TEMP journal shadow is still planted in
 -- this session, so an unqualified reference would resolve pg_temp first.
