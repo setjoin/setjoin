@@ -8,6 +8,7 @@
 	import { composeStore } from '$lib/stores/compose';
 	import type { ComposeSession } from '$lib/stores/compose';
 	import { user } from '$lib/stores/auth';
+	import { createEdgeClient } from '$lib/edge/client';
 	import { loadSession, mailboxGet, emailGet, FULL_EMAIL_PROPS, emailSubmissionCancel, assistComplete, calendarEventResourceList, getDelegatedAccounts } from '$lib/jmap/client';
 	import type { DelegatedAccount } from '$lib/jmap/client';
 	import { emailTemplateList } from '$lib/jmap/emailTemplates';
@@ -556,11 +557,11 @@
 		try {
 			await loadSession();
 			compose.mailboxes = await mailboxGet(undefined, compose.sharedAccountId);
-			const res = await fetch('/auth/me', { credentials: 'include' });
-			if (res.ok) {
-				const data = await res.json();
-				delegates = data.delegates || [];
-				aliases = data.aliases || [];
+			const composeAuthEdge = createEdgeClient({ loginRedirect: null, allowStatuses: [401, 403, 500] });
+			const { data, error, response } = await composeAuthEdge.GET('/auth/me', { credentials: 'include' });
+			if (response.ok && error === undefined && data) {
+				delegates = (data.delegates ?? []) as typeof delegates;
+				aliases = (data.aliases ?? []) as typeof aliases;
 				if (!compose.fromEmail && data.email) compose.fromEmail = data.email;
 			}
 			if (!compose.signature) {

@@ -36,6 +36,8 @@ export interface EdgeClientOptions {
 	/** Passed through to {@link httpRequest}. */
 	timeoutMs?: HttpOptions['timeoutMs'];
 	/** Passed through to {@link httpRequest}. */
+	cache?: HttpOptions['cache'];
+	/** Passed through to {@link httpRequest}. */
 	loginRedirect?: HttpOptions['loginRedirect'];
 	/** Passed through to {@link httpRequest}. */
 	unauthorizedMessage?: HttpOptions['unauthorizedMessage'];
@@ -148,6 +150,7 @@ class EdgeRequest extends Request {
 	readonly edgeMethod: string;
 	readonly edgeSignal: AbortSignal | null | undefined;
 	readonly edgeCredentials: RequestCredentials | undefined;
+	readonly edgeKeepalive: boolean | undefined;
 
 	constructor(input: RequestInfo | URL, init?: RequestInit) {
 		const rawUrl =
@@ -165,12 +168,17 @@ class EdgeRequest extends Request {
 				? `${syntheticOrigin}${input}`
 				: input;
 		const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
-		super(requestInput, isFormData ? { ...init, body: undefined } : init);
+		const isBinaryBody =
+			(typeof ArrayBuffer !== 'undefined' &&
+				(init?.body instanceof ArrayBuffer || ArrayBuffer.isView(init?.body))) ||
+			(typeof Blob !== 'undefined' && init?.body instanceof Blob);
+		super(requestInput, isFormData || isBinaryBody ? { ...init, body: undefined } : init);
 		this.edgeRawUrl = rawUrl;
 		this.edgeRawBody = init?.body;
 		this.edgeMethod = (init?.method ?? 'GET').toUpperCase();
 		this.edgeSignal = init?.signal;
 		this.edgeCredentials = init?.credentials;
+		this.edgeKeepalive = init?.keepalive;
 	}
 }
 
@@ -184,10 +192,21 @@ function toRootRelativePath(rawUrl: string): string {
 	}
 }
 
+const CANONICAL_HEADER_NAMES: Record<string, string> = {
+	accept: 'Accept',
+	'content-type': 'Content-Type',
+	'idempotency-key': 'Idempotency-Key',
+	range: 'Range',
+	'x-audit-reason': 'X-Audit-Reason',
+	'x-captcha-answer': 'X-Captcha-Answer',
+	'x-captcha-token': 'X-Captcha-Token',
+	'x-mfa-reauth': 'X-MFA-Reauth'
+};
+
 function normalizeHeadersForBody(
 	rawHeaders: HeadersInit | undefined,
 	body: BodyInit | null | undefined
-): HeadersInit | undefined {
+): Record<string, string> | undefined {
 	if (!rawHeaders) return undefined;
 	const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
 	const headers = new Headers(rawHeaders);
@@ -195,11 +214,14 @@ function normalizeHeadersForBody(
 		// Never clobber browser-generated multipart/form-data boundary header.
 		headers.delete('content-type');
 	}
+	const out: Record<string, string> = {};
 	let hasAny = false;
-	headers.forEach(() => {
+	headers.forEach((value, key) => {
+		const canonical = CANONICAL_HEADER_NAMES[key.toLowerCase()] ?? key;
+		out[canonical] = value;
 		hasAny = true;
 	});
-	return hasAny ? headers : undefined;
+	return hasAny ? out : undefined;
 }
 
 /**
@@ -221,13 +243,21 @@ function ensureOpenApiFetchResponse(res: Response): Response {
 			if (prop === 'headers' && !candidate.headers) {
 				return new Headers({ 'content-type': 'application/json' });
 			}
-			if (prop === 'text' && typeof candidate.json === 'function') {
+			if (prop === 'text') {
 				return async () => {
 					if (typeof candidate.text === 'function') {
 						const raw = await candidate.text();
 						if (raw.length > 0) return raw;
 					}
-					return JSON.stringify(await candidate.json!());
+					if (typeof candidate.json === 'function') {
+						try {
+							const val = await candidate.json();
+							return val === undefined ? '' : JSON.stringify(val);
+						} catch {
+							return '';
+						}
+					}
+					return '';
 				};
 			}
 			const value = Reflect.get(target, prop, receiver);
@@ -253,6 +283,7 @@ export function createDpopEdgeFetch(options: EdgeClientOptions = {}): typeof fet
 		let body: BodyInit | null | undefined;
 		let signal: AbortSignal | null | undefined;
 		let credentials: RequestCredentials | undefined;
+		let keepalive: boolean | undefined;
 
 		if (input instanceof EdgeRequest) {
 			path = toRootRelativePath(input.edgeRawUrl);
@@ -263,6 +294,7 @@ export function createDpopEdgeFetch(options: EdgeClientOptions = {}): typeof fet
 			headers = normalizeHeadersForBody(init?.headers ?? input.headers, body);
 			signal = init?.signal ?? input.edgeSignal;
 			credentials = init?.credentials ?? input.edgeCredentials;
+			keepalive = init?.keepalive ?? input.edgeKeepalive;
 		} else if (input instanceof Request) {
 			path = toRootRelativePath(input.url);
 			method = (init?.method ?? input.method ?? 'GET').toUpperCase();
@@ -270,6 +302,7 @@ export function createDpopEdgeFetch(options: EdgeClientOptions = {}): typeof fet
 			headers = normalizeHeadersForBody(init?.headers ?? input.headers, body);
 			signal = init?.signal ?? input.signal;
 			credentials = init?.credentials ?? input.credentials;
+			keepalive = init?.keepalive ?? input.keepalive;
 		} else {
 			path = toRootRelativePath(typeof input === 'string' ? input : input.toString());
 			method = (init?.method ?? 'GET').toUpperCase();
@@ -277,12 +310,14 @@ export function createDpopEdgeFetch(options: EdgeClientOptions = {}): typeof fet
 			headers = normalizeHeadersForBody(init?.headers, body);
 			signal = init?.signal;
 			credentials = init?.credentials;
+			keepalive = init?.keepalive;
 		}
 
 		const httpOpts: HttpOptions = {
 			method,
 			signal,
 			timeoutMs: options.timeoutMs,
+			cache: options.cache,
 			loginRedirect: options.loginRedirect,
 			unauthorizedMessage: options.unauthorizedMessage,
 			forbiddenMessage: options.forbiddenMessage,
@@ -297,6 +332,9 @@ export function createDpopEdgeFetch(options: EdgeClientOptions = {}): typeof fet
 		}
 		if (credentials !== undefined) {
 			httpOpts.credentials = credentials;
+		}
+		if (keepalive !== undefined) {
+			httpOpts.keepalive = keepalive;
 		}
 
 		const res = await httpRequest(path, httpOpts);

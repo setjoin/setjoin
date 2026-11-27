@@ -127,7 +127,7 @@ describe('admin transport ownership boundaries', () => {
 		]);
 
 		for (const file of ['accessReviews.ts', 'guests.ts', 'roles.ts']) {
-			expect(source(file), file).toContain("from './transport'");
+			expect(source(file), file).toContain("from '$lib/edge/client'");
 			expect(source(file), file).not.toContain("from './client'");
 		}
 	});

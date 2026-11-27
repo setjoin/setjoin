@@ -1,29 +1,100 @@
-// Drive P1 client transport — typed fetch wrappers over every /api/drive/*
-// route (Tasks 17-20). Reuses $lib/http's timeout/auth/DPoP machinery
-// (httpRequest/typedFetch) rather than re-implementing it — callers branch on
-// `.code` (drive.errors.BZ* i18n keys) instead of parsing status text.
-import { httpRequest, typedFetch, problemFetch, ProblemError, type HttpOptions } from '$lib/http';
+// Drive P1 client transport — typed openapi-fetch wrappers over every /api/drive/*
+// route routed through $lib/edge/client -> $lib/http's timeout/auth/DPoP machinery.
+// Callers branch on `.code` (drive.errors.BZ* i18n keys) via DriveError (= ProblemError).
+import { ProblemError, type HttpOptions, type ProblemShape } from '$lib/http';
+import { createEdgeClient, EDGE_DEFAULT_ALLOW_STATUSES } from '$lib/edge/client';
 
 const BASE = '/api/drive';
 
 // ── DriveError ───────────────────────────────────────────────────────────
-//
-// Arch review #A1: ChatError/MeetError/DriveError were three verbatim copies
-// of the same RFC-7807-via-encoded-message transport (`$lib/http.ts`'s
-// problemFetch), differing only in this one's `holderId` field — now just
-// another `extensions` entry. DriveError is a plain alias onto the one
-// shared `ProblemError` class; every existing call site (`instanceof
-// DriveError`, `.status`/`.code`/`.detail`) keeps working unchanged. The one
-// `.holderId` reader (versionSave.svelte.ts, BZ149 hard-lock) moved to
-// `.extensions.holderId`.
 export const DriveError = ProblemError;
 export type DriveError = ProblemError;
 
-const { fetch: driveFetch, fetchVoid: driveFetchVoid } = problemFetch(BASE);
+const PROBLEM_STANDARD_FIELDS = new Set(['type', 'title', 'status', 'detail', 'instance', 'code']);
 
-const JSON_HEADERS = { 'Content-Type': 'application/json' };
+function buildDriveProblemShape(payload: unknown, status: number): ProblemShape {
+	const body = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
+	const extensions: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(body)) {
+		if (!PROBLEM_STANDARD_FIELDS.has(k)) extensions[k] = v;
+	}
+	const detail =
+		typeof body.detail === 'string'
+			? body.detail
+			: typeof body.title === 'string'
+				? body.title
+				: `Request failed (${status})`;
+	return {
+		status,
+		code: typeof body.code === 'string' ? body.code : '',
+		detail,
+		extensions,
+	};
+}
 
-// ── wire types (mirrors mailserver/internal/drive/*.go response structs) ──
+async function driveProblemOnError(res: Response): Promise<string> {
+	const body = await res.json().catch(() => ({}));
+	return JSON.stringify(buildDriveProblemShape(body, res.status));
+}
+
+function decodeEncodedProblem(err: unknown): ProblemError | null {
+	if (!(err instanceof Error)) return null;
+	try {
+		const p = JSON.parse(err.message) as Partial<ProblemShape>;
+		if (typeof p.status === 'number' && typeof p.detail === 'string') {
+			return new ProblemError({ extensions: {}, ...p } as ProblemShape);
+		}
+	} catch {
+		/* not an encoded ProblemShape — network/timeout/auth error, pass through */
+	}
+	return null;
+}
+
+const driveEdge = createEdgeClient({
+	allowStatuses: [...EDGE_DEFAULT_ALLOW_STATUSES, 416, 423],
+	onError: driveProblemOnError,
+});
+
+const driveHeadEdge = createEdgeClient({
+	allowStatuses: [404],
+});
+
+async function runDrive<T>(
+	call: () => Promise<{ data?: T; error?: unknown; response: Response }>
+): Promise<T> {
+	let result: { data?: T; error?: unknown; response: Response };
+	try {
+		result = await call();
+	} catch (err) {
+		const problem = decodeEncodedProblem(err);
+		if (problem) throw problem;
+		throw err;
+	}
+	const { data, error, response } = result;
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw new ProblemError(buildDriveProblemShape(error, response.status));
+	}
+	return data;
+}
+
+async function runDriveVoid(
+	call: () => Promise<{ error?: unknown; response: Response }>
+): Promise<void> {
+	let result: { error?: unknown; response: Response };
+	try {
+		result = await call();
+	} catch (err) {
+		const problem = decodeEncodedProblem(err);
+		if (problem) throw problem;
+		throw err;
+	}
+	const { error, response } = result;
+	if (!response.ok || error !== undefined) {
+		throw new ProblemError(buildDriveProblemShape(error, response.status));
+	}
+}
+
+// ── wire types ───────────────────────────────────────────────────────────
 
 export interface DriveSpace {
 	id: number;
@@ -34,16 +105,10 @@ export interface DriveSpace {
 	usedBytes: number;
 	quotaBytes: number | null;
 	changeSeq: number;
-	/** Present on ACL-aware servers; optional keeps rolling-upgrade clients
-	 * compatible with a pre-A7 node until the server fleet converges. */
 	aclMode?: 'legacy' | 'shadow' | 'acl';
 	aclEpoch?: number;
 	rootCapabilities?: DriveCapability[];
 	accessGovernanceEnabled?: boolean;
-	/** P5 G1 admin surface (drive_worm_pending, merged into ?admin=1 rows) —
-	 *  count of this space's gxp chunks whose Object-Lock apply is still
-	 *  pending. Absent on the member-scoped /spaces read and on any backend
-	 *  build that hasn't wired the merge yet; callers default to 0. */
 	wormPending?: number;
 }
 
@@ -55,7 +120,6 @@ export interface DriveMember {
 	grantedAt: string;
 }
 
-/** Unexpired lock-presence row on a tree node (P4 Task 10's tree() LATERAL) — null when unlocked. */
 export interface DriveLockPresence {
 	holderId: number;
 	holderName: string;
@@ -74,14 +138,26 @@ export interface DriveNode {
 	contentType?: string;
 	headVersionId?: number;
 	deletedAt?: string;
-	/** Open+review branch count (P4 Task 10). 0 for folders. */
 	branchCount: number;
-	/** Unexpired lock row, or null (P4 Task 10). */
 	lock: DriveLockPresence | null;
-	/** Exact server-computed node authority. Absent only during rolling upgrade;
-	 * callers fail closed instead of inferring from the legacy space role. */
 	capabilities?: DriveCapability[];
 	traverseOnly?: boolean;
+}
+
+export interface DriveNodeMeta {
+	nodeId: number;
+	spaceId: number;
+	parentId: number | null;
+	kind: 'folder' | 'file';
+	name: string;
+	deletedAt: string | null;
+	headVersionId: number | null;
+	contentSha256: string | null;
+	sizeBytes: number | null;
+	contentType: string | null;
+	branchCount: number;
+	capabilities: DriveCapability[];
+	traverseOnly: boolean;
 }
 
 export type DriveCapability =
@@ -205,11 +281,6 @@ export interface DriveVersion {
 	labels: string[];
 }
 
-/**
- * Normalized, permission-filtered file-history fact returned by the H0
- * authority query.  `sourceId` stays opaque to the default timeline; it is
- * exposed only by the forensic Details view.
- */
 export interface DriveHistoryItem {
 	occurredAt: string;
 	sourceRank: number;
@@ -244,13 +315,11 @@ export interface PutVersionResult {
 
 // ── spaces ───────────────────────────────────────────────────────────────
 
-export const listSpaces = () => driveFetch<DriveSpace[]>('/spaces');
+export const listSpaces = () =>
+	runDrive(() => driveEdge.GET('/api/drive/spaces')) as Promise<DriveSpace[]>;
 
-/** Cross-tenant metadata read for a drive.view admin (handler.go's
- *  listSpacesAdmin, ?admin=1) — every space, not just ones the caller is a
- *  member of. The P5 admin console's compliance panel and the wormPending
- *  queue both need every gxp space, not just the admin's own. */
-export const listSpacesAdmin = () => driveFetch<DriveSpace[]>('/spaces?admin=1');
+export const listSpacesAdmin = () =>
+	runDrive(() => driveEdge.GET('/api/drive/spaces', { params: { query: { admin: '1' } } })) as Promise<DriveSpace[]>;
 
 export const createSpace = (body: {
 	name: string;
@@ -259,43 +328,81 @@ export const createSpace = (body: {
 	retentionDays?: number | null;
 	wormMode?: string | null;
 	exportPolicy?: unknown;
-}) => driveFetch<{ id: number }>('/spaces', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
+}) =>
+	runDrive(() =>
+		driveEdge.POST('/api/drive/spaces', {
+			body: body as {
+				name: string;
+				classification?: 'regular' | 'secure' | 'gxp';
+				isPersonal?: boolean;
+				retentionDays?: number | null;
+				wormMode?: string | null;
+				exportPolicy?: Record<string, unknown>;
+			},
+		})
+	);
 
-/** Field-driven patch — see handler.go's patchSpace: presence of a key picks
- *  its route (classification | exportPolicy/retentionDays/wormMode/vaultQuotaMb | quotaBytes). */
 export const patchSpace = (id: number, fields: Record<string, unknown>) =>
-	driveFetchVoid(`/spaces/${id}`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify(fields) });
+	runDriveVoid(() =>
+		driveEdge.PATCH('/api/drive/spaces/{id}', {
+			params: { path: { id } },
+			body: fields,
+		})
+	);
 
 // ── members ──────────────────────────────────────────────────────────────
 
-export const listMembers = (spaceId: number) => driveFetch<DriveMember[]>(`/spaces/${spaceId}/members`);
+export const listMembers = (spaceId: number) =>
+	runDrive(() => driveEdge.GET('/api/drive/spaces/{id}/members', { params: { path: { id: spaceId } } })) as Promise<DriveMember[]>;
 
 export const grantMember = (spaceId: number, userId: number, role: string) =>
-	driveFetch<{ status: string }>(`/spaces/${spaceId}/members`, {
-		method: 'POST',
-		headers: JSON_HEADERS,
-		body: JSON.stringify({ userId, role }),
-	});
+	runDrive(() =>
+		driveEdge.POST('/api/drive/spaces/{id}/members', {
+			params: { path: { id: spaceId } },
+			body: { userId, role },
+		})
+	) as Promise<{ status: string }>;
 
 export const revokeMember = (spaceId: number, userId: number) =>
-	driveFetchVoid(`/spaces/${spaceId}/members/${userId}`, { method: 'DELETE' });
+	runDriveVoid(() =>
+		driveEdge.DELETE('/api/drive/spaces/{id}/members/{userId}', {
+			params: { path: { id: spaceId, userId } },
+		})
+	);
 
 // ── tree ─────────────────────────────────────────────────────────────────
 
 export const tree = (spaceId: number, opts: { parent?: number | null; deleted?: boolean } = {}) => {
-	const params = new URLSearchParams();
-	if (opts.parent != null) params.set('parent', String(opts.parent));
-	if (opts.deleted) params.set('deleted', '1');
-	const qs = params.toString();
-	return driveFetch<DriveNode[]>(`/spaces/${spaceId}/tree${qs ? '?' + qs : ''}`);
+	const query: { parent?: number; deleted?: string } = {};
+	if (opts.parent != null) query.parent = opts.parent;
+	if (opts.deleted) query.deleted = '1';
+	return runDrive(() =>
+		driveEdge.GET('/api/drive/spaces/{id}/tree', {
+			params: {
+				path: { id: spaceId },
+				query: Object.keys(query).length ? query : undefined,
+			},
+		})
+	) as Promise<DriveNode[]>;
 };
 
 // ── changes ──────────────────────────────────────────────────────────────
 
 export const changes = (spaceId: number, since: number) =>
-	driveFetch<DriveChangesResult>(`/changes?space=${spaceId}&since=${since}`);
+	runDrive(() =>
+		driveEdge.GET('/api/drive/changes', {
+			params: { query: { space: spaceId, since } },
+		})
+	) as Promise<DriveChangesResult>;
 
 // ── nodes ────────────────────────────────────────────────────────────────
+
+export const getNodesMeta = (ids: number[]) =>
+	runDrive(() =>
+		driveEdge.GET('/api/drive/nodes', {
+			params: { query: { ids: ids.join(',') } },
+		})
+	) as Promise<DriveNodeMeta[]>;
 
 export const createNode = (body: {
 	spaceId: number;
@@ -303,24 +410,44 @@ export const createNode = (body: {
 	kind: 'folder' | 'file';
 	name: string;
 	contentType?: string | null;
-}) => driveFetch<{ id: number }>('/nodes', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
+}) => runDrive(() => driveEdge.POST('/api/drive/nodes', { body }));
 
 export const renameNode = (id: number, newName: string) =>
-	driveFetchVoid(`/nodes/${id}`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ newName }) });
+	runDriveVoid(() =>
+		driveEdge.PATCH('/api/drive/nodes/{id}', {
+			params: { path: { id } },
+			body: { newName },
+		})
+	);
 
 export const moveNode = (id: number, newParentId: number | null) =>
-	driveFetchVoid(`/nodes/${id}`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ newParentId }) });
+	runDriveVoid(() =>
+		driveEdge.PATCH('/api/drive/nodes/{id}', {
+			params: { path: { id } },
+			body: { newParentId },
+		})
+	);
 
-export const trashNode = (id: number) => driveFetchVoid(`/nodes/${id}/trash`, { method: 'POST' });
-export const restoreNode = (id: number) => driveFetchVoid(`/nodes/${id}/restore`, { method: 'POST' });
-export const destroyNode = (id: number) => driveFetchVoid(`/nodes/${id}`, { method: 'DELETE' });
+export const trashNode = (id: number) =>
+	runDriveVoid(() => driveEdge.POST('/api/drive/nodes/{id}/trash', { params: { path: { id } } }));
+
+export const restoreNode = (id: number) =>
+	runDriveVoid(() => driveEdge.POST('/api/drive/nodes/{id}/restore', { params: { path: { id } } }));
+
+export const destroyNode = (id: number) =>
+	runDriveVoid(() => driveEdge.DELETE('/api/drive/nodes/{id}', { params: { path: { id } } }));
 
 // ── node ACL and governed-access UX ─────────────────────────────────────
 
-export const getNodeAccess = (nodeId: number) => driveFetch<DriveNodeAccess>(`/nodes/${nodeId}/access`);
+export const getNodeAccess = (nodeId: number) =>
+	runDrive(() => driveEdge.GET('/api/drive/nodes/{id}/access', { params: { path: { id: nodeId } } })) as Promise<DriveNodeAccess>;
 
 export const searchACLSubjects = (nodeId: number, query: string) =>
-	driveFetch<DriveACLSubject[]>(`/acl-subjects?node=${nodeId}&q=${encodeURIComponent(query)}`);
+	runDrive(() =>
+		driveEdge.GET('/api/drive/acl-subjects', {
+			params: { query: { node: nodeId, q: query } },
+		})
+	) as Promise<DriveACLSubject[]>;
 
 export interface DriveGrantInput {
 	subjectKind: 'user' | 'group';
@@ -334,32 +461,51 @@ export interface DriveGrantInput {
 }
 
 export const previewNodeGrant = (nodeId: number, body: DriveGrantInput) =>
-	driveFetch<Record<string, unknown>>(`/nodes/${nodeId}/acl/preview`, {
-		method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body),
-	});
+	runDrive(() =>
+		driveEdge.POST('/api/drive/nodes/{id}/acl/preview', {
+			params: { path: { id: nodeId } },
+			body,
+		})
+	) as Promise<Record<string, unknown>>;
 
 export const grantNodeAccess = (nodeId: number, body: DriveGrantInput & { expectedEpoch: string; idempotencyKey: string }) =>
-	driveFetch<{ grantId: string; epoch: string; replayed: boolean }>(`/nodes/${nodeId}/acl`, {
-		method: 'POST', headers: { ...JSON_HEADERS, 'Idempotency-Key': body.idempotencyKey }, body: JSON.stringify(body),
-	});
+	runDrive(() =>
+		driveEdge.POST('/api/drive/nodes/{id}/acl', {
+			params: { path: { id: nodeId }, header: { 'Idempotency-Key': body.idempotencyKey } },
+			body,
+		})
+	);
 
 export const revokeNodeGrant = (grantId: string, expectedEpoch: string, reason: string) =>
-	driveFetch<{ grantId: string; epoch: string; state: 'revoked' }>(`/acl-grants/${grantId}`, {
-		method: 'DELETE', headers: JSON_HEADERS, body: JSON.stringify({ expectedEpoch, reason }),
-	});
+	runDrive(() =>
+		driveEdge.DELETE('/api/drive/acl-grants/{id}', {
+			params: { path: { id: grantId } },
+			body: { expectedEpoch, reason },
+		})
+	) as Promise<{ grantId: string; epoch: string; state: 'revoked' }>;
 
 export const previewNodeInheritance = (nodeId: number, value: boolean) =>
-	driveFetch<DriveInheritancePreview>(`/nodes/${nodeId}/inheritance/preview`, {
-		method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ break: value }),
-	});
+	runDrive(() =>
+		driveEdge.POST('/api/drive/nodes/{id}/inheritance/preview', {
+			params: { path: { id: nodeId } },
+			body: { break: value },
+		})
+	) as Promise<DriveInheritancePreview>;
 
 export const setNodeInheritance = (nodeId: number, value: boolean, expectedEpoch: string) =>
-	driveFetch<{ epoch: string; changed: boolean }>(`/nodes/${nodeId}/inheritance`, {
-		method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ break: value, expectedEpoch }),
-	});
+	runDrive(() =>
+		driveEdge.PUT('/api/drive/nodes/{id}/inheritance', {
+			params: { path: { id: nodeId } },
+			body: { break: value, expectedEpoch },
+		})
+	);
 
 export const listDriveQuickView = (view: 'shared' | 'shares' | 'requests') =>
-	driveFetch<DriveQuickViewItem[]>(`/quick-views?view=${view}`);
+	runDrive(() =>
+		driveEdge.GET('/api/drive/quick-views', {
+			params: { query: { view } },
+		})
+	) as Promise<DriveQuickViewItem[]>;
 
 export interface DriveAccessRequestInput {
 	subjectKind: 'user' | 'group';
@@ -374,33 +520,40 @@ export interface DriveAccessRequestInput {
 }
 
 export const previewDriveAccessRequest = (nodeId: number, body: DriveAccessRequestInput) =>
-	driveFetch<Record<string, unknown>>(`/nodes/${nodeId}/access-requests/preview`, {
-		method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body),
-	});
+	runDrive(() =>
+		driveEdge.POST('/api/drive/nodes/{id}/access-requests/preview', {
+			params: { path: { id: nodeId } },
+			body,
+		})
+	) as Promise<Record<string, unknown>>;
 
 export const createDriveAccessRequest = (nodeId: number, body: DriveAccessRequestInput & { idempotencyKey: string }) =>
-	driveFetch<{ requestId: string; status: 'pending'; replayed: boolean }>(`/nodes/${nodeId}/access-requests`, {
-		method: 'POST', headers: { ...JSON_HEADERS, 'Idempotency-Key': body.idempotencyKey }, body: JSON.stringify(body),
-	});
+	runDrive(() =>
+		driveEdge.POST('/api/drive/nodes/{id}/access-requests', {
+			params: { path: { id: nodeId }, header: { 'Idempotency-Key': body.idempotencyKey } },
+			body,
+		})
+	) as Promise<{ requestId: string; status: 'pending'; replayed: boolean }>;
 
 // ── chunks (spec §3.3) ───────────────────────────────────────────────────
 
-/** I-4 anti-oracle existence probe: true only if the chunk exists AND the
- *  caller can prove possession — 404 is the expected "not yet uploaded" case. */
 export async function headChunk(spaceId: number, sha256: string): Promise<boolean> {
-	const res = await httpRequest(`${BASE}/chunks/${sha256}?space=${spaceId}`, {
-		method: 'HEAD',
-		allowStatuses: [404],
+	const { response } = await driveHeadEdge.HEAD('/api/drive/chunks/{sha256}', {
+		params: { path: { sha256 }, query: { space: spaceId } },
+		parseAs: 'stream',
 	});
-	return res.status === 200;
+	return response.status === 200;
 }
 
 export const putChunk = (spaceId: number, sha256: string, bytes: Uint8Array<ArrayBuffer>) =>
-	driveFetchVoid(`/chunks/${sha256}?space=${spaceId}`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/octet-stream' },
-		body: bytes,
-	});
+	runDriveVoid(() =>
+		driveEdge.PUT('/api/drive/chunks/{sha256}', {
+			params: { path: { sha256 }, query: { space: spaceId } },
+			headers: { 'Content-Type': 'application/octet-stream' },
+			body: bytes as unknown as string,
+			bodySerializer: (b) => b as unknown as BodyInit,
+		})
+	);
 
 // ── versions / content ───────────────────────────────────────────────────
 
@@ -414,34 +567,34 @@ export const putVersion = (
 		manifest: { sha256: string; size: number }[];
 		note?: string;
 		deviceLabel?: string;
-		/** Saves land on this branch's ref instead of main (§5.3 — a save always
-		 *  lands on the ref it was opened from). Requires the Go route's
-		 *  postVersionBody to carry a BranchID field through to
-		 *  drive_file_put_version's p_branch_id — see the P4 Task 14 DOX note. */
 		branchId?: number | null;
 	},
 ) =>
-	driveFetch<PutVersionResult>(`/files/${nodeId}/versions`, {
-		method: 'POST',
-		headers: JSON_HEADERS,
-		body: JSON.stringify(body),
-	});
+	runDrive(() =>
+		driveEdge.POST('/api/drive/files/{id}/versions', {
+			params: { path: { id: nodeId } },
+			body,
+		})
+	) as Promise<PutVersionResult>;
 
-export const listVersions = (nodeId: number) => driveFetch<DriveVersion[]>(`/files/${nodeId}/versions`);
+export const listVersions = (nodeId: number) =>
+	runDrive(() => driveEdge.GET('/api/drive/files/{id}/versions', { params: { path: { id: nodeId } } })) as Promise<DriveVersion[]>;
 
-/**
- * Reads the bounded H0 file-history envelope.  The cursor is opaque and is
- * returned only by the server; callers must pass it back unchanged.
- */
 export const history = (
 	nodeId: number,
 	opts: { limit?: number; cursor?: string | null } = {},
 ) => {
-	const params = new URLSearchParams();
-	if (opts.limit != null) params.set('limit', String(opts.limit));
-	if (opts.cursor) params.set('cursor', opts.cursor);
-	const qs = params.toString();
-	return driveFetch<DriveHistoryResult>(`/files/${nodeId}/history${qs ? `?${qs}` : ''}`);
+	const query: { limit?: number; cursor?: string } = {};
+	if (opts.limit != null) query.limit = opts.limit;
+	if (opts.cursor) query.cursor = opts.cursor;
+	return runDrive(() =>
+		driveEdge.GET('/api/drive/files/{id}/history', {
+			params: {
+				path: { id: nodeId },
+				query: Object.keys(query).length ? query : undefined,
+			},
+		})
+	) as Promise<DriveHistoryResult>;
 };
 
 export interface OfficeChoice {
@@ -470,50 +623,106 @@ export interface OfficeLaunchResult {
 }
 
 export const officeChoices = (nodeId: number, platform: 'web' | 'electron') =>
-	driveFetch<OfficeChoicesResult>(`/files/${nodeId}/office/choices?platform=${platform}`);
+	runDrive(() =>
+		driveEdge.GET('/api/drive/files/{id}/office/choices', {
+			params: { path: { id: nodeId }, query: { platform } },
+		})
+	) as Promise<OfficeChoicesResult>;
 
 export const officeLaunch = (
 	nodeId: number,
 	body: { baseVersionId: number; providerId: string; deviceId: string; cohortKey: string },
-) => driveFetch<OfficeLaunchResult>(`/files/${nodeId}/office/launches`, {
-	method: 'POST',
-	headers: JSON_HEADERS,
-	body: JSON.stringify(body),
-});
+) =>
+	runDrive(() =>
+		driveEdge.POST('/api/drive/files/{id}/office/launches', {
+			params: { path: { id: nodeId } },
+			body,
+		})
+	) as Promise<OfficeLaunchResult>;
 
 export const officeRevoke = (nodeId: number, launchId: string) =>
-	driveFetchVoid(`/files/${nodeId}/office/launches/${encodeURIComponent(launchId)}`, { method: 'DELETE' });
+	runDriveVoid(() =>
+		driveEdge.DELETE('/api/drive/files/{id}/office/launches/{launchId}', {
+			params: { path: { id: nodeId, launchId } },
+		})
+	);
 
-/** Restores an existing same-file version without returning original bytes or
- *  its manifest to the browser. The server reuses the canonical version-save
- *  authority, including lock/conflict/quota/WORM behavior. */
 export const restoreVersion = (
 	nodeId: number,
 	versionId: number,
 	body: { baseVersionId?: number | null; note?: string; deviceLabel?: string; branchId?: number | null } = {},
 ) =>
-	driveFetch<PutVersionResult>(`/files/${nodeId}/versions/${versionId}/restore`, {
-		method: 'POST',
-		headers: JSON_HEADERS,
-		body: JSON.stringify(body),
-	});
+	runDrive(() =>
+		driveEdge.POST('/api/drive/files/{id}/versions/{versionId}/restore', {
+			params: { path: { id: nodeId, versionId } },
+			body,
+		})
+	) as Promise<PutVersionResult>;
 
-/** Original-content URL. Protected classifications reject this route and use
- *  governed export; regular content may render inline. */
 export const contentUrl = (versionId: number) => `${BASE}/versions/${versionId}/content`;
 
-/** Office→PDF rendition URL (P3 Task 14 / preview.go's getPreview). Exact
- *  preview capability is server-authorized; a 'none' status is lazily flipped
- *  to 'pending' on first hit. */
 export const previewUrl = (versionId: number) => `${BASE}/versions/${versionId}/preview`;
 
-/** Fetches regular original content. `opts` passes through to httpRequest. */
-export const fetchVersionContent = (versionId: number, opts: HttpOptions = {}) =>
-	httpRequest(contentUrl(versionId), opts);
+function ensureReadableResponse(response: Response, parsedError: unknown): Response {
+	if (response.ok || !response.bodyUsed) return response;
+	const body =
+		parsedError === undefined || parsedError === null
+			? null
+			: typeof parsedError === 'string'
+				? parsedError
+				: JSON.stringify(parsedError);
+	const headers = new Headers(response.headers);
+	if (body !== null && !headers.has('content-type') && typeof parsedError === 'object') {
+		headers.set('content-type', 'application/problem+json');
+	}
+	return new Response(body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	});
+}
+
+/** Fetches regular original content (including Range / 206 Partial Content). */
+export async function fetchVersionContent(versionId: number, opts: HttpOptions = {}): Promise<Response> {
+	const driveContentEdge = createEdgeClient({
+		timeoutMs: opts.timeoutMs,
+		cache: opts.cache,
+		loginRedirect: opts.loginRedirect,
+		unauthorizedMessage: opts.unauthorizedMessage,
+		forbiddenMessage: opts.forbiddenMessage,
+		onError: opts.onError,
+		allowStatuses: opts.allowStatuses ?? [],
+	});
+	const { error, response } = await driveContentEdge.GET('/api/drive/versions/{id}/content', {
+		params: { path: { id: versionId } },
+		headers: opts.headers,
+		signal: opts.signal,
+		credentials: opts.credentials,
+		parseAs: 'stream',
+	});
+	return ensureReadableResponse(response, error);
+}
 
 /** Fetches the server-generated office rendition under exact preview authority. */
-export const fetchVersionPreview = (versionId: number, opts: HttpOptions = {}) =>
-	httpRequest(previewUrl(versionId), opts);
+export async function fetchVersionPreview(versionId: number, opts: HttpOptions = {}): Promise<Response> {
+	const drivePreviewEdge = createEdgeClient({
+		timeoutMs: opts.timeoutMs,
+		cache: opts.cache,
+		loginRedirect: opts.loginRedirect,
+		unauthorizedMessage: opts.unauthorizedMessage,
+		forbiddenMessage: opts.forbiddenMessage,
+		onError: opts.onError,
+		allowStatuses: opts.allowStatuses ?? [],
+	});
+	const { error, response } = await drivePreviewEdge.GET('/api/drive/versions/{id}/preview', {
+		params: { path: { id: versionId } },
+		headers: opts.headers,
+		signal: opts.signal,
+		credentials: opts.credentials,
+		parseAs: 'stream',
+	});
+	return ensureReadableResponse(response, error);
+}
 
 // ── branches (P4 §5.1/§5.2) ─────────────────────────────────────────────────
 
@@ -528,59 +737,79 @@ export interface DriveBranch {
 	createdAt: string;
 	resolvedBy: number | null;
 	resolvedAt: string | null;
-	/** True iff main never moved since this branch's fork point (still open/review) — the ff verb is only offered when this holds. */
 	ffEligible: boolean;
 }
 
-/** Lists open+review branches by default; pass all:true for the closed history too (§5.2 "show closed"). */
 export const listBranches = (nodeId: number, opts: { all?: boolean } = {}) =>
-	driveFetch<DriveBranch[]>(`/files/${nodeId}/branches${opts.all ? '?all=1' : ''}`);
+	runDrive(() =>
+		driveEdge.GET('/api/drive/files/{id}/branches', {
+			params: {
+				path: { id: nodeId },
+				query: opts.all ? { all: '1' } : undefined,
+			},
+		})
+	) as Promise<DriveBranch[]>;
 
 export const createBranch = (nodeId: number, name: string, fromVersionId: number) =>
-	driveFetch<{ branchId: number }>(`/files/${nodeId}/branches`, {
-		method: 'POST',
-		headers: JSON_HEADERS,
-		body: JSON.stringify({ name, fromVersionId }),
-	});
+	runDrive(() =>
+		driveEdge.POST('/api/drive/files/{id}/branches', {
+			params: { path: { id: nodeId } },
+			body: { name, fromVersionId },
+		})
+	);
 
 export const renameBranch = (branchId: number, name: string) =>
-	driveFetchVoid(`/branches/${branchId}`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ name }) });
+	runDriveVoid(() =>
+		driveEdge.PATCH('/api/drive/branches/{id}', {
+			params: { path: { id: branchId } },
+			body: { name },
+		})
+	);
 
 export const setBranchStatus = (branchId: number, status: 'open' | 'review') =>
-	driveFetchVoid(`/branches/${branchId}`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ status }) });
+	runDriveVoid(() =>
+		driveEdge.PATCH('/api/drive/branches/{id}', {
+			params: { path: { id: branchId } },
+			body: { status },
+		})
+	);
 
 export type ResolveVerb = 'ff' | 'adopt' | 'keep_both' | 'discard';
 
 export interface ResolveBranchResult {
 	verb: ResolveVerb;
 	headVersionId: number | null;
-	/** Set only for keep_both — the newly-created sibling file's node id. */
 	newNodeId: number | null;
 }
 
 export const resolveBranch = (branchId: number, verb: ResolveVerb, newName?: string) =>
-	driveFetch<ResolveBranchResult>(`/branches/${branchId}/resolve`, {
-		method: 'POST',
-		headers: JSON_HEADERS,
-		body: JSON.stringify({ verb, newName: newName ?? null }),
-	});
+	runDrive(() =>
+		driveEdge.POST('/api/drive/branches/{id}/resolve', {
+			params: { path: { id: branchId } },
+			body: { verb, newName: newName ?? null },
+		})
+	) as Promise<ResolveBranchResult>;
 
 // ── version labels ───────────────────────────────────────────────────────
 
 export const setLabel = (versionId: number, label: string) =>
-	driveFetchVoid(`/versions/${versionId}/labels`, {
-		method: 'POST',
-		headers: JSON_HEADERS,
-		body: JSON.stringify({ label }),
-	});
+	runDriveVoid(() =>
+		driveEdge.POST('/api/drive/versions/{id}/labels', {
+			params: { path: { id: versionId } },
+			body: { label },
+		})
+	);
 
 export const removeLabel = (versionId: number, label: string) =>
-	driveFetchVoid(`/versions/${versionId}/labels/${encodeURIComponent(label)}`, { method: 'DELETE' });
+	runDriveVoid(() =>
+		driveEdge.DELETE('/api/drive/versions/{id}/labels/{label}', {
+			params: { path: { id: versionId, label } },
+		})
+	);
 
 // ── locks (§5.4) ─────────────────────────────────────────────────────────
 
 export interface LockAcquireResult {
-	/** 'held' is a 200, not an error — presence is an answer (§5.4). */
 	status: 'acquired' | 'renewed' | 'held';
 	mode?: string;
 	expiresAt?: string;
@@ -598,14 +827,24 @@ export const lockFile = (
 		deviceLabel?: string;
 		ttlMinutes?: number;
 	} = {},
-) => driveFetch<LockAcquireResult>(`/files/${nodeId}/lock`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(body) });
+) =>
+	runDrive(() =>
+		driveEdge.PUT('/api/drive/files/{id}/lock', {
+			params: { path: { id: nodeId } },
+			body,
+		})
+	) as Promise<LockAcquireResult>;
 
-/** Releases the caller's own lock, or (opts.break) an authorized break (LR-4). */
 export const unlockFile = (nodeId: number, opts: { break?: boolean; keepalive?: boolean } = {}) =>
-	driveFetchVoid(`/files/${nodeId}/lock${opts.break ? '?break=1' : ''}`, {
-		method: 'DELETE',
-		keepalive: opts.keepalive,
-	});
+	runDriveVoid(() =>
+		driveEdge.DELETE('/api/drive/files/{id}/lock', {
+			params: {
+				path: { id: nodeId },
+				query: opts.break ? { break: '1' } : undefined,
+			},
+			keepalive: opts.keepalive,
+		})
+	);
 
 export interface DriveLockRow {
 	nodeId: number;
@@ -619,15 +858,21 @@ export interface DriveLockRow {
 	deviceLabel: string | null;
 }
 
-/** Admin console read (LR-12): a space member OR a drive.view admin non-member. */
-export const listLocks = (spaceId: number) => driveFetch<{ locks: DriveLockRow[] }>(`/spaces/${spaceId}/locks`);
+export const listLocks = (spaceId: number) =>
+	runDrive(() => driveEdge.GET('/api/drive/spaces/{id}/locks', { params: { path: { id: spaceId } } })) as Promise<{ locks: DriveLockRow[] }>;
 
 // ── watches (§5.6) ───────────────────────────────────────────────────────
 
 export const setWatch = (nodeId: number, ops?: string[]) =>
-	driveFetchVoid(`/nodes/${nodeId}/watch`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ ops: ops ?? null }) });
+	runDriveVoid(() =>
+		driveEdge.PUT('/api/drive/nodes/{id}/watch', {
+			params: { path: { id: nodeId } },
+			body: { ops: ops ?? null },
+		})
+	);
 
-export const removeWatch = (nodeId: number) => driveFetchVoid(`/nodes/${nodeId}/watch`, { method: 'DELETE' });
+export const removeWatch = (nodeId: number) =>
+	runDriveVoid(() => driveEdge.DELETE('/api/drive/nodes/{id}/watch', { params: { path: { id: nodeId } } }));
 
 // ── activity feed (§5.6, LR-2) ──────────────────────────────────────────
 
@@ -643,12 +888,18 @@ export interface DriveActivityItem {
 }
 
 export const activity = (spaceId: number, opts: { node?: number; beforeId?: number; max?: number } = {}) => {
-	const params = new URLSearchParams();
-	if (opts.node != null) params.set('node', String(opts.node));
-	if (opts.beforeId != null) params.set('beforeId', String(opts.beforeId));
-	if (opts.max != null) params.set('max', String(opts.max));
-	const qs = params.toString();
-	return driveFetch<{ items: DriveActivityItem[] }>(`/spaces/${spaceId}/activity${qs ? '?' + qs : ''}`);
+	const query: { node?: number; beforeId?: number; max?: number } = {};
+	if (opts.node != null) query.node = opts.node;
+	if (opts.beforeId != null) query.beforeId = opts.beforeId;
+	if (opts.max != null) query.max = opts.max;
+	return runDrive(() =>
+		driveEdge.GET('/api/drive/spaces/{id}/activity', {
+			params: {
+				path: { id: spaceId },
+				query: Object.keys(query).length ? query : undefined,
+			},
+		})
+	) as Promise<{ items: DriveActivityItem[] }>;
 };
 
 // ── folder admins (§5.5) ─────────────────────────────────────────────────
@@ -660,28 +911,34 @@ export interface DriveFolderAdmin {
 	grantedAt: string;
 }
 
-export const listFolderAdmins = (nodeId: number) => driveFetch<DriveFolderAdmin[]>(`/nodes/${nodeId}/folder-admins`);
+export const listFolderAdmins = (nodeId: number) =>
+	runDrive(() => driveEdge.GET('/api/drive/nodes/{id}/folder-admins', { params: { path: { id: nodeId } } })) as Promise<DriveFolderAdmin[]>;
 
 export const grantFolderAdmin = (nodeId: number, userId: number) =>
-	driveFetchVoid(`/nodes/${nodeId}/folder-admins/${userId}`, { method: 'PUT' });
+	runDriveVoid(() =>
+		driveEdge.PUT('/api/drive/nodes/{id}/folder-admins/{userId}', {
+			params: { path: { id: nodeId, userId } },
+		})
+	);
 
 export const revokeFolderAdmin = (nodeId: number, userId: number) =>
-	driveFetchVoid(`/nodes/${nodeId}/folder-admins/${userId}`, { method: 'DELETE' });
+	runDriveVoid(() =>
+		driveEdge.DELETE('/api/drive/nodes/{id}/folder-admins/{userId}', {
+			params: { path: { id: nodeId, userId } },
+		})
+	);
 
-// ── P5 compliance: audit-chain verify (AUTOPLAN correction #2) ─────────────
+// ── P5 compliance: audit-chain verify ────────────────────────────────────
 
 export interface AuditVerifyResult {
 	checked: number;
-	/** Row ids whose HMAC link broke the chain — empty when clean. */
 	broken: number[];
 }
 
-/** drive.view-gated (worm.go's handleVerifyAuditChain) — walks the space's
- *  tamper-evident audit chain and reports any broken link. */
 export const verifyAuditChain = (spaceId: number) =>
-	driveFetch<AuditVerifyResult>(`/spaces/${spaceId}/audit/verify`);
+	runDrive(() => driveEdge.GET('/api/drive/spaces/{id}/audit/verify', { params: { path: { id: spaceId } } }));
 
-// ── P5 compliance: export/print approval flow (spec §7, §9.2) ──────────────
+// ── P5 compliance: export/print approval flow ────────────────────────────
 
 export type ExportAction = 'download' | 'print';
 
@@ -689,26 +946,16 @@ export interface ExportRequestResult {
 	status: 'granted' | 'pending';
 	grantId?: number;
 	requestId?: number;
-	/** Plaintext single-use token — minted client-side, merged into BOTH
-	 *  statuses by export.go (a hash cannot be inverted at decide time). The
-	 *  caller must never render it as an href (single-use-burning GET). */
 	token: string;
 }
 
-/** POST /api/drive/export — mints a fresh token and either grants immediately
- *  (regular/secure with an 'allow' policy) or routes to the approval engine
- *  (always on gxp). ttlMinutes defaults server-side to 60. */
 export const requestExport = (versionId: number, action: ExportAction, ttlMinutes?: number) =>
-	driveFetch<ExportRequestResult>('/export', {
-		method: 'POST',
-		headers: JSON_HEADERS,
-		body: JSON.stringify({ versionId, action, ttlMinutes }),
-	});
+	runDrive(() =>
+		driveEdge.POST('/api/drive/export', {
+			body: ttlMinutes !== undefined ? { versionId, action, ttlMinutes } : { versionId, action },
+		})
+	) as Promise<ExportRequestResult>;
 
-/** Single-use, BURNING-on-GET download URL. NEVER render this as an <a href>
- *  — a prefetcher or hover-preload would consume the grant before the user
- *  clicks. Navigate with window.location.assign(exportDownloadUrl(token))
- *  only (AUTOPLAN correction #5-Task8). */
 export const exportDownloadUrl = (token: string) => `${BASE}/export/${encodeURIComponent(token)}`;
 
 // ── P6: name search (§6.4) ──────────────────────────────────────────────
@@ -728,10 +975,15 @@ export const searchNodes = (
 	q: string,
 	opts: { spaceId?: number | null; max?: number; signal?: AbortSignal } = {},
 ) => {
-	const params = new URLSearchParams({ q });
-	if (opts.spaceId != null) params.set('space', String(opts.spaceId));
-	if (opts.max != null) params.set('max', String(opts.max));
-	return driveFetch<{ items: DriveSearchItem[] }>(`/search?${params.toString()}`, { signal: opts.signal });
+	const query: { q: string; space?: number; max?: number } = { q };
+	if (opts.spaceId != null) query.space = opts.spaceId;
+	if (opts.max != null) query.max = opts.max;
+	return runDrive(() =>
+		driveEdge.GET('/api/drive/search', {
+			params: { query },
+			signal: opts.signal,
+		})
+	) as Promise<{ items: DriveSearchItem[] }>;
 };
 
 // ── P6: watch list (§5.6 subscription manager) ──────────────────────────
@@ -740,11 +992,11 @@ export interface DriveWatchRow {
 	nodeId: number;
 	nodeName: string;
 	kind: 'folder' | 'file';
-	/** null = watching every event class. */
 	ops: string[] | null;
 }
 
-export const listWatches = () => driveFetch<DriveWatchRow[]>('/watches');
+export const listWatches = () =>
+	runDrive(() => driveEdge.GET('/api/drive/watches')) as Promise<DriveWatchRow[]>;
 
 // ── P6: admin tier-2 trash (the "admin bin") ─────────────────────────────
 
@@ -753,16 +1005,20 @@ export interface DriveTrashItem {
 	name: string;
 	kind: 'folder' | 'file';
 	purgedAt: string;
-	/** null = aged out automatically (30-day sweep), not a manager destroy. */
 	purgedBy: string | null;
 	deletedAt: string | null;
 	sizeBytes: number;
 }
 
 export const trashAdminList = (spaceId: number) =>
-	driveFetch<{ items: DriveTrashItem[] }>(`/spaces/${spaceId}/trash?tier=2`);
+	runDrive(() =>
+		driveEdge.GET('/api/drive/spaces/{id}/trash', {
+			params: { path: { id: spaceId }, query: { tier: 2 } },
+		})
+	) as Promise<{ items: DriveTrashItem[] }>;
 
-export const purgeRestore = (nodeId: number) => driveFetchVoid(`/nodes/${nodeId}/purge-restore`, { method: 'POST' });
+export const purgeRestore = (nodeId: number) =>
+	runDriveVoid(() => driveEdge.POST('/api/drive/nodes/{id}/purge-restore', { params: { path: { id: nodeId } } }));
 
 // ── P6: audit query + CSV export (§9.3) ──────────────────────────────────
 
@@ -801,11 +1057,31 @@ function auditSearchParams(p: AuditQueryParams): URLSearchParams {
 	return params;
 }
 
-export const queryAudit = (p: AuditQueryParams) =>
-	driveFetch<{ items: DriveAuditRow[]; hasMore: boolean }>(`/audit?${auditSearchParams(p).toString()}`);
+export const queryAudit = (p: AuditQueryParams) => {
+	const query: {
+		space: number;
+		actor?: number;
+		action?: string;
+		from?: string;
+		to?: string;
+		q?: string;
+		max?: number;
+		beforeId?: number;
+	} = { space: p.spaceId };
+	if (p.actor != null) query.actor = p.actor;
+	if (p.action) query.action = p.action;
+	if (p.from) query.from = p.from;
+	if (p.to) query.to = p.to;
+	if (p.q) query.q = p.q;
+	if (p.max != null) query.max = p.max;
+	if (p.beforeId != null) query.beforeId = p.beforeId;
+	return runDrive(() =>
+		driveEdge.GET('/api/drive/audit', {
+			params: { query },
+		})
+	) as Promise<{ items: DriveAuditRow[]; hasMore: boolean }>;
+};
 
-/** A real `<a href download>` target (cookie auth, no single-use burn semantics
- *  — unlike exportDownloadUrl above, a plain GET here is safely re-fetchable). */
 export const auditCsvUrl = (p: AuditQueryParams) => {
 	const params = auditSearchParams(p);
 	params.set('format', 'csv');
@@ -816,7 +1092,6 @@ export const auditCsvUrl = (p: AuditQueryParams) => {
 
 export interface DriveAuditAlarm {
 	id: number;
-	/** null = applies org-wide, across every space. */
 	spaceId: number | null;
 	actionPattern: string;
 	threshold: number;
@@ -826,24 +1101,29 @@ export interface DriveAuditAlarm {
 	createdAt: string;
 }
 
-/** The closed §9.3 event catalog (drive_audit_actions()) — for the alarm-rule
- *  dropdown and the query filter (Task 8: was a hardcoded literal in
- *  AdminAuditPanel.svelte, now the one source of truth). */
-export const getAuditActions = () => driveFetch<string[]>('/audit-actions');
+export const getAuditActions = () =>
+	runDrive(() => driveEdge.GET('/api/drive/audit-actions'));
 
-export const listAuditAlarms = () => driveFetch<DriveAuditAlarm[]>('/audit-alarms');
+export const listAuditAlarms = () =>
+	runDrive(() => driveEdge.GET('/api/drive/audit-alarms')) as Promise<DriveAuditAlarm[]>;
 
 export const createAuditAlarm = (body: {
 	spaceId?: number | null;
 	actionPattern: string;
 	threshold?: number;
 	windowMinutes?: number;
-}) => driveFetch<{ id: number }>('/audit-alarms', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
+}) => runDrive(() => driveEdge.POST('/api/drive/audit-alarms', { body }));
 
 export const updateAuditAlarm = (id: number, fields: Record<string, unknown>) =>
-	driveFetchVoid(`/audit-alarms/${id}`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify(fields) });
+	runDriveVoid(() =>
+		driveEdge.PATCH('/api/drive/audit-alarms/{id}', {
+			params: { path: { id } },
+			body: fields,
+		})
+	);
 
-export const deleteAuditAlarm = (id: number) => driveFetchVoid(`/audit-alarms/${id}`, { method: 'DELETE' });
+export const deleteAuditAlarm = (id: number) =>
+	runDriveVoid(() => driveEdge.DELETE('/api/drive/audit-alarms/{id}', { params: { path: { id } } }));
 
 // ── P6: "space as of T" time-point view ──────────────────────────────────
 
@@ -860,4 +1140,8 @@ export interface DriveAsOfItem {
 }
 
 export const spaceAsOf = (spaceId: number, at: string) =>
-	driveFetch<{ items: DriveAsOfItem[] }>(`/spaces/${spaceId}/asof?at=${encodeURIComponent(at)}`);
+	runDrive(() =>
+		driveEdge.GET('/api/drive/spaces/{id}/asof', {
+			params: { path: { id: spaceId }, query: { at } },
+		})
+	) as Promise<{ items: DriveAsOfItem[] }>;

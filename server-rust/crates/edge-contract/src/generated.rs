@@ -22,6 +22,233 @@ where
     Option::<T>::deserialize(deserializer).map(Some)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccessReviewBulkDecideRequest {
+    #[serde(rename = "itemIds")]
+    pub item_ids: Vec<i64>,
+    pub decision: AccessReviewWriteDecision,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccessReviewBulkResult {
+    pub applied: i32,
+    pub skipped: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccessReviewCampaign {
+    pub id: i64,
+    pub name: String,
+    pub status: AccessReviewStatus,
+    pub reviewed: i32,
+    pub total: i32,
+    #[serde(rename = "createdBy")]
+    pub created_by: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(
+        rename = "closedBy",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub closed_by: Option<Option<String>>,
+    #[serde(
+        rename = "closedAt",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub closed_at: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccessReviewCreateRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AccessReviewDecision {
+    #[serde(rename = "undecided")]
+    Undecided,
+    #[serde(rename = "keep")]
+    Keep,
+    #[serde(rename = "revoke")]
+    Revoke,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccessReviewDetail {
+    pub campaign: AccessReviewCampaign,
+    pub items: Vec<AccessReviewItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccessReviewItem {
+    pub id: i64,
+    #[serde(rename = "userEmail")]
+    pub user_email: String,
+    #[serde(rename = "roleName")]
+    pub role_name: String,
+    #[serde(deserialize_with = "deserialize_required_nullable")]
+    pub scope: Option<i64>,
+    #[serde(
+        rename = "grantedAt",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub granted_at: Option<String>,
+    #[serde(
+        rename = "grantedBy",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub granted_by: Option<Option<String>>,
+    #[serde(rename = "isSso")]
+    pub is_sso: bool,
+    #[serde(rename = "isSelf")]
+    pub is_self: bool,
+    pub decision: AccessReviewDecision,
+    #[serde(
+        rename = "appliedAt",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub applied_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccessReviewItemDecideRequest {
+    pub decision: AccessReviewWriteDecision,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AccessReviewStatus {
+    #[serde(rename = "open")]
+    Open,
+    #[serde(rename = "closed")]
+    Closed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AccessReviewWriteDecision {
+    #[serde(rename = "keep")]
+    Keep,
+    #[serde(rename = "revoke")]
+    Revoke,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdminCreatedIdResponse {
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdminRole {
+    pub id: i64,
+    pub name: String,
+    pub description: String,
+    pub permissions: Vec<String>,
+    #[serde(
+        rename = "domainScope",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub domain_scope: Option<Option<i64>>,
+    #[serde(rename = "isBuiltin")]
+    pub is_builtin: bool,
+    #[serde(rename = "memberCount")]
+    pub member_count: i64,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+    #[serde(
+        rename = "sodClass",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub sod_class: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdminRoleAssignMemberRequest {
+    #[serde(rename = "userId")]
+    pub user_id: i64,
+    #[serde(
+        rename = "domainOverride",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub domain_override: Option<Option<i64>>,
+    #[serde(
+        rename = "expiresAt",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub expires_at: Option<Option<String>>,
+    #[serde(
+        rename = "scopeType",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub scope_type: Option<Option<AdminRoleScopeType>>,
+    #[serde(
+        rename = "scopeId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub scope_id: Option<Option<i64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eligible: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdminRoleCreateRequest {
+    pub name: String,
+    pub description: String,
+    pub permissions: Vec<String>,
+    #[serde(
+        rename = "domainScope",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub domain_scope: Option<Option<i64>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AdminRoleScopeType {
+    #[serde(rename = "ou")]
+    Ou,
+    #[serde(rename = "set")]
+    Set,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdminRoleUpdateRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<Vec<String>>,
+    #[serde(
+        rename = "domainScope",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub domain_scope: Option<Option<i64>>,
+}
+
 /// Execution status of a retroactive rule sweep job.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ApplyJobStatus {
@@ -60,6 +287,173 @@ pub struct ApplyStatus {
     pub truncated: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuditVerifyResult {
+    pub checked: i64,
+    pub broken: Vec<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthAccountType {
+    #[serde(rename = "member")]
+    Member,
+    #[serde(rename = "guest")]
+    Guest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthAlias {
+    pub email: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthDelegate {
+    pub id: i64,
+    pub email: String,
+    pub permission: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthLoginForbiddenBody {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mfa_required: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mfa_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub force_password_change: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub force_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captcha_prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captcha_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AuthLoginRequest {
+    pub email: String,
+    pub password: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stay_signed_in: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remember_device: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dpop_jwk: Option<BTreeMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthMeResponse {
+    pub user_id: i64,
+    pub email: String,
+    pub display_name: String,
+    pub is_admin: bool,
+    pub has_mailbox: bool,
+    pub totp_enabled: bool,
+    #[serde(deserialize_with = "deserialize_required_nullable")]
+    pub totp_enabled_at: Option<String>,
+    pub delegates: Vec<AuthDelegate>,
+    pub aliases: Vec<AuthAlias>,
+    pub account_type: AuthAccountType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impersonating: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthMfaChallengeResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mfa_required: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mfa_method: Option<String>,
+    pub mfa_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_seconds: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_up_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_up_methods: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthRateLimitBody {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captcha_prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captcha_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthRefreshRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthSimpleErrorBody {
+    pub error: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthTokenResponse {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_in: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackupCodesGenerateRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reauth_token: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackupCodesGenerateResponse {
+    pub backup_codes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangePasswordRequest {
+    #[serde(rename = "oldPassword")]
+    pub old_password: String,
+    #[serde(rename = "newPassword")]
+    pub new_password: String,
+}
+
 /// Identifier of a newly created rule.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreateRuleResponse {
@@ -87,6 +481,20 @@ pub struct CursorPaginationQuery {
     pub cursor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DelegatePermission {
+    #[serde(rename = "read")]
+    Read,
+    #[serde(rename = "send_as")]
+    SendAs,
+    #[serde(rename = "send_on_behalf")]
+    SendOnBehalf,
+    #[serde(rename = "full_access")]
+    FullAccess,
+    #[serde(rename = "manage_calendar")]
+    ManageCalendar,
 }
 
 /// One append-only outbound SMTP delivery attempt.
@@ -141,6 +549,1796 @@ pub struct DeliveryRecipient {
     pub attempts: Vec<DeliveryAttempt>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveAccessRequestCreateRequest {
+    #[serde(rename = "subjectKind")]
+    pub subject_kind: DriveAclSubjectKind,
+    #[serde(rename = "subjectId")]
+    pub subject_id: String,
+    pub capabilities: Vec<DriveCapability>,
+    pub propagation: DriveAclPropagation,
+    #[serde(rename = "durationMinutes")]
+    pub duration_minutes: i32,
+    #[serde(rename = "maxUses", default, skip_serializing_if = "Option::is_none")]
+    pub max_uses: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emergency: Option<bool>,
+    #[serde(
+        rename = "mfaSessionId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub mfa_session_id: Option<String>,
+    pub reason: String,
+    #[serde(rename = "idempotencyKey")]
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveAccessRequestCreateResponse {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    pub status: String,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveAccessRequestInput {
+    #[serde(rename = "subjectKind")]
+    pub subject_kind: DriveAclSubjectKind,
+    #[serde(rename = "subjectId")]
+    pub subject_id: String,
+    pub capabilities: Vec<DriveCapability>,
+    pub propagation: DriveAclPropagation,
+    #[serde(rename = "durationMinutes")]
+    pub duration_minutes: i32,
+    #[serde(rename = "maxUses", default, skip_serializing_if = "Option::is_none")]
+    pub max_uses: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emergency: Option<bool>,
+    #[serde(
+        rename = "mfaSessionId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub mfa_session_id: Option<String>,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveAccessSource {
+    pub capability: DriveCapability,
+    #[serde(rename = "sourceKind")]
+    pub source_kind: DriveAccessSourceKind,
+    #[serde(
+        rename = "sourceId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub source_id: Option<Option<String>>,
+    #[serde(
+        rename = "anchorNodeId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub anchor_node_id: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveAccessSourceKind {
+    #[serde(rename = "space_role")]
+    SpaceRole,
+    #[serde(rename = "direct")]
+    Direct,
+    #[serde(rename = "group")]
+    Group,
+    #[serde(rename = "folder_admin")]
+    FolderAdmin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveAclGrant {
+    #[serde(rename = "grantId")]
+    pub grant_id: String,
+    #[serde(rename = "anchorNodeId")]
+    pub anchor_node_id: String,
+    #[serde(rename = "anchorName")]
+    pub anchor_name: String,
+    #[serde(rename = "subjectKind")]
+    pub subject_kind: DriveAclSubjectKind,
+    #[serde(rename = "subjectId")]
+    pub subject_id: String,
+    #[serde(rename = "subjectLabel")]
+    pub subject_label: String,
+    #[serde(
+        rename = "subjectSecondary",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub subject_secondary: Option<Option<String>>,
+    pub preset: DriveGrantPreset,
+    pub capabilities: Vec<DriveCapability>,
+    pub propagation: DriveAclPropagation,
+    pub source: DriveAclSource,
+    pub relation: DriveAclRelation,
+    #[serde(
+        rename = "startsAt",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub starts_at: Option<Option<String>>,
+    #[serde(
+        rename = "expiresAt",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub expires_at: Option<Option<String>>,
+    #[serde(
+        rename = "maxUses",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub max_uses: Option<Option<i32>>,
+    #[serde(rename = "usedCount")]
+    pub used_count: i32,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveAclGrantScope {
+    #[serde(rename = "self")]
+    SelfValue,
+    #[serde(rename = "subtree")]
+    Subtree,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveAclMode {
+    #[serde(rename = "legacy")]
+    Legacy,
+    #[serde(rename = "shadow")]
+    Shadow,
+    #[serde(rename = "acl")]
+    Acl,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveAclPropagation {
+    #[serde(rename = "self")]
+    SelfValue,
+    #[serde(rename = "children")]
+    Children,
+    #[serde(rename = "subtree")]
+    Subtree,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveAclRelation {
+    #[serde(rename = "direct")]
+    Direct,
+    #[serde(rename = "inherited")]
+    Inherited,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveAclSource {
+    #[serde(rename = "direct")]
+    Direct,
+    #[serde(rename = "group")]
+    Group,
+    #[serde(rename = "legacy_folder_admin")]
+    LegacyFolderAdmin,
+    #[serde(rename = "approval")]
+    Approval,
+    #[serde(rename = "emergency")]
+    Emergency,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveAclSubject {
+    pub kind: DriveAclSubjectKind,
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secondary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveAclSubjectKind {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "group")]
+    Group,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveActivityItem {
+    pub id: i64,
+    pub action: String,
+    #[serde(rename = "actorId")]
+    pub actor_id: i64,
+    #[serde(rename = "actorName")]
+    pub actor_name: String,
+    #[serde(rename = "targetType")]
+    pub target_type: String,
+    #[serde(rename = "targetId")]
+    pub target_id: i64,
+    pub at: String,
+    #[serde(deserialize_with = "deserialize_required_nullable")]
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveActivityListResponse {
+    pub items: Vec<DriveActivityItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveAsOfItem {
+    pub id: i64,
+    #[serde(
+        rename = "parentId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub parent_id: Option<i64>,
+    pub kind: DriveNodeKind,
+    pub name: String,
+    #[serde(
+        rename = "versionId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub version_id: Option<i64>,
+    #[serde(
+        rename = "versionCreatedAt",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub version_created_at: Option<String>,
+    #[serde(
+        rename = "sizeBytes",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub size_bytes: Option<Option<i64>>,
+    #[serde(
+        rename = "contentType",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub content_type: Option<Option<String>>,
+    #[serde(rename = "liveNow")]
+    pub live_now: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveAsOfResponse {
+    pub items: Vec<DriveAsOfItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveAuditAlarm {
+    pub id: i64,
+    #[serde(rename = "spaceId", deserialize_with = "deserialize_required_nullable")]
+    pub space_id: Option<i64>,
+    #[serde(rename = "actionPattern")]
+    pub action_pattern: String,
+    pub threshold: i32,
+    #[serde(rename = "windowMinutes")]
+    pub window_minutes: i32,
+    pub enabled: bool,
+    #[serde(
+        rename = "createdBy",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub created_by: Option<i64>,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveAuditQueryResponse {
+    pub items: Vec<DriveAuditRow>,
+    #[serde(rename = "hasMore")]
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveAuditRow {
+    pub id: i64,
+    #[serde(rename = "occurredAt")]
+    pub occurred_at: String,
+    #[serde(rename = "userId", deserialize_with = "deserialize_required_nullable")]
+    pub user_id: Option<i64>,
+    #[serde(rename = "userEmail")]
+    pub user_email: String,
+    pub ip: String,
+    pub action: String,
+    #[serde(
+        rename = "targetType",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub target_type: Option<Option<String>>,
+    #[serde(
+        rename = "targetId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub target_id: Option<Option<i64>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub notes: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveBranch {
+    pub id: i64,
+    pub name: String,
+    pub status: DriveBranchStatus,
+    #[serde(rename = "autoCreated")]
+    pub auto_created: bool,
+    #[serde(rename = "headVersionId")]
+    pub head_version_id: i64,
+    #[serde(rename = "forkedFromVersionId")]
+    pub forked_from_version_id: i64,
+    #[serde(rename = "createdBy")]
+    pub created_by: i64,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(
+        rename = "resolvedBy",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub resolved_by: Option<i64>,
+    #[serde(
+        rename = "resolvedAt",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub resolved_at: Option<String>,
+    #[serde(rename = "ffEligible")]
+    pub ff_eligible: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveBranchStatus {
+    #[serde(rename = "open")]
+    Open,
+    #[serde(rename = "review")]
+    Review,
+    #[serde(rename = "merged")]
+    Merged,
+    #[serde(rename = "discarded")]
+    Discarded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveCapability {
+    #[serde(rename = "traverse")]
+    Traverse,
+    #[serde(rename = "list_children")]
+    ListChildren,
+    #[serde(rename = "read_metadata")]
+    ReadMetadata,
+    #[serde(rename = "preview")]
+    Preview,
+    #[serde(rename = "download")]
+    Download,
+    #[serde(rename = "create_child")]
+    CreateChild,
+    #[serde(rename = "modify_content")]
+    ModifyContent,
+    #[serde(rename = "rename")]
+    Rename,
+    #[serde(rename = "move")]
+    Move,
+    #[serde(rename = "delete")]
+    Delete,
+    #[serde(rename = "manage_acl")]
+    ManageAcl,
+    #[serde(rename = "view_audit")]
+    ViewAudit,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DriveChange {
+    #[serde(rename = "nodeId")]
+    pub node_id: serde_json::Value,
+    pub op: String,
+    pub seq: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DriveChangesResult {
+    #[serde(
+        rename = "cannotCalculateChanges",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cannot_calculate_changes: Option<bool>,
+    #[serde(rename = "newState", default, skip_serializing_if = "Option::is_none")]
+    pub new_state: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed: Option<Vec<DriveChange>>,
+    #[serde(rename = "hasMore", default, skip_serializing_if = "Option::is_none")]
+    pub has_more: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveClassification {
+    #[serde(rename = "regular")]
+    Regular,
+    #[serde(rename = "secure")]
+    Secure,
+    #[serde(rename = "gxp")]
+    Gxp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveCreateAuditAlarmRequest {
+    #[serde(
+        rename = "spaceId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub space_id: Option<Option<i64>>,
+    #[serde(rename = "actionPattern")]
+    pub action_pattern: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold: Option<i32>,
+    #[serde(
+        rename = "windowMinutes",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub window_minutes: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveCreateBranchRequest {
+    pub name: String,
+    #[serde(rename = "fromVersionId")]
+    pub from_version_id: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveCreateBranchResponse {
+    #[serde(rename = "branchId")]
+    pub branch_id: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveCreateNodeRequest {
+    #[serde(rename = "spaceId")]
+    pub space_id: i64,
+    #[serde(
+        rename = "parentId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub parent_id: Option<i64>,
+    pub kind: DriveNodeKind,
+    pub name: String,
+    #[serde(
+        rename = "contentType",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub content_type: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DriveCreateSpaceRequest {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classification: Option<DriveClassification>,
+    #[serde(
+        rename = "isPersonal",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub is_personal: Option<bool>,
+    #[serde(
+        rename = "retentionDays",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub retention_days: Option<Option<i32>>,
+    #[serde(
+        rename = "wormMode",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub worm_mode: Option<Option<String>>,
+    #[serde(
+        rename = "exportPolicy",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub export_policy: Option<BTreeMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveExportAction {
+    #[serde(rename = "download")]
+    Download,
+    #[serde(rename = "print")]
+    Print,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveFolderAdmin {
+    #[serde(rename = "userId")]
+    pub user_id: i64,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(rename = "grantedBy")]
+    pub granted_by: i64,
+    #[serde(rename = "grantedAt")]
+    pub granted_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveGrantCreateRequest {
+    #[serde(rename = "subjectKind")]
+    pub subject_kind: DriveAclSubjectKind,
+    #[serde(rename = "subjectId")]
+    pub subject_id: String,
+    pub preset: DrivePreset,
+    pub scope: DriveAclGrantScope,
+    #[serde(rename = "startsAt", default, skip_serializing_if = "Option::is_none")]
+    pub starts_at: Option<String>,
+    #[serde(rename = "expiresAt", default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(rename = "maxUses", default, skip_serializing_if = "Option::is_none")]
+    pub max_uses: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(rename = "expectedEpoch")]
+    pub expected_epoch: String,
+    #[serde(rename = "idempotencyKey")]
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveGrantCreateResponse {
+    #[serde(rename = "grantId")]
+    pub grant_id: String,
+    pub epoch: String,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveGrantInput {
+    #[serde(rename = "subjectKind")]
+    pub subject_kind: DriveAclSubjectKind,
+    #[serde(rename = "subjectId")]
+    pub subject_id: String,
+    pub preset: DrivePreset,
+    pub scope: DriveAclGrantScope,
+    #[serde(rename = "startsAt", default, skip_serializing_if = "Option::is_none")]
+    pub starts_at: Option<String>,
+    #[serde(rename = "expiresAt", default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(rename = "maxUses", default, skip_serializing_if = "Option::is_none")]
+    pub max_uses: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveGrantMemberRequest {
+    #[serde(rename = "userId")]
+    pub user_id: i64,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveGrantMemberResponse {
+    pub status: String,
+    #[serde(rename = "requestId", default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveGrantPreset {
+    #[serde(rename = "viewer")]
+    Viewer,
+    #[serde(rename = "contributor")]
+    Contributor,
+    #[serde(rename = "editor")]
+    Editor,
+    #[serde(rename = "folder_manager")]
+    FolderManager,
+    #[serde(rename = "custom")]
+    Custom,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveGrantRevokeRequest {
+    #[serde(rename = "expectedEpoch")]
+    pub expected_epoch: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveGrantRevokeResponse {
+    #[serde(rename = "grantId")]
+    pub grant_id: String,
+    pub epoch: String,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveHistoryCoverage {
+    pub mode: String,
+    #[serde(
+        rename = "freshnessSeconds",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub freshness_seconds: Option<i64>,
+    #[serde(rename = "coveredSources")]
+    pub covered_sources: Vec<String>,
+    pub omissions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DriveHistoryItem {
+    #[serde(rename = "occurredAt")]
+    pub occurred_at: String,
+    #[serde(rename = "sourceRank")]
+    pub source_rank: i32,
+    #[serde(rename = "sourceId")]
+    pub source_id: serde_json::Value,
+    pub source: String,
+    pub kind: String,
+    #[serde(deserialize_with = "deserialize_required_nullable")]
+    pub details: Option<BTreeMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DriveHistoryResult {
+    pub items: Vec<DriveHistoryItem>,
+    #[serde(rename = "hasMore")]
+    pub has_more: bool,
+    #[serde(
+        rename = "nextCursor",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub next_cursor: Option<String>,
+    pub coverage: DriveHistoryCoverage,
+    #[serde(rename = "generatedAt")]
+    pub generated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveIdResponse {
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveInheritancePreview {
+    #[serde(rename = "nodeId")]
+    pub node_id: String,
+    #[serde(rename = "spaceId")]
+    pub space_id: String,
+    pub epoch: String,
+    #[serde(rename = "requestedBreak")]
+    pub requested_break: bool,
+    #[serde(rename = "currentBreak")]
+    pub current_break: bool,
+    pub changed: bool,
+    #[serde(rename = "affectedNodeCount")]
+    pub affected_node_count: i64,
+    #[serde(rename = "affectedPrincipalCount")]
+    pub affected_principal_count: i64,
+    #[serde(rename = "currentManagerSourceCount")]
+    pub current_manager_source_count: i64,
+    #[serde(rename = "mayRemoveOfflineContent")]
+    pub may_remove_offline_content: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveInheritancePreviewRequest {
+    pub r#break: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveInheritanceSetRequest {
+    pub r#break: bool,
+    #[serde(rename = "expectedEpoch")]
+    pub expected_epoch: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveInheritanceSetResponse {
+    pub epoch: String,
+    pub changed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveLockFileRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<DriveLockMode>,
+    #[serde(
+        rename = "branchId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub branch_id: Option<Option<i64>>,
+    #[serde(
+        rename = "versionId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub version_id: Option<Option<i64>>,
+    #[serde(
+        rename = "deviceLabel",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub device_label: Option<String>,
+    #[serde(
+        rename = "ttlMinutes",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub ttl_minutes: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveLockMode {
+    #[serde(rename = "soft")]
+    Soft,
+    #[serde(rename = "hard")]
+    Hard,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveLockPresence {
+    #[serde(rename = "holderId")]
+    pub holder_id: i64,
+    #[serde(rename = "holderName")]
+    pub holder_name: String,
+    pub mode: String,
+    #[serde(
+        rename = "branchId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub branch_id: Option<i64>,
+    #[serde(rename = "acquiredAt")]
+    pub acquired_at: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveLockRow {
+    #[serde(rename = "nodeId")]
+    pub node_id: i64,
+    pub name: String,
+    #[serde(rename = "holderId")]
+    pub holder_id: i64,
+    #[serde(rename = "holderName")]
+    pub holder_name: String,
+    pub mode: String,
+    #[serde(
+        rename = "branchId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub branch_id: Option<i64>,
+    #[serde(rename = "acquiredAt")]
+    pub acquired_at: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: String,
+    #[serde(
+        rename = "deviceLabel",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub device_label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveLocksListResponse {
+    pub locks: Vec<DriveLockRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveManifestChunk {
+    pub sha256: String,
+    pub size: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveMember {
+    #[serde(rename = "userId")]
+    pub user_id: i64,
+    pub role: String,
+    pub email: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(rename = "grantedAt")]
+    pub granted_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveNode {
+    pub id: i64,
+    #[serde(
+        rename = "parentId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub parent_id: Option<i64>,
+    pub kind: DriveNodeKind,
+    pub name: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub size: Option<Option<i64>>,
+    #[serde(
+        rename = "contentType",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub content_type: Option<Option<String>>,
+    #[serde(
+        rename = "headVersionId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub head_version_id: Option<Option<i64>>,
+    #[serde(
+        rename = "deletedAt",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub deleted_at: Option<Option<String>>,
+    #[serde(rename = "branchCount")]
+    pub branch_count: i64,
+    #[serde(deserialize_with = "deserialize_required_nullable")]
+    pub lock: Option<DriveLockPresence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<DriveCapability>>,
+    #[serde(
+        rename = "traverseOnly",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub traverse_only: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveNodeAccess {
+    #[serde(rename = "nodeId")]
+    pub node_id: String,
+    #[serde(rename = "spaceId")]
+    pub space_id: String,
+    #[serde(rename = "nodeName")]
+    pub node_name: String,
+    #[serde(rename = "nodeKind")]
+    pub node_kind: DriveNodeKind,
+    #[serde(rename = "aclMode")]
+    pub acl_mode: DriveAclMode,
+    pub epoch: String,
+    pub capabilities: Vec<DriveCapability>,
+    #[serde(rename = "traverseOnly")]
+    pub traverse_only: bool,
+    #[serde(rename = "canManage")]
+    pub can_manage: bool,
+    #[serde(rename = "writesEnabled")]
+    pub writes_enabled: bool,
+    #[serde(rename = "governanceEnabled")]
+    pub governance_enabled: bool,
+    #[serde(rename = "inheritanceBroken")]
+    pub inheritance_broken: bool,
+    pub grants: Vec<DriveAclGrant>,
+    pub sources: Vec<DriveAccessSource>,
+    pub presets: Vec<DrivePreset>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveNodeKind {
+    #[serde(rename = "folder")]
+    Folder,
+    #[serde(rename = "file")]
+    File,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveNodeMeta {
+    #[serde(rename = "nodeId")]
+    pub node_id: i64,
+    #[serde(rename = "spaceId")]
+    pub space_id: i64,
+    #[serde(
+        rename = "parentId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub parent_id: Option<i64>,
+    pub kind: DriveNodeKind,
+    pub name: String,
+    #[serde(
+        rename = "deletedAt",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub deleted_at: Option<String>,
+    #[serde(
+        rename = "headVersionId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub head_version_id: Option<i64>,
+    #[serde(
+        rename = "contentSha256",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub content_sha256: Option<String>,
+    #[serde(
+        rename = "sizeBytes",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub size_bytes: Option<i64>,
+    #[serde(
+        rename = "contentType",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub content_type: Option<String>,
+    #[serde(rename = "branchCount")]
+    pub branch_count: i64,
+    pub capabilities: Vec<DriveCapability>,
+    #[serde(rename = "traverseOnly")]
+    pub traverse_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveOfficeFileFamily {
+    #[serde(rename = "word")]
+    Word,
+    #[serde(rename = "sheet")]
+    Sheet,
+    #[serde(rename = "presentation")]
+    Presentation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveOfficePlatform {
+    #[serde(rename = "web")]
+    Web,
+    #[serde(rename = "electron")]
+    Electron,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrivePatchBranchRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrivePatchNodeRequest {
+    #[serde(rename = "newName", default, skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
+    #[serde(
+        rename = "newParentId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub new_parent_id: Option<Option<i64>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DrivePreset {
+    #[serde(rename = "viewer")]
+    Viewer,
+    #[serde(rename = "contributor")]
+    Contributor,
+    #[serde(rename = "editor")]
+    Editor,
+    #[serde(rename = "folder_manager")]
+    FolderManager,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrivePutVersionRequest {
+    #[serde(rename = "contentSha256")]
+    pub content_sha256: String,
+    pub size: i64,
+    #[serde(
+        rename = "contentType",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub content_type: Option<Option<String>>,
+    #[serde(
+        rename = "baseVersionId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub base_version_id: Option<i64>,
+    pub manifest: Vec<DriveManifestChunk>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(
+        rename = "deviceLabel",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub device_label: Option<String>,
+    #[serde(
+        rename = "branchId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub branch_id: Option<Option<i64>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveQuickViewFilter {
+    #[serde(rename = "shared")]
+    Shared,
+    #[serde(rename = "shares")]
+    Shares,
+    #[serde(rename = "requests")]
+    Requests,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DriveQuickViewItem {
+    pub kind: DriveQuickViewKind,
+    #[serde(rename = "nodeId")]
+    pub node_id: String,
+    #[serde(rename = "spaceId")]
+    pub space_id: String,
+    pub name: String,
+    #[serde(rename = "nodeKind")]
+    pub node_kind: DriveNodeKind,
+    #[serde(rename = "spaceName")]
+    pub space_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<DriveGrantPreset>,
+    #[serde(rename = "sharedAt", default, skip_serializing_if = "Option::is_none")]
+    pub shared_at: Option<String>,
+    #[serde(
+        rename = "activeGrantCount",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub active_grant_count: Option<i32>,
+    #[serde(rename = "requestId", default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<DriveCapability>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub propagation: Option<DriveAclPropagation>,
+    #[serde(rename = "expiresAt", default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(rename = "createdAt", default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(
+        rename = "grantId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub grant_id: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveQuickViewKind {
+    #[serde(rename = "shared")]
+    Shared,
+    #[serde(rename = "share")]
+    Share,
+    #[serde(rename = "request")]
+    Request,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveResolveBranchRequest {
+    pub verb: DriveResolveVerb,
+    #[serde(
+        rename = "newName",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub new_name: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveResolveVerb {
+    #[serde(rename = "ff")]
+    Ff,
+    #[serde(rename = "adopt")]
+    Adopt,
+    #[serde(rename = "keep_both")]
+    KeepBoth,
+    #[serde(rename = "discard")]
+    Discard,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveRestoreVersionRequest {
+    #[serde(
+        rename = "baseVersionId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub base_version_id: Option<Option<i64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(
+        rename = "deviceLabel",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub device_label: Option<String>,
+    #[serde(
+        rename = "branchId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub branch_id: Option<Option<i64>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveSearchItem {
+    pub id: i64,
+    #[serde(rename = "spaceId")]
+    pub space_id: i64,
+    #[serde(
+        rename = "parentId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub parent_id: Option<i64>,
+    pub kind: DriveNodeKind,
+    pub name: String,
+    #[serde(
+        rename = "sizeBytes",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub size_bytes: Option<Option<i64>>,
+    #[serde(
+        rename = "contentType",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub content_type: Option<Option<String>>,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveSearchResponse {
+    pub items: Vec<DriveSearchItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveSetLabelRequest {
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveSetWatchRequest {
+    #[serde(deserialize_with = "deserialize_required_nullable")]
+    pub ops: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveSpace {
+    pub id: i64,
+    pub name: String,
+    #[serde(rename = "isPersonal")]
+    pub is_personal: bool,
+    pub classification: DriveClassification,
+    pub role: String,
+    #[serde(rename = "usedBytes")]
+    pub used_bytes: i64,
+    #[serde(
+        rename = "quotaBytes",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub quota_bytes: Option<Option<i64>>,
+    #[serde(rename = "changeSeq")]
+    pub change_seq: i64,
+    #[serde(rename = "aclMode", default, skip_serializing_if = "Option::is_none")]
+    pub acl_mode: Option<DriveAclMode>,
+    #[serde(rename = "aclEpoch", default, skip_serializing_if = "Option::is_none")]
+    pub acl_epoch: Option<i64>,
+    #[serde(
+        rename = "rootCapabilities",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub root_capabilities: Option<Vec<DriveCapability>>,
+    #[serde(
+        rename = "accessGovernanceEnabled",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub access_governance_enabled: Option<bool>,
+    #[serde(
+        rename = "wormPending",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub worm_pending: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveTrashItem {
+    pub id: i64,
+    pub name: String,
+    pub kind: DriveNodeKind,
+    #[serde(rename = "purgedAt")]
+    pub purged_at: String,
+    #[serde(
+        rename = "purgedBy",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub purged_by: Option<String>,
+    #[serde(
+        rename = "deletedAt",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub deleted_at: Option<String>,
+    #[serde(rename = "sizeBytes")]
+    pub size_bytes: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveTrashListResponse {
+    pub items: Vec<DriveTrashItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveVersion {
+    pub id: i64,
+    #[serde(
+        rename = "parentVersionId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub parent_version_id: Option<i64>,
+    #[serde(
+        rename = "conflictOf",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub conflict_of: Option<i64>,
+    pub sha256: String,
+    pub size: i64,
+    #[serde(
+        rename = "contentType",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub content_type: Option<Option<String>>,
+    pub author: i64,
+    #[serde(
+        rename = "deviceLabel",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub device_label: Option<Option<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub note: Option<Option<String>>,
+    #[serde(rename = "previewStatus")]
+    pub preview_status: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(
+        rename = "branchId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub branch_id: Option<i64>,
+    pub labels: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveWatchRow {
+    #[serde(rename = "nodeId")]
+    pub node_id: i64,
+    #[serde(rename = "nodeName")]
+    pub node_name: String,
+    pub kind: DriveNodeKind,
+    #[serde(deserialize_with = "deserialize_required_nullable")]
+    pub ops: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EffectivePermSource {
+    #[serde(rename = "roleGroupId")]
+    pub role_group_id: i64,
+    #[serde(rename = "roleName")]
+    pub role_name: String,
+    pub permissions: Vec<String>,
+    #[serde(
+        rename = "effectiveScope",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub effective_scope: Option<Option<i64>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EffectivePerms {
+    pub permissions: Vec<String>,
+    #[serde(
+        rename = "domainScope",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub domain_scope: Option<Option<i64>>,
+    pub sources: Vec<EffectivePermSource>,
+    #[serde(deserialize_with = "deserialize_required_nullable")]
+    pub consoles: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportRequestBody {
+    #[serde(rename = "versionId")]
+    pub version_id: i64,
+    pub action: DriveExportAction,
+    #[serde(
+        rename = "ttlMinutes",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub ttl_minutes: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportRequestResult {
+    pub status: String,
+    #[serde(rename = "grantId", default, skip_serializing_if = "Option::is_none")]
+    pub grant_id: Option<i64>,
+    #[serde(rename = "requestId", default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<i64>,
+    pub token: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GrantDelegateRequest {
+    #[serde(rename = "granteeEmail")]
+    pub grantee_email: String,
+    pub permission: DelegatePermission,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestAssignProfileRequest {
+    #[serde(
+        rename = "profileId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub profile_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestChannelGrant {
+    #[serde(rename = "channelId")]
+    pub channel_id: i64,
+    pub kind: String,
+    #[serde(deserialize_with = "deserialize_required_nullable")]
+    pub name: Option<String>,
+    pub role: String,
+    #[serde(rename = "canPost", deserialize_with = "deserialize_required_nullable")]
+    pub can_post: Option<bool>,
+    #[serde(
+        rename = "historyFloorSeq",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub history_floor_seq: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestDetail {
+    pub id: i64,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(rename = "invitedEmail")]
+    pub invited_email: String,
+    pub status: GuestStatus,
+    #[serde(rename = "effectiveStatus")]
+    pub effective_status: GuestStatus,
+    #[serde(
+        rename = "expiresAt",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub expires_at: Option<String>,
+    #[serde(
+        rename = "sponsorUserId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub sponsor_user_id: Option<i64>,
+    #[serde(
+        rename = "sponsorDisplayName",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub sponsor_display_name: Option<String>,
+    #[serde(rename = "sponsorNeedsReview")]
+    pub sponsor_needs_review: bool,
+    #[serde(
+        rename = "profileId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub profile_id: Option<i64>,
+    #[serde(
+        rename = "profileName",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub profile_name: Option<String>,
+    #[serde(rename = "channelGrantCount")]
+    pub channel_grant_count: i64,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+    #[serde(
+        rename = "invitedBy",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub invited_by: Option<i64>,
+    #[serde(
+        rename = "invitedByEmail",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub invited_by_email: Option<String>,
+    #[serde(
+        rename = "pendingInvite",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub pending_invite: Option<GuestPendingInvite>,
+    #[serde(rename = "inviteHistory")]
+    pub invite_history: Vec<GuestInviteHistoryEntry>,
+    #[serde(rename = "inviteHistoryHasMore")]
+    pub invite_history_has_more: bool,
+    #[serde(rename = "channelGrants")]
+    pub channel_grants: Vec<GuestChannelGrant>,
+    #[serde(rename = "appEntitlements")]
+    pub app_entitlements: BTreeMap<String, bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestExtendRequest {
+    #[serde(rename = "expiresAt")]
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestInviteAcceptRequest {
+    pub token: String,
+    pub disclosure_accepted: bool,
+    pub new_password: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestInviteAcceptResponse {
+    pub invited_email: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestInviteDeliveryUnconfirmedBody {
+    pub code: String,
+    pub retryable: bool,
+    #[serde(rename = "inviteId")]
+    pub invite_id: String,
+    #[serde(rename = "guestUserId")]
+    pub guest_user_id: i64,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestInviteDisclosureResponse {
+    pub channels: Vec<String>,
+    pub disclosure_text: String,
+    pub disclosure_version: String,
+    pub expires_at: String,
+    pub invited_email: String,
+    pub org_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestInviteHistoryEntry {
+    #[serde(rename = "inviteId")]
+    pub invite_id: String,
+    pub state: GuestInviteState,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: String,
+    #[serde(
+        rename = "terminalAt",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub terminal_at: Option<String>,
+    #[serde(
+        rename = "createdByEmail",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub created_by_email: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestInviteInput {
+    pub email: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(
+        rename = "profileId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub profile_id: Option<Option<i64>>,
+    #[serde(rename = "expiresAt", default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestInviteMutationResult {
+    #[serde(rename = "guestUserId")]
+    pub guest_user_id: i64,
+    #[serde(rename = "inviteId")]
+    pub invite_id: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: String,
+    #[serde(
+        rename = "invitedEmail",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub invited_email: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GuestInviteState {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "superseded")]
+    Superseded,
+    #[serde(rename = "revoked")]
+    Revoked,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestPendingInvite {
+    #[serde(rename = "inviteId")]
+    pub invite_id: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(
+        rename = "createdByEmail",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub created_by_email: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestProfile {
+    #[serde(rename = "hostDomainId")]
+    pub host_domain_id: i64,
+    pub name: String,
+    #[serde(rename = "canPost")]
+    pub can_post: bool,
+    #[serde(rename = "historyFromJoin")]
+    pub history_from_join: bool,
+    #[serde(rename = "allowDownload")]
+    pub allow_download: bool,
+    #[serde(rename = "allowMeetCreate")]
+    pub allow_meet_create: bool,
+    #[serde(rename = "allowMeetHost")]
+    pub allow_meet_host: bool,
+    #[serde(rename = "canInitiateDm")]
+    pub can_initiate_dm: bool,
+    #[serde(rename = "allowNativeShell")]
+    pub allow_native_shell: bool,
+    #[serde(
+        rename = "defaultExpiryDays",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub default_expiry_days: Option<i32>,
+    pub apps: Vec<GuestProfileApp>,
+    pub id: i64,
+    #[serde(rename = "assignedCount")]
+    pub assigned_count: i64,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GuestProfileApp {
+    #[serde(rename = "chat")]
+    Chat,
+    #[serde(rename = "drive")]
+    Drive,
+    #[serde(rename = "meet")]
+    Meet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestProfileDomain {
+    pub id: i64,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestProfileInput {
+    #[serde(rename = "hostDomainId")]
+    pub host_domain_id: i64,
+    pub name: String,
+    #[serde(rename = "canPost")]
+    pub can_post: bool,
+    #[serde(rename = "historyFromJoin")]
+    pub history_from_join: bool,
+    #[serde(rename = "allowDownload")]
+    pub allow_download: bool,
+    #[serde(rename = "allowMeetCreate")]
+    pub allow_meet_create: bool,
+    #[serde(rename = "allowMeetHost")]
+    pub allow_meet_host: bool,
+    #[serde(rename = "canInitiateDm")]
+    pub can_initiate_dm: bool,
+    #[serde(rename = "allowNativeShell")]
+    pub allow_native_shell: bool,
+    #[serde(
+        rename = "defaultExpiryDays",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub default_expiry_days: Option<i32>,
+    pub apps: Vec<GuestProfileApp>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestReinviteInput {
+    #[serde(rename = "expiresAt", default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestRevokeInviteRequest {
+    #[serde(rename = "expectedInviteId")]
+    pub expected_invite_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestSponsorOption {
+    pub id: i64,
+    pub email: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GuestStatus {
+    #[serde(rename = "invited")]
+    Invited,
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "disabled")]
+    Disabled,
+    #[serde(rename = "expired")]
+    Expired,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestSummary {
+    pub id: i64,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(rename = "invitedEmail")]
+    pub invited_email: String,
+    pub status: GuestStatus,
+    #[serde(rename = "effectiveStatus")]
+    pub effective_status: GuestStatus,
+    #[serde(
+        rename = "expiresAt",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub expires_at: Option<String>,
+    #[serde(
+        rename = "sponsorUserId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub sponsor_user_id: Option<i64>,
+    #[serde(
+        rename = "sponsorDisplayName",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub sponsor_display_name: Option<String>,
+    #[serde(rename = "sponsorNeedsReview")]
+    pub sponsor_needs_review: bool,
+    #[serde(
+        rename = "profileId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub profile_id: Option<i64>,
+    #[serde(
+        rename = "profileName",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub profile_name: Option<String>,
+    #[serde(rename = "pendingInvite")]
+    pub pending_invite: bool,
+    #[serde(rename = "channelGrantCount")]
+    pub channel_grant_count: i64,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestTransferRequest {
+    #[serde(rename = "sponsorUserId")]
+    pub sponsor_user_id: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestTransferResult {
+    #[serde(rename = "guestUserId")]
+    pub guest_user_id: i64,
+    #[serde(rename = "sponsorUserId")]
+    pub sponsor_user_id: i64,
+    #[serde(rename = "channelOwnersTransferred")]
+    pub channel_owners_transferred: i64,
+    #[serde(rename = "driveSpacesTransferred")]
+    pub drive_spaces_transferred: i64,
+}
+
 /// Public /health JSON verdict payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HealthStatus {
@@ -156,6 +2354,13 @@ pub enum HealthVerdict {
     Warn,
     #[serde(rename = "error")]
     Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImpersonateUserResponse {
+    pub expires_in: i64,
+    pub impersonating: bool,
+    pub target_email: String,
 }
 
 /// Inbound message trace containing parsed Received header hops.
@@ -190,6 +2395,26 @@ pub enum InboundDirection {
     Inbound,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LockAcquireResult {
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    #[serde(rename = "expiresAt", default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(rename = "holderId", default, skip_serializing_if = "Option::is_none")]
+    pub holder_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    #[serde(
+        rename = "branchId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub branch_id: Option<Option<i64>>,
+}
+
 /// User-scoped mailbox storage usage and quota totals in bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MailboxQuota {
@@ -205,6 +2430,92 @@ pub struct MailboxQuota {
 pub enum MessageTrace {
     InboundDeliveryTrace(InboundDeliveryTrace),
     OutboundDeliveryTrace(OutboundDeliveryTrace),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MfaReauthOperation {
+    #[serde(rename = "totp.enroll")]
+    TotpEnroll,
+    #[serde(rename = "totp.replace")]
+    TotpReplace,
+    #[serde(rename = "webauthn.register")]
+    WebauthnRegister,
+    #[serde(rename = "webauthn.revoke")]
+    WebauthnRevoke,
+    #[serde(rename = "recovery.regenerate")]
+    RecoveryRegenerate,
+    #[serde(rename = "device.register.native")]
+    DeviceRegisterNative,
+    #[serde(rename = "bootstrap.totp.enroll")]
+    BootstrapTotpEnroll,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MfaReauthRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<MfaReauthOperation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MfaReauthResponse {
+    pub reauth_token: String,
+    pub expires_in: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OfficeChoice {
+    #[serde(rename = "providerId")]
+    pub provider_id: String,
+    pub mode: String,
+    #[serde(rename = "fileFamily")]
+    pub file_family: DriveOfficeFileFamily,
+    pub available: bool,
+    #[serde(rename = "buildId", deserialize_with = "deserialize_required_nullable")]
+    pub build_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OfficeChoicesResult {
+    #[serde(rename = "fileFamily")]
+    pub file_family: DriveOfficeFileFamily,
+    pub platform: DriveOfficePlatform,
+    #[serde(rename = "localOpenAllowed")]
+    pub local_open_allowed: bool,
+    pub choices: Vec<OfficeChoice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OfficeLaunchRequest {
+    #[serde(rename = "baseVersionId")]
+    pub base_version_id: i64,
+    #[serde(rename = "providerId")]
+    pub provider_id: String,
+    #[serde(rename = "deviceId")]
+    pub device_id: String,
+    #[serde(rename = "cohortKey")]
+    pub cohort_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OfficeLaunchResult {
+    #[serde(rename = "launchId")]
+    pub launch_id: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "fenceGeneration")]
+    pub fence_generation: i64,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: String,
+    #[serde(rename = "accessToken")]
+    pub access_token: String,
+    #[serde(rename = "wopiSrc")]
+    pub wopi_src: String,
+    #[serde(rename = "editorUrl")]
+    pub editor_url: String,
 }
 
 /// Estimated message count and body bytes for one offline window.
@@ -275,6 +2586,86 @@ pub enum OutboundDirection {
     Outbound,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PasskeyCredential {
+    pub id: String,
+    pub device_name: String,
+    pub created_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uv_capable: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PasskeyCredentialsListResponse {
+    pub credentials: Vec<PasskeyCredential>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PasswordPolicyResponse {
+    #[serde(rename = "minLength")]
+    pub min_length: i32,
+    #[serde(rename = "maxBytes")]
+    pub max_bytes: i32,
+    #[serde(rename = "requireUppercase")]
+    pub require_uppercase: bool,
+    #[serde(rename = "requireLowercase")]
+    pub require_lowercase: bool,
+    #[serde(rename = "requireDigit")]
+    pub require_digit: bool,
+    #[serde(rename = "requireSpecial")]
+    pub require_special: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionCatalogEntry {
+    pub key: String,
+    pub category: String,
+    pub description: String,
+    #[serde(rename = "isSensitive")]
+    pub is_sensitive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PossessionTotpRequest {
+    pub operation: MfaReauthOperation,
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PossessionWebAuthnBeginRequest {
+    pub operation: MfaReauthOperation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mfa_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PossessionWebAuthnFinishRequest {
+    pub id: String,
+    #[serde(rename = "rawId")]
+    pub raw_id: String,
+    pub r#type: String,
+    pub response: WebAuthnAssertionPayload,
+    pub operation: MfaReauthOperation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mfa_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PossessionWebAuthnFinishResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reauth_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_in: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub granted: Option<bool>,
+}
+
 /// RFC 9457 Problem Details payload returned by Setjoin HTTP edge handlers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProblemDetails {
@@ -297,6 +2688,45 @@ pub struct ProblemDetails {
     pub retryable: Option<bool>,
     #[serde(rename = "holderId", default, skip_serializing_if = "Option::is_none")]
     pub holder_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PushStatusRequest {
+    pub nonce: String,
+    pub mfa_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dpop_jwk: Option<BTreeMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PushStatusResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_in: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PutVersionResult {
+    #[serde(rename = "versionId")]
+    pub version_id: i64,
+    pub conflict: bool,
+    #[serde(
+        rename = "branchId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub branch_id: Option<i64>,
+    #[serde(
+        rename = "headVersionId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub head_version_id: Option<i64>,
+    #[serde(rename = "wormPending")]
+    pub worm_pending: bool,
 }
 
 /// Reference to the raw RFC 5322 message download.
@@ -333,6 +2763,21 @@ pub enum RecipientStatus {
     Queued,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolveBranchResult {
+    pub verb: DriveResolveVerb,
+    #[serde(
+        rename = "headVersionId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub head_version_id: Option<i64>,
+    #[serde(
+        rename = "newNodeId",
+        deserialize_with = "deserialize_required_nullable"
+    )]
+    pub new_node_id: Option<i64>,
+}
+
 /// How far back a retroactive rule sweep reaches.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RetroWindow {
@@ -355,6 +2800,58 @@ pub enum RetroWindowInput {
     All,
     #[serde(rename = "")]
     Empty,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleDetail {
+    pub role: AdminRole,
+    pub members: Vec<RoleMember>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleMember {
+    #[serde(rename = "userId")]
+    pub user_id: i64,
+    #[serde(rename = "userEmail")]
+    pub user_email: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(
+        rename = "domainOverride",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub domain_override: Option<Option<i64>>,
+    #[serde(rename = "grantedBy")]
+    pub granted_by: i64,
+    #[serde(rename = "grantedAt")]
+    pub granted_at: String,
+    #[serde(
+        rename = "expiresAt",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub expires_at: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manageable: Option<bool>,
+    #[serde(
+        rename = "scopeType",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub scope_type: Option<Option<AdminRoleScopeType>>,
+    #[serde(
+        rename = "scopeId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub scope_id: Option<Option<i64>>,
+    #[serde(rename = "setName", default, skip_serializing_if = "Option::is_none")]
+    pub set_name: Option<String>,
 }
 
 /// A rule-engine action executed when conditions match.
@@ -429,6 +2926,186 @@ pub enum RunOn {
     Client,
     #[serde(rename = "both")]
     Both,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetMyDefaultRequest {
+    pub audience: SharingAudience,
+    #[serde(rename = "audienceRef")]
+    pub audience_ref: i64,
+    pub level: SharingLevel,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SharingAudience {
+    #[serde(rename = "everyone")]
+    Everyone,
+    #[serde(rename = "ou")]
+    Ou,
+    #[serde(rename = "group")]
+    Group,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharingCalendarGrant {
+    #[serde(rename = "calendarId")]
+    pub calendar_id: i64,
+    #[serde(rename = "calendarName")]
+    pub calendar_name: String,
+    #[serde(rename = "userEmail")]
+    pub user_email: String,
+    #[serde(rename = "userName")]
+    pub user_name: String,
+    pub level: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharingDefault {
+    pub id: i64,
+    #[serde(rename = "ownerScope")]
+    pub owner_scope: SharingOwnerScope,
+    pub audience: SharingAudience,
+    #[serde(rename = "audienceRef")]
+    pub audience_ref: i64,
+    pub level: SharingLevel,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharingDefaultIdResponse {
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharingDelegate {
+    #[serde(rename = "userId")]
+    pub user_id: i64,
+    pub email: String,
+    pub name: String,
+    pub permission: DelegatePermission,
+    #[serde(rename = "grantedAt")]
+    pub granted_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SharingLevel {
+    #[serde(rename = "none")]
+    None,
+    #[serde(rename = "freebusy")]
+    Freebusy,
+    #[serde(rename = "read")]
+    Read,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharingOverview {
+    pub delegates: Vec<SharingDelegate>,
+    #[serde(rename = "calendarGrants")]
+    pub calendar_grants: Vec<SharingCalendarGrant>,
+    #[serde(rename = "myDefaults")]
+    pub my_defaults: Vec<SharingDefault>,
+    #[serde(rename = "inheritedDefaults")]
+    pub inherited_defaults: Vec<SharingDefault>,
+    #[serde(rename = "defaultsEnabled")]
+    pub defaults_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SharingOwnerScope {
+    #[serde(rename = "org")]
+    Org,
+    #[serde(rename = "ou")]
+    Ou,
+    #[serde(rename = "group")]
+    Group,
+    #[serde(rename = "user")]
+    User,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SodModeConflictBody {
+    pub error: String,
+    pub violations: Vec<SodViolation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SodModeSetRequest {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SodModeSetResponse {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SodModeStatus {
+    pub enabled: bool,
+    pub violations: Vec<SodViolation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SodViolation {
+    #[serde(rename = "violationType")]
+    pub violation_type: String,
+    pub subject: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TotpConfirmRequest {
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reauth_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enrollment_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TotpEnrollConfirmRequest {
+    pub code: String,
+    pub mfa_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dpop_jwk: Option<BTreeMap<String, serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enrollment_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TotpEnrollSetupRequest {
+    pub mfa_token: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TotpRemoveBeginRequest {
+    pub password: String,
+    pub code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TotpRemoveBeginResponse {
+    pub step_up_token: String,
+    pub expires_in: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TotpRemoveRequest {
+    pub step_up_token: String,
+    pub confirm: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TotpSetupResponse {
+    pub provisioning_uri: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enrollment_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TotpVerifyRequest {
+    pub code: String,
+    pub mfa_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dpop_jwk: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 /// Authentication mechanism verification outcome.
@@ -576,12 +3253,192 @@ pub struct ViewPreferences {
     pub extra: BTreeMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebAuthnAssertionPayload {
+    #[serde(rename = "authenticatorData")]
+    pub authenticator_data: String,
+    #[serde(rename = "clientDataJSON")]
+    pub client_data_json: String,
+    pub signature: String,
+    #[serde(
+        rename = "userHandle",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub user_handle: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebAuthnAttestationPayload {
+    #[serde(rename = "attestationObject")]
+    pub attestation_object: String,
+    #[serde(rename = "clientDataJSON")]
+    pub client_data_json: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WebAuthnBeginOptionsResponse {
+    #[serde(rename = "publicKey", default, skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<BTreeMap<String, serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WebAuthnLoginFinishRequest {
+    pub id: String,
+    #[serde(rename = "rawId")]
+    pub raw_id: String,
+    pub r#type: String,
+    pub response: WebAuthnAssertionPayload,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dpop_jwk: Option<BTreeMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebAuthnLoginFinishResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_in: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mfa_required: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mfa_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mfa_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_seconds: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebAuthnRegisterFinishRequest {
+    pub id: String,
+    #[serde(rename = "rawId")]
+    pub raw_id: String,
+    pub r#type: String,
+    pub response: WebAuthnAttestationPayload,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reauth_token: Option<String>,
+}
+
 /// OpenAPI 3.1 contract version embedded at generation time.
 pub const OPENAPI_VERSION: &str = "3.1.0";
 
 /// Contracted `(METHOD, path)` pairs emitted from `contracts/edge/openapi/edge.v1.yaml`.
 pub const CONTRACTED_OPERATIONS: &[(&str, &str)] = &[
     ("GET", "/_gateway/healthz"),
+    ("GET", "/api/admin/access-reviews"),
+    ("POST", "/api/admin/access-reviews"),
+    ("GET", "/api/admin/access-reviews/{id}"),
+    ("POST", "/api/admin/access-reviews/{id}/close"),
+    ("PUT", "/api/admin/access-reviews/{id}/items"),
+    ("PUT", "/api/admin/access-reviews/{id}/items/{itemId}"),
+    ("GET", "/api/admin/dengbao/sod-mode"),
+    ("PUT", "/api/admin/dengbao/sod-mode"),
+    ("GET", "/api/admin/guest-profile-domains"),
+    ("GET", "/api/admin/guest-profiles"),
+    ("POST", "/api/admin/guest-profiles"),
+    ("GET", "/api/admin/guest-profiles/{id}"),
+    ("PUT", "/api/admin/guest-profiles/{id}"),
+    ("DELETE", "/api/admin/guest-profiles/{id}"),
+    ("GET", "/api/admin/guests"),
+    ("POST", "/api/admin/guests"),
+    ("GET", "/api/admin/guests/{id}"),
+    ("POST", "/api/admin/guests/{id}/disable"),
+    ("POST", "/api/admin/guests/{id}/enable"),
+    ("POST", "/api/admin/guests/{id}/extend"),
+    ("PUT", "/api/admin/guests/{id}/profile"),
+    ("POST", "/api/admin/guests/{id}/reinvite"),
+    ("GET", "/api/admin/guests/{id}/sponsor-options"),
+    ("POST", "/api/admin/guests/{id}/transfer"),
+    ("DELETE", "/api/admin/guests/{userId}/invite"),
+    ("GET", "/api/admin/permissions"),
+    ("GET", "/api/admin/roles"),
+    ("POST", "/api/admin/roles"),
+    ("GET", "/api/admin/roles/{id}"),
+    ("PUT", "/api/admin/roles/{id}"),
+    ("DELETE", "/api/admin/roles/{id}"),
+    ("POST", "/api/admin/roles/{id}/members"),
+    ("DELETE", "/api/admin/roles/{id}/members/{userId}"),
+    ("GET", "/api/admin/users/{id}/effective-permissions"),
+    ("DELETE", "/api/drive/acl-grants/{id}"),
+    ("GET", "/api/drive/acl-subjects"),
+    ("GET", "/api/drive/audit"),
+    ("GET", "/api/drive/audit-actions"),
+    ("GET", "/api/drive/audit-alarms"),
+    ("POST", "/api/drive/audit-alarms"),
+    ("DELETE", "/api/drive/audit-alarms/{id}"),
+    ("PATCH", "/api/drive/audit-alarms/{id}"),
+    ("PATCH", "/api/drive/branches/{id}"),
+    ("POST", "/api/drive/branches/{id}/resolve"),
+    ("GET", "/api/drive/changes"),
+    ("PUT", "/api/drive/chunks/{sha256}"),
+    ("HEAD", "/api/drive/chunks/{sha256}"),
+    ("POST", "/api/drive/export"),
+    ("GET", "/api/drive/files/{id}/branches"),
+    ("POST", "/api/drive/files/{id}/branches"),
+    ("GET", "/api/drive/files/{id}/history"),
+    ("PUT", "/api/drive/files/{id}/lock"),
+    ("DELETE", "/api/drive/files/{id}/lock"),
+    ("GET", "/api/drive/files/{id}/office/choices"),
+    ("POST", "/api/drive/files/{id}/office/launches"),
+    ("DELETE", "/api/drive/files/{id}/office/launches/{launchId}"),
+    ("GET", "/api/drive/files/{id}/versions"),
+    ("POST", "/api/drive/files/{id}/versions"),
+    ("POST", "/api/drive/files/{id}/versions/{versionId}/restore"),
+    ("GET", "/api/drive/nodes"),
+    ("POST", "/api/drive/nodes"),
+    ("DELETE", "/api/drive/nodes/{id}"),
+    ("PATCH", "/api/drive/nodes/{id}"),
+    ("GET", "/api/drive/nodes/{id}/access"),
+    ("POST", "/api/drive/nodes/{id}/access-requests"),
+    ("POST", "/api/drive/nodes/{id}/access-requests/preview"),
+    ("POST", "/api/drive/nodes/{id}/acl"),
+    ("POST", "/api/drive/nodes/{id}/acl/preview"),
+    ("GET", "/api/drive/nodes/{id}/folder-admins"),
+    ("PUT", "/api/drive/nodes/{id}/folder-admins/{userId}"),
+    ("DELETE", "/api/drive/nodes/{id}/folder-admins/{userId}"),
+    ("PUT", "/api/drive/nodes/{id}/inheritance"),
+    ("POST", "/api/drive/nodes/{id}/inheritance/preview"),
+    ("POST", "/api/drive/nodes/{id}/purge-restore"),
+    ("POST", "/api/drive/nodes/{id}/restore"),
+    ("POST", "/api/drive/nodes/{id}/trash"),
+    ("PUT", "/api/drive/nodes/{id}/watch"),
+    ("DELETE", "/api/drive/nodes/{id}/watch"),
+    ("GET", "/api/drive/quick-views"),
+    ("GET", "/api/drive/search"),
+    ("GET", "/api/drive/spaces"),
+    ("POST", "/api/drive/spaces"),
+    ("PATCH", "/api/drive/spaces/{id}"),
+    ("GET", "/api/drive/spaces/{id}/activity"),
+    ("GET", "/api/drive/spaces/{id}/asof"),
+    ("GET", "/api/drive/spaces/{id}/audit/verify"),
+    ("GET", "/api/drive/spaces/{id}/locks"),
+    ("GET", "/api/drive/spaces/{id}/members"),
+    ("POST", "/api/drive/spaces/{id}/members"),
+    ("DELETE", "/api/drive/spaces/{id}/members/{userId}"),
+    ("GET", "/api/drive/spaces/{id}/trash"),
+    ("GET", "/api/drive/spaces/{id}/tree"),
+    ("GET", "/api/drive/versions/{id}/content"),
+    ("POST", "/api/drive/versions/{id}/labels"),
+    ("DELETE", "/api/drive/versions/{id}/labels/{label}"),
+    ("GET", "/api/drive/versions/{id}/preview"),
+    ("GET", "/api/drive/watches"),
+    ("GET", "/api/me/sharing"),
+    ("PUT", "/api/me/sharing/default"),
+    ("DELETE", "/api/me/sharing/default/{id}"),
+    ("POST", "/api/me/sharing/delegates"),
+    ("DELETE", "/api/me/sharing/delegates/{userId}"),
     ("GET", "/api/messages/{emailId}/trace"),
     ("GET", "/api/offline/size-estimate"),
     ("POST", "/api/settings/rules"),
@@ -593,6 +3450,33 @@ pub const CONTRACTED_OPERATIONS: &[(&str, &str)] = &[
     ("GET", "/api/settings/view"),
     ("PUT", "/api/settings/view"),
     ("GET", "/api/user/quota"),
+    ("POST", "/auth/admin/users/{id}/impersonate"),
+    ("POST", "/auth/backup-codes/generate"),
+    ("POST", "/auth/change-password"),
+    ("GET", "/auth/guest-invite/accept"),
+    ("POST", "/auth/guest-invite/accept"),
+    ("POST", "/auth/login"),
+    ("POST", "/auth/logout"),
+    ("GET", "/auth/me"),
+    ("POST", "/auth/mfa/possession/totp"),
+    ("POST", "/auth/mfa/possession/webauthn/begin"),
+    ("POST", "/auth/mfa/possession/webauthn/finish"),
+    ("POST", "/auth/mfa/reauth"),
+    ("GET", "/auth/password-policy"),
+    ("POST", "/auth/push/status"),
+    ("POST", "/auth/refresh"),
+    ("POST", "/auth/totp/confirm"),
+    ("POST", "/auth/totp/enroll/confirm"),
+    ("POST", "/auth/totp/enroll/setup"),
+    ("POST", "/auth/totp/remove"),
+    ("POST", "/auth/totp/remove/begin"),
+    ("GET", "/auth/totp/setup"),
+    ("POST", "/auth/totp/verify"),
+    ("GET", "/auth/webauthn/credentials"),
+    ("GET", "/auth/webauthn/login/begin"),
+    ("POST", "/auth/webauthn/login/finish"),
+    ("GET", "/auth/webauthn/register/begin"),
+    ("POST", "/auth/webauthn/register/finish"),
     ("GET", "/health"),
     ("GET", "/healthz"),
     ("GET", "/ready"),

@@ -14,6 +14,10 @@ Schema-first TypeSpec definitions that compile to the committed OpenAPI 3.1 base
 - `modules/rules.tsp` — `/api/settings/rules-list`, `/api/settings/rules`, `/api/settings/rules/{id}`, `/api/settings/rules/{id}/apply`, `/api/settings/rules/apply/{actionId}`.
 - `modules/delivery.tsp` — `/api/messages/{emailId}/trace`.
 - `modules/offline.tsp` — `/api/offline/size-estimate`, `/api/user/quota`, `/api/settings/view`.
+- `modules/admin.tsp` — admin roles/permissions, Dengbao SoD mode, access reviews, and guest/profile management (`/api/admin/permissions`, `/api/admin/roles*`, `/api/admin/users/{id}/effective-permissions`, `/api/admin/dengbao/sod-mode`, `/api/admin/access-reviews*`, `/api/admin/guests*`, `/api/admin/guest-profiles*`, `/api/admin/guest-profile-domains`).
+- `modules/auth.tsp` — authentication, session lifecycle, MFA reauth/possession, TOTP, push status, WebAuthn/passkeys, guest invite acceptance, and impersonation (`/auth/*`).
+- `modules/drive.tsp` — Drive spaces, members, tree/nodes/changes, chunks, versions/history, Range/206 content & PDF preview (`/api/drive/versions/{id}/content`, `/api/drive/versions/{id}/preview`), branches, labels, locks, watches, activity, folder admins, ACL/governed access, Office launches, export, search, trash, audit, and as-of views (`/api/drive/*`).
+- `modules/sharing.tsp` — end-user mailbox delegation and calendar sharing defaults (`/api/me/sharing*`).
 - `openapi/edge.v1.yaml` — committed OpenAPI 3.1.0 baseline emitted by `@typespec/openapi3`.
 - `scripts/gen-rust-dtos.mjs` — deterministic OpenAPI 3.1 → plain `serde` Rust DTO generator.
 - `approved-breaking.json` — explicit sunset waiver ledger for planned breaking changes.

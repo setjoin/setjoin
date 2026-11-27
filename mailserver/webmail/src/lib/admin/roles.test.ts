@@ -1,8 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-vi.mock('./transport', () => ({
-	adminFetch: vi.fn(async () => ({ json: async () => [{ id: 1, name: 'Help Desk' }] }))
-}));
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import {
 	adminListRoles,
@@ -11,13 +7,45 @@ import {
 	adminDeleteRole,
 	adminSetSodMode,
 } from './roles';
-import { adminFetch } from './transport';
+
+function jsonResponse(body: unknown, status = 200): Response {
+	return new Response(status === 204 ? null : JSON.stringify(body), {
+		status,
+		headers: status === 204 ? undefined : { 'content-type': 'application/json' },
+	});
+}
+
+function headerValue(headers: HeadersInit | undefined, name: string): string | undefined {
+	if (!headers) return undefined;
+	if (headers instanceof Headers) return headers.get(name) ?? undefined;
+	if (Array.isArray(headers)) {
+		const hit = headers.find(([k]) => k.toLowerCase() === name.toLowerCase());
+		return hit?.[1];
+	}
+	const record = headers as Record<string, string>;
+	const key = Object.keys(record).find((k) => k.toLowerCase() === name.toLowerCase());
+	return key ? record[key] : undefined;
+}
 
 describe('roles client', () => {
-	beforeEach(() => vi.clearAllMocks());
-	it('lists roles via /admin/roles', async () => {
+	const fetchMock = vi.fn();
+
+	beforeEach(() => {
+		fetchMock.mockReset();
+		vi.stubGlobal('fetch', fetchMock);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('lists roles via /api/admin/roles', async () => {
+		fetchMock.mockResolvedValue(jsonResponse([{ id: 1, name: 'Help Desk' }]));
 		const roles = await adminListRoles();
-		expect(adminFetch).toHaveBeenCalledWith('/admin/roles');
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/admin/roles',
+			expect.objectContaining({ method: 'GET', cache: 'no-store' })
+		);
 		expect(roles[0].name).toBe('Help Desk');
 	});
 });
@@ -27,90 +55,105 @@ describe('roles client', () => {
 // sent when a reason is provided and NOT sent when absent (no prompt on default policy).
 
 describe('adminCreateRole — X-Audit-Reason header', () => {
+	const fetchMock = vi.fn();
+
 	beforeEach(() => {
-		vi.mocked(adminFetch).mockResolvedValue({ json: async () => ({ id: 42 }) } as ReturnType<typeof adminFetch> extends Promise<infer R> ? R : never);
-		vi.clearAllMocks();
-		vi.mocked(adminFetch).mockResolvedValue({ json: async () => ({ id: 42 }) } as never);
+		fetchMock.mockReset();
+		fetchMock.mockResolvedValue(jsonResponse({ id: 42 }, 201));
+		vi.stubGlobal('fetch', fetchMock);
 	});
+
+	afterEach(() => vi.unstubAllGlobals());
 
 	it('sends X-Audit-Reason when reason is provided', async () => {
 		await adminCreateRole({ name: 'Tester', description: '', permissions: ['queue.read'] }, 'compliance audit');
-		expect(adminFetch).toHaveBeenCalledWith(
-			'/admin/roles',
-			expect.objectContaining({ headers: expect.objectContaining({ 'X-Audit-Reason': 'compliance audit' }) })
-		);
+		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe('/api/admin/roles');
+		expect(init.method).toBe('POST');
+		expect(headerValue(init.headers, 'X-Audit-Reason')).toBe('compliance audit');
 	});
 
 	it('does NOT send X-Audit-Reason when no reason provided (default policy)', async () => {
 		await adminCreateRole({ name: 'Tester', description: '', permissions: ['queue.read'] });
-		const [, opts] = vi.mocked(adminFetch).mock.calls[0];
-		const headers = (opts?.headers ?? {}) as Record<string, string>;
-		expect(headers['X-Audit-Reason']).toBeUndefined();
+		const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(headerValue(init.headers, 'X-Audit-Reason')).toBeUndefined();
 	});
 });
 
 describe('adminUpdateRole — X-Audit-Reason header', () => {
+	const fetchMock = vi.fn();
+
 	beforeEach(() => {
-		vi.clearAllMocks();
-		vi.mocked(adminFetch).mockResolvedValue({ json: async () => ({}) } as never);
+		fetchMock.mockReset();
+		fetchMock.mockResolvedValue(jsonResponse(null, 204));
+		vi.stubGlobal('fetch', fetchMock);
 	});
+
+	afterEach(() => vi.unstubAllGlobals());
 
 	it('sends X-Audit-Reason when reason is provided', async () => {
 		await adminUpdateRole(1, { name: 'Updated' }, 'policy review');
-		expect(adminFetch).toHaveBeenCalledWith(
-			'/admin/roles/1',
-			expect.objectContaining({ headers: expect.objectContaining({ 'X-Audit-Reason': 'policy review' }) })
-		);
+		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe('/api/admin/roles/1');
+		expect(init.method).toBe('PUT');
+		expect(headerValue(init.headers, 'X-Audit-Reason')).toBe('policy review');
 	});
 
 	it('does NOT send X-Audit-Reason when no reason provided', async () => {
 		await adminUpdateRole(1, { name: 'Updated' });
-		const [, opts] = vi.mocked(adminFetch).mock.calls[0];
-		const headers = (opts?.headers ?? {}) as Record<string, string>;
-		expect(headers['X-Audit-Reason']).toBeUndefined();
+		const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(headerValue(init.headers, 'X-Audit-Reason')).toBeUndefined();
 	});
 });
 
 describe('adminDeleteRole — X-Audit-Reason header', () => {
+	const fetchMock = vi.fn();
+
 	beforeEach(() => {
-		vi.clearAllMocks();
-		vi.mocked(adminFetch).mockResolvedValue({ json: async () => ({}) } as never);
+		fetchMock.mockReset();
+		fetchMock.mockResolvedValue(jsonResponse(null, 204));
+		vi.stubGlobal('fetch', fetchMock);
 	});
+
+	afterEach(() => vi.unstubAllGlobals());
 
 	it('sends X-Audit-Reason when reason is provided', async () => {
 		await adminDeleteRole(7, 'role decommission');
-		expect(adminFetch).toHaveBeenCalledWith(
-			'/admin/roles/7',
-			expect.objectContaining({ headers: expect.objectContaining({ 'X-Audit-Reason': 'role decommission' }) })
-		);
+		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe('/api/admin/roles/7');
+		expect(init.method).toBe('DELETE');
+		expect(headerValue(init.headers, 'X-Audit-Reason')).toBe('role decommission');
 	});
 
 	it('does NOT send X-Audit-Reason when no reason provided', async () => {
 		await adminDeleteRole(7);
-		const [, opts] = vi.mocked(adminFetch).mock.calls[0];
-		const headers = (opts?.headers ?? {}) as Record<string, string>;
-		expect(headers['X-Audit-Reason']).toBeUndefined();
+		const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(headerValue(init.headers, 'X-Audit-Reason')).toBeUndefined();
 	});
 });
 
 describe('adminSetSodMode — X-Audit-Reason header (security area)', () => {
+	const fetchMock = vi.fn();
+
 	beforeEach(() => {
-		vi.clearAllMocks();
-		vi.mocked(adminFetch).mockResolvedValue({ json: async () => ({ enabled: true }) } as never);
+		fetchMock.mockReset();
+		fetchMock.mockResolvedValue(jsonResponse({ enabled: true }));
+		vi.stubGlobal('fetch', fetchMock);
 	});
+
+	afterEach(() => vi.unstubAllGlobals());
 
 	it('sends X-Audit-Reason when reason is provided', async () => {
 		await adminSetSodMode(true, 'enabling SoD for compliance');
-		expect(adminFetch).toHaveBeenCalledWith(
-			'/admin/dengbao/sod-mode',
-			expect.objectContaining({ headers: expect.objectContaining({ 'X-Audit-Reason': 'enabling SoD for compliance' }) })
-		);
+		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe('/api/admin/dengbao/sod-mode');
+		expect(init.method).toBe('PUT');
+		expect(headerValue(init.headers, 'X-Audit-Reason')).toBe('enabling SoD for compliance');
 	});
 
 	it('does NOT send X-Audit-Reason when no reason provided', async () => {
 		await adminSetSodMode(true);
-		const [, opts] = vi.mocked(adminFetch).mock.calls[0];
-		const headers = (opts?.headers ?? {}) as Record<string, string>;
-		expect(headers['X-Audit-Reason']).toBeUndefined();
+		const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(headerValue(init.headers, 'X-Audit-Reason')).toBeUndefined();
 	});
 });

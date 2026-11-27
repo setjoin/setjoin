@@ -92,3 +92,68 @@ model ServiceUnavailableProblem {
   @header("content-type") contentType: "application/problem+json";
   @body body: ProblemDetails;
 }
+
+@error
+model UnknownOutcomeProblem {
+  @statusCode statusCode: 503;
+  @header("content-type") contentType: "application/problem+json";
+  @header("X-Operation-ID") operationId?: string;
+  @body body: ProblemDetails;
+}
+
+@error
+model ConflictProblem {
+  @statusCode statusCode: 409;
+  @header("content-type") contentType: "application/problem+json";
+  @body body: ProblemDetails;
+}
+
+@error
+model PreconditionFailedProblem {
+  @statusCode statusCode: 412;
+  @header("content-type") contentType: "application/problem+json";
+  @body body: ProblemDetails;
+}
+
+@error
+model PayloadTooLargeProblem {
+  @statusCode statusCode: 413;
+  @header("content-type") contentType: "application/problem+json";
+  @body body: ProblemDetails;
+}
+
+@error
+model UnsupportedMediaTypeProblem {
+  @statusCode statusCode: 415;
+  @header("content-type") contentType: "application/problem+json";
+  @body body: ProblemDetails;
+}
+
+@error
+model RangeNotSatisfiableProblem {
+  @statusCode statusCode: 416;
+  @header("content-type") contentType: "application/problem+json";
+  @body body: ProblemDetails;
+}
+
+@error
+model UnprocessableEntityProblem {
+  @statusCode statusCode: 422;
+  @header("content-type") contentType: "application/problem+json";
+  @body body: ProblemDetails;
+}
+
+@error
+model LockedProblem {
+  @statusCode statusCode: 423;
+  @header("content-type") contentType: "application/problem+json";
+  @body body: ProblemDetails;
+}
+
+model EmptyOkResponse {
+  @statusCode statusCode: 200;
+}
+
+model EmptyCreatedResponse {
+  @statusCode statusCode: 201;
+}

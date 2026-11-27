@@ -33,6 +33,30 @@ mod tests {
         assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/user/quota")));
         assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/settings/view")));
         assert!(CONTRACTED_OPERATIONS.contains(&("PUT", "/api/settings/view")));
+        // Wave 3.7 (#562): Admin, Auth/Identity, Drive metadata/Range, Sharing
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/admin/permissions")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/admin/roles")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("POST", "/api/admin/roles")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/admin/dengbao/sod-mode")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/admin/access-reviews")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/admin/guests")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("POST", "/auth/login")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/auth/me")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("POST", "/auth/logout")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("POST", "/auth/refresh")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/auth/password-policy")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("POST", "/auth/mfa/reauth")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/auth/webauthn/credentials")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/drive/spaces")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/drive/spaces/{id}/tree")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/drive/changes")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/drive/nodes")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("HEAD", "/api/drive/chunks/{sha256}")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("PUT", "/api/drive/chunks/{sha256}")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/drive/versions/{id}/content")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/drive/versions/{id}/preview")));
+        assert!(CONTRACTED_OPERATIONS.contains(&("GET", "/api/me/sharing")));
+        assert!(CONTRACTED_OPERATIONS.len() >= 140);
     }
 
     #[test]
@@ -187,6 +211,63 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(trace_json)?,
             serde_json::from_str::<serde_json::Value>(&serde_json::to_string(&trace)?)?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn admin_auth_drive_and_sharing_dtos_round_trip() -> Result<(), serde_json::Error> {
+        // Admin: EffectivePerms with explicit null consoles + AccessReviewItem required nulls
+        let eff_json = r#"{"permissions":["roles.manage"],"sources":[{"roleGroupId":1,"roleName":"Super Admin","permissions":["roles.manage"]}],"consoles":null}"#;
+        let eff: EffectivePerms = serde_json::from_str(eff_json)?;
+        assert_eq!(eff.consoles, None);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(eff_json)?,
+            serde_json::from_str::<serde_json::Value>(&serde_json::to_string(&eff)?)?
+        );
+
+        let item_json = r#"{"id":7,"userEmail":"admin@example.test","roleName":"Super Admin","scope":null,"grantedAt":null,"isSso":false,"isSelf":true,"decision":"undecided","appliedAt":null}"#;
+        let item: AccessReviewItem = serde_json::from_str(item_json)?;
+        assert_eq!(item.decision, AccessReviewDecision::Undecided);
+        assert_eq!(item.scope, None);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(item_json)?,
+            serde_json::from_str::<serde_json::Value>(&serde_json::to_string(&item)?)?
+        );
+
+        // Auth: AuthMeResponse with aliases and account_type
+        let me_json = r#"{"user_id":1,"email":"alice@example.test","display_name":"Alice","is_admin":true,"has_mailbox":true,"totp_enabled":false,"totp_enabled_at":null,"delegates":[],"aliases":[{"email":"sales@example.test"}],"account_type":"member"}"#;
+        let me: AuthMeResponse = serde_json::from_str(me_json)?;
+        assert_eq!(me.account_type, AuthAccountType::Member);
+        assert_eq!(me.aliases.len(), 1);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(me_json)?,
+            serde_json::from_str::<serde_json::Value>(&serde_json::to_string(&me)?)?
+        );
+
+        // Drive: DriveAclGrantScope::SelfValue serializes as `"self"`
+        let grant_input = DriveGrantInput {
+            subject_kind: DriveAclSubjectKind::User,
+            subject_id: "42".to_owned(),
+            preset: DrivePreset::Viewer,
+            scope: DriveAclGrantScope::SelfValue,
+            starts_at: None,
+            expires_at: None,
+            max_uses: None,
+            reason: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&grant_input)?,
+            serde_json::json!({"subjectKind":"user","subjectId":"42","preset":"viewer","scope":"self"})
+        );
+
+        // Sharing: SharingOverview
+        let sharing_json = r#"{"delegates":[],"calendarGrants":[],"myDefaults":[],"inheritedDefaults":[],"defaultsEnabled":true}"#;
+        let sharing: SharingOverview = serde_json::from_str(sharing_json)?;
+        assert!(sharing.defaults_enabled);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(sharing_json)?,
+            serde_json::from_str::<serde_json::Value>(&serde_json::to_string(&sharing)?)?
         );
         Ok(())
     }

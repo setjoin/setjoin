@@ -92,20 +92,38 @@ if bash "$GUARD" --inventory "$INV" --openapi "$tmp/spec_dropped.json" --webmail
   exit 1
 fi
 
-# Build a clean copy of the bound webmail files (all 12 bindings intact!) so the
-# raw-fetch regression tests isolate the raw-fetch check from the binding floor.
+# Build a clean copy of the bound webmail files (all current bindings intact!) so
+# the raw-fetch regression tests isolate the raw-fetch check from the binding floor.
 setup_bound_webmail() {
   local dir="$1"
   rm -rf "$dir"
-  mkdir -p "$dir/lib/api" "$dir/routes/settings/about"
-  cp "$WEBMAIL_SRC/lib/api/rules.ts" "$WEBMAIL_SRC/lib/api/delivery.ts" "$WEBMAIL_SRC/lib/api/offline.ts" "$dir/lib/api/"
-  cp "$WEBMAIL_SRC/routes/settings/about/+page.svelte" "$dir/routes/settings/about/+page.svelte"
+  mkdir -p "$dir/routes/settings"
+  python3 - "$WEBMAIL_SRC" "$dir" <<'PY'
+import pathlib, shutil, sys
+src_root = pathlib.Path(sys.argv[1])
+dst_root = pathlib.Path(sys.argv[2])
+for sub in ("lib", "routes"):
+    base = src_root / sub
+    if not base.is_dir():
+        continue
+    for p in base.rglob("*"):
+        if not p.is_file() or p.suffix not in (".ts", ".svelte"):
+            continue
+        rel = p.relative_to(src_root).as_posix()
+        if rel.endswith(".test.ts") or rel.endswith(".spec.ts") or rel.endswith("edge/schema.d.ts") or rel.endswith("edge/client.ts"):
+            continue
+        text = p.read_text(encoding="utf-8", errors="ignore")
+        if "$lib/edge/client" in text:
+            target = dst_root / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(p, target)
+PY
 }
 
-# Sanity: clean isolated webmail fixture with all 12 bindings MUST PASS
+# Sanity: clean isolated webmail fixture with all bound files MUST PASS
 setup_bound_webmail "$tmp/webmail_clean"
 if ! bash "$GUARD" --inventory "$INV" --openapi "$SPEC" --webmail-src "$tmp/webmail_clean" --ratchet "$RATCHET" >/dev/null 2>&1; then
-  echo "SELF-TEST FAIL: clean isolated webmail fixture with all 12 bindings failed" >&2
+  echo "SELF-TEST FAIL: clean isolated webmail fixture with all current bindings failed" >&2
   exit 1
 fi
 

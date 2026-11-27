@@ -5,6 +5,10 @@ import "./modules/health.tsp";
 import "./modules/rules.tsp";
 import "./modules/delivery.tsp";
 import "./modules/offline.tsp";
+import "./modules/admin.tsp";
+import "./modules/auth.tsp";
+import "./modules/drive.tsp";
+import "./modules/sharing.tsp";
 
 using TypeSpec.Http;
 

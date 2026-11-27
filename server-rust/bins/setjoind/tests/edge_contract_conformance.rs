@@ -14,21 +14,41 @@
 
 mod common;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use bytes::Bytes;
+use http_body_util::{BodyExt, Full};
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper::{Request, Response};
+use hyper_util::rt::TokioIo;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use setjoin_edge_contract::{
-    ApplyJobStatus, ApplyRetroRequest, ApplyRetroResult, ApplyStatus, CreateRuleResponse,
-    HealthStatus, MailboxQuota, MessageTrace, OfflineSizeEstimate, OkStatus, OutboundDirection,
-    ProblemDetails, ReadyStatus, ReadyVerdict, RetroWindowInput, RuleAction, RuleCondition,
-    RuleInput, RuleUpdateInput, RunOn, UserRule, ViewPreferences, CONTRACTED_OPERATIONS,
+    AccessReviewCampaign, AccessReviewCreateRequest, AccessReviewDetail, AdminCreatedIdResponse,
+    AdminRole, AdminRoleCreateRequest, AdminRoleUpdateRequest, ApplyJobStatus, ApplyRetroRequest,
+    ApplyRetroResult, ApplyStatus, AuthAccountType, AuthLoginForbiddenBody, AuthLoginRequest,
+    AuthMeResponse, AuthMfaChallengeResponse, AuthRefreshRequest, AuthTokenResponse,
+    CreateRuleResponse, DriveChangesResult, DriveCreateNodeRequest, DriveCreateSpaceRequest,
+    DriveHistoryResult, DriveIdResponse, DriveManifestChunk, DriveNode, DriveNodeKind,
+    DriveNodeMeta, DrivePutVersionRequest, DriveSpace, DriveVersion, DriveWatchRow, EffectivePerms,
+    GuestInviteDeliveryUnconfirmedBody, GuestInviteInput, GuestInviteMutationResult, GuestProfile,
+    GuestProfileDomain, GuestSummary, HealthStatus, MailboxQuota, MessageTrace, MfaReauthOperation,
+    MfaReauthRequest, MfaReauthResponse, OfflineSizeEstimate, OkStatus, OutboundDirection,
+    PasskeyCredentialsListResponse, PasswordPolicyResponse, PermissionCatalogEntry, ProblemDetails,
+    PutVersionResult, ReadyStatus, ReadyVerdict, RetroWindowInput, RoleDetail, RuleAction,
+    RuleCondition, RuleInput, RuleUpdateInput, RunOn, SharingOverview, SodModeConflictBody,
+    SodModeSetRequest, SodModeStatus, UserRule, ViewPreferences, CONTRACTED_OPERATIONS,
     OPENAPI_VERSION,
 };
+use tokio::net::TcpListener;
 use tokio_postgres::NoTls;
 
 fn repo_root() -> PathBuf {
@@ -221,10 +241,10 @@ fn assert_openapi_response(
             panic!("OpenAPI {method} {path_template} does not declare status {status_key}")
         });
 
-    if status == 204 {
+    if status == 204 || resp_spec.get("content").is_none() {
         assert!(
             body_text.is_empty(),
-            "{method} {path_template} 204 expected empty body, got {body_text:?}"
+            "{method} {path_template} {status_key} expected empty body, got {body_text:?}"
         );
         return;
     }
@@ -243,12 +263,15 @@ fn assert_openapi_response(
         .unwrap_or("")
         .trim()
         .to_ascii_lowercase();
-    let media_spec = content_map.get(&actual_ct).unwrap_or_else(|| {
-        panic!(
-            "OpenAPI {method} {path_template} {status_key}: Content-Type `{actual_ct}` not in declared {:?}",
-            content_map.keys().collect::<Vec<_>>()
-        )
-    });
+    let media_spec = content_map
+        .get(&actual_ct)
+        .or_else(|| content_map.get("*/*"))
+        .unwrap_or_else(|| {
+            panic!(
+                "OpenAPI {method} {path_template} {status_key}: Content-Type `{actual_ct}` not in declared {:?}",
+                content_map.keys().collect::<Vec<_>>()
+            )
+        });
 
     if actual_ct.contains("json") {
         let parsed: Value = serde_json::from_str(body_text).unwrap_or_else(|e| {
@@ -370,9 +393,9 @@ async fn seed_inbound_and_outbound_messages(dsn: &str, user_id: i64) -> (i64, i6
 
     client
         .execute(
-            "INSERT INTO delivery_attempts (message_pk, mailbox_id, recipient_email, attempt_number, attempted_at, mx_host, smtp_code, smtp_text, outcome, tls)
-             VALUES ($1, $2, 'rcpt@example.test', 1, now(), 'mx.example.test', 451, 'try again later', 'deferred', TRUE)",
-            &[&outbound_id, &mailbox_id],
+            "INSERT INTO delivery_attempts (message_pk, received_at, mailbox_id, recipient_email, attempt_number, attempted_at, mx_host, smtp_code, smtp_text, outcome, tls)
+             VALUES ($1, $2, $3, 'rcpt@example.test', 1, now(), 'mx.example.test', 451, 'try again later', 'deferred', TRUE)",
+            &[&outbound_id, &outbound_received_at, &mailbox_id],
         )
         .await
         .expect("seed delivery_attempts entry");
@@ -380,7 +403,277 @@ async fn seed_inbound_and_outbound_messages(dsn: &str, user_id: i64) -> (i64, i6
     (inbound_id, outbound_id)
 }
 
-#[tokio::test]
+/// Grant `user_id` full admin permissions and enable `feature.drive` so live
+/// Admin and Drive endpoints can be exercised end-to-end.
+async fn seed_admin_and_drive_features(dsn: &str, user_id: i64) {
+    let (client, conn) = tokio_postgres::connect(dsn, NoTls)
+        .await
+        .expect("connect test DB");
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+
+    client
+        .execute(
+            "UPDATE users SET is_admin = TRUE WHERE id = $1",
+            &[&user_id],
+        )
+        .await
+        .expect("mark user admin");
+
+    let role_id: i64 = client
+        .query_one(
+            "SELECT id FROM admin_role_groups WHERE name = 'Super Admin' LIMIT 1",
+            &[],
+        )
+        .await
+        .expect("lookup Super Admin role")
+        .get(0);
+
+    client
+        .execute(
+            "INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+             VALUES ($1, $2, $1)
+             ON CONFLICT DO NOTHING",
+            &[&user_id, &role_id],
+        )
+        .await
+        .expect("assign admin role");
+
+    client
+        .execute(
+            "INSERT INTO feature_toggles (key, enabled)
+             VALUES ('feature.drive', TRUE), ('feature.guest_accounts', TRUE)
+             ON CONFLICT (key) DO UPDATE SET enabled = TRUE",
+            &[],
+        )
+        .await
+        .expect("enable feature.drive and feature.guest_accounts");
+}
+
+/// Lightweight in-process S3 mock supporting PUT, HEAD, GET, and single-range
+/// `Range: bytes=lo-hi` (HTTP 206) for live Drive chunk upload & Range content tests.
+/// `fail_invite_put` lets tests deterministically trigger guest-invite 503
+/// (`invite_delivery_unconfirmed`) without retry delays.
+async fn spawn_mock_s3() -> (SocketAddr, Arc<AtomicBool>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind mock S3");
+    let addr = listener.local_addr().expect("mock S3 addr");
+    let objects: Arc<Mutex<HashMap<String, Vec<u8>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let fail_invite_put = Arc::new(AtomicBool::new(false));
+    let fail_invite_flag = fail_invite_put.clone();
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                break;
+            };
+            let objects = objects.clone();
+            let fail_invite_flag = fail_invite_flag.clone();
+            tokio::spawn(async move {
+                let io = TokioIo::new(stream);
+                let svc = service_fn(move |req: Request<hyper::body::Incoming>| {
+                    let objects = objects.clone();
+                    let fail_invite_flag = fail_invite_flag.clone();
+                    async move {
+                        let method = req.method().clone();
+                        let path = req.uri().path().to_owned();
+                        let query = req.uri().query().map(str::to_owned);
+                        let range_hdr = req
+                            .headers()
+                            .get("range")
+                            .and_then(|v| v.to_str().ok())
+                            .map(str::to_owned);
+                        let copy_source = req
+                            .headers()
+                            .get("x-amz-copy-source")
+                            .and_then(|v| v.to_str().ok())
+                            .map(str::to_owned);
+                        let body_bytes = req
+                            .into_body()
+                            .collect()
+                            .await
+                            .map(|c| c.to_bytes())
+                            .unwrap_or_default();
+
+                        if query.as_deref() == Some("location=") {
+                            return Ok::<_, hyper::Error>(
+                                Response::builder()
+                                    .status(200)
+                                    .body(Full::new(Bytes::from_static(
+                                        b"<LocationConstraint>us-east-1</LocationConstraint>",
+                                    )))
+                                    .expect("location resp"),
+                            );
+                        }
+
+                        match method.as_str() {
+                            "POST" => {
+                                if query
+                                    .as_deref()
+                                    .is_some_and(|q| q == "uploads" || q.starts_with("uploads="))
+                                {
+                                    let xml = format!(
+                                        "<InitiateMultipartUploadResult><Bucket>mailblobs</Bucket><Key>{}</Key><UploadId>mock-upload-1</UploadId></InitiateMultipartUploadResult>",
+                                        path.trim_start_matches("/mailblobs/")
+                                    );
+                                    return Ok(Response::builder()
+                                        .status(200)
+                                        .header("content-type", "application/xml")
+                                        .body(Full::new(Bytes::from(xml)))
+                                        .expect("init multipart"));
+                                }
+                                if query.as_deref().is_some_and(|q| q.contains("uploadId=")) {
+                                    let xml = format!(
+                                        "<CompleteMultipartUploadResult><Location>http://mock{path}</Location><Bucket>mailblobs</Bucket><Key>{}</Key><ETag>\"mock-etag\"</ETag></CompleteMultipartUploadResult>",
+                                        path.trim_start_matches("/mailblobs/")
+                                    );
+                                    return Ok(Response::builder()
+                                        .status(200)
+                                        .header("content-type", "application/xml")
+                                        .body(Full::new(Bytes::from(xml)))
+                                        .expect("complete multipart"));
+                                }
+                                Ok(Response::builder()
+                                    .status(200)
+                                    .body(Full::new(Bytes::new()))
+                                    .expect("post ok"))
+                            }
+                            "PUT" => {
+                                if fail_invite_flag.load(Ordering::SeqCst)
+                                    && path.contains("/invite/")
+                                {
+                                    return Ok(Response::builder()
+                                        .status(403)
+                                        .body(Full::new(Bytes::from_static(b"invite put denied")))
+                                        .expect("put 403"));
+                                }
+                                if let Some(src) = copy_source {
+                                    let src_path = if src.starts_with('/') {
+                                        src
+                                    } else {
+                                        format!("/{src}")
+                                    };
+                                    let mut map = objects.lock().expect("lock mock S3");
+                                    let Some(bytes) = map.get(&src_path).cloned() else {
+                                        return Ok(Response::builder()
+                                            .status(404)
+                                            .body(Full::new(Bytes::from_static(
+                                                b"missing copy src",
+                                            )))
+                                            .expect("copy 404"));
+                                    };
+                                    map.insert(path, bytes);
+                                    return Ok(Response::builder()
+                                        .status(200)
+                                        .header("content-type", "application/xml")
+                                        .header("etag", "\"mock-etag\"")
+                                        .body(Full::new(Bytes::from_static(
+                                            b"<CopyObjectResult><ETag>\"mock-etag\"</ETag></CopyObjectResult>",
+                                        )))
+                                        .expect("copy resp"));
+                                }
+                                objects
+                                    .lock()
+                                    .expect("lock mock S3")
+                                    .insert(path, body_bytes.to_vec());
+                                Ok(Response::builder()
+                                    .status(200)
+                                    .header("etag", "\"mock-etag\"")
+                                    .body(Full::new(Bytes::new()))
+                                    .expect("put resp"))
+                            }
+                            "DELETE" => {
+                                objects.lock().expect("lock mock S3").remove(&path);
+                                Ok(Response::builder()
+                                    .status(204)
+                                    .body(Full::new(Bytes::new()))
+                                    .expect("delete resp"))
+                            }
+                            "HEAD" => {
+                                let len = objects
+                                    .lock()
+                                    .expect("lock mock S3")
+                                    .get(&path)
+                                    .map(Vec::len);
+                                match len {
+                                    Some(n) => Ok(Response::builder()
+                                        .status(200)
+                                        .header("content-length", n.to_string())
+                                        .header("etag", "\"mock-etag\"")
+                                        .body(Full::new(Bytes::new()))
+                                        .expect("head 200")),
+                                    None => Ok(Response::builder()
+                                        .status(404)
+                                        .body(Full::new(Bytes::new()))
+                                        .expect("head 404")),
+                                }
+                            }
+                            "GET" => {
+                                let data =
+                                    objects.lock().expect("lock mock S3").get(&path).cloned();
+                                let Some(data) = data else {
+                                    return Ok(Response::builder()
+                                        .status(404)
+                                        .body(Full::new(Bytes::from_static(b"missing")))
+                                        .expect("get 404"));
+                                };
+                                if let Some(raw_range) = range_hdr {
+                                    if let Some((lo_s, hi_s)) = raw_range
+                                        .strip_prefix("bytes=")
+                                        .and_then(|r| r.split_once('-'))
+                                    {
+                                        if let (Ok(lo), Ok(hi)) =
+                                            (lo_s.parse::<usize>(), hi_s.parse::<usize>())
+                                        {
+                                            if lo <= hi && hi < data.len() {
+                                                let slice = data[lo..=hi].to_vec();
+                                                return Ok(Response::builder()
+                                                    .status(206)
+                                                    .header(
+                                                        "last-modified",
+                                                        "Fri, 27 Nov 2026 00:00:00 GMT",
+                                                    )
+                                                    .header("etag", "\"mock-etag\"")
+                                                    .header(
+                                                        "content-range",
+                                                        format!("bytes {lo}-{hi}/{}", data.len()),
+                                                    )
+                                                    .header(
+                                                        "content-length",
+                                                        slice.len().to_string(),
+                                                    )
+                                                    .body(Full::new(Bytes::from(slice)))
+                                                    .expect("get 206"));
+                                            }
+                                        }
+                                    }
+                                }
+                                Ok(Response::builder()
+                                    .status(200)
+                                    .header("last-modified", "Fri, 27 Nov 2026 00:00:00 GMT")
+                                    .header("etag", "\"mock-etag\"")
+                                    .header("content-length", data.len().to_string())
+                                    .body(Full::new(Bytes::from(data)))
+                                    .expect("get 200"))
+                            }
+                            _ => Ok(Response::builder()
+                                .status(405)
+                                .body(Full::new(Bytes::new()))
+                                .expect("405")),
+                        }
+                    }
+                });
+                let _ = http1::Builder::new().serve_connection(io, svc).await;
+            });
+        }
+    });
+
+    (addr, fail_invite_put)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn live_setjoind_conforms_to_edge_openapi_3_1_and_serde_dtos() {
     let doc = load_edge_openapi();
     assert_eq!(
@@ -403,7 +696,9 @@ async fn live_setjoind_conforms_to_edge_openapi_3_1_and_serde_dtos() {
     let password = "EdgeContractPassword123!";
     let user_id = common::seed_test_user(&dsn, email, password).await;
     let (inbound_msg_id, outbound_msg_id) = seed_inbound_and_outbound_messages(&dsn, user_id).await;
+    seed_admin_and_drive_features(&dsn, user_id).await;
 
+    let (s3_addr, fail_invite_put) = spawn_mock_s3().await;
     let tmp = tempfile::tempdir().expect("tempdir");
     let cfg_path = common::temp_config_file(tmp.path());
     let (notify_path, notify_sock) = common::bind_notify_socket(tmp.path());
@@ -420,7 +715,11 @@ async fn live_setjoind_conforms_to_edge_openapi_3_1_and_serde_dtos() {
         .env("JWT_SECRET", common::TEST_JWT_SECRET)
         .env("JWT_SIGNING_ALG", "ES256")
         .env("DB_ENCRYPTION_KEY", common::TEST_DB_ENC_KEY)
-        .env("INTERNAL_API_KEY", common::TEST_INTERNAL_KEY);
+        .env("INTERNAL_API_KEY", common::TEST_INTERNAL_KEY)
+        .env("S3_ENDPOINT", format!("http://{s3_addr}"))
+        .env("S3_BUCKET", "mailblobs")
+        .env("S3_ACCESS_KEY", "test-access")
+        .env("S3_SECRET_KEY", "test-secret");
 
     let mut proc = common::OwnedChild::spawn(&mut cmd);
     common::wait_notify(&notify_sock, &mut proc, "READY=1", Duration::from_secs(20));
@@ -985,6 +1284,1587 @@ async fn live_setjoind_conforms_to_edge_openapi_3_1_and_serde_dtos() {
     let prefs2: ViewPreferences =
         assert_dto_roundtrip_matches_live("GET /api/settings/view after PUT", &vg2_body);
     assert_eq!(prefs2.offline_window, Some(Some("90d".to_owned())));
+
+    // 7. Wave 3.7 (#562) Auth/Identity conformance: /auth/login, /auth/me,
+    //    /auth/password-policy, /auth/webauthn/credentials, /auth/mfa/reauth
+    let login_req = AuthLoginRequest {
+        email: email.to_owned(),
+        password: password.to_owned(),
+        stay_signed_in: Some(false),
+        remember_device: Some(false),
+        dpop_jwk: None,
+    };
+    let login_check = client
+        .post(format!("{base}/auth/login"))
+        .header("content-type", "application/json")
+        .body(serde_json::to_string(&login_req).expect("serialize AuthLoginRequest"))
+        .send()
+        .await
+        .expect("POST /auth/login conformance");
+    let lc_status = login_check.status().as_u16();
+    let lc_ct = login_check
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let lc_body = login_check.text().await.expect("login conformance body");
+    assert_eq!(lc_status, 200, "body={lc_body}");
+    assert_openapi_response(
+        &doc,
+        "/auth/login",
+        "POST",
+        lc_status,
+        lc_ct.as_deref(),
+        &lc_body,
+    );
+    let login_dto: AuthTokenResponse =
+        assert_dto_roundtrip_matches_live("POST /auth/login", &lc_body);
+    assert!(!login_dto.access_token.is_empty());
+    assert!(!login_dto.refresh_token.is_empty());
+
+    // POST /auth/refresh live 200 rotation FIRST (before triggering failed-auth threat counters)
+    let refresh_ok = client
+        .post(format!("{base}/auth/refresh"))
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body(
+            serde_json::to_string(&AuthRefreshRequest {
+                refresh_token: Some(login_dto.refresh_token.clone()),
+            })
+            .expect("serialize live refresh"),
+        )
+        .send()
+        .await
+        .expect("POST /auth/refresh live rotation");
+    let rok_status = refresh_ok.status().as_u16();
+    let rok_ct = refresh_ok
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let rok_body = refresh_ok.text().await.expect("refresh 200 body");
+    assert_eq!(rok_status, 200, "body={rok_body}");
+    assert_openapi_response(
+        &doc,
+        "/auth/refresh",
+        "POST",
+        rok_status,
+        rok_ct.as_deref(),
+        &rok_body,
+    );
+    let rotated_dto: AuthTokenResponse =
+        assert_dto_roundtrip_matches_live("200 POST /auth/refresh", &rok_body);
+    assert!(!rotated_dto.access_token.is_empty());
+
+    // POST /auth/login challenge branches: 403 force_password_change and 202 mfa_required (totp)
+    let force_email = "force562@example.test";
+    let mfa_email = "mfa562@example.test";
+    let force_uid = common::seed_test_user(&dsn, force_email, password).await;
+    let mfa_uid = common::seed_test_user(&dsn, mfa_email, password).await;
+    {
+        let (pg, conn) = tokio_postgres::connect(&dsn, NoTls)
+            .await
+            .expect("connect test DB for auth challenge fixtures");
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+        pg.execute(
+            "UPDATE users SET must_change_password = TRUE WHERE id = $1",
+            &[&force_uid],
+        )
+        .await
+        .expect("set must_change_password");
+        pg.execute(
+            "UPDATE users SET totp_enabled = TRUE WHERE id = $1",
+            &[&mfa_uid],
+        )
+        .await
+        .expect("set totp_enabled");
+    }
+
+    let force_login = client
+        .post(format!("{base}/auth/login"))
+        .header("content-type", "application/json")
+        .body(
+            serde_json::to_string(&AuthLoginRequest {
+                email: force_email.to_owned(),
+                password: password.to_owned(),
+                stay_signed_in: None,
+                remember_device: None,
+                dpop_jwk: None,
+            })
+            .expect("serialize force login"),
+        )
+        .send()
+        .await
+        .expect("POST /auth/login force_password_change");
+    let fl_status = force_login.status().as_u16();
+    let fl_ct = force_login
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let fl_body = force_login.text().await.expect("force login body");
+    assert_eq!(fl_status, 403, "body={fl_body}");
+    assert_openapi_response(
+        &doc,
+        "/auth/login",
+        "POST",
+        fl_status,
+        fl_ct.as_deref(),
+        &fl_body,
+    );
+    let fl_dto: AuthLoginForbiddenBody =
+        assert_dto_roundtrip_matches_live("403 force_password_change POST /auth/login", &fl_body);
+    assert_eq!(fl_dto.status.as_deref(), Some("force_password_change"));
+    assert_eq!(fl_dto.force_password_change, Some(true));
+    assert!(fl_dto.force_token.as_deref().is_some_and(|t| !t.is_empty()));
+
+    let mfa_login = client
+        .post(format!("{base}/auth/login"))
+        .header("content-type", "application/json")
+        .body(
+            serde_json::to_string(&AuthLoginRequest {
+                email: mfa_email.to_owned(),
+                password: password.to_owned(),
+                stay_signed_in: None,
+                remember_device: None,
+                dpop_jwk: None,
+            })
+            .expect("serialize mfa login"),
+        )
+        .send()
+        .await
+        .expect("POST /auth/login mfa_required");
+    let ml_status = mfa_login.status().as_u16();
+    let ml_ct = mfa_login
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let ml_body = mfa_login.text().await.expect("mfa login body");
+    assert_eq!(ml_status, 202, "body={ml_body}");
+    assert_openapi_response(
+        &doc,
+        "/auth/login",
+        "POST",
+        ml_status,
+        ml_ct.as_deref(),
+        &ml_body,
+    );
+    let ml_dto: AuthMfaChallengeResponse =
+        assert_dto_roundtrip_matches_live("202 mfa_required POST /auth/login", &ml_body);
+    assert_eq!(ml_dto.status.as_deref(), Some("mfa_required"));
+    assert!(!ml_dto.mfa_token.is_empty());
+
+    let me_resp = client
+        .get(format!("{base}/auth/me"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /auth/me");
+    let me_status = me_resp.status().as_u16();
+    let me_ct = me_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let me_body = me_resp.text().await.expect("auth/me body");
+    assert_eq!(me_status, 200, "body={me_body}");
+    assert_openapi_response(
+        &doc,
+        "/auth/me",
+        "GET",
+        me_status,
+        me_ct.as_deref(),
+        &me_body,
+    );
+    let me_dto: AuthMeResponse = assert_dto_roundtrip_matches_live("GET /auth/me", &me_body);
+    assert_eq!(me_dto.email, email);
+    assert!(me_dto.is_admin);
+    assert_eq!(me_dto.account_type, AuthAccountType::Member);
+
+    let policy_resp = client
+        .get(format!("{base}/auth/password-policy"))
+        .send()
+        .await
+        .expect("GET /auth/password-policy");
+    let pol_status = policy_resp.status().as_u16();
+    let pol_ct = policy_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let pol_body = policy_resp.text().await.expect("password-policy body");
+    assert_eq!(pol_status, 200, "body={pol_body}");
+    assert_openapi_response(
+        &doc,
+        "/auth/password-policy",
+        "GET",
+        pol_status,
+        pol_ct.as_deref(),
+        &pol_body,
+    );
+    let pol_dto: PasswordPolicyResponse =
+        assert_dto_roundtrip_matches_live("GET /auth/password-policy", &pol_body);
+    assert!(pol_dto.min_length >= 1);
+
+    let creds_resp = client
+        .get(format!("{base}/auth/webauthn/credentials"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /auth/webauthn/credentials");
+    let cr_status = creds_resp.status().as_u16();
+    let cr_ct = creds_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let cr_body = creds_resp.text().await.expect("credentials body");
+    assert_eq!(cr_status, 200, "body={cr_body}");
+    assert_openapi_response(
+        &doc,
+        "/auth/webauthn/credentials",
+        "GET",
+        cr_status,
+        cr_ct.as_deref(),
+        &cr_body,
+    );
+    let cr_dto: PasskeyCredentialsListResponse =
+        assert_dto_roundtrip_matches_live("GET /auth/webauthn/credentials", &cr_body);
+    assert!(cr_dto.credentials.is_empty());
+
+    let reauth_req = MfaReauthRequest {
+        password: Some(password.to_owned()),
+        operation: Some(MfaReauthOperation::TotpEnroll),
+        target_ref: None,
+    };
+    let reauth_resp = client
+        .post(format!("{base}/auth/mfa/reauth"))
+        .header("authorization", &auth_header)
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body(serde_json::to_string(&reauth_req).expect("serialize MfaReauthRequest"))
+        .send()
+        .await
+        .expect("POST /auth/mfa/reauth");
+    let ra_status = reauth_resp.status().as_u16();
+    let ra_ct = reauth_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let ra_body = reauth_resp.text().await.expect("reauth body");
+    assert_eq!(ra_status, 200, "body={ra_body}");
+    assert_openapi_response(
+        &doc,
+        "/auth/mfa/reauth",
+        "POST",
+        ra_status,
+        ra_ct.as_deref(),
+        &ra_body,
+    );
+    let ra_dto: MfaReauthResponse =
+        assert_dto_roundtrip_matches_live("POST /auth/mfa/reauth", &ra_body);
+    assert!(!ra_dto.reauth_token.is_empty());
+
+    // 8. Wave 3.7 (#562) Admin console conformance: Permissions, Roles CRUD,
+    //    Effective Permissions, SoD Mode, Access Reviews, Guests & Profiles
+    let perms_resp = client
+        .get(format!("{base}/api/admin/permissions"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/admin/permissions");
+    let p_status = perms_resp.status().as_u16();
+    let p_ct = perms_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let p_body = perms_resp.text().await.expect("permissions body");
+    assert_eq!(p_status, 200, "body={p_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/admin/permissions",
+        "GET",
+        p_status,
+        p_ct.as_deref(),
+        &p_body,
+    );
+    let perms_dto: Vec<PermissionCatalogEntry> =
+        assert_dto_roundtrip_matches_live("GET /api/admin/permissions", &p_body);
+    assert!(!perms_dto.is_empty());
+
+    let create_role_req = AdminRoleCreateRequest {
+        name: "Edge562TempRole".to_owned(),
+        description: "Temporary conformance role".to_owned(),
+        permissions: vec!["users.read".to_owned()],
+        domain_scope: None,
+    };
+    let created_role = client
+        .post(format!("{base}/api/admin/roles"))
+        .header("authorization", &auth_header)
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body(serde_json::to_string(&create_role_req).expect("serialize AdminRoleCreateRequest"))
+        .send()
+        .await
+        .expect("POST /api/admin/roles");
+    let crl_status = created_role.status().as_u16();
+    let crl_ct = created_role
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let crl_body = created_role.text().await.expect("create role body");
+    assert_eq!(crl_status, 201, "body={crl_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/admin/roles",
+        "POST",
+        crl_status,
+        crl_ct.as_deref(),
+        &crl_body,
+    );
+    let role_created_dto: AdminCreatedIdResponse =
+        assert_dto_roundtrip_matches_live("POST /api/admin/roles", &crl_body);
+    let created_role_id = role_created_dto.id;
+
+    let roles_resp = client
+        .get(format!("{base}/api/admin/roles"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/admin/roles");
+    let rl_status = roles_resp.status().as_u16();
+    let rl_ct = roles_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let rl_body = roles_resp.text().await.expect("roles list body");
+    assert_eq!(rl_status, 200, "body={rl_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/admin/roles",
+        "GET",
+        rl_status,
+        rl_ct.as_deref(),
+        &rl_body,
+    );
+    let roles_dto: Vec<AdminRole> =
+        assert_dto_roundtrip_matches_live("GET /api/admin/roles", &rl_body);
+    assert!(roles_dto.iter().any(|r| r.id == created_role_id));
+
+    let role_detail_resp = client
+        .get(format!("{base}/api/admin/roles/{created_role_id}"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/admin/roles/{id}");
+    let rd_status = role_detail_resp.status().as_u16();
+    let rd_ct = role_detail_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let rd_body = role_detail_resp.text().await.expect("role detail body");
+    assert_eq!(rd_status, 200, "body={rd_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/admin/roles/{id}",
+        "GET",
+        rd_status,
+        rd_ct.as_deref(),
+        &rd_body,
+    );
+    let role_detail_dto: RoleDetail =
+        assert_dto_roundtrip_matches_live("GET /api/admin/roles/{id}", &rd_body);
+    assert_eq!(role_detail_dto.role.name, "Edge562TempRole");
+
+    let update_role_req = AdminRoleUpdateRequest {
+        name: Some("Edge562TempRoleUpdated".to_owned()),
+        description: None,
+        permissions: None,
+        domain_scope: None,
+    };
+    let upd_role = client
+        .put(format!("{base}/api/admin/roles/{created_role_id}"))
+        .header("authorization", &auth_header)
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body(serde_json::to_string(&update_role_req).expect("serialize AdminRoleUpdateRequest"))
+        .send()
+        .await
+        .expect("PUT /api/admin/roles/{id}");
+    let ur_status = upd_role.status().as_u16();
+    let ur_body = upd_role.text().await.expect("update role body");
+    assert_eq!(ur_status, 204, "body={ur_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/admin/roles/{id}",
+        "PUT",
+        ur_status,
+        None,
+        &ur_body,
+    );
+
+    let del_role = client
+        .delete(format!("{base}/api/admin/roles/{created_role_id}"))
+        .header("authorization", &auth_header)
+        .header("sec-fetch-site", "same-origin")
+        .send()
+        .await
+        .expect("DELETE /api/admin/roles/{id}");
+    let dr_status = del_role.status().as_u16();
+    let dr_body = del_role.text().await.expect("delete role body");
+    assert_eq!(dr_status, 204, "body={dr_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/admin/roles/{id}",
+        "DELETE",
+        dr_status,
+        None,
+        &dr_body,
+    );
+
+    let eff_resp = client
+        .get(format!(
+            "{base}/api/admin/users/{user_id}/effective-permissions"
+        ))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET effective-permissions");
+    let eff_status = eff_resp.status().as_u16();
+    let eff_ct = eff_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let eff_body = eff_resp.text().await.expect("effective-permissions body");
+    assert_eq!(eff_status, 200, "body={eff_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/admin/users/{id}/effective-permissions",
+        "GET",
+        eff_status,
+        eff_ct.as_deref(),
+        &eff_body,
+    );
+    let eff_dto: EffectivePerms = assert_dto_roundtrip_matches_live(
+        "GET /api/admin/users/{id}/effective-permissions",
+        &eff_body,
+    );
+    assert!(!eff_dto.permissions.is_empty());
+
+    let sod_resp = client
+        .get(format!("{base}/api/admin/dengbao/sod-mode"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/admin/dengbao/sod-mode");
+    let sod_status = sod_resp.status().as_u16();
+    let sod_ct = sod_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let sod_body = sod_resp.text().await.expect("sod-mode body");
+    assert_eq!(sod_status, 200, "body={sod_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/admin/dengbao/sod-mode",
+        "GET",
+        sod_status,
+        sod_ct.as_deref(),
+        &sod_body,
+    );
+    let _sod_dto: SodModeStatus =
+        assert_dto_roundtrip_matches_live("GET /api/admin/dengbao/sod-mode", &sod_body);
+
+    // PUT /api/admin/dengbao/sod-mode -> 409 JSON conflict (Super Admin spans SoD classes)
+    let sod_conflict = client
+        .put(format!("{base}/api/admin/dengbao/sod-mode"))
+        .header("authorization", &auth_header)
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body(
+            serde_json::to_string(&SodModeSetRequest { enabled: true })
+                .expect("serialize SodModeSetRequest"),
+        )
+        .send()
+        .await
+        .expect("PUT /api/admin/dengbao/sod-mode");
+    let scf_status = sod_conflict.status().as_u16();
+    let scf_ct = sod_conflict
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let scf_body = sod_conflict.text().await.expect("sod conflict body");
+    assert_eq!(scf_status, 409, "body={scf_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/admin/dengbao/sod-mode",
+        "PUT",
+        scf_status,
+        scf_ct.as_deref(),
+        &scf_body,
+    );
+    let sod_conflict_dto: SodModeConflictBody =
+        assert_dto_roundtrip_matches_live("409 PUT /api/admin/dengbao/sod-mode", &scf_body);
+    assert!(!sod_conflict_dto.violations.is_empty());
+
+    let ar_create_req = AccessReviewCreateRequest {
+        name: "Edge562 Campaign".to_owned(),
+    };
+    let ar_created = client
+        .post(format!("{base}/api/admin/access-reviews"))
+        .header("authorization", &auth_header)
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body(serde_json::to_string(&ar_create_req).expect("serialize AccessReviewCreateRequest"))
+        .send()
+        .await
+        .expect("POST /api/admin/access-reviews");
+    let arc_status = ar_created.status().as_u16();
+    let arc_ct = ar_created
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let arc_body = ar_created.text().await.expect("create access review body");
+    assert_eq!(arc_status, 201, "body={arc_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/admin/access-reviews",
+        "POST",
+        arc_status,
+        arc_ct.as_deref(),
+        &arc_body,
+    );
+    let ar_id_dto: AdminCreatedIdResponse =
+        assert_dto_roundtrip_matches_live("POST /api/admin/access-reviews", &arc_body);
+    let ar_id = ar_id_dto.id;
+
+    let ar_list = client
+        .get(format!("{base}/api/admin/access-reviews"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/admin/access-reviews");
+    let arl_status = ar_list.status().as_u16();
+    let arl_ct = ar_list
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let arl_body = ar_list.text().await.expect("access reviews list body");
+    assert_eq!(arl_status, 200, "body={arl_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/admin/access-reviews",
+        "GET",
+        arl_status,
+        arl_ct.as_deref(),
+        &arl_body,
+    );
+    let ar_list_dto: Vec<AccessReviewCampaign> =
+        assert_dto_roundtrip_matches_live("GET /api/admin/access-reviews", &arl_body);
+    assert!(ar_list_dto.iter().any(|c| c.id == ar_id));
+
+    let ar_detail = client
+        .get(format!("{base}/api/admin/access-reviews/{ar_id}"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/admin/access-reviews/{id}");
+    let ard_status = ar_detail.status().as_u16();
+    let ard_ct = ar_detail
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let ard_body = ar_detail.text().await.expect("access review detail body");
+    assert_eq!(ard_status, 200, "body={ard_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/admin/access-reviews/{id}",
+        "GET",
+        ard_status,
+        ard_ct.as_deref(),
+        &ard_body,
+    );
+    let _ar_detail_dto: AccessReviewDetail =
+        assert_dto_roundtrip_matches_live("GET /api/admin/access-reviews/{id}", &ard_body);
+
+    let ar_close = client
+        .post(format!("{base}/api/admin/access-reviews/{ar_id}/close"))
+        .header("authorization", &auth_header)
+        .header("sec-fetch-site", "same-origin")
+        .send()
+        .await
+        .expect("POST /api/admin/access-reviews/{id}/close");
+    let arcl_status = ar_close.status().as_u16();
+    let arcl_body = ar_close.text().await.expect("close access review body");
+    assert_eq!(arcl_status, 204, "body={arcl_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/admin/access-reviews/{id}/close",
+        "POST",
+        arcl_status,
+        None,
+        &arcl_body,
+    );
+
+    for (path, label) in [
+        ("/api/admin/guests", "GET /api/admin/guests"),
+        ("/api/admin/guest-profiles", "GET /api/admin/guest-profiles"),
+        (
+            "/api/admin/guest-profile-domains",
+            "GET /api/admin/guest-profile-domains",
+        ),
+    ] {
+        let resp = client
+            .get(format!("{base}{path}"))
+            .header("authorization", &auth_header)
+            .send()
+            .await
+            .unwrap_or_else(|e| panic!("{label}: {e}"));
+        let status = resp.status().as_u16();
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        let body = resp.text().await.expect("guest admin body");
+        assert_eq!(status, 200, "{label} body={body}");
+        assert_openapi_response(&doc, path, "GET", status, ct.as_deref(), &body);
+        match path {
+            "/api/admin/guests" => {
+                let _: Vec<GuestSummary> = assert_dto_roundtrip_matches_live(label, &body);
+            }
+            "/api/admin/guest-profiles" => {
+                let _: Vec<GuestProfile> = assert_dto_roundtrip_matches_live(label, &body);
+            }
+            _ => {
+                let _: Vec<GuestProfileDomain> = assert_dto_roundtrip_matches_live(label, &body);
+            }
+        }
+    }
+
+    // POST /api/admin/guests -> deterministic 202 accepted (mock S3 delivery succeeds)
+    {
+        let (pg, conn) = tokio_postgres::connect(&dsn, NoTls)
+            .await
+            .expect("connect test DB for guest invite config");
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+        pg.execute(
+            "INSERT INTO system_config(key, value) VALUES ('authserver.public_url', '\"https://auth.example.test\"') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[],
+        )
+        .await
+        .expect("seed authserver.public_url");
+    }
+    fail_invite_put.store(false, Ordering::SeqCst);
+    let guest_invite_resp = client
+        .post(format!("{base}/api/admin/guests"))
+        .header("authorization", &auth_header)
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body(
+            serde_json::to_string(&GuestInviteInput {
+                email: "partner562@external.test".to_owned(),
+                display_name: "Partner Guest 562".to_owned(),
+                profile_id: None,
+                expires_at: None,
+            })
+            .expect("serialize GuestInviteInput"),
+        )
+        .send()
+        .await
+        .expect("POST /api/admin/guests 202");
+    let gi_status = guest_invite_resp.status().as_u16();
+    let gi_ct = guest_invite_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let gi_body = guest_invite_resp
+        .text()
+        .await
+        .expect("guest invite 202 body");
+    assert_eq!(
+        gi_status, 202,
+        "POST /api/admin/guests expected 202, body={gi_body}"
+    );
+    assert_openapi_response(
+        &doc,
+        "/api/admin/guests",
+        "POST",
+        gi_status,
+        gi_ct.as_deref(),
+        &gi_body,
+    );
+    let gi_dto: GuestInviteMutationResult =
+        assert_dto_roundtrip_matches_live("202 POST /api/admin/guests", &gi_body);
+    assert_eq!(
+        gi_dto.invited_email.as_deref(),
+        Some("partner562@external.test")
+    );
+
+    // POST /api/admin/guests -> deterministic 503 invite_delivery_unconfirmed (mock S3 rejects invite PUT)
+    fail_invite_put.store(true, Ordering::SeqCst);
+    let guest_unconfirmed_resp = client
+        .post(format!("{base}/api/admin/guests"))
+        .header("authorization", &auth_header)
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body(
+            serde_json::to_string(&GuestInviteInput {
+                email: "partner562-unconfirmed@external.test".to_owned(),
+                display_name: "Partner Unconfirmed 562".to_owned(),
+                profile_id: None,
+                expires_at: None,
+            })
+            .expect("serialize unconfirmed GuestInviteInput"),
+        )
+        .send()
+        .await
+        .expect("POST /api/admin/guests 503");
+    fail_invite_put.store(false, Ordering::SeqCst);
+    let gu_status = guest_unconfirmed_resp.status().as_u16();
+    let gu_ct = guest_unconfirmed_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let gu_body = guest_unconfirmed_resp
+        .text()
+        .await
+        .expect("guest invite 503 body");
+    assert_eq!(
+        gu_status, 503,
+        "POST /api/admin/guests expected 503, body={gu_body}"
+    );
+    assert_openapi_response(
+        &doc,
+        "/api/admin/guests",
+        "POST",
+        gu_status,
+        gu_ct.as_deref(),
+        &gu_body,
+    );
+    let unconfirmed: GuestInviteDeliveryUnconfirmedBody =
+        assert_dto_roundtrip_matches_live("503 POST /api/admin/guests", &gu_body);
+    assert_eq!(unconfirmed.code, "invite_delivery_unconfirmed");
+    assert!(unconfirmed.retryable);
+
+    // 9. Wave 3.7 (#562) Drive metadata + Range (206 Partial Content / Content-Range / 416)
+    let space_req = DriveCreateSpaceRequest {
+        name: "Edge562 Space".to_owned(),
+        classification: None,
+        is_personal: Some(false),
+        retention_days: None,
+        worm_mode: None,
+        export_policy: None,
+    };
+    let space_created = client
+        .post(format!("{base}/api/drive/spaces"))
+        .header("authorization", &auth_header)
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body(serde_json::to_string(&space_req).expect("serialize DriveCreateSpaceRequest"))
+        .send()
+        .await
+        .expect("POST /api/drive/spaces");
+    let sc_status = space_created.status().as_u16();
+    let sc_ct = space_created
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let sc_body = space_created.text().await.expect("create space body");
+    assert_eq!(sc_status, 201, "body={sc_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/spaces",
+        "POST",
+        sc_status,
+        sc_ct.as_deref(),
+        &sc_body,
+    );
+    let space_id_dto: DriveIdResponse =
+        assert_dto_roundtrip_matches_live("POST /api/drive/spaces", &sc_body);
+    let space_id = space_id_dto.id;
+
+    let spaces_resp = client
+        .get(format!("{base}/api/drive/spaces"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/drive/spaces");
+    let sp_status = spaces_resp.status().as_u16();
+    let sp_ct = spaces_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let sp_body = spaces_resp.text().await.expect("spaces body");
+    assert_eq!(sp_status, 200, "body={sp_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/spaces",
+        "GET",
+        sp_status,
+        sp_ct.as_deref(),
+        &sp_body,
+    );
+    let spaces_dto: Vec<DriveSpace> =
+        assert_dto_roundtrip_matches_live("GET /api/drive/spaces", &sp_body);
+    assert!(spaces_dto.iter().any(|s| s.id == space_id));
+
+    let node_req = DriveCreateNodeRequest {
+        space_id,
+        parent_id: None,
+        kind: DriveNodeKind::File,
+        name: "range-test.txt".to_owned(),
+        content_type: Some(Some("text/plain".to_owned())),
+    };
+    let node_created = client
+        .post(format!("{base}/api/drive/nodes"))
+        .header("authorization", &auth_header)
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body(serde_json::to_string(&node_req).expect("serialize DriveCreateNodeRequest"))
+        .send()
+        .await
+        .expect("POST /api/drive/nodes");
+    let nc_status = node_created.status().as_u16();
+    let nc_ct = node_created
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let nc_body = node_created.text().await.expect("create node body");
+    assert_eq!(nc_status, 201, "body={nc_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/nodes",
+        "POST",
+        nc_status,
+        nc_ct.as_deref(),
+        &nc_body,
+    );
+    let node_id_dto: DriveIdResponse =
+        assert_dto_roundtrip_matches_live("POST /api/drive/nodes", &nc_body);
+    let file_node_id = node_id_dto.id;
+
+    // Upload a real Drive chunk (`"Hello Setjoin Drive Range 206!"`, 30 bytes)
+    let payload: &[u8] = b"Hello Setjoin Drive Range 206!";
+    let chunk_sha = "7fc00af2eb9b4c31e78661b5975716e9996e0e794713be75b1b649f41c23d5d9";
+
+    let head_before = client
+        .head(format!(
+            "{base}/api/drive/chunks/{chunk_sha}?space={space_id}"
+        ))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("HEAD chunk before upload");
+    assert_eq!(head_before.status(), 404);
+
+    let put_chunk = client
+        .put(format!(
+            "{base}/api/drive/chunks/{chunk_sha}?space={space_id}"
+        ))
+        .header("authorization", &auth_header)
+        .header("content-type", "application/octet-stream")
+        .header("sec-fetch-site", "same-origin")
+        .body(payload.to_vec())
+        .send()
+        .await
+        .expect("PUT /api/drive/chunks/{sha256}");
+    let pc_status = put_chunk.status().as_u16();
+    let pc_body = put_chunk.text().await.expect("put chunk body");
+    assert!(
+        pc_status == 201 || pc_status == 204,
+        "PUT chunk expected 201 or 204, got {pc_status} body={pc_body}"
+    );
+    assert_openapi_response(
+        &doc,
+        "/api/drive/chunks/{sha256}",
+        "PUT",
+        pc_status,
+        None,
+        &pc_body,
+    );
+
+    let head_after = client
+        .head(format!(
+            "{base}/api/drive/chunks/{chunk_sha}?space={space_id}"
+        ))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("HEAD chunk after upload");
+    assert_eq!(head_after.status(), 200);
+
+    let put_ver_req = DrivePutVersionRequest {
+        content_sha256: chunk_sha.to_owned(),
+        size: payload.len() as i64,
+        content_type: Some(Some("text/plain".to_owned())),
+        base_version_id: None,
+        manifest: vec![DriveManifestChunk {
+            sha256: chunk_sha.to_owned(),
+            size: payload.len() as i64,
+        }],
+        note: Some("initial range test version".to_owned()),
+        device_label: Some("conformance".to_owned()),
+        branch_id: None,
+    };
+    let ver_created = client
+        .post(format!("{base}/api/drive/files/{file_node_id}/versions"))
+        .header("authorization", &auth_header)
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body(serde_json::to_string(&put_ver_req).expect("serialize DrivePutVersionRequest"))
+        .send()
+        .await
+        .expect("POST /api/drive/files/{id}/versions");
+    let vc_status = ver_created.status().as_u16();
+    let vc_ct = ver_created
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let vc_body = ver_created.text().await.expect("put version body");
+    assert_eq!(vc_status, 201, "body={vc_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/files/{id}/versions",
+        "POST",
+        vc_status,
+        vc_ct.as_deref(),
+        &vc_body,
+    );
+    let ver_dto: PutVersionResult =
+        assert_dto_roundtrip_matches_live("POST /api/drive/files/{id}/versions", &vc_body);
+    let version_id = ver_dto.version_id;
+
+    // Drive metadata reads: tree, batch nodes meta, versions, history, changes, watches, audit-actions
+    let tree_resp = client
+        .get(format!("{base}/api/drive/spaces/{space_id}/tree"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/drive/spaces/{id}/tree");
+    let tr_status = tree_resp.status().as_u16();
+    let tr_ct = tree_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let tr_body = tree_resp.text().await.expect("tree body");
+    assert_eq!(tr_status, 200, "body={tr_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/spaces/{id}/tree",
+        "GET",
+        tr_status,
+        tr_ct.as_deref(),
+        &tr_body,
+    );
+    let tree_dto: Vec<DriveNode> =
+        assert_dto_roundtrip_matches_live("GET /api/drive/spaces/{id}/tree", &tr_body);
+    assert!(tree_dto.iter().any(|n| n.id == file_node_id));
+
+    let meta_resp = client
+        .get(format!("{base}/api/drive/nodes?ids={file_node_id}"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/drive/nodes");
+    let nm_status = meta_resp.status().as_u16();
+    let nm_ct = meta_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let nm_body = meta_resp.text().await.expect("nodes meta body");
+    assert_eq!(nm_status, 200, "body={nm_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/nodes",
+        "GET",
+        nm_status,
+        nm_ct.as_deref(),
+        &nm_body,
+    );
+    let meta_dto: Vec<DriveNodeMeta> =
+        assert_dto_roundtrip_matches_live("GET /api/drive/nodes", &nm_body);
+    assert_eq!(meta_dto.len(), 1);
+    assert_eq!(meta_dto[0].head_version_id, Some(version_id));
+
+    let vers_resp = client
+        .get(format!("{base}/api/drive/files/{file_node_id}/versions"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/drive/files/{id}/versions");
+    let vs_status = vers_resp.status().as_u16();
+    let vs_ct = vers_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let vs_body = vers_resp.text().await.expect("versions body");
+    assert_eq!(vs_status, 200, "body={vs_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/files/{id}/versions",
+        "GET",
+        vs_status,
+        vs_ct.as_deref(),
+        &vs_body,
+    );
+    let vers_dto: Vec<DriveVersion> =
+        assert_dto_roundtrip_matches_live("GET /api/drive/files/{id}/versions", &vs_body);
+    assert_eq!(vers_dto.len(), 1);
+
+    let hist_resp = client
+        .get(format!("{base}/api/drive/files/{file_node_id}/history"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/drive/files/{id}/history");
+    let hi_status = hist_resp.status().as_u16();
+    let hi_ct = hist_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let hi_body = hist_resp.text().await.expect("history body");
+    assert_eq!(hi_status, 200, "body={hi_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/files/{id}/history",
+        "GET",
+        hi_status,
+        hi_ct.as_deref(),
+        &hi_body,
+    );
+    let _hist_dto: DriveHistoryResult =
+        assert_dto_roundtrip_matches_live("GET /api/drive/files/{id}/history", &hi_body);
+
+    let chg_resp = client
+        .get(format!("{base}/api/drive/changes?space={space_id}&since=0"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/drive/changes");
+    let ch_status = chg_resp.status().as_u16();
+    let ch_ct = chg_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let ch_body = chg_resp.text().await.expect("changes body");
+    assert_eq!(ch_status, 200, "body={ch_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/changes",
+        "GET",
+        ch_status,
+        ch_ct.as_deref(),
+        &ch_body,
+    );
+    let _chg_dto: DriveChangesResult =
+        assert_dto_roundtrip_matches_live("GET /api/drive/changes", &ch_body);
+
+    let watches_resp = client
+        .get(format!("{base}/api/drive/watches"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/drive/watches");
+    let wa_status = watches_resp.status().as_u16();
+    let wa_ct = watches_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let wa_body = watches_resp.text().await.expect("watches body");
+    assert_eq!(wa_status, 200, "body={wa_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/watches",
+        "GET",
+        wa_status,
+        wa_ct.as_deref(),
+        &wa_body,
+    );
+    let _watches_dto: Vec<DriveWatchRow> =
+        assert_dto_roundtrip_matches_live("GET /api/drive/watches", &wa_body);
+
+    let actions_resp = client
+        .get(format!("{base}/api/drive/audit-actions"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/drive/audit-actions");
+    let aa_status = actions_resp.status().as_u16();
+    let aa_ct = actions_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let aa_body = actions_resp.text().await.expect("audit-actions body");
+    assert_eq!(aa_status, 200, "body={aa_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/audit-actions",
+        "GET",
+        aa_status,
+        aa_ct.as_deref(),
+        &aa_body,
+    );
+    let actions_dto: Vec<String> =
+        assert_dto_roundtrip_matches_live("GET /api/drive/audit-actions", &aa_body);
+    assert!(!actions_dto.is_empty());
+
+    // Drive Content: Full 200 + Partial 206 Range + 416 Range Not Satisfiable
+    let full_resp = client
+        .get(format!("{base}/api/drive/versions/{version_id}/content"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET full /api/drive/versions/{id}/content");
+    let full_status = full_resp.status().as_u16();
+    let full_ct = full_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    assert_eq!(
+        full_resp
+            .headers()
+            .get("accept-ranges")
+            .and_then(|v| v.to_str().ok()),
+        Some("bytes")
+    );
+    let full_bytes = full_resp.bytes().await.expect("full content bytes");
+    assert_eq!(full_status, 200);
+    assert_eq!(full_bytes.as_ref(), payload);
+    assert_openapi_response(
+        &doc,
+        "/api/drive/versions/{id}/content",
+        "GET",
+        full_status,
+        full_ct.as_deref(),
+        "",
+    );
+
+    let range_resp = client
+        .get(format!("{base}/api/drive/versions/{version_id}/content"))
+        .header("authorization", &auth_header)
+        .header("range", "bytes=0-4")
+        .send()
+        .await
+        .expect("GET Range 206 /api/drive/versions/{id}/content");
+    let range_status = range_resp.status().as_u16();
+    let range_ct = range_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let content_range = range_resp
+        .headers()
+        .get("content-range")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let accept_ranges = range_resp
+        .headers()
+        .get("accept-ranges")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let range_bytes = range_resp.bytes().await.expect("range content bytes");
+    assert_eq!(range_status, 206);
+    assert_eq!(content_range.as_deref(), Some("bytes 0-4/30"));
+    assert_eq!(accept_ranges.as_deref(), Some("bytes"));
+    assert_eq!(range_bytes.as_ref(), b"Hello");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/versions/{id}/content",
+        "GET",
+        range_status,
+        range_ct.as_deref(),
+        "",
+    );
+
+    let bad_range = client
+        .get(format!("{base}/api/drive/versions/{version_id}/content"))
+        .header("authorization", &auth_header)
+        .header("range", "bytes=999-1000")
+        .send()
+        .await
+        .expect("GET 416 /api/drive/versions/{id}/content");
+    let br_status = bad_range.status().as_u16();
+    let br_ct = bad_range
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let br_body = bad_range.text().await.expect("416 body");
+    assert_eq!(br_status, 416, "body={br_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/versions/{id}/content",
+        "GET",
+        br_status,
+        br_ct.as_deref(),
+        &br_body,
+    );
+    let br_prob: ProblemDetails =
+        assert_dto_roundtrip_matches_live("416 GET Drive version content", &br_body);
+    assert_eq!(br_prob.status, 416);
+
+    // Drive Preview: upload an Office MIME version so preview_status='pending'
+    // -> 404 (detail contains status=pending) -> seed ready preview rendition
+    // -> 200 full PDF, 206 Partial Content Range, and 416 Range Not Satisfiable
+    let office_ver_req = DrivePutVersionRequest {
+        content_sha256: chunk_sha.to_owned(),
+        size: payload.len() as i64,
+        content_type: Some(Some(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_owned(),
+        )),
+        base_version_id: Some(version_id),
+        manifest: vec![DriveManifestChunk {
+            sha256: chunk_sha.to_owned(),
+            size: payload.len() as i64,
+        }],
+        note: Some("office preview conformance version".to_owned()),
+        device_label: Some("conformance".to_owned()),
+        branch_id: None,
+    };
+    let office_ver_resp = client
+        .post(format!("{base}/api/drive/files/{file_node_id}/versions"))
+        .header("authorization", &auth_header)
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body(
+            serde_json::to_string(&office_ver_req)
+                .expect("serialize office DrivePutVersionRequest"),
+        )
+        .send()
+        .await
+        .expect("POST office version for preview");
+    let ov_status = office_ver_resp.status().as_u16();
+    let ov_body = office_ver_resp.text().await.expect("office version body");
+    assert_eq!(ov_status, 201, "body={ov_body}");
+    let office_ver_dto: PutVersionResult =
+        assert_dto_roundtrip_matches_live("POST office Drive version", &ov_body);
+    let preview_version_id = office_ver_dto.version_id;
+
+    let preview_pending = client
+        .get(format!(
+            "{base}/api/drive/versions/{preview_version_id}/preview"
+        ))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET pending /api/drive/versions/{id}/preview");
+    let pp_status = preview_pending.status().as_u16();
+    let pp_ct = preview_pending
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let pp_body = preview_pending.text().await.expect("preview 404 body");
+    assert_eq!(pp_status, 404, "body={pp_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/versions/{id}/preview",
+        "GET",
+        pp_status,
+        pp_ct.as_deref(),
+        &pp_body,
+    );
+    let pp_prob: ProblemDetails =
+        assert_dto_roundtrip_matches_live("404 pending GET Drive preview", &pp_body);
+    assert_eq!(pp_prob.status, 404);
+    assert!(
+        pp_prob
+            .detail
+            .as_deref()
+            .is_some_and(|d| d.contains("status=pending")),
+        "expected preview 404 detail to contain status=pending, got {:?}",
+        pp_prob.detail
+    );
+
+    // Mark rendition ready pointing to our already-staged mock S3 chunk.
+    {
+        let (pg, conn) = tokio_postgres::connect(&dsn, NoTls)
+            .await
+            .expect("connect test DB to seed preview rendition");
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+        pg.execute(
+            "INSERT INTO drive_version_chunks (version_id, stream, ordinal, scope_key, chunk_sha256)
+             SELECT version_id, 'preview', ordinal, scope_key, chunk_sha256
+               FROM drive_version_chunks
+              WHERE version_id = $1 AND stream = 'content'",
+            &[&preview_version_id],
+        )
+        .await
+        .expect("seed preview stream chunk");
+        pg.execute(
+            "UPDATE drive_file_versions SET preview_status = 'ready' WHERE id = $1",
+            &[&preview_version_id],
+        )
+        .await
+        .expect("mark preview_status ready");
+    }
+
+    let prev_full = client
+        .get(format!(
+            "{base}/api/drive/versions/{preview_version_id}/preview"
+        ))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET 200 /api/drive/versions/{id}/preview");
+    let pf_status = prev_full.status().as_u16();
+    let pf_ct = prev_full
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    assert_eq!(
+        prev_full
+            .headers()
+            .get("accept-ranges")
+            .and_then(|v| v.to_str().ok()),
+        Some("bytes")
+    );
+    let pf_bytes = prev_full.bytes().await.expect("preview full bytes");
+    assert_eq!(pf_status, 200);
+    assert_eq!(pf_bytes.as_ref(), payload);
+    assert_openapi_response(
+        &doc,
+        "/api/drive/versions/{id}/preview",
+        "GET",
+        pf_status,
+        pf_ct.as_deref(),
+        "",
+    );
+
+    let prev_range = client
+        .get(format!(
+            "{base}/api/drive/versions/{preview_version_id}/preview"
+        ))
+        .header("authorization", &auth_header)
+        .header("range", "bytes=0-4")
+        .send()
+        .await
+        .expect("GET 206 /api/drive/versions/{id}/preview");
+    let pr_status = prev_range.status().as_u16();
+    let pr_ct = prev_range
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let pr_cr = prev_range
+        .headers()
+        .get("content-range")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let pr_ar = prev_range
+        .headers()
+        .get("accept-ranges")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let pr_bytes = prev_range.bytes().await.expect("preview range bytes");
+    assert_eq!(pr_status, 206);
+    assert_eq!(pr_cr.as_deref(), Some("bytes 0-4/30"));
+    assert_eq!(pr_ar.as_deref(), Some("bytes"));
+    assert_eq!(pr_bytes.as_ref(), b"Hello");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/versions/{id}/preview",
+        "GET",
+        pr_status,
+        pr_ct.as_deref(),
+        "",
+    );
+
+    let prev_bad_range = client
+        .get(format!(
+            "{base}/api/drive/versions/{preview_version_id}/preview"
+        ))
+        .header("authorization", &auth_header)
+        .header("range", "bytes=999-1000")
+        .send()
+        .await
+        .expect("GET 416 /api/drive/versions/{id}/preview");
+    let pbr_status = prev_bad_range.status().as_u16();
+    let pbr_ct = prev_bad_range
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    assert_eq!(
+        prev_bad_range
+            .headers()
+            .get("accept-ranges")
+            .and_then(|v| v.to_str().ok()),
+        Some("bytes")
+    );
+    assert_eq!(
+        prev_bad_range
+            .headers()
+            .get("content-disposition")
+            .and_then(|v| v.to_str().ok()),
+        Some("inline")
+    );
+    let pbr_body = prev_bad_range.text().await.expect("preview 416 body");
+    assert_eq!(pbr_status, 416, "body={pbr_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/drive/versions/{id}/preview",
+        "GET",
+        pbr_status,
+        pbr_ct.as_deref(),
+        &pbr_body,
+    );
+    let pbr_prob: ProblemDetails =
+        assert_dto_roundtrip_matches_live("416 GET Drive version preview", &pbr_body);
+    assert_eq!(pbr_prob.status, 416);
+
+    // 10. Wave 3.7 (#562) Sharing conformance: GET /api/me/sharing
+    let sharing_resp = client
+        .get(format!("{base}/api/me/sharing"))
+        .header("authorization", &auth_header)
+        .send()
+        .await
+        .expect("GET /api/me/sharing");
+    let sh_status = sharing_resp.status().as_u16();
+    let sh_ct = sharing_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let sh_body = sharing_resp.text().await.expect("sharing body");
+    assert_eq!(sh_status, 200, "body={sh_body}");
+    assert_openapi_response(
+        &doc,
+        "/api/me/sharing",
+        "GET",
+        sh_status,
+        sh_ct.as_deref(),
+        &sh_body,
+    );
+    let _sh_dto: SharingOverview =
+        assert_dto_roundtrip_matches_live("GET /api/me/sharing", &sh_body);
+
+    // 11. Failed-auth conformance checks LAST so loopback threat counters never
+    //     interfere with earlier /auth/* (e.g. POST /auth/mfa/reauth) or API calls.
+    let bad_login = client
+        .post(format!("{base}/auth/login"))
+        .header("content-type", "application/json")
+        .body(
+            serde_json::to_string(&AuthLoginRequest {
+                email: email.to_owned(),
+                password: "WrongPassword999!".to_owned(),
+                stay_signed_in: None,
+                remember_device: None,
+                dpop_jwk: None,
+            })
+            .expect("serialize bad login"),
+        )
+        .send()
+        .await
+        .expect("POST /auth/login wrong password");
+    let bl_status = bad_login.status().as_u16();
+    let bl_ct = bad_login
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let bl_body = bad_login.text().await.expect("bad login body");
+    assert_eq!(bl_status, 401, "body={bl_body}");
+    assert_openapi_response(
+        &doc,
+        "/auth/login",
+        "POST",
+        bl_status,
+        bl_ct.as_deref(),
+        &bl_body,
+    );
+    let _: ProblemDetails = assert_dto_roundtrip_matches_live("401 POST /auth/login", &bl_body);
+
+    let refresh_bad_json = client
+        .post(format!("{base}/auth/refresh"))
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body("{not-json")
+        .send()
+        .await
+        .expect("POST /auth/refresh invalid json");
+    let rbj_status = refresh_bad_json.status().as_u16();
+    let rbj_ct = refresh_bad_json
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let rbj_body = refresh_bad_json.text().await.expect("refresh 400 body");
+    assert_eq!(rbj_status, 400, "body={rbj_body}");
+    assert_openapi_response(
+        &doc,
+        "/auth/refresh",
+        "POST",
+        rbj_status,
+        rbj_ct.as_deref(),
+        &rbj_body,
+    );
+    let _: ProblemDetails = assert_dto_roundtrip_matches_live("400 POST /auth/refresh", &rbj_body);
+
+    let refresh_bad_tok = client
+        .post(format!("{base}/auth/refresh"))
+        .header("content-type", "application/json")
+        .header("sec-fetch-site", "same-origin")
+        .body(
+            serde_json::to_string(&AuthRefreshRequest {
+                refresh_token: Some("not-a-valid-jwt".to_owned()),
+            })
+            .expect("serialize invalid refresh"),
+        )
+        .send()
+        .await
+        .expect("POST /auth/refresh invalid token");
+    let rbt_status = refresh_bad_tok.status().as_u16();
+    let rbt_ct = refresh_bad_tok
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let rbt_body = refresh_bad_tok.text().await.expect("refresh 401 body");
+    assert_eq!(rbt_status, 401, "body={rbt_body}");
+    assert_openapi_response(
+        &doc,
+        "/auth/refresh",
+        "POST",
+        rbt_status,
+        rbt_ct.as_deref(),
+        &rbt_body,
+    );
+    let _: ProblemDetails = assert_dto_roundtrip_matches_live("401 POST /auth/refresh", &rbt_body);
 
     // Clean graceful shutdown
     proc.send_sigterm();

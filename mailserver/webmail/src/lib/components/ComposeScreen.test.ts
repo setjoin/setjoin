@@ -270,7 +270,10 @@ describe('ComposeScreen', () => {
 			expect(from.value).toBe('own');
 			expect(from.selectedOptions[0]?.textContent).toBe('alice@test.local');
 			await waitFor(() => {
-				expect(fetch).toHaveBeenCalledWith('/auth/me', { credentials: 'include' });
+				expect(fetch).toHaveBeenCalledWith(
+					'/auth/me',
+					expect.objectContaining({ method: 'GET', credentials: 'include' })
+				);
 			});
 
 			await fireEvent.click(screen.getByText('Send'));
@@ -665,7 +668,12 @@ describe('ComposeScreen', () => {
 			openCompose({ draftId: 'draft-background-from' });
 			render(ComposeScreen);
 			await waitFor(() => expect(emailGet).toHaveBeenCalledTimes(1));
-			await waitFor(() => expect(fetch).toHaveBeenCalledWith('/auth/me', { credentials: 'include' }));
+			await waitFor(() =>
+				expect(fetch).toHaveBeenCalledWith(
+					'/auth/me',
+					expect.objectContaining({ method: 'GET', credentials: 'include' })
+				)
+			);
 
 			response.resolve([draftEmail('draft-background-from', 'background-safe', 'background body')] as never);
 			await waitFor(() => expect(screen.getByLabelText('Subject')).toHaveValue('background-safe'));

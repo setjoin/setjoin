@@ -1,4 +1,4 @@
-import { adminFetch } from './transport';
+import { createEdgeClient, toEdgeProblemError } from '$lib/edge/client';
 
 export interface AccessReviewCampaign {
 	id: number;
@@ -35,22 +35,38 @@ export interface BulkResult {
 	skipped: number;
 }
 
+const accessReviewsEdge = createEdgeClient({
+	cache: 'no-store',
+	loginRedirect: '/login',
+	forbiddenMessage: 'Admin access required'
+});
+
 export async function listAccessReviews(): Promise<AccessReviewCampaign[]> {
-	const res = await adminFetch('/admin/access-reviews');
-	return (await res.json()) as AccessReviewCampaign[];
+	const { data, error, response } = await accessReviewsEdge.GET('/api/admin/access-reviews');
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw toEdgeProblemError(error, response);
+	}
+	return data as AccessReviewCampaign[];
 }
 
 export async function getAccessReview(id: number): Promise<AccessReviewDetail> {
-	const res = await adminFetch(`/admin/access-reviews/${id}`);
-	return (await res.json()) as AccessReviewDetail;
+	const { data, error, response } = await accessReviewsEdge.GET('/api/admin/access-reviews/{id}', {
+		params: { path: { id } }
+	});
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw toEdgeProblemError(error, response);
+	}
+	return data as AccessReviewDetail;
 }
 
 export async function startAccessReview(name: string): Promise<number> {
-	const res = await adminFetch('/admin/access-reviews', {
-		method: 'POST',
-		body: JSON.stringify({ name })
+	const { data, error, response } = await accessReviewsEdge.POST('/api/admin/access-reviews', {
+		body: { name }
 	});
-	return ((await res.json()) as { id: number }).id;
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw toEdgeProblemError(error, response);
+	}
+	return data.id;
 }
 
 export async function decideAccessReviewItem(
@@ -59,10 +75,16 @@ export async function decideAccessReviewItem(
 	decision: 'keep' | 'revoke',
 	note?: string
 ): Promise<void> {
-	await adminFetch(`/admin/access-reviews/${campaignId}/items/${itemId}`, {
-		method: 'PUT',
-		body: JSON.stringify({ decision, note })
-	});
+	const { error, response } = await accessReviewsEdge.PUT(
+		'/api/admin/access-reviews/{id}/items/{itemId}',
+		{
+			params: { path: { id: campaignId, itemId } },
+			body: note !== undefined ? { decision, note } : { decision }
+		}
+	);
+	if (!response.ok || error !== undefined) {
+		throw toEdgeProblemError(error, response);
+	}
 }
 
 export async function decideAccessReviewBulk(
@@ -70,13 +92,21 @@ export async function decideAccessReviewBulk(
 	itemIds: number[],
 	decision: 'keep' | 'revoke'
 ): Promise<BulkResult> {
-	const res = await adminFetch(`/admin/access-reviews/${campaignId}/items`, {
-		method: 'PUT',
-		body: JSON.stringify({ itemIds, decision })
+	const { data, error, response } = await accessReviewsEdge.PUT('/api/admin/access-reviews/{id}/items', {
+		params: { path: { id: campaignId } },
+		body: { itemIds, decision }
 	});
-	return (await res.json()) as BulkResult;
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw toEdgeProblemError(error, response);
+	}
+	return data;
 }
 
 export async function closeAccessReview(campaignId: number): Promise<void> {
-	await adminFetch(`/admin/access-reviews/${campaignId}/close`, { method: 'POST' });
+	const { error, response } = await accessReviewsEdge.POST('/api/admin/access-reviews/{id}/close', {
+		params: { path: { id: campaignId } }
+	});
+	if (!response.ok || error !== undefined) {
+		throw toEdgeProblemError(error, response);
+	}
 }

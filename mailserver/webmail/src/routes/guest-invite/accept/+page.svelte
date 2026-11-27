@@ -5,8 +5,7 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { Button, Checkbox, Input, Spinner } from '$lib/components/ui';
-	import { problemDetail } from '$lib/errors';
-	import { httpRequest } from '$lib/http';
+	import { createEdgeClient, EDGE_DEFAULT_ALLOW_STATUSES } from '$lib/edge/client';
 	import { formatDateTime, t } from '$lib/i18n';
 
 	interface GuestInviteDisclosure {
@@ -99,18 +98,20 @@
 		return '';
 	}
 
-	async function responseError(res: Response, fallback: string): Promise<string> {
-		const body = (await res.json().catch(() => null)) as
-			| { error?: unknown; detail?: unknown; title?: unknown }
-			| null;
-		if (body && typeof body.error === 'string') return body.error;
-		return problemDetail(
-			new Response(JSON.stringify(body ?? {}), {
-				status: res.status,
-				headers: { 'Content-Type': 'application/json' }
-			}),
-			fallback
-		);
+	const guestAcceptEdge = createEdgeClient({
+		loginRedirect: null,
+		unauthorizedMessage: terminalInviteError,
+		allowStatuses: [...EDGE_DEFAULT_ALLOW_STATUSES, 403]
+	});
+
+	function extractGuestError(error: unknown, fallback: string): string {
+		if (error && typeof error === 'object') {
+			const body = error as { error?: unknown; detail?: unknown; title?: unknown };
+			if (typeof body.error === 'string' && body.error.trim()) return body.error;
+			if (typeof body.detail === 'string' && body.detail.trim()) return body.detail;
+			if (typeof body.title === 'string' && body.title.trim()) return body.title;
+		}
+		return fallback;
 	}
 
 	onMount(() => {
@@ -134,20 +135,20 @@
 		error = '';
 		errorRetryable = false;
 		try {
-			const res = await httpRequest(
-				`/auth/guest-invite/accept?token=${encodeURIComponent(token)}`,
-				{
-					loginRedirect: null,
-					unauthorizedMessage: terminalInviteError,
-					onError: (response) => responseError(response, t('guest_accept.load_failed'))
-				}
-			);
-			disclosure = (await res.json()) as GuestInviteDisclosure;
-			const policyResponse = await httpRequest('/auth/password-policy', {
-				loginRedirect: null,
-				onError: () => t('guest_accept.load_failed')
-			});
-			passwordPolicy = parsePasswordPolicy(await policyResponse.json());
+			const { data: disclosureData, error: disclosureError, response: disclosureRes } =
+				await guestAcceptEdge.GET('/auth/guest-invite/accept', {
+					params: { query: { token } }
+				});
+			if (!disclosureRes.ok || disclosureError !== undefined || disclosureData === undefined) {
+				throw new Error(extractGuestError(disclosureError, t('guest_accept.load_failed')));
+			}
+			disclosure = disclosureData as unknown as GuestInviteDisclosure;
+			const { data: policyData, error: policyError, response: policyRes } =
+				await guestAcceptEdge.GET('/auth/password-policy');
+			if (!policyRes.ok || policyError !== undefined || policyData === undefined) {
+				throw new Error(t('guest_accept.load_failed'));
+			}
+			passwordPolicy = parsePasswordPolicy(policyData);
 			viewState = 'ready';
 		} catch (caught) {
 			viewState = 'error';
@@ -172,18 +173,19 @@
 		viewState = 'submitting';
 		error = '';
 		try {
-			await httpRequest('/auth/guest-invite/accept', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					token,
-					disclosure_accepted: true,
-					new_password: password
-				}),
-				loginRedirect: null,
-				unauthorizedMessage: terminalInviteError,
-				onError: (response) => responseError(response, t('guest_accept.activate_failed'))
-			});
+			const { error: acceptError, response: acceptRes } = await guestAcceptEdge.POST(
+				'/auth/guest-invite/accept',
+				{
+					body: {
+						token,
+						disclosure_accepted: true,
+						new_password: password
+					}
+				}
+			);
+			if (!acceptRes.ok || acceptError !== undefined) {
+				throw new Error(extractGuestError(acceptError, t('guest_accept.activate_failed')));
+			}
 			token = '';
 			password = '';
 			confirmPassword = '';

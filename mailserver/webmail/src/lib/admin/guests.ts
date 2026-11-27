@@ -1,5 +1,5 @@
-import { adminFetch } from './transport';
 import { problemDetail } from '$lib/errors';
+import { createEdgeClient, toEdgeProblemError } from '$lib/edge/client';
 
 export type GuestApp = 'mail' | 'calendar' | 'contacts' | 'tasks' | 'chat' | 'drive' | 'meet';
 export type GuestStatus = 'invited' | 'active' | 'disabled' | 'expired';
@@ -119,104 +119,182 @@ export interface GuestTransferResult {
 	driveSpacesTransferred: number;
 }
 
-async function json<T>(path: string, opts?: Parameters<typeof adminFetch>[1]): Promise<T> {
-	const response = await adminFetch(path, { ...opts, onError: problemDetail });
-	return (await response.json()) as T;
+const guestsEdge = createEdgeClient({
+	cache: 'no-store',
+	loginRedirect: '/login',
+	forbiddenMessage: 'Admin access required',
+	onError: problemDetail
+});
+
+function handleInviteMutationResult(
+	data: (GuestInviteMutationResult & { invitedEmail?: string }) | undefined,
+	error: unknown,
+	response: Response
+): GuestInviteMutationResult & { invitedEmail?: string } {
+	if (response.status === 503) {
+		const payload = (error && typeof error === 'object' ? error : {}) as Record<string, unknown>;
+		if (payload.code === 'invite_delivery_unconfirmed') {
+			throw new InviteDeliveryUnconfirmedError(String(payload.inviteId ?? ''), Number(payload.guestUserId));
+		}
+		throw new Error('Invitation delivery could not be confirmed. Refresh status before trying again.');
+	}
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw toEdgeProblemError(error, response);
+	}
+	return data;
 }
 
-export function listGuests(): Promise<GuestSummary[]> {
-	return json('/admin/guests');
+export async function listGuests(): Promise<GuestSummary[]> {
+	const { data, error, response } = await guestsEdge.GET('/api/admin/guests');
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw toEdgeProblemError(error, response);
+	}
+	return data as GuestSummary[];
 }
 
-export function getGuest(id: number): Promise<GuestDetail> {
-	return json(`/admin/guests/${id}`);
+export async function getGuest(id: number): Promise<GuestDetail> {
+	const { data, error, response } = await guestsEdge.GET('/api/admin/guests/{id}', {
+		params: { path: { id } }
+	});
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw toEdgeProblemError(error, response);
+	}
+	return data as unknown as GuestDetail;
 }
 
-export function listGuestProfiles(): Promise<GuestProfile[]> {
-	return json('/admin/guest-profiles');
+export async function listGuestProfiles(): Promise<GuestProfile[]> {
+	const { data, error, response } = await guestsEdge.GET('/api/admin/guest-profiles');
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw toEdgeProblemError(error, response);
+	}
+	return data as GuestProfile[];
 }
 
-export function listGuestProfileDomains(): Promise<GuestProfileDomain[]> {
-	return json('/admin/guest-profile-domains');
+export async function listGuestProfileDomains(): Promise<GuestProfileDomain[]> {
+	const { data, error, response } = await guestsEdge.GET('/api/admin/guest-profile-domains');
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw toEdgeProblemError(error, response);
+	}
+	return data;
 }
 
-export function createGuestProfile(input: GuestProfileInput): Promise<GuestProfile> {
-	return json('/admin/guest-profiles', { method: 'POST', body: JSON.stringify(input) });
+export async function createGuestProfile(input: GuestProfileInput): Promise<GuestProfile> {
+	const { data, error, response } = await guestsEdge.POST('/api/admin/guest-profiles', {
+		body: input
+	});
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw toEdgeProblemError(error, response);
+	}
+	return data as GuestProfile;
 }
 
-export function updateGuestProfile(id: number, input: GuestProfileInput): Promise<GuestProfile> {
-	return json(`/admin/guest-profiles/${id}`, { method: 'PUT', body: JSON.stringify(input) });
+export async function updateGuestProfile(id: number, input: GuestProfileInput): Promise<GuestProfile> {
+	const { data, error, response } = await guestsEdge.PUT('/api/admin/guest-profiles/{id}', {
+		params: { path: { id } },
+		body: input
+	});
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw toEdgeProblemError(error, response);
+	}
+	return data as GuestProfile;
 }
 
 export async function deleteGuestProfile(id: number): Promise<void> {
-	await adminFetch(`/admin/guest-profiles/${id}`, { method: 'DELETE', onError: problemDetail });
+	const { error, response } = await guestsEdge.DELETE('/api/admin/guest-profiles/{id}', {
+		params: { path: { id } }
+	});
+	if (!response.ok || error !== undefined) {
+		throw toEdgeProblemError(error, response);
+	}
 }
 
 export async function assignGuestProfile(guestId: number, profileId: number | null): Promise<void> {
-	await adminFetch(`/admin/guests/${guestId}/profile`, {
-		method: 'PUT', body: JSON.stringify({ profileId }), onError: problemDetail,
+	const { error, response } = await guestsEdge.PUT('/api/admin/guests/{id}/profile', {
+		params: { path: { id: guestId } },
+		body: { profileId }
 	});
+	if (!response.ok || error !== undefined) {
+		throw toEdgeProblemError(error, response);
+	}
 }
 
-async function postGuestAction(id: number, action: 'disable' | 'enable', body?: string): Promise<void> {
-	await adminFetch(`/admin/guests/${id}/${action}`, { method: 'POST', body, onError: problemDetail });
+export async function disableGuest(id: number): Promise<void> {
+	const { error, response } = await guestsEdge.POST('/api/admin/guests/{id}/disable', {
+		params: { path: { id } }
+	});
+	if (!response.ok || error !== undefined) {
+		throw toEdgeProblemError(error, response);
+	}
 }
 
-export function disableGuest(id: number): Promise<void> {
-	return postGuestAction(id, 'disable');
-}
-
-export function enableGuest(id: number): Promise<void> {
-	return postGuestAction(id, 'enable');
+export async function enableGuest(id: number): Promise<void> {
+	const { error, response } = await guestsEdge.POST('/api/admin/guests/{id}/enable', {
+		params: { path: { id } }
+	});
+	if (!response.ok || error !== undefined) {
+		throw toEdgeProblemError(error, response);
+	}
 }
 
 export async function extendGuest(id: number, expiresAt: string): Promise<void> {
-	await adminFetch(`/admin/guests/${id}/extend`, {
-		method: 'POST', body: JSON.stringify({ expiresAt }), onError: problemDetail,
+	const { error, response } = await guestsEdge.POST('/api/admin/guests/{id}/extend', {
+		params: { path: { id } },
+		body: { expiresAt }
 	});
-}
-
-export function listGuestSponsorOptions(id: number, q = ''): Promise<GuestSponsorOption[]> {
-	const params = new URLSearchParams();
-	if (q.trim()) params.set('q', q.trim());
-	const suffix = params.size ? `?${params.toString()}` : '';
-	return json(`/admin/guests/${id}/sponsor-options${suffix}`);
-}
-
-export function transferGuest(id: number, sponsorUserId: number): Promise<GuestTransferResult> {
-	return json(`/admin/guests/${id}/transfer`, {
-		method: 'POST', body: JSON.stringify({ sponsorUserId }),
-	});
-}
-
-async function inviteMutation(path: string, body: string): Promise<GuestInviteMutationResult & { invitedEmail?: string }> {
-	const response = await adminFetch(path, {
-		method: 'POST', body, onError: problemDetail, allowStatuses: [503],
-	});
-	const payload = (await response.json()) as Record<string, unknown>;
-	if (response.status === 503 && payload.code === 'invite_delivery_unconfirmed') {
-		throw new InviteDeliveryUnconfirmedError(String(payload.inviteId ?? ''), Number(payload.guestUserId));
+	if (!response.ok || error !== undefined) {
+		throw toEdgeProblemError(error, response);
 	}
-	if (response.status === 503) {
-		throw new Error('Invitation delivery could not be confirmed. Refresh status before trying again.');
+}
+
+export async function listGuestSponsorOptions(id: number, q = ''): Promise<GuestSponsorOption[]> {
+	const trimmed = q.trim();
+	const { data, error, response } = await guestsEdge.GET('/api/admin/guests/{id}/sponsor-options', {
+		params: {
+			path: { id },
+			query: trimmed ? { q: trimmed } : undefined
+		}
+	});
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw toEdgeProblemError(error, response);
 	}
-	return payload as unknown as GuestInviteMutationResult & { invitedEmail?: string };
+	return data;
 }
 
-export function inviteGuest(input: GuestInviteInput): Promise<GuestInviteMutationResult & { invitedEmail?: string }> {
-	return inviteMutation('/admin/guests', JSON.stringify(input));
+export async function transferGuest(id: number, sponsorUserId: number): Promise<GuestTransferResult> {
+	const { data, error, response } = await guestsEdge.POST('/api/admin/guests/{id}/transfer', {
+		params: { path: { id } },
+		body: { sponsorUserId }
+	});
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw toEdgeProblemError(error, response);
+	}
+	return data;
 }
 
-export function reinviteGuest(id: number, expiresAt?: string): Promise<GuestInviteMutationResult> {
-	return inviteMutation(`/admin/guests/${id}/reinvite`, JSON.stringify(expiresAt ? { expiresAt } : {}));
+export async function inviteGuest(input: GuestInviteInput): Promise<GuestInviteMutationResult & { invitedEmail?: string }> {
+	const { data, error, response } = await guestsEdge.POST('/api/admin/guests', {
+		body: input
+	});
+	return handleInviteMutationResult(data, error, response);
+}
+
+export async function reinviteGuest(id: number, expiresAt?: string): Promise<GuestInviteMutationResult> {
+	const { data, error, response } = await guestsEdge.POST('/api/admin/guests/{id}/reinvite', {
+		params: { path: { id } },
+		body: expiresAt ? { expiresAt } : {}
+	});
+	return handleInviteMutationResult(data, error, response);
 }
 
 export async function revokeGuestInvite(id: number, expectedInviteId: string): Promise<void> {
-	const response = await adminFetch(`/admin/guests/${id}/invite`, {
-		method: 'DELETE', body: JSON.stringify({ expectedInviteId }), onError: problemDetail,
-		allowStatuses: [404, 409],
+	const { error, response } = await guestsEdge.DELETE('/api/admin/guests/{userId}/invite', {
+		params: { path: { userId: id } },
+		body: { expectedInviteId }
 	});
 	if (response.status === 404 || response.status === 409) {
-		throw new GuestInviteStateError(response.status, await problemDetail(response));
+		throw new GuestInviteStateError(response.status, toEdgeProblemError(error, response).message);
+	}
+	if (!response.ok || error !== undefined) {
+		throw toEdgeProblemError(error, response);
 	}
 }

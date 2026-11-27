@@ -84,10 +84,16 @@ function rustFieldIdent(wireName) {
 
 function enumVariantName(wireValue) {
   if (wireValue === '') return 'Empty';
+  let variant;
   if (/^[0-9]/.test(wireValue)) {
-    return `V${toPascalCase(wireValue).replace(/^V/, '')}`;
+    variant = `V${toPascalCase(wireValue).replace(/^V/, '')}`;
+  } else {
+    variant = toPascalCase(wireValue);
   }
-  return toPascalCase(wireValue);
+  if (RUST_KEYWORDS.has(variant)) {
+    return `${variant}Value`;
+  }
+  return variant;
 }
 
 function resolveRefName(ref) {
