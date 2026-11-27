@@ -30,6 +30,12 @@ WORKER_POOL_FEATURE_ALLOWLIST = {
     "setjoin-auth",
     "setjoind",
     "setjoin-pg",
+    "setjoin-workqueue",
+}
+WORKQUEUE_WORKER_ALLOWLIST = {
+    "setjoin-gateway",
+    "setjoind",
+    "setjoin-workqueue",
 }
 IN_PROCESS_AUTH_ALLOWLIST = {
     "setjoin-auth",
@@ -210,6 +216,11 @@ try:
             for dep in package["dependencies"]
             if dep["name"] == "setjoin-identity"
         }
+        workqueue_keys = {
+            dep.get("rename") or dep["name"]
+            for dep in package["dependencies"]
+            if dep["name"] == "setjoin-workqueue"
+        }
         for dependency in package["dependencies"]:
             path = dependency.get("path")
             if path and pathlib.Path(path).resolve() not in workspace_paths:
@@ -244,6 +255,16 @@ try:
                         'forbidden setjoin-identity feature "in-process-authority" '
                         f"in {pkg_name}"
                     )
+            if dep_name == "setjoin-workqueue":
+                declared_features = set(dependency.get("features") or [])
+                if (
+                    "worker" in declared_features
+                    and pkg_name not in WORKQUEUE_WORKER_ALLOWLIST
+                ):
+                    errors.append(
+                        'forbidden setjoin-workqueue feature "worker" '
+                        f"in {pkg_name}"
+                    )
         # Never allow setjoin-identity to enable in-process-authority by default.
         if pkg_name == "setjoin-identity":
             features_map = package.get("features") or {}
@@ -255,6 +276,21 @@ try:
                     errors.append(
                         'forbidden default feature "in-process-authority" '
                         "in setjoin-identity"
+                    )
+                    break
+                if feat not in seen_feats and feat in features_map:
+                    seen_feats.add(feat)
+                    pending_feats.extend(features_map[feat])
+        # Never allow setjoin-workqueue to enable worker by default.
+        if pkg_name == "setjoin-workqueue":
+            features_map = package.get("features") or {}
+            seen_feats = set()
+            pending_feats = list(features_map.get("default") or [])
+            while pending_feats:
+                feat = pending_feats.pop()
+                if feat == "worker":
+                    errors.append(
+                        'forbidden default feature "worker" in setjoin-workqueue'
                     )
                     break
                 if feat not in seen_feats and feat in features_map:
@@ -292,6 +328,19 @@ try:
                         errors.append(
                             "forbidden setjoin-identity feature "
                             '"in-process-authority" '
+                            f"forwarded by {pkg_name} ({feat_name})"
+                        )
+                for wq_key in workqueue_keys:
+                    if (
+                        dep_spec
+                        in (
+                            f"{wq_key}/worker",
+                            f"{wq_key}?/worker",
+                        )
+                        and pkg_name not in WORKQUEUE_WORKER_ALLOWLIST
+                    ):
+                        errors.append(
+                            'forbidden setjoin-workqueue feature "worker" '
                             f"forwarded by {pkg_name} ({feat_name})"
                         )
 

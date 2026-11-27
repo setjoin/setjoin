@@ -2,7 +2,7 @@
 use super::common;
 use http_body_util::BodyExt;
 use hyper::{Method, Response};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
@@ -28,13 +28,20 @@ impl Storage {
         let addr=common::fake_upstream(move |request| {let state=shared.clone();async move {
             let (parts,body)=request.into_parts();let bytes=body.collect().await.unwrap().to_bytes();
             let request=hyper::Request::from_parts(parts,());
+            if *request.method()==Method::GET && request.uri().query().is_some_and(|q| q.contains("versions")) {
+                return error(501,"NotImplemented");
+            }
+            if request.uri().path().contains(".cond-delete-probe-") {
+                let status = if *request.method()==Method::DELETE { 204 } else { 200 };
+                return Response::builder().status(status).body(common::full("")).unwrap();
+            }
             let observed=signature::observe(&request,&bytes);
             let mut s=state.lock().unwrap();
             if let Err(e)=observed {s.errors.push(e);return error(403,"SignatureDoesNotMatch");}
             if request.uri().query()==Some("location=") {return Response::builder().header("content-type","application/xml").body(common::full("<LocationConstraint>us-east-1</LocationConstraint>")).unwrap();}
             let path=String::from_utf8_lossy(&unescape(request.uri().path())).into_owned();
             let key=path.strip_prefix("/mailblobs/").unwrap_or(&path);
-            let named=if key.starts_with("tmp/upload/"){"<temporary>"}else{key};
+            let named=if key.starts_with("tmp/blob-upload/") || key.starts_with("tmp/upload/"){"<temporary>"}else{key};
             match *request.method() {
                 Method::PUT=>{
                     if let Some(source)=request.headers().get("x-amz-copy-source").and_then(|v|v.to_str().ok()) {
@@ -84,7 +91,7 @@ impl Storage {
             return Err(format!("invalid S3 request: {:?}", s.errors).into());
         }
         Ok(
-            json!({"writes":s.log,"objects":s.objects.iter().map(|(key,body)|json!({"key":if key.starts_with("tmp/upload/"){"<temporary>"}else{key},"size":body.len(),"sha256":format!("{:x}",Sha256::digest(body))})).collect::<Vec<_>>()}),
+            json!({"writes":s.log,"objects":s.objects.iter().map(|(key,body)|json!({"key":if key.starts_with("tmp/blob-upload/") || key.starts_with("tmp/upload/"){"<temporary>"}else{key},"size":body.len(),"sha256":format!("{:x}",Sha256::digest(body))})).collect::<Vec<_>>()}),
         )
     }
 }

@@ -1032,8 +1032,8 @@ wave1_case!(wave2a_email_set_multiphase_and_ownership_gate, |e| {
     for (sha, user) in [(&own_sha, e.a.user), (&foreign_sha, e.b.user)] {
         e.owner
             .query_typed(
-                "INSERT INTO blobs(sha256, minio_ref, size_bytes, content_type, ref_count) \
-                 VALUES ($1, $1, 5, 'text/plain', 0) ON CONFLICT DO NOTHING",
+                "INSERT INTO blobs(sha256, minio_ref, size_bytes, content_type) \
+                 VALUES ($1, $1, 5, 'text/plain') ON CONFLICT DO NOTHING",
                 &[(&sha, Type::TEXT)],
             )
             .await
@@ -1460,8 +1460,8 @@ wave1_case!(wave2a_email_recovery_receipt_end_to_end, |e| {
     }
     e.owner
         .query_typed(
-            "INSERT INTO blobs(sha256, minio_ref, size_bytes, content_type, ref_count) \
-             VALUES ($1, $1, $2, 'application/octet-stream', 1) ON CONFLICT DO NOTHING",
+            "INSERT INTO blobs(sha256, minio_ref, size_bytes, content_type) \
+             VALUES ($1, $1, $2, 'application/octet-stream') ON CONFLICT DO NOTHING",
             &[
                 (&att_sha, Type::TEXT),
                 (&(att_bytes.len() as i64), Type::INT8),
@@ -1925,7 +1925,7 @@ wave1_case!(wave2b_smime_attachments_and_decrypt_on_read, |e| {
         .get(0);
     e.owner
         .execute(
-            "INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count) VALUES ($1, $1, $2, 'application/pdf', 1) ON CONFLICT DO NOTHING",
+            "INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type) VALUES ($1, $1, $2, 'application/pdf') ON CONFLICT DO NOTHING",
             &[&att_sha, &(att_bytes.len() as i64)],
         )
         .await

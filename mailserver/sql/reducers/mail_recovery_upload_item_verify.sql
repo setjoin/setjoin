@@ -2,7 +2,8 @@ CREATE OR REPLACE FUNCTION mail_recovery_upload_item_verify(
     p_user_id bigint,
     p_session_id uuid,
     p_item_id text,
-    p_object_ref text
+    p_object_ref text,
+    p_staging_key text DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
 DECLARE v_item mail_recovery_upload_items%ROWTYPE;
@@ -30,11 +31,19 @@ BEGIN
         RAISE EXCEPTION 'recovery item is incomplete or digest differs'
             USING ERRCODE='BZ251',HINT='{"type":"continuity_chunk_mismatch"}';
     END IF;
+    PERFORM pg_catalog.pg_advisory_xact_lock(public.blob_gc_lock_key(p_object_ref));
     UPDATE mail_recovery_upload_items SET status='verified',object_ref=p_object_ref
      WHERE session_id=p_session_id AND item_id=p_item_id;
+    PERFORM public.blob_gc_reactivate_v2(p_object_ref, p_staging_key);
     RETURN jsonb_build_object('itemId',p_item_id,'status','verified','replayed',false);
 END;
 $$;
-REVOKE ALL ON FUNCTION mail_recovery_upload_item_verify(bigint,uuid,text,text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION mail_recovery_upload_item_verify(bigint,uuid,text,text) TO setjoin_worker;
-SELECT apply_worker_ownership('mail_recovery_upload_item_verify(bigint,uuid,text,text)'::regprocedure);
+REVOKE ALL ON FUNCTION mail_recovery_upload_item_verify(bigint,uuid,text,text,text) FROM PUBLIC;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_worker') THEN
+        GRANT EXECUTE ON FUNCTION mail_recovery_upload_item_verify(bigint,uuid,text,text,text) TO setjoin_worker;
+    END IF;
+END
+$$;
+SELECT apply_worker_ownership('mail_recovery_upload_item_verify(bigint,uuid,text,text,text)'::regprocedure);

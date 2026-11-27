@@ -30,6 +30,10 @@ pub trait DeliveryEvents: Send + Sync {
 }
 pub trait RawBlobs: Send + Sync {
     fn put<'a>(&'a self, key: &'a str, data: &'a [u8]) -> BoxFuture<'a, Result<(), String>>;
+    /// Post-commit existence probe used by the lock-safe orphan publish protocol (#551).
+    fn exists<'a>(&'a self, _key: &'a str) -> BoxFuture<'a, Result<bool, String>> {
+        Box::pin(async { Ok(true) })
+    }
 }
 #[derive(Clone)]
 pub(crate) struct Delivery {
@@ -423,6 +427,13 @@ impl Delivery {
             blobs.put(&raw_ref, data).await?
         }
         conn.batch("BEGIN").await?;
+        // Lock-safe raw_ref publish protocol (#551): serialize with prefixed orphan
+        // cleanup on the raw_ref advisory lock before committing message rows.
+        conn.query(
+            "SELECT pg_catalog.pg_advisory_xact_lock(public.blob_gc_lock_key($1))",
+            &[(&raw_ref, Type::TEXT)],
+        )
+        .await?;
         let features = &self.features;
         for (name, enabled) in [
             ("app.skip_rules", features.rules),
@@ -484,6 +495,18 @@ impl Delivery {
         }
         // Never acknowledge a lost commit. Connection drop rolls back pre-commit errors.
         conn.batch("COMMIT").await?;
+        // Post-commit fence (#551): if an orphan cleaner raced between initial PUT and
+        // acquiring the commit advisory lock, re-PUT from memory now that the live row is committed.
+        // Never treat a failed HEAD as "object exists" and never silently discard a re-PUT failure.
+        if let Some(blobs) = &self.blobs {
+            let needs_reput = match blobs.exists(&raw_ref).await {
+                Ok(true) => false,
+                Ok(false) | Err(_) => true,
+            };
+            if needs_reput {
+                blobs.put(&raw_ref, data).await?;
+            }
+        }
         let delivered_id = row.try_get::<_, Option<i64>>(0).unwrap_or(None);
         let enrolled = row.try_get::<_, bool>(3).unwrap_or(false);
         if delivered_id.is_some() && !enrolled {

@@ -9,7 +9,7 @@
 -- p_window     : '90d' | '1y' | 'all' — how far back to sweep.
 --
 -- Dedup (spec): one in-flight sweep per (mailbox, rule). A dedup_key is UNIQUE
--- (partial index scheduled_actions_dedup_idx). If a pending/processing sweep for
+-- (partial index scheduled_actions_dedup_idx). If a pending/enqueued/processing sweep for
 -- this key already exists we return it instead of stacking a second; terminal
 -- (done/failed) rows for the key are cleared first so a re-run can reuse the key.
 CREATE OR REPLACE FUNCTION rules_apply_retroactive(
@@ -55,7 +55,7 @@ BEGIN
     FROM scheduled_actions
     WHERE dedup_key = v_dedup
       AND mailbox_id = p_mailbox_id
-      AND status IN ('pending','processing')
+      AND status IN ('pending','enqueued','processing')
     LIMIT 1;
     IF v_existing IS NOT NULL THEN
         RETURN v_existing;

@@ -148,7 +148,7 @@ Go list handlers that ignore Rows.Err: see the [iterated-read contract](crates/p
 Typed worker error projection: [PG contract](crates/pg/DOX.md#typed-worker-query-failures-348).
 
 - `bins/auth` (`setjoin-auth`, #112) — standalone identity HTTP process with fail-closed native HTTP IP-rule admission; [contract](bins/auth/DOX.md).
-- `bins/setjoind` (`setjoind`, #543) — unified server binary (`--subsystems=all|http,auth,protocols,workers`), in-process/remote `AuthAuthority`, shared `ListenHub`, strict schema refusal; [contract](bins/setjoind/DOX.md).
+- `bins/setjoind` (#543) — unified binary (`--subsystems`), `AuthAuthority`, `ListenHub`, strict schema refusal; [contract](bins/setjoind/DOX.md).
 - `crates/domains/identity` (`setjoin-identity`, #112) — F21 login/session/token, MFA and connector slices; [contract](crates/domains/identity/DOX.md).
 Authentication-time user transactions: [pg contract](crates/pg/DOX.md#authentication-time-user-transactions-112).
 - `crates/tls` (`setjoin-tls`, #413) — native TLS, certificates and Go-compatible session tickets; [contract](crates/tls/DOX.md).
@@ -177,3 +177,4 @@ Shared Go UUID identifiers (#455): [contracts](crates/contracts/DOX.md#go-uuid-i
 - `crates/certificates` — shared Go certificate/PEM profile and recipient trust cache; [contract](crates/certificates/DOX.md).
 
 - `crates/calendar-format` — shared Go calendar parser; [contract](crates/calendar-format/DOX.md).
+- `crates/workqueue` (#548/#549) — durable WorkQueue, `worker_schedules` leases, DLQ (`operator`), privileged `worker` feature (family-isolated). `bins/gateway/src/supervisor/` owns `WorkerSupervisor`, boot `BYPASSRLS`, WORM arming, drain-then-retire.

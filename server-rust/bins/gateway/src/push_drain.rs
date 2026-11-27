@@ -82,7 +82,7 @@ impl PushIntentDrain {
         }
     }
 
-    pub async fn run_until(self, stop: impl Future<Output = ()> + Send) {
+    pub async fn run_until(&self, stop: impl Future<Output = ()> + Send) {
         let mut ticks = tokio::time::interval_at(tokio::time::Instant::now() + INTERVAL, INTERVAL);
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         tokio::pin!(stop);
@@ -679,6 +679,18 @@ impl PushIntentDrain {
     }
 
     // ---- guest digest leg ------------------------------------------------
+
+    /// Drain pending guest digest intents for one specific `user_id` (used by
+    /// the durable `WorkQueue` `guest.digest_notify` consumer, #549).
+    pub async fn drain_guest_for(&self, guest: i64) -> Result<bool, String> {
+        let Some(digest) = &self.digest else {
+            return Ok(false);
+        };
+        let conn = self.db.connect().await.map_err(|e| e.to_string())?;
+        let window = self.digest_window(&conn).await?;
+        self.process_guest_digest(&conn, digest, guest, window)
+            .await
+    }
 
     /// At most one guest batch; `true` means a batch was sent or terminalized
     /// and another pass may help (active/throttled/locked guests are no

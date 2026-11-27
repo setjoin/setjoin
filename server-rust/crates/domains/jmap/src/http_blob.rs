@@ -39,6 +39,7 @@ pub async fn account_upload(
     content_type: &str,
     grace: i32,
     quota: i64,
+    staging_key: Option<&str>,
 ) -> CommandOutcome<String, StatementFailure> {
     let uid = user.user().get();
     tx_factory
@@ -55,6 +56,7 @@ pub async fn account_upload(
                 &content_type,
                 &grace,
                 &quota,
+                &staging_key,
             ],
             Some(ReceiptCommand {
                 family: "jmap",

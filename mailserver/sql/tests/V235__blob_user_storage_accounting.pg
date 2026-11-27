@@ -28,11 +28,11 @@ SELECT is(
   'c', 'blob_user_charges.blob_sha256 cascades on blob deletion (reclamation credit)');
 
 -- ── Fixtures: four fresh blobs, four charges across three users ─────────────
-INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count) VALUES
-  ('v235tap-blob-a', 'blobs/v235tap-blob-a', 100, 'application/octet-stream', 0),
-  ('v235tap-blob-b', 'blobs/v235tap-blob-b',  40, 'application/octet-stream', 0),
-  ('v235tap-blob-c', 'blobs/v235tap-blob-c',   7, 'application/octet-stream', 0),
-  ('v235tap-blob-d', 'blobs/v235tap-blob-d',   5, 'application/octet-stream', 0);
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type) VALUES
+  ('v235tap-blob-a', 'blobs/v235tap-blob-a', 100, 'application/octet-stream'),
+  ('v235tap-blob-b', 'blobs/v235tap-blob-b',  40, 'application/octet-stream'),
+  ('v235tap-blob-c', 'blobs/v235tap-blob-c',   7, 'application/octet-stream'),
+  ('v235tap-blob-d', 'blobs/v235tap-blob-d',   5, 'application/octet-stream');
 
 INSERT INTO blob_user_charges (blob_sha256, user_id, size_bytes) VALUES
   ('v235tap-blob-a', 4242, 100),

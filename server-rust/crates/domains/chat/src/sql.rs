@@ -971,7 +971,7 @@ pub const UNFURL_WRITE: SqlContract = SqlContract {
 pub const UNFURL_BLOB: SqlContract = SqlContract {
     id: "chat.unfurl_blob",
     domain: "chat",
-    sql: "SELECT 'null'::text FROM (SELECT rust_blob_register_metadata($1,$2,$3,$4)) effect",
+    sql: "SELECT 'null'::text FROM (SELECT blob_gc_register_and_reactivate($1,$2,$3,$4)) effect",
     params: &[Type::TEXT, Type::TEXT, Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,

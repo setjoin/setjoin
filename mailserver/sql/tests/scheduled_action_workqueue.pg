@@ -1,0 +1,143 @@
+-- scheduled_action_workqueue.pg — Wave 2.1 (#548): scheduled_actions handoff to
+-- WorkQueue ('pending' -> 'enqueued' -> 'processing' -> 'done'|'failed'),
+-- cancel-before-fire_at, rules_apply_retroactive idempotency while 'enqueued',
+-- DLQ replay when scheduled_actions.attempts >= 5, and 'done' replay refusal.
+BEGIN;
+SELECT plan(25);
+
+INSERT INTO domains (name, is_local) VALUES ('sawq.test', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (198548, 'sawq', (SELECT id FROM domains WHERE name = 'sawq.test'),
+        'sawq@sawq.test', 'Sawq', crypt('x', gen_salt('bf')), FALSE)
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (98548, 198548, (SELECT id FROM domains WHERE name = 'sawq.test'),
+        'sawq@sawq.test', 'Sawq', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+-- 1. Cancel before fire_at: future pending action is not promoted and stays cancellable.
+SELECT enqueue_scheduled_action('snooze', now() + interval '1 hour', '{"tag":"future"}'::jsonb, 98548) AS sa_future \gset
+SET LOCAL ROLE setjoin_worker;
+SELECT is(public.promote_due_scheduled_actions(50), 0, 'future scheduled_action is not promoted before fire_at');
+RESET ROLE;
+SELECT is(cancel_scheduled_action(98548, 'snooze', '{"tag":"future"}'::jsonb), 1,
+  'cancel_scheduled_action cancels future pending action before promotion');
+
+-- 2. rules_apply_retroactive called twice while 'enqueued' -> ZERO 23505 crash.
+SELECT rules_apply_retroactive(98548, NULL, '90d') AS sa_retro1 \gset
+SET LOCAL ROLE setjoin_worker;
+SELECT cmp_ok(public.promote_due_scheduled_actions(50), '>=', 1, 'due rules_retro action promoted to enqueued');
+RESET ROLE;
+SELECT is((SELECT status FROM scheduled_actions WHERE id = :'sa_retro1'), 'enqueued',
+  'promoted scheduled_action has status=enqueued');
+SELECT is((SELECT normalized FROM queue_status_normalized WHERE queue = 'scheduled' AND id = :'sa_retro1'),
+  'active', 'queue_status_normalized maps enqueued -> active');
+SELECT is(rules_apply_retroactive(98548, NULL, '90d'), :'sa_retro1'::uuid,
+  'rules_apply_retroactive called while enqueued returns existing id with zero 23505');
+
+-- 3. execute_scheduled_action_work refuses 'pending' actions (must be promoted first).
+SELECT enqueue_scheduled_action('snooze', now() + interval '5 minutes', '{"_test_outcome":"ok"}'::jsonb, 98548) AS sa_pend \gset
+SET LOCAL ROLE setjoin_worker;
+SELECT throws_ok(
+  format($$ SELECT * FROM public.execute_scheduled_action_work('%s'::uuid, 'w1', 1, 5, FALSE) $$, :'sa_pend'),
+  'BZ040', NULL, 'execute_scheduled_action_work refuses pending action');
+
+-- 4. Due action -> promote -> execute 'ok' -> done + idempotent repeat + DLQ replay refusal on 'done'.
+RESET ROLE;
+SELECT enqueue_scheduled_action('snooze', now() - interval '1 minute', '{"_test_outcome":"ok"}'::jsonb, 98548) AS sa_ok \gset
+SET LOCAL ROLE setjoin_worker;
+SELECT cmp_ok(public.promote_due_scheduled_actions(50), '>=', 1, 'due ok action promoted');
+SELECT is(
+  (SELECT outcome FROM public.execute_scheduled_action_work(:'sa_ok'::uuid, 'w1', 1, 5, FALSE)),
+  'complete', 'execute_scheduled_action_work completes ok action');
+SELECT is((SELECT status FROM scheduled_actions WHERE id = :'sa_ok'), 'done',
+  'scheduled_action transitioned to done');
+SELECT is(
+  (SELECT outcome FROM public.execute_scheduled_action_work(:'sa_ok'::uuid, 'w1', 1, 5, FALSE)),
+  'complete', 'repeat execute_scheduled_action_work on done action is idempotent');
+
+-- 5. DLQ replay when scheduled_actions.attempts >= 5 uses p_attempt >= p_max_attempts,
+--    and refuses replay if action is already 'done' even with p_force=TRUE.
+RESET ROLE;
+SELECT enqueue_scheduled_action('snooze', now() - interval '1 minute', '{"_test_outcome":"retry"}'::jsonb, 98548) AS sa_rep \gset
+UPDATE scheduled_actions SET attempts = 5 WHERE id = :'sa_rep';
+SET LOCAL ROLE setjoin_worker;
+SELECT cmp_ok(public.promote_due_scheduled_actions(50), '>=', 1, 'due retry action with attempts=5 promoted');
+SELECT id AS wi_rep, claim_generation AS gen_rep
+  FROM public.work_queue_claim('w-rep', ARRAY['scheduled_action.snooze'], 10, 60, NULL)
+ WHERE payload->>'scheduled_action_id' = :'sa_rep' \gset
+-- Exhaust on work item attempt 5/5 -> failed + DLQ.
+SELECT is(
+  (SELECT outcome FROM public.execute_scheduled_action_work(:'sa_rep'::uuid, 'w-rep', 5, 5, FALSE)),
+  'permanent_fail', 'attempt 5/5 transitions scheduled_action to failed');
+SELECT dead_letter_id AS dlq_rep
+  FROM public.work_queue_fail(:wi_rep, :gen_rep, 'w-rep', 'exhausted', NULL, TRUE) \gset
+SELECT work_item_id AS wi_replayed
+  FROM public.work_queue_dlq_replay(:dlq_rep, FALSE, FALSE) \gset
+-- After replay, scheduled_actions.attempts is 6 (>= 5), yet work item attempt 1/5 must return 'retry'!
+SELECT is(
+  (SELECT outcome FROM public.execute_scheduled_action_work(:'sa_rep'::uuid, 'w-rep2', 1, 5, FALSE)),
+  'retry', 'post-DLQ-replay attempt 1/5 retries even though scheduled_actions.attempts >= 5');
+
+-- Now mark sa_rep done and verify --force replay is REFUSED (never re-send a done email).
+UPDATE scheduled_actions SET status = 'done' WHERE id = :'sa_rep';
+SELECT throws_ok(
+  format($$ SELECT * FROM public.work_queue_dlq_replay(%s, TRUE, TRUE) $$, :dlq_rep),
+  'BZ040', NULL, 'work_queue_dlq_replay refuses replay of done scheduled_action even with force=TRUE');
+
+-- 6. Poison-pill scheduled_action lease expiry reclaim -> status='failed' + log -> DLQ replay succeeds!
+RESET ROLE;
+SELECT enqueue_scheduled_action('snooze', now() - interval '1 minute', '{"_test_outcome":"ok","tag":"pp"}'::jsonb, 98548) AS sa_pp \gset
+SET LOCAL ROLE setjoin_worker;
+SELECT cmp_ok(public.promote_due_scheduled_actions(50), '>=', 1, 'due poison-pill action promoted');
+SELECT id AS wi_pp
+  FROM public.work_queue_claim('w-pp', ARRAY['scheduled_action.snooze'], 10, 60, NULL)
+ WHERE payload->>'scheduled_action_id' = :'sa_pp' \gset
+UPDATE public.work_items
+   SET attempts = max_attempts, lease_expires_at = now() - interval '5 seconds'
+ WHERE id = :wi_pp;
+SELECT dead_lettered AS pp_dead FROM public.work_queue_reclaim_expired(10) \gset
+SELECT is(:pp_dead, 1, 'reclaim_expired dead-letters expired poison-pill scheduled_action work item');
+SELECT is((SELECT status FROM public.scheduled_actions WHERE id = :'sa_pp'), 'failed',
+  'poison-pill reclaim transitions scheduled_actions from enqueued to failed');
+SELECT is(
+  (SELECT count(*)::int FROM public.scheduled_action_log WHERE action_id = :'sa_pp' AND to_status = 'failed'),
+  1, 'poison-pill reclaim records scheduled_action_log failed transition');
+SELECT id AS dlq_pp FROM public.work_dead_letters WHERE work_item_id = :wi_pp \gset
+SELECT work_item_id AS wi_pp_replayed
+  FROM public.work_queue_dlq_replay(:dlq_pp, FALSE, FALSE) \gset
+SELECT ok(
+  :wi_pp_replayed > 0
+  AND (SELECT status = 'enqueued' FROM public.scheduled_actions WHERE id = :'sa_pp'),
+  'DLQ replay succeeds cleanly after poison-pill reclaim and returns scheduled_action to enqueued');
+
+-- 7. cancel_scheduled_action cancels an 'enqueued' action; execute rejects unexpected 'processing'.
+RESET ROLE;
+SELECT is(cancel_scheduled_action(98548, 'snooze', '{"tag":"pp"}'::jsonb), 1,
+  'cancel_scheduled_action cancels enqueued scheduled_action');
+SELECT enqueue_scheduled_action('snooze', now() - interval '1 minute', '{"_test_outcome":"ok"}'::jsonb, 98548) AS sa_proc \gset
+UPDATE scheduled_actions SET status = 'processing' WHERE id = :'sa_proc';
+SET LOCAL ROLE setjoin_worker;
+SELECT throws_ok(
+  format($$ SELECT * FROM public.execute_scheduled_action_work('%s'::uuid, 'w1', 1, 5, FALSE) $$, :'sa_proc'),
+  'BZ040', NULL, 'execute_scheduled_action_work rejects unexpected processing status');
+
+-- 8. Orphaned 'enqueued' action (no work_items row) is reclaimed by legacy claim_scheduled_actions,
+--    and an 'enqueued' send stays visible in jmap_email_submission_get / jmap_email_submission_query.
+RESET ROLE;
+SELECT enqueue_scheduled_action('send', now() - interval '1 minute', '{"message_id":9854801}'::jsonb, 98548) AS sa_send_enq \gset
+UPDATE scheduled_actions SET status = 'enqueued' WHERE id = :'sa_send_enq';
+SELECT is(
+  jsonb_array_length(jmap_email_submission_get(98548, ARRAY[9854801::bigint])->'list'),
+  1, 'jmap_email_submission_get includes enqueued scheduled send');
+SELECT ok(
+  (jmap_email_submission_query(98548)->'ids') @> '["9854801"]'::jsonb,
+  'jmap_email_submission_query includes enqueued scheduled send');
+SET LOCAL ROLE setjoin_worker;
+SELECT is(
+  (SELECT count(*)::int FROM claim_scheduled_actions('legacy-fallback', 50) WHERE id = :'sa_send_enq'),
+  1, 'legacy claim_scheduled_actions reclaims orphaned enqueued action with no active work_items row');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -23,7 +23,7 @@ BEGIN
     SELECT count(*) INTO v_users FROM users;
     SELECT count(*) INTO v_mailboxes FROM mailboxes;
     SELECT count(*),COALESCE(sum(size_bytes),0) INTO v_blobs,v_blob_bytes
-      FROM blobs WHERE ref_count>0;
+      FROM public.blob_live_catalog();
     SELECT COALESCE(jsonb_agg(candidate ORDER BY candidate),'[]'::jsonb)
       INTO v_representative_ids
       FROM (
@@ -31,7 +31,7 @@ BEGIN
         UNION ALL
         (SELECT 'mailbox:'||id::text FROM mailboxes ORDER BY id LIMIT 4)
         UNION ALL
-        (SELECT 'blob:'||sha256 FROM blobs WHERE ref_count>0 ORDER BY sha256 LIMIT 4)
+        (SELECT 'blob:'||sha256 FROM public.blob_live_catalog() ORDER BY sha256 LIMIT 4)
       ) sample;
     RETURN jsonb_build_object(
         'installationId',v_control.installation_id::text,

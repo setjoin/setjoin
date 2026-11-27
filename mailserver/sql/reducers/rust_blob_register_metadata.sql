@@ -25,8 +25,11 @@ BEGIN
     RAISE EXCEPTION 'invalid blob metadata arguments' USING ERRCODE = '22023';
   END IF;
 
-  INSERT INTO public.blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
-  VALUES (p_sha256, p_minio_ref, p_size_bytes, p_content_type, 0)
-  ON CONFLICT (sha256) DO NOTHING;
+  PERFORM public.blob_gc_register_and_reactivate(
+    p_sha256,
+    p_minio_ref,
+    p_size_bytes,
+    p_content_type
+  );
 END;
 $$ LANGUAGE plpgsql SET search_path = pg_catalog, public;

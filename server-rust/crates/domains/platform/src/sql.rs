@@ -1213,10 +1213,21 @@ pub const STORAGE_MIGRATE_STATUS: SqlContract = SqlContract {
     audit: SqlAuditPosture::Standard,
 };
 
+pub const STORAGE_REACTIVATE_BLOB_V2: SqlContract = SqlContract {
+    id: "platform.storage_reactivate_blob_v2",
+    domain: "platform",
+    sql: "SELECT public.blob_gc_reactivate_v2($1, $2)::text",
+    params: &[Type::TEXT, Type::TEXT],
+    columns: &[ColumnSpec::unnamed(Type::TEXT)],
+    scope: SqlScope::UserScoped,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
+};
+
 pub const STORAGE_REIMPORT_BLOB: SqlContract = SqlContract {
     id: "platform.storage_reimport_blob",
     domain: "platform",
-    sql: "SELECT public.rust_blob_register_metadata($1, $2, $3, $4)",
+    sql: "SELECT public.blob_gc_register_and_reactivate($1, $2, $3, $4)",
     params: &[Type::TEXT, Type::TEXT, Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::VOID)],
     scope: SqlScope::UserScoped,
@@ -1917,6 +1928,7 @@ pub const SQL_CONTRACTS: &[SqlContract] = &[
     STORAGE_DR_SCAN_GET,
     STORAGE_MIGRATE_LIST,
     STORAGE_MIGRATE_STATUS,
+    STORAGE_REACTIVATE_BLOB_V2,
     STORAGE_REIMPORT_BLOB,
     STORAGE_RECONCILE_COUNT,
     STORAGE_RECONCILE_DETAILS,

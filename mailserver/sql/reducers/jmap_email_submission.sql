@@ -350,7 +350,7 @@ BEGIN
     FROM scheduled_actions sa
     WHERE sa.mailbox_id = p_mailbox_id          -- R1: ownership
       AND sa.action_kind = 'send'
-      AND sa.status = 'pending'
+      AND sa.status IN ('pending', 'enqueued')
       AND (p_ids IS NULL OR (sa.payload->>'message_id')::BIGINT = ANY(p_ids))
     ORDER BY sa.fire_at ASC
   ) sub;
@@ -387,7 +387,7 @@ BEGIN
     FROM scheduled_actions sa
     WHERE sa.mailbox_id = p_mailbox_id           -- R1: ownership
       AND sa.action_kind = 'send'
-      AND sa.status = 'pending'
+      AND sa.status IN ('pending', 'enqueued')
     ORDER BY sa.fire_at ASC
     OFFSET GREATEST(p_position, 0)
     LIMIT LEAST(GREATEST(p_limit, 1), 256)

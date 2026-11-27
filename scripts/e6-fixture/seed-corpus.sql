@@ -221,12 +221,12 @@ $e6_corpus$;
 
 -- ── Attachments: 40 per account, content-addressed in S3 ──────────────────
 -- 16 KiB deterministic bytes each; one attachment on each of the first 40
--- corpus messages (has_attachment TRUE above matches). blobs.ref_count = 1
--- per reference (trigger-maintained on delete).
-INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
+-- corpus messages (has_attachment TRUE above matches). Live references are
+-- tracked by Mark-and-Sweep GC (V288/V289).
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
 SELECT encode(sha256(convert_to(a.content, 'UTF8')), 'hex'),
        'mailblobs/' || encode(sha256(convert_to(a.content, 'UTF8')), 'hex'),
-       octet_length(a.content), 'application/octet-stream', 1
+       octet_length(a.content), 'application/octet-stream'
 FROM (SELECT a.acc, g.n, repeat(md5('e6-pair-runbook-v1:att:' || a.acc || ':' || g.n), 512) AS content
       FROM (VALUES ('a'), ('b')) AS a(acc)
       CROSS JOIN generate_series(1, 40) AS g(n)) a

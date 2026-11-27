@@ -391,8 +391,32 @@ impl Control {
                     Err(e) => hard = Some(format!("download manifest: {e}")),
                 }
             } else {
+                let mut items = Vec::with_capacity(request.hashes.len());
+                for hash in &request.hashes {
+                    let target_key = if restore::valid_hash(hash) {
+                        match conn
+                            .query(
+                                "SELECT minio_ref FROM public.blobs WHERE sha256 = $1",
+                                &[(&hash, setjoin_pg::Type::TEXT)],
+                            )
+                            .await
+                        {
+                            Ok(rows) => rows
+                                .first()
+                                .and_then(|r| r.try_get::<_, String>(0).ok())
+                                .map(|mref| {
+                                    setjoin_backup::worker::resolve_primary_source_key(hash, &mref)
+                                })
+                                .unwrap_or_else(|| format!("blobs/{hash}")),
+                            Err(_) => format!("blobs/{hash}"),
+                        }
+                    } else {
+                        format!("blobs/{hash}")
+                    };
+                    items.push((hash.clone(), target_key));
+                }
                 let (n, errs) =
-                    restore::restore_missing_blobs(primary, backup, &request.hashes).await;
+                    restore::restore_missing_blobs_with_keys(primary, backup, &items).await;
                 blobs = n;
                 errors = errs;
             }

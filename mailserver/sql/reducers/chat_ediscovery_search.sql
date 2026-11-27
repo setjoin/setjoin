@@ -135,7 +135,7 @@ BEGIN
                sa.status, sa.fire_at, sa.payload->>'body' AS body
           FROM scheduled_actions sa
          WHERE sa.action_kind = 'chat_send'
-           AND sa.status IN ('pending', 'failed')          -- contract #7
+           AND sa.status IN ('pending', 'enqueued', 'failed')          -- contract #7
            AND (CASE WHEN p_use_trgm THEN sa.payload->>'body' ILIKE '%' || v_terms || '%'
                      ELSE to_tsvector('simple', sa.payload->>'body') @@ plainto_tsquery('simple', v_terms) END)
            AND (v_channel_ids IS NULL OR (sa.payload->>'channelId')::bigint = ANY(v_channel_ids))

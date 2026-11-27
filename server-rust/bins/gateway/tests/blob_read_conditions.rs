@@ -1,12 +1,12 @@
 //! Frozen-Go conditional/cache/range behavior at the F16 HTTP boundary.
 mod common;
 use hyper::{Method, Request, Response};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use setjoin_conformance::{fixture, harness::Db};
 use setjoin_gateway::{
-    Config, Gateway, RouteTable, TrustedProxies,
     blobs::{BlobCommands, BlobRoute},
     recovery_worker::S3Store,
+    Config, Gateway, RouteTable, TrustedProxies,
 };
 use setjoin_pg::ScopedExecutor;
 use sha2::{Digest, Sha256};
@@ -216,7 +216,7 @@ async fn run_case(case: &Case, mutant: bool) -> Result<(), common::BoxError> {
     };
     let hash = format!("{:x}", Sha256::digest(&bytes));
     let size = bytes.len() as i64;
-    owner.execute("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$1,$2,'text/plain',0)",&[&hash,&size]).await?;
+    owner.execute("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type) VALUES($1,$1,$2,'text/plain')",&[&hash,&size]).await?;
     owner.execute("INSERT INTO message_attachments(message_id,received_at,blob_sha256,filename,content_type,disposition,size_bytes) SELECT id,received_at,$1,'x.txt','text/plain','attachment',$2 FROM messages WHERE id=$3 AND mailbox_id=$4",&[&hash,&size,&account.two_labels,&account.mailbox]).await?;
     let result=async{
         let content=bytes.clone();

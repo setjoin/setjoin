@@ -454,9 +454,8 @@ pub async fn unfurl_write(
     .await
 }
 
-/// Content-addressed blob metadata registration via owning `blobs` reducer
-/// (`rust_blob_register_metadata`), retiring direct cross-domain `blobs` INSERT.
-/// Cache reducers exclusively maintain references.
+/// Content-addressed blob metadata registration paired with per-sha256 GC advisory lock +
+/// reactivation (#550/#551) via `blob_gc_register_and_reactivate`.
 #[allow(clippy::too_many_arguments)]
 pub async fn unfurl_blob(
     factory: &TxFactory,

@@ -39,9 +39,9 @@ WHERE m.id = 691010 AND t.mailbox_id = 691001 AND t.name = 'Drafts'
   AND t.mailbox_id = m.mailbox_id
 ON CONFLICT DO NOTHING;
 
-INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
-VALUES ('ldasha1', 'b/ldasha1', 2048, 'application/pdf', 0),
-       ('ldasha2', 'b/ldasha2', 512, 'image/png', 0)
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
+VALUES ('ldasha1', 'b/ldasha1', 2048, 'application/pdf'),
+       ('ldasha2', 'b/ldasha2', 512, 'image/png')
 ON CONFLICT (sha256) DO NOTHING;
 
 INSERT INTO message_attachments (message_id, received_at, blob_sha256, content_type, filename, content_id, disposition, size_bytes)

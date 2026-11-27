@@ -347,6 +347,7 @@ pub async fn verify_item(
     session: &str,
     item: &str,
     object_ref: &str,
+    staging_key: Option<&str>,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
     let actor = user.user().get();
@@ -361,7 +362,7 @@ pub async fn verify_item(
             &env,
             deadline(),
             &sql::VERIFY_ITEM,
-            &[&actor, &session, &item, &object_ref],
+            &[&actor, &session, &item, &object_ref, &staging_key],
             Some(ReceiptCommand {
                 family: "F16",
                 command: "mail_recovery_upload_item_verify",
@@ -379,7 +380,9 @@ pub async fn verify_item(
         .await
 }
 
-/// The frozen PUT transaction: admission, caller charge and reclamation arming.
+/// The frozen PUT transaction: admission, caller charge, GC reactivation, and
+/// durable staging promote recovery (#243/#550/#551).
+#[allow(clippy::too_many_arguments)]
 pub async fn account_upload(
     factory: &TxFactory,
     user: &UserPrincipal,
@@ -387,6 +390,7 @@ pub async fn account_upload(
     reference: &str,
     size: i64,
     content_type: &str,
+    staging_key: Option<&str>,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
     let actor = user.user().get();
@@ -418,6 +422,7 @@ pub async fn account_upload(
                 &content_type,
                 &grace,
                 &quota,
+                &staging_key,
             ],
             Some(ReceiptCommand {
                 family: "F16",
@@ -434,6 +439,43 @@ pub async fn account_upload(
             },
         )
         .await
+}
+
+/// Cancels a pending `blob.promote_recover` item iff still unleased and matching
+/// `(hash, staging_key)`. Returns `true` when safe for caller to delete staging.
+pub async fn complete_promote_recover(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    work_item_id: i64,
+    hash: &str,
+    staging_key: &str,
+    operation: [u8; 16],
+) -> Result<bool, StatementFailure> {
+    let env = envelope(
+        user,
+        operation,
+        &format!("blob.promote_recover.complete:{work_item_id}:{hash}"),
+    );
+    match factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::COMPLETE_PROMOTE_RECOVER,
+            &[&work_item_id, &hash, &staging_key],
+            None,
+            |rows| {
+                Ok(rows
+                    .first()
+                    .and_then(|r| r.try_get::<_, bool>(0).ok())
+                    .unwrap_or(false))
+            },
+        )
+        .await
+    {
+        CommandOutcome::Committed(done) => Ok(done),
+        CommandOutcome::RolledBack(_) | CommandOutcome::Unknown { .. } => Ok(false),
+    }
 }
 
 pub fn decode_attachment_metadata(rows: &[Row]) -> Option<(i64, String)> {

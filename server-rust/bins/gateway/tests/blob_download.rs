@@ -154,7 +154,7 @@ async fn run_case(case: Case, status_mutant: bool) -> Result<(), common::BoxErro
     } else {
         &hash
     };
-    owner.execute("INSERT INTO blobs (sha256,minio_ref,size_bytes,content_type,ref_count) VALUES ($1,$1,$2,'text/plain',0)", &[&hash,&size]).await?;
+    owner.execute("INSERT INTO blobs (sha256,minio_ref,size_bytes,content_type) VALUES ($1,$1,$2,'text/plain')", &[&hash,&size]).await?;
     owner.execute("INSERT INTO message_attachments (message_id,received_at,blob_sha256,filename,content_type,disposition,size_bytes) SELECT id,received_at,$1,'file.txt','text/plain','attachment',$2 FROM messages WHERE id=$3 AND mailbox_id=$4", &[&hash,&size,&account.two_labels,&account.mailbox]).await?;
     let mut mutant_schema = None;
     let result = async {

@@ -119,9 +119,20 @@ impl Db {
         client
             .batch_execute(&format!("LISTEN {}", quote_ident(channel)))
             .await?;
+        let since_id: i64 = client
+            .query_opt(
+                "SELECT COALESCE(MAX(id), 0)::bigint FROM public.notify_intents WHERE channel = $1",
+                &[&channel],
+            )
+            .await
+            .ok()
+            .flatten()
+            .map(|r| r.get(0))
+            .unwrap_or(0);
         Ok(Listener {
             _client: client,
             channel: channel.to_string(),
+            since_id,
             rx,
         })
     }
@@ -131,17 +142,51 @@ impl Db {
 pub struct Listener {
     _client: Client,
     channel: String,
+    since_id: i64,
     rx: mpsc::UnboundedReceiver<(String, String)>,
 }
 
 const SENTINEL: &str = "conformance-oracle-sentinel";
 
 impl Listener {
-    /// Every payload delivered on the channel since the last drain. A sentinel
-    /// is sent from `writer` in its own transaction; NOTIFY delivery follows
-    /// commit order, so everything committed before the sentinel has arrived
-    /// once the sentinel has.
+    /// Flush any pending `notify_intents` rows emitted for this channel AFTER
+    /// `Db::listen()` into `pg_notify` (preserving `ORDER BY id` and
+    /// deduplication, matching `NotifyIntentDrain`), then collect every payload
+    /// delivered before the sentinel.
+    ///
+    /// With Wave 2.1 (#548) retiring `feature.notify_decouple` so `app_notify`
+    /// unconditionally writes `notify_intents`, this keeps all ~95 in-process
+    /// conformance `Db::listen` + `Listener::drain` suites working without
+    /// spawning a background drainer or adding any production test GUC.
     pub async fn drain(&mut self, writer: &Client) -> Result<Vec<String>, BoxError> {
+        writer
+            .query_typed(
+                "WITH batch AS ( \
+                   DELETE FROM notify_intents \
+                    WHERE id IN ( \
+                        SELECT id FROM notify_intents \
+                         WHERE channel = $1 AND id > $2 \
+                         ORDER BY id \
+                         FOR UPDATE SKIP LOCKED \
+                    ) \
+                    RETURNING id, channel, payload \
+                 ) \
+                 SELECT pg_notify(channel, payload) \
+                   FROM (SELECT channel, payload FROM batch GROUP BY channel, payload ORDER BY MIN(id)) deduped",
+                &[
+                    (&self.channel, tokio_postgres::types::Type::TEXT),
+                    (&self.since_id, tokio_postgres::types::Type::INT8),
+                ],
+            )
+            .await?;
+        self.drain_raw(writer).await
+    }
+
+    /// Collect every payload already delivered on the channel since the last
+    /// drain WITHOUT touching `notify_intents`. Used by tests (such as
+    /// `notify_drain_startup.rs`) that assert an external `NotifyIntentDrain`
+    /// worker performed the drain.
+    pub async fn drain_raw(&mut self, writer: &Client) -> Result<Vec<String>, BoxError> {
         writer
             .query_typed(
                 "SELECT pg_notify($1, $2)",

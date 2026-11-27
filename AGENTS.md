@@ -16,7 +16,7 @@ Budgets: root ≤10,000 bytes, child ≤16,000, chain ≤32,000 (`scripts/check-
 
 - **Logic where data lives:** PL/pgSQL reducers in `mailserver/sql/reducers/` and `authserver/sql/reducers/` own business logic. Rust (`server-rust/`, primary server binary `setjoin-server`) is the canonical protocol and orchestration layer after Go deletion (Go-free spec #25, [ARCH-028](docs/adr/ARCH-028-rust-replaces-go-reducers-stay.md), [ARCH-031](docs/adr/ARCH-031-go-is-deleted.md)). Rust calls reducers instead of reimplementing multi-statement logic; mutators commit data, state bumps, audit, and `pg_notify` in one transaction.
 - **Connections:** `DB_DSN` is the PgBouncer request pool (`setjoin_app`, `NOSUPERUSER NOBYPASSRLS`, owns nothing — enforced fail-closed at startup in Release N+1 `#547`); `DB_DIRECT_DSN` is `LISTEN/NOTIFY` only; `DB_WORKER_DSN` (`setjoin_worker`, `BYPASSRLS`, distinct from `DB_DSN`) serves explicit cross-tenant workers; `DB_OWNER_DSN` owns partitions/DDL (never loaded by production runtime units per DEPLOY-004). Split privileges by credential; keep `SET ROLE` off shared pools. Startup/drain: `mailserver/AGENTS.md`.
-- **Storage:** attachments are SHA-256 content-addressed in SeaweedFS/S3; `blobs.ref_count` is trigger-maintained.
+- **Storage:** attachments are SHA-256 content-addressed in SeaweedFS/S3; blob lifecycle is owned by Mark-and-Sweep GC (`V292`/`V293`, `config/blob-reference-manifest.json`, `blobs.ref_count` retired).
 - **Tags:** Gmail-style multi-label tags; `location` and `snooze` are exclusive groups; Archive removes `location`.
 - **Sidecars:** LiveKit, Egress, Valkey, FunASR, and native preview helpers are peripherals, never authority stores. Revocation evicts live media sessions.
 

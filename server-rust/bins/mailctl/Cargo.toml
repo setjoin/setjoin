@@ -27,6 +27,7 @@ bcrypt = "=0.17.1"
 ring = "=0.17.14"
 chrono = "=0.4.45"
 setjoin-pg = { path = "../../crates/pg" }
+setjoin-workqueue = { path = "../../crates/workqueue", features = ["operator"] }
 tokio = { version = "1.54", features = ["rt", "net", "time", "process"] }
 serde_json = { version = "=1.0.145", features = ["raw_value"] }
 serde = { version = "=1.0.229", features = ["derive"] }

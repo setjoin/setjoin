@@ -777,6 +777,7 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
                     }
                 }
             }
+            normalize_storage_v289_effects(action, &mut expected["observation"]["effects"]);
             let compared = golden::compare(&expected["observation"], &observation);
             if mutant {
                 let error = compared.err().ok_or("planted status mutant survived")?;
@@ -791,7 +792,8 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
                 return Ok(());
             }
             compared?;
-            let expected: Value = serde_json::from_slice(&std::fs::read(row_file)?)?;
+            let mut expected: Value = serde_json::from_slice(&std::fs::read(row_file)?)?;
+            normalize_storage_v289_effects(action, &mut expected["effects"]);
             golden::compare(&expected["effects"], &observation["effects"])?;
             eprintln!("GOLDEN-REPLAY: {route_name} :: {label}");
         }
@@ -884,6 +886,49 @@ fn record(path: &std::path::Path, value: &Value) -> Result<(), BoxError> {
         Ok(())
     } else {
         golden::record(path, value).map_err(Into::into)
+    }
+}
+
+/// Wave 2.4 (#551) retired `blobs.ref_count` in V289. Normalize immutable
+/// frozen-Go storage effects in memory without mutating golden JSON files.
+pub(super) fn normalize_storage_v289_effects(action: &str, effects: &mut Value) {
+    let Some(items) = effects.as_array_mut() else {
+        return;
+    };
+    if action == "storage-reconcile" {
+        for item in items {
+            for phase in ["before", "after"] {
+                if let Some(rows) = item.get_mut(phase).and_then(Value::as_array_mut) {
+                    for row in rows {
+                        if let Some(blobs) = row.get_mut("blobs").and_then(Value::as_array_mut) {
+                            for b in blobs {
+                                if let Some(obj) = b.as_object_mut() {
+                                    obj.remove("count");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else if action == "storage-dr-start" {
+        for item in items {
+            for phase in ["before", "after"] {
+                if let Some(rows) = item.get_mut(phase).and_then(Value::as_array_mut) {
+                    for row in rows {
+                        if let Some(details) = row.get_mut("details").and_then(Value::as_array_mut)
+                        {
+                            details.retain(|d| d["issue"] != "refcount_drift");
+                        }
+                        if let Some(obj) = row.as_object_mut() {
+                            if obj.contains_key("drift") {
+                                obj.insert("drift".into(), json!(0));
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

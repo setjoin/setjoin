@@ -194,8 +194,41 @@ pub async fn migrate_status(
     Some(done(format!("{{{}}}", fields.join(","))))
 }
 
-/// Register a reimported blob via the owning `rust_blob_register_metadata` reducer
-/// (retiring direct cross-domain `INSERT INTO blobs`).
+pub async fn reactivate_blob_v2(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    operation: [u8; 16],
+    sha: &str,
+    staging_key: Option<&str>,
+) -> Result<String, StatementFailure> {
+    let env = super::envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("reactivate:{sha}"),
+    );
+    match factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            super::deadline(),
+            &sql::STORAGE_REACTIVATE_BLOB_V2,
+            &[&sha, &staging_key],
+            None,
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get::<_, String>(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
+    {
+        CommandOutcome::Committed(raw) => Ok(raw),
+        CommandOutcome::RolledBack(_) | CommandOutcome::Unknown { .. } => Err(invalid()),
+    }
+}
+
+/// Register a reimported blob via `blob_gc_register_and_reactivate`.
 #[allow(clippy::too_many_arguments)]
 pub async fn reimport_blob(
     factory: &TxFactory,

@@ -44,7 +44,6 @@ DELETE FROM read_receipts
 -- Outbound queue: every row in this run-scoped database is E6 traffic
 -- (local self-addressed sends never enqueue; MDNs/external do).
 DELETE FROM outbound_queue;
-DELETE FROM blob_cleanup_queue;
 
 -- Corpus + workload mail for the two E6 accounts (messages/message_tags are
 -- partitioned; folder/tag counters are trigger-maintained on delete).
@@ -52,10 +51,9 @@ DELETE FROM message_attachments
  WHERE message_id IN (SELECT id FROM messages WHERE mailbox_id IN (5210000001, 5210000002));
 DELETE FROM messages WHERE mailbox_id IN (5210000001, 5210000002);
 
--- Orphaned attachment/raw blobs left by the deleted mail (the attachment
--- DELETE trigger already decremented ref_count). The re-seed re-registers
--- the corpus blobs; S3 bytes stay.
-DELETE FROM blobs WHERE ref_count <= 0;
+-- Orphaned attachment/raw blobs left by the deleted mail. The re-seed
+-- re-registers the corpus blobs; S3 bytes stay.
+DELETE FROM blobs WHERE NOT public.blob_has_live_reference(sha256);
 
 -- Session surface: logins from the previous pair/member run.
 DELETE FROM sessions    WHERE user_id IN (5200000001, 5200000002);

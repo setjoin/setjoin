@@ -108,6 +108,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     } else {
         None
     };
+    let drain_dsn = config.dsn.clone();
+    let drain_worker_dsn = config.worker_dsn.clone();
     let server = Arc::new(
         AuthServer::load(exec, config)
             .await?
@@ -115,6 +117,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .with_boot_posture(boot_posture),
     );
     let reload_server = server.clone();
+    // Wave 2.1 (#548): run a lightweight notify_intents drain task whenever a
+    // worker/DB DSN is available so standalone setjoin-auth never strands
+    // session_revoke / identity_link notifications when workers are stopped.
+    let (drain_stop_tx, drain_stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let drain_task =
+        setjoin_pg::workers::WorkerDatabase::from_dsns(&drain_dsn, drain_worker_dsn.as_deref())
+            .ok()
+            .map(|db| tokio::spawn(run_auth_notify_drain(db, drain_stop_rx)));
     setjoin_auth::serve_until(server, listener, tls, async move {
         #[cfg(unix)]
         {
@@ -140,5 +150,72 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     })
     .await;
+    let _ = drain_stop_tx.send(());
+    if let Some(handle) = drain_task {
+        let _ = handle.await;
+    }
     Ok(())
+}
+
+async fn run_auth_notify_drain(
+    db: setjoin_pg::workers::WorkerDatabase,
+    mut stop: tokio::sync::oneshot::Receiver<()>,
+) {
+    const DRAIN_SQL: &str = "WITH batch AS (
+        DELETE FROM notify_intents
+         WHERE id IN (SELECT id FROM notify_intents ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED)
+         RETURNING id, channel, payload
+    ),
+    emitted AS (
+        SELECT pg_notify(channel, payload)
+          FROM (SELECT channel, payload FROM batch GROUP BY channel, payload ORDER BY MIN(id)) deduped
+    )
+    SELECT (SELECT count(*) FROM batch)::bigint, (SELECT count(*) FROM emitted)::bigint";
+    const BATCH: i64 = 500;
+    let mut conn: Option<setjoin_pg::workers::WorkerConnection> = None;
+    let mut ticks = tokio::time::interval(std::time::Duration::from_millis(50));
+    ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut stop => return,
+            _ = ticks.tick() => {}
+        }
+        loop {
+            let active = match conn.as_ref() {
+                Some(c) => c,
+                None => {
+                    let connected = tokio::select! {
+                        biased;
+                        _ = &mut stop => return,
+                        res = db.connect() => res,
+                    };
+                    match connected {
+                        Ok(c) => conn.insert(c),
+                        Err(_) => break,
+                    }
+                }
+            };
+            let queried = tokio::select! {
+                biased;
+                _ = &mut stop => return,
+                res = active.query(DRAIN_SQL, &[(&BATCH, setjoin_pg::Type::INT8)]) => res,
+            };
+            match queried {
+                Ok(rows) => {
+                    let deleted = rows
+                        .first()
+                        .and_then(|r| r.try_get::<_, i64>(0).ok())
+                        .unwrap_or(0);
+                    if deleted < BATCH {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    conn = None;
+                    break;
+                }
+            }
+        }
+    }
 }

@@ -45,6 +45,7 @@ admin_scope_within.sql	admin_scope_within	READ_ONLY	-	pure read path (guard re-d
 admin_set_reaches.sql	admin_set_reaches	READ_ONLY	-	pure read path (guard re-derives no DML)
 admin_sod_precheck.sql	admin_sod_precheck	READ_ONLY	-	pure read path (guard re-derives no DML)
 app_notify.sql	app_notify	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+app_notify.sql	app_notify_enqueue_intent	EXEMPT	-	narrow worker-owned SECURITY DEFINER enqueue seam for FORCE-RLS notify_intents; not an authority transition
 append_change.sql	append_change	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
 append_change.sql	append_email_change	READ_ONLY	-	pure read path (guard re-derives no DML)
 rule_engine.sql	apply_action	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
@@ -57,6 +58,19 @@ approval_request_cancel.sql	approval_request_cancel	MUST	core	lifecycle/authorit
 approval_request_create.sql	approval_request_create	MUST	core	lifecycle/authority transition (WP3 core class)
 approval_resolve_approver.sql	approval_resolve_approver	READ_ONLY	-	pure read path (guard re-derives no DML)
 audit_write.sql	audit_write	AUDIT_SINK	-	the single INSERT path into admin_audit_log
+blob_gc.sql	blob_gc_claim_purging	EXEMPT	-	background blob GC Tx 2A state transition; not an authority decision
+blob_gc.sql	blob_gc_live_sources	READ_ONLY	-	pure read path (guard re-derives no DML)
+blob_gc.sql	blob_gc_lock_key	READ_ONLY	-	pure read path (guard re-derives no DML)
+blob_gc.sql	blob_gc_mark	EXEMPT	-	background blob GC Phase 1 mark sweep; not an authority decision
+blob_gc.sql	blob_gc_reactivate	EXEMPT	-	high-frequency blob upload reactivation helper; not an authority decision
+blob_gc.sql	blob_gc_reactivate_v2	EXEMPT	-	high-frequency blob upload reactivation + purging fence helper; not an authority decision
+blob_gc.sql	blob_gc_record_worm_lock	MUST	core	records S3 Object Lock 403 detection (core) and ordinary WORM arming (core) in blob_gc_state
+blob_gc.sql	blob_gc_register_and_reactivate	EXEMPT	-	content-addressed blob catalog admission and GC reactivation; not an authority decision
+blob_gc.sql	blob_has_live_reference	READ_ONLY	-	pure read path (guard re-derives no DML)
+blob_gc.sql	blob_is_held_or_retained	READ_ONLY	-	pure read path (guard re-derives no DML)
+blob_gc.sql	blob_live_catalog	READ_ONLY	-	pure set-based live blob catalog read path (guard re-derives no DML)
+blob_gc.sql	blob_promote_recover_complete	EXEMPT	-	narrow pending blob staging promote cancel seam; not an authority decision
+blob_gc.sql	blob_promote_recover_enqueue	EXEMPT	-	narrow blob staging promote recovery enqueue seam; not an authority decision
 blob_upload_account.sql	blob_upload_account	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
 booking_pages.sql	booking_cancel	EXEMPT	-	booking user-content flow; outside the frozen WP3 authority classes
 booking_pages.sql	booking_confirm	EXEMPT	-	booking user-content flow; outside the frozen WP3 authority classes
@@ -1213,3 +1227,29 @@ rust_user_profile_ops.sql	rust_user_view_prefs_set	EXEMPT	-	self-service user UI
 rust_webhook_self_ops.sql	rust_webhook_self_create	EXEMPT	-	self-service user webhook subscription create; ownership-scoped
 rust_webhook_self_ops.sql	rust_webhook_self_delete	EXEMPT	-	self-service user webhook subscription delete; ownership-scoped
 system_has_users.sql	system_has_users	READ_ONLY	-	pure read path (guard re-derives no DML)
+work_queue.sql	emit_wakeup_bell	EXEMPT	-	content-free wakeup bell transport (writes notify_intents only); not an authority transition
+work_queue.sql	execute_scheduled_action_work	EXEMPT	-	background workqueue dispatcher handoff for scheduled_actions; underlying action handlers own business audit
+work_queue.sql	promote_due_scheduled_actions	EXEMPT	-	background workqueue promoter moving due pending scheduled_actions to enqueued; operational transport
+work_queue.sql	prune_work_dead_letters	EXEMPT	-	retention housekeeping pruning replayed dead-letter rows older than retention window
+work_queue.sql	work_cancel_pending	EXEMPT	-	cancels deferred pending work_items row once inline S3 retention succeeds; operational transport
+work_queue.sql	work_enqueue	EXEMPT	-	durable workqueue enqueue transport (worker-only); not an authority transition
+work_queue.sql	work_enqueue_app	EXEMPT	-	narrow allowlisted domain-safe workqueue enqueue seam (stamps R2 actor context); operational transport
+work_queue.sql	work_expedite	EXEMPT	-	expedites deferred pending work_items row on inline S3 retention failure; operational transport
+work_queue.sql	work_queue_claim	EXEMPT	-	worker SKIP LOCKED lease acquisition transport; not an authority transition
+work_queue.sql	work_queue_complete	EXEMPT	-	fenced workqueue completion settlement; operational transport
+work_queue.sql	work_queue_dlq_inspect	READ_ONLY	-	pure read path (guard re-derives no DML)
+work_queue.sql	work_queue_dlq_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+work_queue.sql	work_queue_dlq_purge	EXEMPT	-	operator DLQ retention/cleanup command; operational queue maintenance
+work_queue.sql	work_queue_dlq_replay	EXEMPT	-	operator DLQ replay re-enqueue command; logs scheduled_action_log when applicable
+work_queue.sql	work_queue_fail	EXEMPT	-	fenced workqueue retry/dead-letter settlement; operational transport
+work_queue.sql	work_queue_heartbeat	EXEMPT	-	fenced workqueue lease extension; operational transport
+work_queue.sql	work_queue_reclaim_expired	EXEMPT	-	expired-lease crash recovery and poison-pill dead-lettering; operational transport
+work_queue.sql	work_queue_require_worker	READ_ONLY	-	pure read path checking BYPASSRLS/superuser privilege (guard re-derives no DML)
+work_queue.sql	work_queue_stats	READ_ONLY	-	pure scalar stats read path (guard re-derives no DML)
+work_queue.sql	work_release	EXEMPT	-	fenced graceful shutdown lease handoff decrementing attempts; operational transport
+work_queue.sql	work_truncate_utf8	READ_ONLY	-	pure IMMUTABLE UTF-8 byte-safe truncation helper (guard re-derives no DML)
+worker_schedules.sql	worker_schedule_claim	EXEMPT	-	SKIP LOCKED periodic schedule lease acquisition; operational transport
+worker_schedules.sql	worker_schedule_complete	EXEMPT	-	fenced periodic schedule completion and next_due_at advance; operational transport
+worker_schedules.sql	worker_schedule_heartbeat	EXEMPT	-	fenced periodic schedule lease heartbeat; operational transport
+worker_schedules.sql	worker_schedule_register	EXEMPT	-	periodic schedule catalog registration with HA timezone validation; operational metadata
+worker_schedules.sql	worker_schedule_release	EXEMPT	-	fenced graceful shutdown schedule lease handoff; operational transport

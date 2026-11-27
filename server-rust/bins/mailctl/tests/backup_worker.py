@@ -66,7 +66,8 @@ def observe(binary, dsn, recording, variant="worker", preserve=True):
             )
             sql(
                 dsn,
-                f"INSERT INTO blobs(sha256,minio_ref,size_bytes,ref_count) VALUES('{HASH}','ignored/minio/ref',{len(BLOB)},1)",
+                f"INSERT INTO blobs(sha256,minio_ref,size_bytes) VALUES('{HASH}','ignored/minio/ref',{len(BLOB)}); "
+                f"INSERT INTO chat_link_previews(url_hash,url,status,image_blob_sha256) VALUES('mctl4-backup-worker','https://mctl4.test/b','ok','{HASH}') ON CONFLICT (url_hash) DO UPDATE SET image_blob_sha256=EXCLUDED.image_blob_sha256",
             )
             sql(
                 dsn,

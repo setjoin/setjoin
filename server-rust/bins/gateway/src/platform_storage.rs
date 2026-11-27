@@ -170,6 +170,47 @@ impl Runtime {
             let Some(sha) = detail["sha256"].as_str().filter(|s| !s.is_empty()) else {
                 continue;
             };
+            // Serialize with Mark-and-Sweep GC (#550/#551) BEFORE probing S3: stage a
+            // copy under tmp/blob-upload/* FIRST, then call blob_gc_reactivate_v2() so
+            // purging_at is cleared ONLY in the same transaction that durably enqueues
+            // blob.promote_verify. Clean up staging permanently if was_purging == false.
+            if crate::blob_gc::is_bare_sha256(sha) {
+                use crate::recovery_worker::ObjectStore as _;
+                let Some(op) = crate::jmap::random() else {
+                    continue;
+                };
+                let staging_key = format!(
+                    "{}{}",
+                    crate::blob_retention::BLOB_STAGING_PREFIX,
+                    crate::jmap::reply::hex(&op)
+                );
+                if self.store.promote(sha, &staging_key).await.is_err() {
+                    continue;
+                }
+                let Ok(raw) = storage::reactivate_blob_v2(
+                    factory,
+                    user,
+                    op,
+                    sha,
+                    Some(staging_key.as_str()),
+                )
+                .await
+                else {
+                    // Leave staging_key intact on an ambiguous DB error so a committed
+                    // blob.promote_verify keeps its bytes; 24h sweep reaps if uncommitted.
+                    continue;
+                };
+                let was_purging = serde_json::from_str::<Value>(&raw)
+                    .ok()
+                    .and_then(|v| v.get("was_purging").and_then(Value::as_bool))
+                    .unwrap_or(false);
+                if !was_purging {
+                    let _ = self
+                        .store
+                        .delete_blob_checked(&staging_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                        .await;
+                }
+            }
             let Ok(bucket) = self.store.bucket().await else {
                 continue;
             };
@@ -617,8 +658,11 @@ impl Runtime {
         loop {
             let next = tokio::select! {biased;_=stop.cancelled()=>return Err("migration stopped".into()),next=rows.next()=>next?};
             let Some(row) = next else { break };
-            let (Ok(sha), Ok(size)) = (row.try_get::<_, String>(0), row.try_get::<_, i64>(1))
-            else {
+            let (Ok(sha), Ok(size), Ok(minio_ref)) = (
+                row.try_get::<_, String>(0),
+                row.try_get::<_, i64>(1),
+                row.try_get::<_, String>(2),
+            ) else {
                 continue;
             };
             // Go verifies a target by GET/read-back, never by existence alone.
@@ -636,7 +680,7 @@ impl Runtime {
             if stop.is_cancelled() {
                 return Err("migration stopped".into());
             }
-            match Self::copy_blob(source, target, &sha, size, stop, local).await {
+            match Self::copy_blob(source, target, &sha, &minio_ref, size, stop, local).await {
                 Ok(()) => {
                     migrated += 1;
                     if migrated % 1000 == 0 && !stop.is_cancelled() {
@@ -679,6 +723,7 @@ impl Runtime {
         source: &S3Store,
         target: &setjoin_backup::store::Store,
         key: &str,
+        minio_ref: &str,
         size: i64,
         stop: &tokio_util::sync::CancellationToken,
         local: bool,
@@ -690,14 +735,34 @@ impl Runtime {
             std::env::var("GOFREE_RESOURCE_PREFIX").unwrap_or_else(|_| "setjoin-storage".into());
         let temp = setjoin_backup::TempFile::new(&format!("{prefix}-migration-"), ".blob")?;
         let bucket = tokio::select! {biased;_=stop.cancelled()=>return Err("migration stopped".into()),bucket=source.bucket()=>bucket?};
-        let request = s3::request::tokio_backend::ReqwestRequest::new(
-            &bucket,
-            key,
-            s3::command::Command::GetObject,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-        let mut response = tokio::select! {biased;_=stop.cancelled()=>return Err("migration stopped".into()),response=request.response()=>response.map_err(|e|e.to_string())?};
+        let preferred = setjoin_backup::worker::resolve_primary_source_key(key, minio_ref);
+        let fallback = if preferred == key {
+            format!("blobs/{key}")
+        } else {
+            key.to_owned()
+        };
+        let mut response = {
+            let request = s3::request::tokio_backend::ReqwestRequest::new(
+                &bucket,
+                &preferred,
+                s3::command::Command::GetObject,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            let first = tokio::select! {biased;_=stop.cancelled()=>return Err("migration stopped".into()),response=request.response()=>response.map_err(|e|e.to_string())?};
+            if first.status().as_u16() == 404 {
+                let alt_req = s3::request::tokio_backend::ReqwestRequest::new(
+                    &bucket,
+                    &fallback,
+                    s3::command::Command::GetObject,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+                tokio::select! {biased;_=stop.cancelled()=>return Err("migration stopped".into()),response=alt_req.response()=>response.map_err(|e|e.to_string())?}
+            } else {
+                first
+            }
+        };
         if response.status().as_u16() != 200 {
             return Err(format!("source HTTP {}", response.status()));
         }
@@ -839,7 +904,15 @@ async fn scan_drift(
 ) -> Result<Vec<(String, i64, i64)>, String> {
     let mut rows = db
         .rows(
-            "SELECT b.sha256, b.ref_count::bigint, COUNT(ma.id) FROM blobs b LEFT JOIN message_attachments ma ON ma.blob_sha256=b.sha256 GROUP BY b.sha256,b.ref_count HAVING b.ref_count!=COUNT(ma.id)",
+            "SELECT b.sha256, \
+                    CASE WHEN lc.sha256 IS NOT NULL THEN 1::bigint ELSE 0::bigint END, \
+                    CASE WHEN COALESCE(s.gc_state, 'active') = 'active' THEN 1::bigint ELSE 0::bigint END \
+               FROM public.blobs b \
+               LEFT JOIN public.blob_live_catalog() lc ON lc.sha256 = b.sha256 \
+               LEFT JOIN public.blob_gc_state s ON s.blob_sha256 = b.sha256 \
+              WHERE (lc.sha256 IS NOT NULL AND COALESCE(s.gc_state, 'active') <> 'active') \
+                 OR (lc.sha256 IS NULL AND COALESCE(s.gc_state, 'active') = 'active' \
+                     AND COALESCE(s.last_touched_at, b.created_at) < now() - interval '48 hours')",
             &[],
         )
         .await?;
@@ -901,7 +974,7 @@ async fn migration_rows(
     db: &setjoin_pg::workers::WorkerConnection,
 ) -> Result<setjoin_pg::workers::WorkerRows, String> {
     db.rows(
-        "SELECT sha256,size_bytes FROM blobs WHERE ref_count>0 ORDER BY sha256",
+        "SELECT sha256,size_bytes,minio_ref FROM public.blob_live_catalog() ORDER BY sha256",
         &[],
     )
     .await
@@ -971,4 +1044,143 @@ async fn migration_orphans(
         .iter()
         .filter_map(|r| Some((r.try_get(0).ok()?, r.try_get(1).ok()?)))
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::Bytes;
+    use http_body_util::Full;
+    use hyper::{service::service_fn, Response};
+    use hyper_util::rt::TokioIo;
+    use sha2::{Digest, Sha256};
+
+    #[tokio::test]
+    async fn copy_blob_backfills_both_bare_and_prefixed_source_layouts() {
+        let bare_bytes = b"platform backfill bare payload".to_vec();
+        let bare_sha = format!("{:x}", Sha256::digest(&bare_bytes));
+        let prefixed_bytes = b"platform backfill prefixed payload".to_vec();
+        let prefixed_sha = format!("{:x}", Sha256::digest(&prefixed_bytes));
+
+        let bare_key = bare_sha.clone();
+        let prefixed_key = format!("blobs/{prefixed_sha}");
+        let bare_body = bare_bytes.clone();
+        let prefixed_body = prefixed_bytes.clone();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("local_addr");
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let bk = bare_key.clone();
+                let pk = prefixed_key.clone();
+                let bb = bare_body.clone();
+                let pb = prefixed_body.clone();
+                tokio::spawn(async move {
+                    let svc = service_fn(move |req| {
+                        let bk = bk.clone();
+                        let pk = pk.clone();
+                        let bb = bb.clone();
+                        let pb = pb.clone();
+                        async move {
+                            let path = req.uri().path();
+                            let query = req.uri().query().unwrap_or("");
+                            let resp = if query == "location=" {
+                                Response::builder()
+                                    .status(200)
+                                    .body(Full::new(Bytes::from(
+                                        "<LocationConstraint>us-east-1</LocationConstraint>",
+                                    )))
+                                    .expect("resp")
+                            } else if path == format!("/mailblobs/{bk}") {
+                                Response::builder()
+                                    .status(200)
+                                    .header("last-modified", "Thu, 01 Jan 2026 00:00:00 GMT")
+                                    .body(Full::new(Bytes::from(bb)))
+                                    .expect("resp")
+                            } else if path == format!("/mailblobs/{pk}") {
+                                Response::builder()
+                                    .status(200)
+                                    .header("last-modified", "Thu, 01 Jan 2026 00:00:00 GMT")
+                                    .body(Full::new(Bytes::from(pb)))
+                                    .expect("resp")
+                            } else {
+                                Response::builder()
+                                    .status(404)
+                                    .body(Full::new(Bytes::new()))
+                                    .expect("resp")
+                            };
+                            Ok::<_, std::convert::Infallible>(resp)
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        });
+
+        let source =
+            S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").expect("source s3");
+        let tmp = std::env::temp_dir().join(format!(
+            "setjoin-platform-backfill-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        let target = setjoin_backup::store::Store::driver(
+            "posix",
+            "",
+            "",
+            tmp.to_str().expect("utf8"),
+            "",
+            "",
+        )
+        .expect("target posix");
+        let stop = tokio_util::sync::CancellationToken::new();
+
+        // 1. Bare source key (minio_ref = "mailblobs/<sha>")
+        Runtime::copy_blob(
+            &source,
+            &target,
+            &bare_sha,
+            &format!("mailblobs/{bare_sha}"),
+            bare_bytes.len() as i64,
+            &stop,
+            true,
+        )
+        .await
+        .expect("backfill bare blob");
+        assert_eq!(
+            target.get(&bare_sha, 1024).await.expect("read bare"),
+            bare_bytes
+        );
+
+        // 2. Prefixed-only source key (minio_ref = "blobs/<sha>")
+        Runtime::copy_blob(
+            &source,
+            &target,
+            &prefixed_sha,
+            &format!("blobs/{prefixed_sha}"),
+            prefixed_bytes.len() as i64,
+            &stop,
+            true,
+        )
+        .await
+        .expect("backfill prefixed blob");
+        assert_eq!(
+            target
+                .get(&prefixed_sha, 1024)
+                .await
+                .expect("read prefixed"),
+            prefixed_bytes
+        );
+
+        server.abort();
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

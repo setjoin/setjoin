@@ -20,6 +20,10 @@ DECLARE
   v_sched_failed    INT;
   v_secevents_failed INT;
   v_secevents_age    NUMERIC;
+  v_wq_dlq           BIGINT;
+  v_worm_dlq         BIGINT;
+  v_wq_due_age_m     NUMERIC;
+  v_notify_backlog   BIGINT;
   v_esc_window_min   INT;
   v_esc_min          INT;
   v_esc_rec          RECORD;
@@ -98,9 +102,9 @@ BEGIN
     'Journal rows dead-lettered (compliance mail held, never delivered — operator must re-pend)'
   );
 
-  -- 3d. Scheduled-actions queue depth (pending due now or future)
+  -- 3d. Scheduled-actions queue depth (pending or enqueued awaiting execution)
   SELECT COUNT(*) INTO v_sched_depth
-  FROM scheduled_actions WHERE status = 'pending';
+  FROM scheduled_actions WHERE status IN ('pending', 'enqueued');
 
   INSERT INTO health_history (check_name, status, value, threshold, details) VALUES (
     'scheduled_actions_depth',
@@ -164,6 +168,62 @@ BEGIN
     v_secevents_age,
     COALESCE(get_hc_config('hc_secevents_age_error_min', 60), 60),
     'Age in minutes of the oldest due (lease-expired) pending security-event row — delivery drain not keeping up'
+  );
+
+  -- 3h. Durable WorkQueue dead-letter count (Wave 2.1, #548)
+  SELECT COUNT(*) INTO v_wq_dlq
+  FROM work_dead_letters WHERE replayed_at IS NULL;
+
+  INSERT INTO health_history (check_name, status, value, threshold, details) VALUES (
+    'work_queue_dead_letters',
+    CASE WHEN v_wq_dlq > COALESCE(get_hc_config('hc_work_queue_dlq_error', 0), 0) THEN 'error'
+         ELSE 'ok' END,
+    v_wq_dlq,
+    COALESCE(get_hc_config('hc_work_queue_dlq_error', 0), 0),
+    'Un-replayed dead-lettered work items (inspect/replay via mailctl work dlq)'
+  );
+
+  -- 3h2. Durable S3 WORM arming dead-letter count (Wave 2.2, #549)
+  SELECT COUNT(*) INTO v_worm_dlq
+  FROM work_dead_letters WHERE kind = 'blob.worm_arm' AND replayed_at IS NULL;
+
+  INSERT INTO health_history (check_name, status, value, threshold, details) VALUES (
+    'worm_arm_dead_letters',
+    CASE WHEN v_worm_dlq > COALESCE(get_hc_config('hc_worm_arm_dlq_error', 0), 0) THEN 'error'
+         ELSE 'ok' END,
+    v_worm_dlq,
+    COALESCE(get_hc_config('hc_worm_arm_dlq_error', 0), 0),
+    'Un-replayed dead-lettered S3 WORM retention arming jobs (inspect/replay via mailctl work dlq --kind blob.worm_arm)'
+  );
+
+  -- 3i. Durable WorkQueue oldest due item age in minutes (Wave 2.1, #548)
+  SELECT COALESCE(EXTRACT(EPOCH FROM (now() - MIN(run_at)))/60, 0)
+  INTO v_wq_due_age_m
+  FROM work_items
+  WHERE status = 'pending' AND run_at <= now();
+
+  INSERT INTO health_history (check_name, status, value, threshold, details) VALUES (
+    'work_queue_due_age_minutes',
+    CASE WHEN v_wq_due_age_m > COALESCE(get_hc_config('hc_work_queue_due_age_error_min', 60), 60) THEN 'error'
+         WHEN v_wq_due_age_m > COALESCE(get_hc_config('hc_work_queue_due_age_warn_min',  15), 15) THEN 'warn'
+         ELSE 'ok' END,
+    v_wq_due_age_m,
+    COALESCE(get_hc_config('hc_work_queue_due_age_error_min', 60), 60),
+    'Age in minutes of the oldest due pending work item'
+  );
+
+  -- 3j. notify_intents backlog depth (Wave 2.1, #548)
+  SELECT COUNT(*) INTO v_notify_backlog
+  FROM notify_intents;
+
+  INSERT INTO health_history (check_name, status, value, threshold, details) VALUES (
+    'notify_intents_backlog',
+    CASE WHEN v_notify_backlog > COALESCE(get_hc_config('hc_notify_intents_backlog_error', 50000), 50000) THEN 'error'
+         WHEN v_notify_backlog > COALESCE(get_hc_config('hc_notify_intents_backlog_warn',  5000), 5000) THEN 'warn'
+         ELSE 'ok' END,
+    v_notify_backlog,
+    COALESCE(get_hc_config('hc_notify_intents_backlog_error', 50000), 50000),
+    'Undrained notify_intents wakeup/notification rows awaiting NotifyIntentDrain'
   );
 
   -- 4. Database size
@@ -283,7 +343,9 @@ BEGIN
         AND check_name IN (
           'outbound_queue_depth',
           'security_event_outbox_failed',
-          'security_event_outbox_pending_age_minutes')
+          'security_event_outbox_pending_age_minutes',
+          'work_queue_dead_letters',
+          'worm_arm_dead_letters')
     ),
     streaks AS (
       -- Current consecutive-error streak per check: an error row counts only

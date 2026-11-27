@@ -23,18 +23,73 @@
 -- is purely additive, so behavior is identical with or without the GUC. Tests
 -- assert on _test_notify_log, never on a fired LISTEN.
 --
--- NOTIFY DECOUPLE (V088, toggle feature.notify_decouple, seeded OFF): each
--- NOTIFY at commit takes a DB-wide AccessExclusiveLock on the notify queue.
--- With the toggle ON the "real push" becomes a durable notify_intents row
--- (written in the reducer txn); the notifyjobs Go worker drains batches on its
--- own short txns and emits the pg_notify there. Toggle OFF = byte-identical to
--- the direct pg_notify path (proof: tests/notify_decouple.pg). The capture tee
--- fires on both branches, so pgTAP push assertions are toggle-agnostic.
+-- NOTIFY DECOUPLE (Wave 2.1, #548): feature.notify_decouple is retired here.
+-- Every app_notify call unconditionally writes a durable notify_intents row
+-- inside the reducer transaction (drained in batches by NotifyIntentDrain on
+-- its own short transactions — zero DB-wide NOTIFY queue AccessExclusiveLock
+-- on user write commits). The capture tee still fires under app.capture_notify
+-- so pgTAP push assertions stay unchanged.
 --
 -- The plpgsql body late-binds the _test_notify_log table reference at call time,
 -- so this reducer loads cleanly even though the fixture table is created AFTER
 -- reducers by load-test-schema.sh (and never exists at all in prod).
 --
+-- Narrow worker-owned SECURITY DEFINER enqueue seam for public.notify_intents
+-- (Wave 2.1, #548): notify_intents is FORCE-RLS deny-all to setjoin_app so an
+-- app session can never read cross-tenant session_revoke/identity_link intents,
+-- while app_notify / emit_wakeup_bell still enqueue validated rows through here.
+-- Rejects invalid channels or payloads > 7900 bytes so no malformed row can
+-- poison pg_notify and wedge NotifyIntentDrain.
+CREATE OR REPLACE FUNCTION app_notify_enqueue_intent(
+  p_channel TEXT,
+  p_payload TEXT
+) RETURNS VOID
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_payload TEXT := COALESCE(p_payload, '');
+BEGIN
+  IF p_channel IS NULL OR octet_length(p_channel) = 0 OR octet_length(p_channel) > 63
+     OR p_channel !~ '^[a-zA-Z0-9_.:-]+$' THEN
+    RAISE EXCEPTION 'app_notify_enqueue_intent: invalid channel %', p_channel
+      USING ERRCODE = 'BZ040',
+            HINT = '{"type":"invalid_notify_channel"}';
+  END IF;
+  IF octet_length(v_payload) > 7900 THEN
+    RAISE EXCEPTION 'app_notify_enqueue_intent: payload exceeds 7900 bytes'
+      USING ERRCODE = 'BZ040',
+            HINT = '{"type":"notify_payload_too_large"}';
+  END IF;
+
+  INSERT INTO public.notify_intents (channel, payload)
+  VALUES (p_channel, v_payload);
+END;
+$$;
+
+DO $$
+DECLARE
+  v_granted_create BOOLEAN := FALSE;
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_worker') THEN
+    IF NOT has_schema_privilege('setjoin_worker', 'public', 'CREATE') THEN
+      GRANT CREATE ON SCHEMA public TO setjoin_worker;
+      v_granted_create := TRUE;
+    END IF;
+    ALTER FUNCTION public.app_notify_enqueue_intent(text, text) OWNER TO setjoin_worker;
+    IF v_granted_create THEN
+      REVOKE CREATE ON SCHEMA public FROM setjoin_worker;
+    END IF;
+  END IF;
+  REVOKE ALL ON FUNCTION public.app_notify_enqueue_intent(text, text) FROM PUBLIC;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_app') THEN
+    GRANT EXECUTE ON FUNCTION public.app_notify_enqueue_intent(text, text) TO setjoin_app;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_worker') THEN
+    GRANT EXECUTE ON FUNCTION public.app_notify_enqueue_intent(text, text) TO setjoin_worker;
+  END IF;
+END $$;
+
 -- p_channel — the pg_notify channel (e.g. 'tag:'||mailbox_id, 'calendar:'||…).
 -- p_payload — the JSON payload text.
 CREATE OR REPLACE FUNCTION app_notify(
@@ -47,12 +102,6 @@ BEGIN
       VALUES (p_channel, p_payload, nextval('_test_notify_log_seq'));
   END IF;
 
-  -- ponytail: one PK lookup per push; cache in a GUC if it ever shows in p99.
-  IF COALESCE((SELECT enabled FROM feature_toggles
-                WHERE key = 'feature.notify_decouple'), FALSE) THEN
-    INSERT INTO notify_intents (channel, payload) VALUES (p_channel, p_payload);
-  ELSE
-    PERFORM pg_notify(p_channel, p_payload);
-  END IF;
+  PERFORM public.app_notify_enqueue_intent(p_channel, p_payload);
 END;
 $$ LANGUAGE plpgsql;

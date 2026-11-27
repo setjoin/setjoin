@@ -21,11 +21,11 @@
 --      instead — if status='ok', they apply the already-cached result to
 --      their OWN message without fetching anything.
 --   2. chat_link_preview_cache_write — the claim-winner calls this EXACTLY
---      ONCE after fetching (Go has already PUT the image bytes + inserted the
---      blobs row at ref_count=0 by this point, mirroring blob/handler.go's
---      Put), to record the final ok/error state and increment the image
---      blob's ref_count — the ONLY increment path (V122's §E comment: there
---      is no INSERT trigger to mirror, unlike message_attachments' V075).
+--      ONCE after fetching (the gateway has already PUT the image bytes and
+--      registered the blobs row via blob_gc_register_and_reactivate by this
+--      point), to record the final ok/error state and reactivate the image
+--      blob under Mark-and-Sweep GC (chat_link_previews.image_blob_sha256 is
+--      an authoritative live root; legacy blobs.ref_count was retired in V289).
 --   3. chat_message_unfurl_apply — merges the cached preview into ONE
 --      message's payload + fans out a message_edited-style notify. Called by
 --      both the claim-winner (after cache_write) and every subsequent poster
@@ -121,12 +121,6 @@ BEGIN
            image_blob_sha256 = p_image_blob_sha256, status = p_status,
            fetched_at = now()
      WHERE url_hash = p_url_hash;
-    -- the ONLY increment path for an unfurl image's ref_count (V122 §E) —
-    -- the claim-winner calls this exactly once per url_hash, so there is no
-    -- double-increment race to guard against here.
-    IF p_image_blob_sha256 IS NOT NULL THEN
-        UPDATE blobs SET ref_count = ref_count + 1 WHERE sha256 = p_image_blob_sha256;
-    END IF;
 END;
 $$;
 SELECT apply_worker_ownership('chat_link_preview_cache_write(text,text,text,text,text)'::regprocedure);

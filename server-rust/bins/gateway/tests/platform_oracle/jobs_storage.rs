@@ -286,7 +286,7 @@ fn storage(c: &mut Case, action: &str, label: &str) {
         let sha = "a".repeat(64);
         c.fill = vec!["9601".into()];
         c.table = "storage-reconcile";
-        c.effects = "SELECT jsonb_build_object('scans',(SELECT jsonb_agg(jsonb_build_object('id',id,'status',status,'reimported',reimported_count) ORDER BY id) FROM storage_dr_scans),'blobs',(SELECT jsonb_agg(jsonb_build_object('sha',sha256,'ref',minio_ref,'size',size_bytes,'type',content_type,'count',ref_count) ORDER BY sha256) FROM blobs WHERE sha256=repeat('a',64)))::text";
+        c.effects = "SELECT jsonb_build_object('scans',(SELECT jsonb_agg(jsonb_build_object('id',id,'status',status,'reimported',reimported_count) ORDER BY id) FROM storage_dr_scans),'blobs',(SELECT jsonb_agg(jsonb_build_object('sha',sha256,'ref',minio_ref,'size',size_bytes,'type',content_type) ORDER BY sha256) FROM blobs WHERE sha256=repeat('a',64)))::text";
         c.seed.push(format!("DELETE FROM blobs WHERE sha256='{sha}'; INSERT INTO storage_dr_scans(id,status,details) VALUES(9601,'completed','[{{\"sha256\":\"{sha}\",\"issue\":\"orphaned\"}}]'::jsonb)"));
         c.cleanup
             .push(format!("DELETE FROM blobs WHERE sha256='{sha}'"));
@@ -330,9 +330,8 @@ fn storage(c: &mut Case, action: &str, label: &str) {
         c.seed
             .push("SELECT setval('storage_migrations_id_seq',9700,false)".into());
         let sha = setjoin_backup::digest(b"blob");
-        c.seed.push(format!("DELETE FROM blobs WHERE sha256='{sha}'; INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES('{sha}','mailblobs/{sha}',4,'text/plain',1)"));
-        c.cleanup
-            .push(format!("DELETE FROM blobs WHERE sha256='{sha}'"));
+        c.seed.push(format!("DELETE FROM chat_link_previews WHERE url_hash='plat3-mig-{sha}'; DELETE FROM blobs WHERE sha256='{sha}'; INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type) VALUES('{sha}','mailblobs/{sha}',4,'text/plain'); INSERT INTO chat_link_previews(url_hash,url,status,image_blob_sha256) VALUES('plat3-mig-{sha}','https://plat3.test/{sha}','ok','{sha}')"));
+        c.cleanup.push(format!("DELETE FROM chat_link_previews WHERE url_hash='plat3-mig-{sha}'; DELETE FROM blobs WHERE sha256='{sha}'"));
         if action == "storage-migration-cancel" && label == "drain-timeout" {
             c.status = 503;
         }
@@ -393,15 +392,14 @@ fn storage(c: &mut Case, action: &str, label: &str) {
     if action == "storage-dr-start" {
         c.seed
             .push("SELECT setval('storage_dr_scans_id_seq',9600,false)".into());
-        c.seed.push("DELETE FROM blobs WHERE sha256 IN(repeat('b',64),repeat('c',64)); INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES(repeat('b',64),'mailblobs/b',4,'text/plain',1),(repeat('c',64),'mailblobs/c',4,'text/plain',0)".into());
-        c.cleanup
-            .push("DELETE FROM blobs WHERE sha256 IN(repeat('b',64),repeat('c',64))".into());
+        c.seed.push("DELETE FROM chat_link_previews WHERE url_hash='plat3-dr-b'; DELETE FROM blobs WHERE sha256 IN(repeat('b',64),repeat('c',64)); INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type) VALUES(repeat('b',64),'mailblobs/b',4,'text/plain'),(repeat('c',64),'mailblobs/c',4,'text/plain'); INSERT INTO chat_link_previews(url_hash,url,status,image_blob_sha256) VALUES('plat3-dr-b','https://plat3.test/b','ok',repeat('b',64))".into());
+        c.cleanup.push("DELETE FROM chat_link_previews WHERE url_hash='plat3-dr-b'; DELETE FROM blobs WHERE sha256 IN(repeat('b',64),repeat('c',64))".into());
         if label == "list-error" {
             c.seed
                 .push("DELETE FROM blobs WHERE sha256=repeat('c',64)".into());
         }
         if label == "cursor-error" {
-            c.seed.push("ALTER TABLE public.blobs RENAME TO gofree_plat3b_blobs; CREATE FUNCTION public.gofree_plat3b_scan_key(text) RETURNS text LANGUAGE plpgsql VOLATILE AS $$BEGIN IF $1=repeat('c',64) THEN RAISE EXCEPTION 'late storage catalog cursor failure'; END IF; RETURN $1; END$$; CREATE VIEW public.blobs AS SELECT public.gofree_plat3b_scan_key(b.sha256) AS sha256,b.minio_ref,b.size_bytes,b.content_type,b.ref_count,b.created_at FROM public.gofree_plat3b_blobs b ORDER BY b.sha256; GRANT SELECT ON public.blobs TO setjoin_app,setjoin_worker".into());
+            c.seed.push("ALTER TABLE public.blobs RENAME TO gofree_plat3b_blobs; CREATE FUNCTION public.gofree_plat3b_scan_key(text) RETURNS text LANGUAGE plpgsql VOLATILE AS $$BEGIN IF $1=repeat('c',64) THEN RAISE EXCEPTION 'late storage catalog cursor failure'; END IF; RETURN $1; END$$; CREATE VIEW public.blobs AS SELECT public.gofree_plat3b_scan_key(b.sha256) AS sha256,b.minio_ref,b.size_bytes,b.content_type,b.created_at FROM public.gofree_plat3b_blobs b ORDER BY b.sha256; GRANT SELECT ON public.blobs TO setjoin_app,setjoin_worker".into());
             c.cleanup.insert(0,"DO $$BEGIN IF to_regclass('public.gofree_plat3b_blobs') IS NOT NULL THEN DROP VIEW IF EXISTS public.blobs; ALTER TABLE public.gofree_plat3b_blobs RENAME TO blobs; END IF; END$$; DROP FUNCTION IF EXISTS public.gofree_plat3b_scan_key(text)".into());
         }
 
@@ -685,6 +683,24 @@ pub async fn run(action: &str, kind: &str) -> Result<(), BoxError> {
             if scan_start && r.uri().query().is_some_and(|q| q.contains("list-type=2")) {
                 if list_error {return Response::builder().status(403).body(common::full("<Error><Code>AccessDenied</Code><Message>list refused</Message></Error>")).unwrap();}
                 return Response::new(common::full(format!("<ListBucketResult><Name>mailblobs</Name><IsTruncated>false</IsTruncated><Contents><Key>{}</Key><Size>4</Size><LastModified>2026-10-01T00:00:00Z</LastModified></Contents><Contents><Key>{}</Key><Size>4</Size><LastModified>2026-10-01T00:00:00Z</LastModified></Contents></ListBucketResult>", "a".repeat(64), "b".repeat(64))));
+            }
+            if r.method() == hyper::Method::GET && r.uri().query().is_some_and(|q| q.contains("versions")) {
+                return Response::builder()
+                    .status(501)
+                    .header("content-type", "application/xml")
+                    .body(common::full("<Error><Code>NotImplemented</Code></Error>"))
+                    .unwrap();
+            }
+            if r.method() == hyper::Method::PUT && r.headers().contains_key("x-amz-copy-source") {
+                return Response::builder()
+                    .status(200)
+                    .header("content-type", "application/xml")
+                    .body(common::full("<CopyObjectResult><LastModified>2026-10-01T00:00:00Z</LastModified><ETag>\"fake\"</ETag></CopyObjectResult>"))
+                    .unwrap();
+            }
+            if r.uri().path().contains("/tmp/blob-upload/") {
+                let status = if r.method() == hyper::Method::DELETE { 204 } else { 200 };
+                return Response::builder().status(status).body(common::full("")).unwrap();
             }
             if r.method() == hyper::Method::HEAD {
                 return Response::builder().header("content-length", "4")
@@ -1039,6 +1055,7 @@ pub async fn run(action: &str, kind: &str) -> Result<(), BoxError> {
                 order_review(&mut expected["observation"])?;
                 order_review(&mut observation)?;
             }
+            super::normalize_storage_v289_effects(action, &mut expected["observation"]["effects"]);
             let compared = golden::compare(&expected["observation"], &observation);
             if mutant {
                 let error = compared.err().ok_or("planted status mutant survived")?;
@@ -1050,11 +1067,12 @@ pub async fn run(action: &str, kind: &str) -> Result<(), BoxError> {
             }
             compared?;
             if case.method == "POST" {
-                let expected: Value = if common::is_pinned(&row_file) {
+                let mut expected: Value = if common::is_pinned(&row_file) {
                     common::golden_doc(&row_file, "effects", &observation["effects"])
                 } else {
                     serde_json::from_slice(&std::fs::read(row_file)?)?
                 };
+                super::normalize_storage_v289_effects(action, &mut expected["effects"]);
                 golden::compare(&expected["effects"], &observation["effects"])?;
             }
             eprintln!("GOLDEN-REPLAY: {route_name} :: {label}");

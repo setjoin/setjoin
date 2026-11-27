@@ -779,12 +779,12 @@ def portable_seed(dsn):
     CREATE TABLE mailboxes(id bigint primary key,user_id bigint references users(id));
     CREATE TABLE messages(id bigserial primary key,mailbox_id bigint references mailboxes(id),raw bytea,received_at timestamptz);
     CREATE TABLE system_config(key text primary key,value jsonb,encrypted boolean);
-    CREATE TABLE blobs(sha256 text primary key,size_bytes bigint,ref_count integer);
+    CREATE TABLE blobs(sha256 text primary key,size_bytes bigint);
     INSERT INTO users VALUES(7,'fixture@example.test','synthetic-password-hash');
     INSERT INTO mailboxes VALUES(17,7);
     INSERT INTO messages(mailbox_id,raw,received_at) VALUES(17,decode('0001ff','hex'),'2026-08-23T00:00:00Z');
     INSERT INTO system_config VALUES('fixture.secret','\"synthetic ciphertext\"',true);
-    INSERT INTO blobs VALUES(repeat('a',64),3,1);
+    INSERT INTO blobs VALUES(repeat('a',64),3);
     ALTER TABLE users OWNER TO setjoin_worker; ALTER TABLE mailboxes OWNER TO setjoin_worker;
     ALTER TABLE messages OWNER TO setjoin_worker; ALTER TABLE system_config OWNER TO setjoin_worker; ALTER TABLE blobs OWNER TO setjoin_worker;
     GRANT SELECT ON ALL TABLES IN SCHEMA public TO setjoin_app;""",

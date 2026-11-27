@@ -446,7 +446,7 @@ pub async fn forwarding() -> Result<(), BoxError> {
         let blob_hash = format!("{:064x}", a.two_labels);
         owner
             .execute(
-                "INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$1,12,'text/plain',0)",
+                "INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type) VALUES($1,$1,12,'text/plain')",
                 &[&blob_hash],
             )
             .await?;
@@ -888,7 +888,7 @@ pub async fn forwarding() -> Result<(), BoxError> {
         }
         owner
             .execute(
-                "DELETE FROM blobs WHERE sha256=$1 AND ref_count=0",
+                "DELETE FROM blobs WHERE sha256=$1 AND NOT public.blob_has_live_reference($1)",
                 &[blob_hash],
             )
             .await?;
@@ -1025,7 +1025,10 @@ pub async fn kill_switch() -> Result<(), BoxError> {
         let status = metrics.status().as_u16();
         let text = String::from_utf8(common::body_bytes(metrics).await.to_vec())?;
         assert_eq!(status, 200);
-        assert!(text.contains("setjoin_gateway_proxied_to_go_total 0\n"), "{text}");
+        assert!(
+            text.contains("setjoin_gateway_proxied_to_go_total 0\n"),
+            "{text}"
+        );
         assert!(
             text.contains("setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 0\n"),
             "{text}"

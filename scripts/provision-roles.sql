@@ -310,7 +310,40 @@ BEGIN
         -- worker-owned SECURITY DEFINER in V288 (never directly callable by setjoin_app).
         ('public.identity_address_admission_users()'),
         ('public.identity_address_admission_aliases()'),
-        ('public.identity_address_admission_mailboxes()')
+        ('public.identity_address_admission_mailboxes()'),
+        -- #548 (V290): durable WorkQueue worker/operator reducers stay strictly worker-only
+        -- after the broad GRANT EXECUTE ON ALL FUNCTIONS pass above.
+        ('public.work_queue_require_worker()'),
+        ('public.work_enqueue(text,jsonb,text,timestamptz,smallint,integer)'),
+        ('public.work_queue_claim(text,text[],integer,integer,integer)'),
+        ('public.work_queue_heartbeat(bigint,integer,text,integer)'),
+        ('public.work_queue_complete(bigint,integer,text)'),
+        ('public.work_release(bigint,integer,text)'),
+        ('public.work_cancel_pending(bigint)'),
+        ('public.work_expedite(bigint)'),
+        ('public.work_queue_fail(bigint,integer,text,text,double precision,boolean)'),
+        ('public.work_queue_reclaim_expired(integer)'),
+        ('public.work_queue_dlq_list(text,boolean,integer,integer)'),
+        ('public.work_queue_dlq_inspect(bigint)'),
+        ('public.work_queue_dlq_replay(bigint,boolean,boolean)'),
+        ('public.work_queue_dlq_purge(bigint,text,integer,boolean)'),
+        ('public.prune_work_dead_letters(integer,integer)'),
+        ('public.promote_due_scheduled_actions(integer)'),
+        ('public.execute_scheduled_action_work(uuid,text,integer,integer,boolean)'),
+        -- #549 (V291): distributed SKIP LOCKED worker schedule leases stay strictly worker-only.
+        ('public.worker_schedule_register(text,text,integer,text,text)'),
+        ('public.worker_schedule_claim(text[],text,integer,integer)'),
+        ('public.worker_schedule_heartbeat(text,bigint,text,integer)'),
+        ('public.worker_schedule_complete(text,bigint,text,text,integer,text,timestamptz)'),
+        ('public.worker_schedule_release(text,bigint,text)'),
+        -- #550/#551 (V292/V293): Mark-and-Sweep S3 Blob GC worker-only SECURITY INVOKER reducers
+        -- (blob_gc_reactivate* and blob_promote_recover_* are omitted so setjoin_app retains EXECUTE).
+        ('public.blob_has_live_reference(text)'),
+        ('public.blob_gc_live_sources(text)'),
+        ('public.blob_is_held_or_retained(text,integer)'),
+        ('public.blob_gc_mark(integer,integer,integer)'),
+        ('public.blob_gc_claim_purging(text,integer,integer,integer)'),
+        ('public.blob_gc_record_worm_lock(text,timestamptz,text)')
       ) AS exact_worker(signature)
      WHERE to_regprocedure(signature) IS NOT NULL
   LOOP
@@ -408,4 +441,92 @@ BEGIN
       EXECUTE format('REVOKE ALL ON TABLE %s FROM setjoin_app', v_part);
     END LOOP;
   END IF;
+END $$;
+
+-- Durable WorkQueue tables and notify_intents (V290, #548) and worker_schedules (V291, #549)
+-- are FORCE-RLS deny-all to setjoin_app and reachable only by setjoin_worker (BYPASSRLS) and
+-- operators (app writes flow through narrow worker-owned SECURITY DEFINER seams). Restate
+-- table and sequence grants here after the blanket GRANT above so reprovisioning preserves
+-- the app denial.
+DO $$
+DECLARE
+  t     text;
+  v_seq text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['work_items','work_dead_letters','notify_intents','worker_schedules'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE public.%I OWNER TO setjoin_owner', t);
+      EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC, setjoin_app, setjoin_worker', t);
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO setjoin_worker', t);
+      IF EXISTS (
+        SELECT 1
+          FROM pg_attribute
+         WHERE attrelid = ('public.' || t)::regclass
+           AND attname = 'id'
+           AND NOT attisdropped
+      ) THEN
+        v_seq := pg_get_serial_sequence('public.' || t, 'id');
+      ELSE
+        v_seq := NULL;
+      END IF;
+      IF v_seq IS NOT NULL THEN
+        EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM PUBLIC, setjoin_app, setjoin_worker', v_seq);
+        EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %s TO setjoin_worker', v_seq);
+      END IF;
+    END IF;
+  END LOOP;
+END $$;
+
+-- Mark-and-Sweep S3 Blob GC companion tables (V292, #550): FORCE RLS with zero policies
+-- and worker-only table/sequence ACLs. The blanket GRANT above re-widens them whenever
+-- this script runs after V292, so the worker-only posture is restated here (idempotent).
+DO $$
+DECLARE
+  t text;
+  s text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['blob_gc_state','blob_gc_shadow_runs','blob_gc_shadow_discrepancies','blob_gc_config'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE public.%I OWNER TO setjoin_owner', t);
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC, setjoin_app, setjoin_worker', t);
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO setjoin_worker', t);
+    END IF;
+  END LOOP;
+  FOREACH s IN ARRAY ARRAY['blob_gc_shadow_runs_id_seq','blob_gc_shadow_discrepancies_id_seq'] LOOP
+    IF to_regclass('public.' || s) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON SEQUENCE public.%I FROM PUBLIC, setjoin_app, setjoin_worker', s);
+      EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE public.%I TO setjoin_worker', s);
+    END IF;
+  END LOOP;
+  -- Re-assert narrow SECURITY DEFINER ownership + ACLs on Mark-and-Sweep GC seams
+  -- so provisioning is order-independent regardless of migration/reprovision order.
+  DECLARE
+    v_had_create boolean := false;
+    v_sig        text;
+  BEGIN
+    SELECT has_schema_privilege('setjoin_worker', 'public', 'CREATE') INTO v_had_create;
+    IF NOT v_had_create THEN
+      GRANT CREATE ON SCHEMA public TO setjoin_worker;
+    END IF;
+    FOREACH v_sig IN ARRAY ARRAY[
+      'public.blob_gc_reactivate(text)',
+      'public.blob_gc_reactivate_v2(text,text)',
+      'public.blob_promote_recover_enqueue(text,text,double precision)',
+      'public.blob_promote_recover_complete(bigint,text,text)'
+    ] LOOP
+      IF to_regprocedure(v_sig) IS NOT NULL THEN
+        EXECUTE format('ALTER FUNCTION %s OWNER TO setjoin_worker', v_sig);
+        EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', v_sig);
+        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO setjoin_app, setjoin_worker, setjoin_owner', v_sig);
+      END IF;
+    END LOOP;
+    IF to_regprocedure('public.blob_live_catalog()') IS NOT NULL THEN
+      ALTER FUNCTION public.blob_live_catalog() OWNER TO setjoin_worker;
+      REVOKE ALL ON FUNCTION public.blob_live_catalog() FROM PUBLIC, setjoin_app;
+      GRANT EXECUTE ON FUNCTION public.blob_live_catalog() TO setjoin_worker, setjoin_owner;
+    END IF;
+    IF NOT v_had_create THEN
+      REVOKE CREATE ON SCHEMA public FROM setjoin_worker;
+    END IF;
+  END;
 END $$;

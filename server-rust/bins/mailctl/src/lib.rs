@@ -45,7 +45,7 @@ pub fn run(args: Vec<String>) -> i32 {
     }
     if matches!(
         cmd.as_str(),
-        "schema" | "scim" | "bootstrap-admin" | "sources" | "smime" | "push"
+        "schema" | "scim" | "bootstrap-admin" | "sources" | "smime" | "push" | "work" | "workq"
     ) {
         return direct::run(cmd, action, &args[2..]);
     }
