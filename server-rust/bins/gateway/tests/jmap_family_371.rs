@@ -620,6 +620,10 @@ const CALENDAR_SHARE_SET_ADMIN_GRANTEE: Case = Case {
         "INSERT INTO calendar_acls (calendar_id, user_id, permission) VALUES ({seed.0}, {a.user}, 'admin')",
     ],
     notify: &["calendar:{f.mailbox}"],
+    // Wave 1.8b hardened `jmap_calendar_share_set` to worker-owned `SECURITY DEFINER`,
+    // so V097's trigger now advances `<f.mailbox>`'s Calendar journal (matching
+    // `CALENDAR_SHARE_SET_SUCCESS`/`REVOKE`), whereas frozen Go swallowed it under RLS.
+    rust_advances_journal: true,
     ..mutator_case(
         "calendar-share-set-admin-grantee",
         "success",

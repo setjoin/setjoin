@@ -682,7 +682,7 @@ impl CompletionUser {
             return Ok((false, false));
         }
         let rows = exec
-            .read_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&self.user, Type::INT8)])
+            .protocol_query_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&self.user, Type::INT8)])
             .await
             .map_err(crate::login::AdmissionFailure::AccountType)?;
         let guest = rows

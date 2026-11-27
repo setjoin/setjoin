@@ -172,7 +172,10 @@ fn executable_refuses_imap_sockets_without_live_admission() {
             });
         }
         let output = command.output_boot().unwrap();
-        assert!(!output.status.success(), "IMAP started without live admission");
+        assert!(
+            !output.status.success(),
+            "IMAP started without live admission"
+        );
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("server boot checks completed"), "{stderr}");
         assert!(stderr.contains(needle), "{stderr}");
@@ -204,6 +207,7 @@ async fn gateway_wiring_serves_logins_on_the_request_role_and_enforces_limits() 
         None,
         &env(&[
             ("DB_DSN", &dsn),
+            ("DB_WORKER_DSN", db.worker_dsn()),
             ("GO_LISTENERS_OFF", "imap"),
             ("IMAP_MAX_CONNS", "2"),
             ("IMAP_PER_USER_MAX_CONNS", "1"),
@@ -312,7 +316,10 @@ async fn http_descriptor_named_after_its_unit_is_still_served() {
     let _child = Reaped(command.spawn_boot().unwrap());
     let response = tokio::time::timeout(
         Duration::from_secs(10),
-        send(addr, Request::get("/_gateway/healthz").body(full("")).unwrap()),
+        send(
+            addr,
+            Request::get("/_gateway/healthz").body(full("")).unwrap(),
+        ),
     )
     .await
     .expect("named HTTP descriptor was not served");

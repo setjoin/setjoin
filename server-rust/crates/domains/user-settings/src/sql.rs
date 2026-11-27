@@ -348,7 +348,7 @@ pub const DELEGATION_GET: SqlContract = SqlContract {
         ColumnSpec::unnamed(Type::TEXT),
         ColumnSpec::unnamed(Type::TEXT),
     ],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };

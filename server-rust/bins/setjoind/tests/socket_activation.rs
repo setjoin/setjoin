@@ -43,7 +43,9 @@ fn spawn_activated(
 
 #[tokio::test]
 async fn socket_activation_http_and_auth_slots_emit_ready_and_stopping() {
-    let dsn = common::test_db_dsn();
+    let owner_dsn = common::test_db_dsn();
+    let app_dsn = common::app_db_dsn();
+    let worker_dsn = common::worker_db_dsn();
 
     // 1. Activate Slot::Http on `--subsystems=all`.
     {
@@ -60,8 +62,10 @@ async fn socket_activation_http_and_auth_slots_emit_ready_and_stopping() {
             "http",
             "--subsystems=all",
             &[
-                ("DB_DSN", &dsn),
-                ("DB_DIRECT_DSN", &dsn),
+                ("DB_DSN", &app_dsn),
+                ("DB_WORKER_DSN", &worker_dsn),
+                ("DB_OWNER_DSN", &owner_dsn),
+                ("DB_DIRECT_DSN", &app_dsn),
                 ("CONFIG_PATH", cfg_str),
                 ("NOTIFY_SOCKET", notify_str),
                 ("JWT_SECRET", JWT_SECRET),
@@ -110,8 +114,10 @@ async fn socket_activation_http_and_auth_slots_emit_ready_and_stopping() {
             "auth",
             "--subsystems=auth",
             &[
-                ("DB_DSN", &dsn),
-                ("DB_DIRECT_DSN", &dsn),
+                ("DB_DSN", &app_dsn),
+                ("DB_WORKER_DSN", &worker_dsn),
+                ("DB_OWNER_DSN", &owner_dsn),
+                ("DB_DIRECT_DSN", &app_dsn),
                 ("CONFIG_PATH", cfg_str),
                 ("NOTIFY_SOCKET", notify_str),
                 ("JWT_SECRET", JWT_SECRET),
@@ -149,7 +155,9 @@ async fn socket_activation_http_and_auth_slots_emit_ready_and_stopping() {
 
 #[test]
 fn socket_activation_refuses_unexpected_and_unknown_fd_slots() {
-    let dsn = common::test_db_dsn();
+    let owner_dsn = common::test_db_dsn();
+    let app_dsn = common::app_db_dsn();
+    let worker_dsn = common::worker_db_dsn();
 
     // 1. Passing `Slot::Auth` when `--subsystems=http` (auth disabled) MUST fail closed.
     {
@@ -163,8 +171,10 @@ fn socket_activation_refuses_unexpected_and_unknown_fd_slots() {
             "auth",
             "--subsystems=http",
             &[
-                ("DB_DSN", &dsn),
-                ("DB_DIRECT_DSN", &dsn),
+                ("DB_DSN", &app_dsn),
+                ("DB_WORKER_DSN", &worker_dsn),
+                ("DB_OWNER_DSN", &owner_dsn),
+                ("DB_DIRECT_DSN", &app_dsn),
                 ("NOTIFY_SOCKET", notify_str),
             ],
         );
@@ -202,8 +212,10 @@ fn socket_activation_refuses_unexpected_and_unknown_fd_slots() {
             "authh",
             "--subsystems=all",
             &[
-                ("DB_DSN", &dsn),
-                ("DB_DIRECT_DSN", &dsn),
+                ("DB_DSN", &app_dsn),
+                ("DB_WORKER_DSN", &worker_dsn),
+                ("DB_OWNER_DSN", &owner_dsn),
+                ("DB_DIRECT_DSN", &app_dsn),
                 ("NOTIFY_SOCKET", notify_str),
                 ("JWT_SECRET", JWT_SECRET),
             ],

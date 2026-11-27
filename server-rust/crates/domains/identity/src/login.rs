@@ -157,7 +157,7 @@ pub async fn bootstrap_mfa_grant(
 }
 pub async fn guest_scope(exec: &AuthDb, p: &PasswordProof) -> Result<bool, StatementFailure> {
     let rows = exec
-        .read_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&p.user, Type::INT8)])
+        .protocol_query_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&p.user, Type::INT8)])
         .await?;
     rows.first()
         .and_then(|r| r.try_get::<_, bool>(0).ok())
@@ -291,7 +291,7 @@ pub async fn record_success(
         )
         .await;
     let _ = exec
-        .read_contract(
+        .protocol_statement_contract(
             &crate::sql::LOGIN_L237,
             &[(&Some(p.user), Type::INT8), (&ip, Type::TEXT)],
         )
@@ -333,7 +333,7 @@ pub async fn record_failure(exec: &AuthDb, email: &str, ip: &str) {
         )
         .await;
     let _ = exec
-        .read_contract(
+        .protocol_statement_contract(
             &crate::sql::LOGIN_L261,
             &[(&user, Type::INT8), (&ip, Type::TEXT)],
         )

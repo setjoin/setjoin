@@ -273,6 +273,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
     mut r: Request<Body>,
     c: RequestContext,
     exec: ScopedExecutor,
+    worker: ScopedExecutor,
     keys: Arc<K>,
     issuer: String,
 ) -> Response<Body> {
@@ -335,7 +336,25 @@ pub(super) async fn handle<K: KeySource + 'static>(
                 Ok(v) => v,
                 Err(_) => return ctx.problem(500, "request failed"),
             };
-            match dc::subjects(&factory, &user, node, q, groups).await {
+            let actor = user.user().get();
+            let result = match worker.try_worker_pool() {
+                Some(wp) => match wp.begin_repeatable_read_only().await {
+                    Ok(mut tx) => {
+                        let rows = tx
+                            .query_contract(&dsql::ACL_SUBJECTS, &[&actor, &node, &q, &groups])
+                            .await;
+                        let _ = tx.rollback().await;
+                        rows.and_then(|rows| dc::parse_subjects(&rows))
+                    }
+                    Err(e) => Err(e),
+                },
+                None => Err(StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "worker pool unavailable".into(),
+                }),
+            };
+            match result {
                 Ok(rows) => ctx.status(200, subjects_json(&rows)),
                 Err(e) => ctx.failure(&e),
             }
@@ -599,7 +618,25 @@ pub(super) async fn handle<K: KeySource + 'static>(
                 Ok(v) => v,
                 Err(e) => return e,
             };
-            match dc::folder_admins(&factory, &user, node).await {
+            let actor = user.user().get();
+            let result = match worker.try_worker_pool() {
+                Some(wp) => match wp.begin_repeatable_read_only().await {
+                    Ok(mut tx) => {
+                        let rows = tx
+                            .query_contract(&dsql::FOLDER_ADMINS, &[&actor, &node])
+                            .await;
+                        let _ = tx.rollback().await;
+                        rows.and_then(|rows| dc::parse_folder_admins(&rows))
+                    }
+                    Err(e) => Err(e),
+                },
+                None => Err(StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "worker pool unavailable".into(),
+                }),
+            };
+            match result {
                 Ok(Some(rows)) => ctx.status(200, folder_admins_json(&rows)),
                 Ok(None) => ctx.problem(404, "node not found"),
                 Err(e) => ctx.failure(&e),

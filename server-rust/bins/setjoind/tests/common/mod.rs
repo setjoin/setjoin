@@ -87,13 +87,30 @@ pub fn setjoind_bin() -> &'static str {
     env!("CARGO_BIN_EXE_setjoind")
 }
 
-/// Required live PostgreSQL DSN (`TEST_DB_DSN` or `DB_DSN`).
+/// Required live PostgreSQL owner DSN (`TEST_DB_DSN` or `DB_DSN`).
 pub fn test_db_dsn() -> String {
     std::env::var("TEST_DB_DSN")
         .ok()
         .filter(|s| !s.is_empty())
         .or_else(|| std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()))
         .expect("TEST_DB_DSN (or DB_DSN) must point to a live schema-loaded PostgreSQL database")
+}
+
+/// Constrained runtime app DSN (`DB_APP_DSN` when set, else [`test_db_dsn`]).
+/// Required under Wave 1.9 (`#547`) fail-closed `FORCE RLS` startup enforcement.
+pub fn app_db_dsn() -> String {
+    std::env::var("DB_APP_DSN")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(test_db_dsn)
+}
+
+/// Cross-tenant worker DSN (`DB_WORKER_DSN` when set, else [`test_db_dsn`]).
+pub fn worker_db_dsn() -> String {
+    std::env::var("DB_WORKER_DSN")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(test_db_dsn)
 }
 
 /// Reserve a free loopback port and drop the listener immediately.

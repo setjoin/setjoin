@@ -55,7 +55,7 @@ pub async fn lookup_assertion(
         .run_user_command_contract(
             actor,
             operation,
-            &crate::sql::USER_OPERATION_LOOKUP,
+            &crate::sql::RP_OUTCOME_LOOKUP_ASSERTION,
             &[
                 (&user, Type::INT8),
                 (&op, Type::TEXT),
@@ -103,7 +103,7 @@ pub async fn lookup_session(
         .run_user_command_contract(
             actor,
             operation,
-            &crate::sql::USER_OPERATION_LOOKUP,
+            &crate::sql::RP_OUTCOME_LOOKUP_SESSION,
             &[
                 (&user, Type::INT8),
                 (&op, Type::TEXT),

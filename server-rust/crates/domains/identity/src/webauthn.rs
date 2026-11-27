@@ -1701,8 +1701,9 @@ pub async fn factors_for_user(exec: &AuthDb, user: i64) -> Result<(bool, bool), 
         hint: None,
         message: "MFA factor row".into(),
     };
+    let actor = setjoin_contracts::ids::ActorId::new(user).map_err(|_| bad())?;
     let rows = exec
-        .read_contract(&crate::sql::WEBAUTHN_L1482, &[(&user, Type::INT8)])
+        .read_user_scoped_contract(actor, &crate::sql::WEBAUTHN_L1482, &[(&user, Type::INT8)])
         .await?;
     let r = rows.first().ok_or_else(bad)?;
     Ok((

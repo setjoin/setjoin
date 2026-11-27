@@ -59,6 +59,11 @@ pub struct AuthServer {
     internal_key: std::sync::RwLock<String>,
     pub exec: setjoin_pg::ScopedExecutor,
     auth_db: setjoin_pg::AuthDb,
+    /// Strictly request-role (`setjoin_app`, `NOBYPASSRLS`) database handle for
+    /// paths that require zero `BYPASSRLS` authority (org-global feature flags,
+    /// `SECURITY DEFINER` credential lookup reducers, and invoker-rights
+    /// device check-in parity).
+    app_db: setjoin_pg::AuthDb,
     pre_auth_pool: Option<setjoin_pg::AdminWorkerPool>,
     device_resolver: setjoin_authz::device::DeviceResolver,
     keys: Option<Arc<setjoin_authz::signing_keys::KeySet>>,
@@ -172,6 +177,7 @@ impl AuthServer {
     }
     pub fn new(exec: setjoin_pg::ScopedExecutor) -> Self {
         let auth_db = setjoin_pg::AuthDb::from_executors(exec.clone(), exec.clone());
+        let app_db = auth_db.clone();
         let pre_auth_pool = exec.try_worker_pool().map(|w| w.admin_pool());
         let device_resolver = setjoin_authz::device::DeviceResolver::new(
             exec.clone(),
@@ -188,6 +194,7 @@ impl AuthServer {
             internal_key: std::sync::RwLock::new(String::new()),
             exec,
             auth_db,
+            app_db,
             pre_auth_pool,
             device_resolver,
             keys: None,
@@ -314,6 +321,7 @@ impl AuthServer {
         )
         .with_worker(auth_worker.clone());
         let auth_db = setjoin_pg::AuthDb::from_executors(exec.clone(), auth_worker);
+        let app_db = setjoin_pg::AuthDb::from_executors(exec.clone(), exec.clone());
         let forgot_password = login::enabled(&auth_db, "feature.forgot_password")
             .await
             .unwrap_or(false);
@@ -462,6 +470,7 @@ impl AuthServer {
             boot_posture: None,
             exec,
             auth_db,
+            app_db,
             pre_auth_pool,
             device_resolver,
             keys: Some(Arc::new(keys)),
@@ -509,19 +518,10 @@ impl AuthServer {
     }
     /// [`Self::with_threat_gate`] with separate request and worker DSNs.
     pub async fn with_threat_gate_dsns(
-        mut self,
+        self,
         request_dsn: &str,
         worker_dsn: &str,
     ) -> Result<Self, Error> {
-        let mut worker_exec =
-            setjoin_pg::ScopedExecutor::from_dsn(worker_dsn, 8).map_err(|e| e.0)?;
-        if !self.config.db_encryption_key.is_empty() || !self.config.audit_hmac_key.is_empty() {
-            worker_exec = worker_exec.with_audit_keys(
-                self.config.db_encryption_key.clone(),
-                self.config.audit_hmac_key.clone(),
-            );
-        }
-        self.auth_db = setjoin_pg::AuthDb::from_executors(self.exec.clone(), worker_exec);
         let request = setjoin_pg::ScopedExecutor::from_dsn(request_dsn, 4).map_err(|e| e.0)?;
         let worker = setjoin_threat::WorkerPools::from_dsn(worker_dsn)?;
         let geo = if self.config.geoip_path.is_empty() {

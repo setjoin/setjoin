@@ -1745,7 +1745,7 @@ pub const WEBHOOKS_CREATE: SqlContract = SqlContract {
         Type::TEXT,
     ],
     columns: &[ColumnSpec::named("id", Type::INT8)],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -1756,7 +1756,7 @@ pub const WEBHOOKS_DELETE: SqlContract = SqlContract {
     sql: "DELETE FROM webhook_subscriptions WHERE id = $1::bigint AND user_id = $2::bigint RETURNING id",
     params: &[Type::INT8, Type::INT8],
     columns: &[ColumnSpec::named("id", Type::INT8)],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -1771,7 +1771,7 @@ pub const WEBHOOKS_ROTATE_READ: SqlContract = SqlContract {
         ColumnSpec::named("secret_enc", Type::BYTEA),
         ColumnSpec::named("secret_key_id", Type::TEXT),
     ],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -1798,7 +1798,7 @@ pub const WEBHOOKS_ROTATE_UPDATE: SqlContract = SqlContract {
         Type::TEXT,
     ],
     columns: &[ColumnSpec::named("id", Type::INT8)],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };

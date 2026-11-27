@@ -290,7 +290,7 @@ async fn guest_function_pristine(c: &tokio_postgres::Client) -> Result<(), Err> 
 /// Replaces is_guest_account with a counting function; `branch` runs after the
 /// call number is stored in `n` (1-based).
 async fn install_counting_guest(c: &tokio_postgres::Client, branch: &str) -> Result<(), Err> {
-    c.batch_execute("DROP SEQUENCE IF EXISTS gofree_guest353_calls;CREATE SEQUENCE gofree_guest353_calls;GRANT USAGE ON SEQUENCE gofree_guest353_calls TO setjoin_app").await?;
+    c.batch_execute("DROP SEQUENCE IF EXISTS gofree_guest353_calls;CREATE SEQUENCE gofree_guest353_calls;GRANT USAGE ON SEQUENCE gofree_guest353_calls TO setjoin_app, setjoin_worker").await?;
     c.batch_execute(&format!("CREATE OR REPLACE FUNCTION is_guest_account(p_user_id bigint) RETURNS boolean LANGUAGE plpgsql AS $$DECLARE n bigint; BEGIN n := nextval('gofree_guest353_calls'); {branch} END$$")).await?;
     Ok(())
 }
@@ -704,13 +704,14 @@ async fn failclosed_454_legacy_lookup_faults_refuse_jit() -> Result<(), Err> {
 
         // Keep the address lookup readable. Otherwise its failure could hide a regression
         // in the exact-link lookup, which would fall through to address matching.
+        // Under V288 FORCE RLS, pre-auth `users` lookups run on `setjoin_worker`.
         let guard = revoke::revoke(
             &db.dsn,
             &env.c,
             &app,
             "users",
-            "REVOKE SELECT ON users FROM setjoin_app; GRANT SELECT (id, enabled, email, ad_upn) ON users TO setjoin_app",
-            "REVOKE SELECT (id, enabled, email, ad_upn) ON users FROM setjoin_app; GRANT SELECT ON users TO setjoin_app",
+            "REVOKE SELECT ON users FROM setjoin_app, setjoin_worker; GRANT SELECT (id, enabled, email, ad_upn) ON users TO setjoin_app, setjoin_worker",
+            "REVOKE SELECT (id, enabled, email, ad_upn) ON users FROM setjoin_app, setjoin_worker; GRANT SELECT ON users TO setjoin_app, setjoin_worker",
             "SELECT oidc_subject FROM users LIMIT 1",
         ).await?;
         let exact = sso_once(&env, &email, &linked).await;
@@ -738,11 +739,13 @@ async fn failclosed_454_legacy_lookup_faults_refuse_jit() -> Result<(), Err> {
 
         // Address lookup needs this predicate. JIT's insert triggers use the claim lookup,
         // so leave their function and table permissions intact.
-        let guard = revoke::function(
+        let guard = revoke::revoke(
             &db.dsn,
             &env.c,
             &app,
-            "public.identity_address_quarantined(text)",
+            "users",
+            "REVOKE EXECUTE ON FUNCTION public.identity_address_quarantined(text) FROM setjoin_app, setjoin_worker",
+            "GRANT EXECUTE ON FUNCTION public.identity_address_quarantined(text) TO setjoin_app, setjoin_worker",
             "SELECT public.identity_address_quarantined('rp-fault@example.test')",
         )
         .await?;

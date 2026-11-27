@@ -16,8 +16,10 @@ fn dsn_with_search_path(base_dsn: &str, schema: &str) -> String {
 
 #[tokio::test]
 async fn schema_mismatch_behind_and_ahead_refuses_before_bind() {
-    let dsn = common::test_db_dsn();
-    let (client, conn) = tokio_postgres::connect(&dsn, NoTls)
+    let owner_dsn = common::test_db_dsn();
+    let app_dsn = common::app_db_dsn();
+    let worker_dsn = common::worker_db_dsn();
+    let (client, conn) = tokio_postgres::connect(&owner_dsn, NoTls)
         .await
         .expect("connect test DB");
     tokio::spawn(async move {
@@ -33,10 +35,14 @@ async fn schema_mismatch_behind_and_ahead_refuses_before_bind() {
              CREATE SCHEMA {behind_schema};
              CREATE TABLE {behind_schema}.schema_migrations (version INT);
              INSERT INTO {behind_schema}.schema_migrations VALUES (1);
+             GRANT USAGE ON SCHEMA {behind_schema} TO setjoin_app;
+             GRANT SELECT ON {behind_schema}.schema_migrations TO setjoin_app;
              DROP SCHEMA IF EXISTS {ahead_schema} CASCADE;
              CREATE SCHEMA {ahead_schema};
              CREATE TABLE {ahead_schema}.schema_migrations (version INT);
-             INSERT INTO {ahead_schema}.schema_migrations VALUES (999999);"
+             INSERT INTO {ahead_schema}.schema_migrations VALUES (999999);
+             GRANT USAGE ON SCHEMA {ahead_schema} TO setjoin_app;
+             GRANT SELECT ON {ahead_schema}.schema_migrations TO setjoin_app;"
         ))
         .await
         .expect("create temporary mismatch schemas");
@@ -50,13 +56,17 @@ async fn schema_mismatch_behind_and_ahead_refuses_before_bind() {
             let cfg_path = common::temp_config_file(tmp.path());
             let (notify_path, notify_sock) = common::bind_notify_socket(tmp.path());
             let http_addr = common::free_addr();
-            let scoped_dsn = dsn_with_search_path(&dsn, schema);
+            let scoped_app_dsn = dsn_with_search_path(&app_dsn, schema);
+            let scoped_worker_dsn = dsn_with_search_path(&worker_dsn, schema);
+            let scoped_owner_dsn = dsn_with_search_path(&owner_dsn, schema);
 
             let mut cmd = Command::new(common::setjoind_bin());
             cmd.env_clear()
                 .arg("--subsystems=all")
-                .env("DB_DSN", &scoped_dsn)
-                .env("DB_DIRECT_DSN", &scoped_dsn)
+                .env("DB_DSN", &scoped_app_dsn)
+                .env("DB_WORKER_DSN", &scoped_worker_dsn)
+                .env("DB_OWNER_DSN", &scoped_owner_dsn)
+                .env("DB_DIRECT_DSN", &scoped_app_dsn)
                 .env("CONFIG_PATH", &cfg_path)
                 .env("NOTIFY_SOCKET", &notify_path)
                 .env("GATEWAY_LISTEN", http_addr.to_string())

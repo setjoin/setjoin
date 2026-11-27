@@ -758,7 +758,7 @@ pub const CARDDAV_GAL_USERS: SqlContract = SqlContract {
     sql: "SELECT (to_jsonb(v)||jsonb_build_object('manager_name',mgr.display_name,'updated_micros',(extract(epoch FROM u.updated_at)*1000000)::bigint,'rev',to_char(u.updated_at AT TIME ZONE 'UTC','YYYYMMDD\"T\"HH24MISS\"Z\"')))::text FROM mailboxes caller CROSS JOIN LATERAL directory_visible_users(caller.id) v JOIN users u ON u.id=v.id LEFT JOIN users mgr ON mgr.id=u.manager_id AND mgr.enabled AND EXISTS (SELECT 1 FROM directory_visible_users(caller.id) mv WHERE mv.id=mgr.id) WHERE caller.user_id=$1 AND caller.is_primary AND ($2::bigint IS NULL OR v.id=$2) AND ($3='' OR v.display_name ILIKE $4 OR v.address_blob ILIKE $4) ORDER BY v.display_name LIMIT $5",
     params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
@@ -769,7 +769,7 @@ pub const CARDDAV_GAL_USERS_MUTANT: SqlContract = SqlContract {
     sql: "SELECT (to_jsonb(v)||jsonb_build_object('manager_name',mgr.display_name,'updated_micros',(extract(epoch FROM u.updated_at)*1000000)::bigint,'rev',to_char(u.updated_at AT TIME ZONE 'UTC','YYYYMMDD\"T\"HH24MISS\"Z\"')))::text FROM mailboxes caller CROSS JOIN LATERAL directory_visible_users(caller.id) v JOIN users u ON u.id=v.id LEFT JOIN users mgr ON mgr.id=u.manager_id AND mgr.enabled WHERE caller.user_id=$1 AND caller.is_primary AND ($2::bigint IS NULL OR v.id=$2) AND ($3='' OR v.display_name ILIKE $4 OR v.address_blob ILIKE $4) ORDER BY v.display_name LIMIT $5",
     params: &[Type::INT8, Type::INT8, Type::TEXT, Type::TEXT, Type::INT8],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };
