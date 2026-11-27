@@ -7,6 +7,9 @@
 	import { logger } from '$lib/logger';
 	import { user } from '$lib/stores/auth';
 	import { Card } from '$lib/components/ui';
+	import { createEdgeClient } from '$lib/edge/client';
+
+	const aboutEdgeClient = createEdgeClient({ loginRedirect: null });
 
 	interface HealthStatus {
 		status: string;
@@ -23,9 +26,9 @@
 
 	onMount(async () => {
 		try {
-			const res = await fetch('/health', { credentials: 'include' });
-			if (res.ok) {
-				health = await res.json();
+			const { data, response } = await aboutEdgeClient.GET('/health');
+			if (response.ok && data) {
+				health = data as HealthStatus;
 			}
 		} catch (e) {
 			error = parseError(e).message;

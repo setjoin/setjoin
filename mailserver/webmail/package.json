@@ -80,6 +80,7 @@
 		"dompurify": "^3.4.13",
 		"livekit-client": "~2.22.3",
 		"lucide-svelte": "^1.0.1",
+		"openapi-fetch": "0.17.0",
 		"react": "19.2.8",
 		"react-dom": "19.2.8"
 	}

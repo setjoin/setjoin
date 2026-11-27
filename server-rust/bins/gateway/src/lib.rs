@@ -97,6 +97,8 @@ pub type Body = BoxBody<Bytes, BoxError>;
 
 /// Gateway-local liveness path; outside every Go route prefix.
 pub const HEALTH_PATH: &str = "/_gateway/healthz";
+/// Public liveness alias contracted by `contracts/edge/modules/health.tsp` (#561).
+pub const PUBLIC_HEALTHZ_PATH: &str = "/healthz";
 
 /// Go gives active HTTP requests 30 seconds to finish on shutdown.
 const HTTP_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
@@ -450,7 +452,7 @@ async fn handle(
     let auth_listener = shared.inventory.auth_only();
     let auth_target = route.map_or(auth_path, |r| r.target == inventory::Target::RustAuth);
     let go_mail = shared.upstream.clone();
-    if req.uri().path() == HEALTH_PATH {
+    if req.uri().path() == HEALTH_PATH || req.uri().path() == PUBLIC_HEALTHZ_PATH {
         return match *req.method() {
             Method::GET | Method::HEAD => proxy::status(StatusCode::OK, "ok\n"),
             _ => proxy::status(StatusCode::METHOD_NOT_ALLOWED, "method not allowed\n"),

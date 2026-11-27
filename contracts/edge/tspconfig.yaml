@@ -1,0 +1,10 @@
+emit:
+  - "@typespec/openapi3"
+options:
+  "@typespec/openapi3":
+    emitter-output-dir: "{project-root}/openapi"
+    output-file: "edge.v1.yaml"
+    file-type: "yaml"
+    openapi-versions:
+      - "3.1.0"
+    seal-object-schemas: false

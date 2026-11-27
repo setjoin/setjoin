@@ -1,0 +1,99 @@
+# edge-contract.yml — Schema-first TypeSpec -> OpenAPI 3.1 EdgeContract gate (#561).
+# Runs on GitHub-hosted ubuntu-24.04 runners only (see .github/CI-RUNNERS.md).
+name: Edge Contract
+
+on:
+  merge_group:
+  push:
+    branches: [main]
+    paths:
+      - 'contracts/edge/**'
+      - 'config/edge-contract-ratchet.json'
+      - 'mailserver/webmail/src/lib/**'
+      - 'mailserver/webmail/src/routes/**'
+      - 'server-rust/crates/edge-contract/**'
+      - 'server-rust/crates/domains/**'
+      - 'server-rust/crates/contracts/**'
+      - 'server-rust/crates/pg/**'
+      - 'server-rust/bins/gateway/**'
+      - 'scripts/check-edge-contract-*'
+      - 'scripts/check-openapi-proc-macro-ban*'
+      - '.github/workflows/edge-contract.yml'
+  pull_request:
+    paths:
+      - 'contracts/edge/**'
+      - 'config/edge-contract-ratchet.json'
+      - 'mailserver/webmail/src/lib/**'
+      - 'mailserver/webmail/src/routes/**'
+      - 'server-rust/crates/edge-contract/**'
+      - 'server-rust/crates/domains/**'
+      - 'server-rust/crates/contracts/**'
+      - 'server-rust/crates/pg/**'
+      - 'server-rust/bins/gateway/**'
+      - 'scripts/check-edge-contract-*'
+      - 'scripts/check-openapi-proc-macro-ban*'
+      - '.github/workflows/edge-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  edge-contract:
+    name: Edge Contract (TypeSpec + oasdiff + drift + ratchet + proc-macro ban)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: contracts/edge/package-lock.json
+
+      - name: Install contracts/edge dependencies
+        working-directory: contracts/edge
+        run: |
+          node --version
+          npm --version
+          npm ci
+
+      - name: Install pinned oasdiff release (OpenAPI 3.1 support)
+        env:
+          OASDIFF_VERSION: '1.41.0'
+          OASDIFF_SHA256: '96365453163118e6503eb71742643d9ee67f91aedbaadd1a1ce9c6213e3b71c7'
+        run: |
+          curl -fsSL "https://github.com/oasdiff/oasdiff/releases/download/v${OASDIFF_VERSION}/oasdiff_${OASDIFF_VERSION}_linux_amd64.tar.gz" -o /tmp/oasdiff.tar.gz
+          echo "${OASDIFF_SHA256}  /tmp/oasdiff.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/oasdiff.tar.gz -C /tmp oasdiff
+          install -m 0755 /tmp/oasdiff /usr/local/bin/oasdiff
+          rm -f /tmp/oasdiff /tmp/oasdiff.tar.gz
+          oasdiff --version
+
+      - name: Drift check (TypeSpec -> OpenAPI 3.1 + TS + Rust DTOs)
+        env:
+          EDGE_CONTRACT_REQUIRE_TOOLS: '1'
+        run: |
+          bash scripts/check-edge-contract-drift-selftest.sh
+          bash scripts/check-edge-contract-drift.sh
+
+      - name: Breaking-change gate (oasdiff + 12-month compatibility window)
+        env:
+          EDGE_CONTRACT_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || 'origin/main' }}
+        run: |
+          bash scripts/check-edge-contract-breaking-selftest.sh
+          bash scripts/check-edge-contract-breaking.sh
+
+      - name: OpenAPI proc-macro ban across domains/contracts/pg/edge-contract
+        run: |
+          bash scripts/check-openapi-proc-macro-ban-selftest.sh
+          bash scripts/check-openapi-proc-macro-ban.sh
+
+      - name: Monotonic EdgeContract coverage ratchet
+        env:
+          RATCHET_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || 'origin/main' }}
+        run: |
+          bash scripts/check-edge-contract-ratchet-selftest.sh
+          bash scripts/check-edge-contract-ratchet.sh --diff-base "$RATCHET_DIFF_BASE"

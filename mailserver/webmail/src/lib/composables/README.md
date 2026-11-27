@@ -108,9 +108,11 @@ their mount-time bootstrap:
 | `quarantine/+page.svelte` | 4 | 0 | list load + post-action reloads → settings-resource; preview read + release/reject actions → typed seam / resource saves; bootstrap → authedBootstrap |
 | `settings/security/+page.svelte` | 17 | 0 | all loaders (devices, security-score, `/auth/me`, sign-ins, sessions, secure-list, S/MIME, contact-certs, cert-status) and actions (revoke, revoke-all, secure-account, set-default, deletes) → settings-resource / `$lib/http`; the two FormData uploads and the 401-terminal secure-account call use `httpRequest` directly; bootstrap → authedBootstrap |
 
-The remaining **16 files / 42 calls** are frozen verbatim as the
+The remaining **15 files / 40 calls** are frozen verbatim as the
 `route-raw-fetch` ESLint baseline in `mailserver/webmail/eslint.config.mjs`
-(route-scoped ratchet). Each grandfathered exception is bound to the **exact
+(route-scoped ratchet; shrunk from 16 files / 42 calls in `#561` after migrating
+`settings/+page.svelte` `PUT /api/settings/view` and `settings/about/+page.svelte`
+`GET /health` onto `$lib/edge/client`). Each grandfathered exception is bound to the **exact
 call fingerprint** — `callee + METHOD + first-argument source text`,
 whitespace collapsed — so a NEW raw `fetch`/`window.fetch`/`globalThis.fetch`
 call in `src/routes/**` fails lint, and REPLACING an old grandfathered call
@@ -124,7 +126,7 @@ Remaining offenders (file → calls):
 - `settings/migration/+page.svelte` → 7
 - `admin/(mail)/migration/+page.svelte` → 6
 - `inbox/+page.svelte` → 5
-- `settings/+page.svelte` → 3
+- `settings/+page.svelte` → 2
 - `admin/(identity)/terms-of-use/+page.svelte` → 3
 - `+page.svelte` (root, pre-login probes) → 3
 - `settings/notifications/+page.svelte` → 2
@@ -134,7 +136,6 @@ Remaining offenders (file → calls):
 - `admin/(access)/user-risk/+page.svelte` → 2
 - `setup/+page.svelte` → 1 (pre-auth)
 - `settings/storage/+page.svelte` → 1
-- `settings/about/+page.svelte` → 1
 - `recover/+page.svelte` → 1 (pre-auth)
 - `admin/+page.svelte` → 1 (readable-stream monitor)
 

@@ -11,6 +11,7 @@
 #                                            tests/conformance (DB-backed parity oracles)
 #      Includes shared certificate/PEM/trust foundation in crates/certificates (#526).
 #      Includes shared spam model and inbound scoring in crates/spam (#526).
+#      Includes edge-only plain serde DTOs in crates/edge-contract (#561).
 #      Includes shared auth runtime/protocol admission in crates/threat (#420).
 #      Includes the CI-only setjoin-release and shared release-format crate (#357),
 #      and the standalone setjoin-updater process/installer oracles (#358).

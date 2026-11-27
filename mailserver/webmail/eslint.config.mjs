@@ -67,9 +67,8 @@ const ROUTE_RAW_FETCH_BASELINE = {
 		calls: [
 			"fetch GET '/api/user/offline/caps'",
 			"fetch POST '/api/user/profile'",
-			"fetch PUT '/api/settings/view'",
 		],
-		reason: 'Offline caps probe + profile/view saves — settings storage pattern, first in the follow-up order.',
+		reason: 'Offline caps probe + profile save — settings storage pattern, first in the follow-up order (PUT /api/settings/view migrated to $lib/edge/client in #561).',
 	},
 	'admin/(identity)/terms-of-use/+page.svelte': {
 		calls: [
@@ -133,12 +132,6 @@ const ROUTE_RAW_FETCH_BASELINE = {
 			"fetch GET '/api/user/offline/caps'",
 		],
 		reason: 'Offline caps read — settings storage pattern, first in the follow-up order.',
-	},
-	'settings/about/+page.svelte': {
-		calls: [
-			"fetch GET '/health'",
-		],
-		reason: '/health probe on the about page — settings-resource pattern; follow-up migration.',
 	},
 	'recover/+page.svelte': {
 		calls: [

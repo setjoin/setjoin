@@ -163,12 +163,12 @@ describe('route raw-fetch baseline (frozen census)', () => {
 		).not.toThrow();
 	});
 
-	it('freezes the post-completion census: 16 grandfathered files, 42 calls', () => {
+	it('freezes the post-completion census: 15 grandfathered files, 40 calls', () => {
 		const files = Object.keys(routeRawFetchBaseline);
-		expect(files).toHaveLength(16);
+		expect(files).toHaveLength(15);
 		const entries = routeRawFetchBaseline as Record<string, { calls: string[]; reason: string }>;
 		const total = Object.values(entries).reduce((sum, e) => sum + e.calls.length, 0);
-		expect(total).toBe(42);
+		expect(total).toBe(40);
 		// Every fingerprint names its raw callee and method — the binding the
 		// review demanded instead of per-file counts.
 		for (const [file, entry] of Object.entries(entries)) {
@@ -178,12 +178,13 @@ describe('route raw-fetch baseline (frozen census)', () => {
 		}
 	});
 
-	it('gives the four migrated routes no grandfathering', () => {
+	it('gives the migrated routes no grandfathering', () => {
 		const entries = routeRawFetchBaseline as Record<string, { calls: string[] } | undefined>;
 		// Fully migrated: any new raw fetch in these files fails with noBaseline.
 		expect(entries['settings/signatures/+page.svelte']).toBeUndefined();
 		expect(entries['settings/privacy/+page.svelte']).toBeUndefined();
 		expect(entries['quarantine/+page.svelte']).toBeUndefined();
 		expect(entries['settings/security/+page.svelte']).toBeUndefined();
+		expect(entries['settings/about/+page.svelte']).toBeUndefined();
 	});
 });

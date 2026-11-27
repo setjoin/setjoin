@@ -1,0 +1,1338 @@
+openapi: 3.1.0
+info:
+  title: Setjoin Edge API
+  description: Canonical schema-first HTTP edge contract for Setjoin non-JMAP/non-DAV APIs (OpenAPI 3.1).
+  version: 0.0.0
+tags:
+  - name: Health
+  - name: Rules
+  - name: Delivery
+  - name: Offline
+paths:
+  /_gateway/healthz:
+    get:
+      operationId: HealthOperations_getGatewayHealthz
+      summary: Gateway-local liveness probe
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            text/plain:
+              schema:
+                type: string
+      tags:
+        - Health
+  /api/messages/{emailId}/trace:
+    get:
+      operationId: DeliveryOperations_getMessageTrace
+      summary: Fetch inbound hop trace or outbound delivery status for an owned message
+      parameters:
+        - name: emailId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^[+-]?[0-9]+$
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Delivery.MessageTrace'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '403':
+          description: Access is forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+            text/plain:
+              schema:
+                type: string
+        '429':
+          description: Client error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '500':
+          description: Server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '503':
+          description: Service unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+      tags:
+        - Delivery
+  /api/offline/size-estimate:
+    get:
+      operationId: OfflineOperations_getOfflineSizeEstimate
+      summary: Estimate local storage size across offline mail cache windows
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Offline.OfflineSizeEstimate'
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '403':
+          description: Access is forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '429':
+          description: Client error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '500':
+          description: Server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '503':
+          description: Service unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+      tags:
+        - Offline
+  /api/settings/rules:
+    post:
+      operationId: RulesOperations_createRule
+      summary: Create a personal mail rule
+      parameters: []
+      responses:
+        '201':
+          description: The request has succeeded and a new resource has been created as a result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rules.CreateRuleResponse'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '403':
+          description: Access is forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '429':
+          description: Client error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '500':
+          description: Server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '503':
+          description: Service unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+      tags:
+        - Rules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Rules.RuleInput'
+  /api/settings/rules-list:
+    get:
+      operationId: RulesOperations_listRules
+      summary: List personal mail rules for the authenticated user
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Rules.UserRule'
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '403':
+          description: Access is forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '429':
+          description: Client error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '500':
+          description: Server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '503':
+          description: Service unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+      tags:
+        - Rules
+  /api/settings/rules/apply/{actionId}:
+    get:
+      operationId: RulesOperations_getApplyStatus
+      summary: Poll retroactive rule sweep status (unknown or invalid UUID lookup errors map to 404)
+      parameters:
+        - name: actionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rules.ApplyStatus'
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '403':
+          description: Access is forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '429':
+          description: Client error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '503':
+          description: Service unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+      tags:
+        - Rules
+  /api/settings/rules/{id}:
+    put:
+      operationId: RulesOperations_updateRule
+      summary: Update a personal mail rule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: 'There is no content to send for this request, but the headers may be useful. '
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '403':
+          description: Access is forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '429':
+          description: Client error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '500':
+          description: Server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '503':
+          description: Service unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+      tags:
+        - Rules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Rules.RuleUpdateInput'
+    delete:
+      operationId: RulesOperations_deleteRule
+      summary: Delete a personal mail rule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: 'There is no content to send for this request, but the headers may be useful. '
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '403':
+          description: Access is forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '429':
+          description: Client error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '500':
+          description: Server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '503':
+          description: Service unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+      tags:
+        - Rules
+  /api/settings/rules/{id}/apply:
+    post:
+      operationId: RulesOperations_applyRuleRetro
+      summary: Enqueue retroactive rule sweep against existing mail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '202':
+          description: The request has been accepted for processing, but processing has not yet completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rules.ApplyRetroResult'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '403':
+          description: Access is forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '429':
+          description: Client error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '500':
+          description: Server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '503':
+          description: Service unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+      tags:
+        - Rules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Rules.ApplyRetroRequest'
+  /api/settings/view:
+    get:
+      operationId: OfflineOperations_getViewPreferences
+      summary: Get user view preferences including offlineWindow
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Offline.ViewPreferences'
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '403':
+          description: Access is forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '429':
+          description: Client error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '500':
+          description: Server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '503':
+          description: Service unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+      tags:
+        - Offline
+    put:
+      operationId: OfflineOperations_putViewPreferences
+      summary: Replace user view preferences document (accepts partial object with sibling keys or null)
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '403':
+          description: Access is forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '429':
+          description: Client error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '500':
+          description: Server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '503':
+          description: Service unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+      tags:
+        - Offline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              anyOf:
+                - $ref: '#/components/schemas/Offline.ViewPreferences'
+                - type: 'null'
+  /api/user/quota:
+    get:
+      operationId: OfflineOperations_getMailboxQuota
+      summary: Get aggregated mailbox storage usage and quota for the authenticated user
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Offline.MailboxQuota'
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '403':
+          description: Access is forbidden.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '429':
+          description: Client error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '500':
+          description: Server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '503':
+          description: Service unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+      tags:
+        - Offline
+  /health:
+    get:
+      operationId: HealthOperations_getHealth
+      summary: Aggregate public health verdict
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health.HealthStatus'
+        '429':
+          description: Client error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '500':
+          description: Server error
+          content:
+            text/plain:
+              schema:
+                type: string
+        '503':
+          description: Service unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health.HealthStatus'
+      tags:
+        - Health
+  /healthz:
+    get:
+      operationId: HealthOperations_getHealthz
+      summary: Process liveness probe
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            text/plain:
+              schema:
+                type: string
+      tags:
+        - Health
+  /ready:
+    get:
+      operationId: HealthOperations_getReady
+      summary: Database readiness probe
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health.ReadyStatus'
+        '429':
+          description: Client error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Common.ProblemDetails'
+        '503':
+          description: Service unavailable.
+          content:
+            text/plain:
+              schema:
+                type: string
+      tags:
+        - Health
+components:
+  schemas:
+    Common.CursorPageMeta:
+      type: object
+      required:
+        - hasMore
+      properties:
+        nextCursor:
+          anyOf:
+            - type: string
+            - type: 'null'
+          description: Cursor to fetch the next page, or null when exhausted.
+        hasMore:
+          type: boolean
+          description: True when additional pages follow.
+      description: Shared cursor pagination envelope metadata.
+    Common.CursorPaginationQuery:
+      type: object
+      properties:
+        cursor:
+          type: string
+          description: Opaque cursor returned by the previous page.
+        limit:
+          type: integer
+          format: int32
+          description: Maximum number of items to return.
+      description: Shared cursor-based pagination query parameters.
+    Common.OffsetPaginationQuery:
+      type: object
+      properties:
+        limit:
+          type: integer
+          format: int32
+          description: Maximum number of items to return.
+        offset:
+          type: integer
+          format: int32
+          description: Zero-based item offset.
+      description: Shared offset-based pagination query parameters.
+    Common.ProblemDetails:
+      type: object
+      required:
+        - status
+      properties:
+        type:
+          type: string
+          description: URI reference identifying the problem type.
+        title:
+          type: string
+          description: Short human-readable summary of the problem type.
+        status:
+          type: integer
+          format: int32
+          description: HTTP status code generated by the origin server.
+        detail:
+          type: string
+          description: Human-readable explanation specific to this occurrence of the problem.
+        code:
+          type: string
+          description: Machine-readable Setjoin error code (e.g., dpop_admission, BZ121).
+        instance:
+          type: string
+          description: URI reference identifying the specific occurrence of the problem.
+        remediation:
+          type: string
+          description: Optional remediation hint or action key.
+        remediation_tou_id:
+          type: integer
+          format: int64
+          description: Optional Terms of Use identifier when remediation is 'terms'.
+        retryable:
+          type: boolean
+          description: Whether the client may safely retry the operation.
+        holderId:
+          type: integer
+          format: int64
+          description: Optional lock holder identifier for conflict responses.
+      description: RFC 9457 Problem Details payload returned by Setjoin HTTP edge handlers.
+    Delivery.DeliveryAttempt:
+      type: object
+      required:
+        - 'n'
+        - at
+        - mxHost
+        - smtpCode
+        - smtpText
+        - outcome
+        - tls
+      properties:
+        'n':
+          type: integer
+          format: int32
+        at:
+          anyOf:
+            - type: string
+            - type: 'null'
+        mxHost:
+          anyOf:
+            - type: string
+            - type: 'null'
+        smtpCode:
+          anyOf:
+            - type: integer
+              format: int32
+            - type: 'null'
+        smtpText:
+          anyOf:
+            - type: string
+            - type: 'null'
+        outcome:
+          type: string
+        tls:
+          type: boolean
+      description: One append-only outbound SMTP delivery attempt.
+    Delivery.DeliveryRecipient:
+      type: object
+      required:
+        - email
+        - status
+        - mxHost
+        - deliveredAt
+        - nextAttemptAt
+        - lastSmtpCode
+        - lastSmtpText
+        - attempts
+      properties:
+        email:
+          type: string
+        status:
+          $ref: '#/components/schemas/Delivery.RecipientStatus'
+        mxHost:
+          anyOf:
+            - type: string
+            - type: 'null'
+        deliveredAt:
+          anyOf:
+            - type: string
+            - type: 'null'
+        nextAttemptAt:
+          anyOf:
+            - type: string
+            - type: 'null'
+        lastSmtpCode:
+          anyOf:
+            - type: integer
+              format: int32
+            - type: 'null'
+        lastSmtpText:
+          anyOf:
+            - type: string
+            - type: 'null'
+        attempts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Delivery.DeliveryAttempt'
+      description: Latest per-recipient outbound delivery state.
+    Delivery.InboundDeliveryTrace:
+      type: object
+      required:
+        - direction
+        - hopCount
+        - totalTransitMs
+        - slowestHopIndex
+        - hops
+      properties:
+        direction:
+          $ref: '#/components/schemas/Delivery.InboundDirection'
+        hopCount:
+          type: integer
+          format: int32
+        totalTransitMs:
+          anyOf:
+            - type: integer
+              format: int64
+            - type: 'null'
+        slowestHopIndex:
+          anyOf:
+            - type: integer
+              format: int32
+            - type: 'null'
+        hops:
+          type: array
+          items:
+            $ref: '#/components/schemas/Delivery.TraceHop'
+        truncated:
+          type: boolean
+        auth:
+          $ref: '#/components/schemas/Delivery.TraceAuthResults'
+        raw:
+          $ref: '#/components/schemas/Delivery.RawMessageRef'
+      description: Inbound message trace containing parsed Received header hops.
+    Delivery.InboundDirection:
+      type: string
+      enum:
+        - inbound
+      description: Inbound direction discriminator.
+    Delivery.MessageTrace:
+      anyOf:
+        - $ref: '#/components/schemas/Delivery.InboundDeliveryTrace'
+        - $ref: '#/components/schemas/Delivery.OutboundDeliveryTrace'
+      description: Discriminated inbound hop trace or outbound per-recipient delivery trace for an owned message.
+    Delivery.OutboundDeliveryTrace:
+      type: object
+      required:
+        - direction
+        - overallStatus
+        - recipients
+      properties:
+        direction:
+          $ref: '#/components/schemas/Delivery.OutboundDirection'
+        auth:
+          $ref: '#/components/schemas/Delivery.TraceAuthResults'
+        raw:
+          $ref: '#/components/schemas/Delivery.RawMessageRef'
+        overallStatus:
+          type: string
+        recipients:
+          type: array
+          items:
+            $ref: '#/components/schemas/Delivery.DeliveryRecipient'
+      description: Outbound message trace containing per-recipient SMTP delivery state.
+    Delivery.OutboundDirection:
+      type: string
+      enum:
+        - outbound
+      description: Outbound direction discriminator.
+    Delivery.RawMessageRef:
+      type: object
+      required:
+        - url
+        - sizeBytes
+      properties:
+        url:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+      description: Reference to the raw RFC 5322 message download.
+    Delivery.RecipientStatus:
+      type: string
+      enum:
+        - delivered
+        - deferred
+        - bounced
+        - queued
+      description: Latest per-recipient outbound delivery status.
+    Delivery.TraceAuthResult:
+      type: object
+      required:
+        - result
+      properties:
+        result:
+          type: string
+        domain:
+          type: string
+        evidence:
+          type: string
+      description: Authentication mechanism verification outcome.
+    Delivery.TraceAuthResults:
+      type: object
+      properties:
+        spf:
+          $ref: '#/components/schemas/Delivery.TraceAuthResult'
+        dkim:
+          $ref: '#/components/schemas/Delivery.TraceAuthResult'
+        dmarc:
+          $ref: '#/components/schemas/Delivery.TraceAuthResult'
+        arc:
+          $ref: '#/components/schemas/Delivery.TraceAuthResult'
+      description: Aggregate SPF/DKIM/DMARC/ARC verification outcomes.
+    Delivery.TraceDirection:
+      type: string
+      enum:
+        - inbound
+        - outbound
+      description: Direction of a traced message.
+    Delivery.TraceHop:
+      type: object
+      required:
+        - index
+        - timestamp
+        - delayMs
+        - tlsActive
+        - isOurInfra
+        - parseOk
+      properties:
+        index:
+          type: integer
+          format: int32
+        fromHost:
+          type: string
+        byHost:
+          type: string
+        withProtocol:
+          type: string
+        ip:
+          type: string
+        rdns:
+          type: string
+        timestamp:
+          anyOf:
+            - type: string
+            - type: 'null'
+        delayMs:
+          anyOf:
+            - type: integer
+              format: int64
+            - type: 'null'
+        tlsActive:
+          type: boolean
+        isOurInfra:
+          type: boolean
+        parseOk:
+          type: boolean
+        rawLine:
+          type: string
+      description: A parsed Received header hop for an inbound message trace.
+    Health.HealthStatus:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/Health.HealthVerdict'
+      description: Public /health JSON verdict payload.
+    Health.HealthVerdict:
+      type: string
+      enum:
+        - ok
+        - warn
+        - error
+      description: Redacted aggregate health verdict.
+    Health.ReadyStatus:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/Health.ReadyVerdict'
+      description: Public /ready JSON payload.
+    Health.ReadyVerdict:
+      type: string
+      enum:
+        - ok
+      description: Exact readiness verdict literal.
+    Offline.MailboxQuota:
+      type: object
+      required:
+        - usedBytes
+        - quotaBytes
+      properties:
+        usedBytes:
+          type: integer
+          format: int64
+        quotaBytes:
+          type: integer
+          format: int64
+      description: User-scoped mailbox storage usage and quota totals in bytes.
+    Offline.OfflineSizeBucket:
+      type: object
+      required:
+        - window
+        - messageCount
+        - bodyBytes
+      properties:
+        window:
+          $ref: '#/components/schemas/Offline.OfflineWindow'
+        messageCount:
+          type: integer
+          format: int64
+        bodyBytes:
+          type: integer
+          format: int64
+      description: Estimated message count and body bytes for one offline window.
+    Offline.OfflineSizeEstimate:
+      type: object
+      required:
+        - buckets
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Offline.OfflineSizeBucket'
+      description: Server-computed offline storage size estimate across all windows.
+    Offline.OfflineWindow:
+      type: string
+      enum:
+        - 7d
+        - 30d
+        - 90d
+        - 180d
+        - 365d
+        - all
+      description: Supported native offline mail cache time windows.
+    Offline.OkStatus:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+      description: Generic acknowledgement payload.
+    Offline.ViewPreferences:
+      type: object
+      properties:
+        defaultView:
+          anyOf:
+            - type: string
+            - type: 'null'
+        readingPane:
+          anyOf:
+            - type: string
+            - type: 'null'
+        senderImages:
+          anyOf:
+            - type: boolean
+            - type: 'null'
+        extSenderWarning:
+          anyOf:
+            - type: boolean
+            - type: 'null'
+        smartMute:
+          anyOf:
+            - type: boolean
+            - type: 'null'
+        undoSendDelay:
+          anyOf:
+            - type: integer
+              format: int32
+            - type: 'null'
+        offlineWindow:
+          anyOf:
+            - $ref: '#/components/schemas/Offline.OfflineWindow'
+            - type: string
+            - type: 'null'
+      additionalProperties: {}
+      description: User view preferences JSON document (preserves additional sibling preference keys and explicit nulls).
+    Rules.ApplyJobStatus:
+      type: string
+      enum:
+        - pending
+        - processing
+        - done
+        - failed
+      description: Execution status of a retroactive rule sweep job.
+    Rules.ApplyRetroRequest:
+      type: object
+      properties:
+        window:
+          $ref: '#/components/schemas/Rules.RetroWindowInput'
+      description: Request body to enqueue a retroactive rule sweep (omitted or empty window defaults to 90d).
+    Rules.ApplyRetroResult:
+      type: object
+      required:
+        - actionId
+        - status
+      properties:
+        actionId:
+          type: string
+        status:
+          type: string
+      description: Accepted retroactive rule sweep handle.
+    Rules.ApplyStatus:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/Rules.ApplyJobStatus'
+        processed:
+          type: integer
+          format: int64
+        truncated:
+          type: boolean
+      description: Progress and outcome of a retroactive rule sweep.
+    Rules.CreateRuleResponse:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: integer
+          format: int64
+      description: Identifier of a newly created rule.
+    Rules.RetroWindow:
+      type: string
+      enum:
+        - 90d
+        - 1y
+        - all
+      description: How far back a retroactive rule sweep reaches.
+    Rules.RetroWindowInput:
+      type: string
+      enum:
+        - 90d
+        - 1y
+        - all
+        - ''
+      description: Accepted retroactive sweep window wire value; empty string defaults server-side to 90d.
+    Rules.RuleAction:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+        params:
+          type: object
+          additionalProperties:
+            type: string
+      description: A rule-engine action executed when conditions match.
+    Rules.RuleCondition:
+      type: object
+      required:
+        - field
+        - op
+        - value
+      properties:
+        field:
+          type: string
+        op:
+          type: string
+        value:
+          type: string
+      description: A rule-engine condition matching message attributes.
+    Rules.RuleInput:
+      type: object
+      required:
+        - name
+        - enabled
+        - priority
+        - runOn
+        - conditions
+        - actions
+        - stopProcessing
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+        priority:
+          type: integer
+          format: int32
+        runOn:
+          $ref: '#/components/schemas/Rules.RunOn'
+        conditions:
+          anyOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/Rules.RuleCondition'
+            - type: 'null'
+        actions:
+          anyOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/Rules.RuleAction'
+            - type: 'null'
+        stopProcessing:
+          type: boolean
+      description: Payload to create a personal mail rule.
+    Rules.RuleUpdateInput:
+      type: object
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+        priority:
+          type: integer
+          format: int32
+        runOn:
+          $ref: '#/components/schemas/Rules.RunOn'
+        conditions:
+          anyOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/Rules.RuleCondition'
+            - type: 'null'
+        actions:
+          anyOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/Rules.RuleAction'
+            - type: 'null'
+        stopProcessing:
+          type: boolean
+      description: Payload to update a personal mail rule (partial fields accepted server-side).
+    Rules.RunOn:
+      type: string
+      enum:
+        - server
+        - client
+        - both
+      description: Where a mail rule executes.
+    Rules.UserRule:
+      type: object
+      required:
+        - id
+        - mailboxId
+        - name
+        - enabled
+        - priority
+        - runOn
+        - isTransportRule
+        - conditions
+        - actions
+        - stopProcessing
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+          format: int64
+        mailboxId:
+          type: integer
+          format: int64
+        name:
+          type: string
+        enabled:
+          type: boolean
+        priority:
+          type: integer
+          format: int32
+        runOn:
+          $ref: '#/components/schemas/Rules.RunOn'
+        isTransportRule:
+          type: boolean
+        conditions:
+          anyOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/Rules.RuleCondition'
+            - type: 'null'
+        actions:
+          anyOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/Rules.RuleAction'
+            - type: 'null'
+        stopProcessing:
+          type: boolean
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      description: A user-owned personal mail rule.

@@ -169,3 +169,4 @@ Shared Go UUID identifiers (#455): [contracts](crates/contracts/DOX.md#go-uuid-i
 - `crates/certificates` — shared Go certificate/PEM profile and recipient trust cache; [contract](crates/certificates/DOX.md).
 
 - `crates/calendar-format` — shared Go calendar parser; [contract](crates/calendar-format/DOX.md).
+- `crates/edge-contract` (`setjoin-edge-contract`, #561) — edge-only plain `serde` DTOs generated from `contracts/edge/openapi/edge.v1.yaml` (zero OpenAPI proc-macros; `scripts/check-openapi-proc-macro-ban.sh` + `scripts/check-edge-contract-drift.sh`); [contract](crates/edge-contract/DOX.md).
