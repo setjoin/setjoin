@@ -21,6 +21,9 @@ DECLARE
 BEGIN
   SELECT j.target_mailbox_id,j.user_id,u.email INTO v_mailbox_id,v_user_id,v_email
     FROM public.migration_jobs j JOIN public.users u ON u.id=j.user_id WHERE j.id=p_job_id;
+  IF v_mailbox_id IS NOT NULL THEN
+    PERFORM 1 FROM public.mailboxes WHERE id=v_mailbox_id FOR KEY SHARE;
+  END IF;
   v_decision := public.migration_aux_object_begin(p_job_id,p_operation_id,p_object_type,
     p_source_object_id,p_source_version,p_source_folder_id,p_source_change,p_content_hash);
   IF v_decision->>'action' IN ('replay','unchanged') THEN

@@ -7,8 +7,11 @@ CREATE OR REPLACE FUNCTION rust_admin_mailbox_delete(
  p_mailbox bigint,p_domain_scope bigint
 ) RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY INVOKER AS $$
 BEGIN
- IF COALESCE(p_domain_scope,0)>0 AND NOT EXISTS (
-  SELECT 1 FROM mailboxes WHERE id=p_mailbox AND domain_id=p_domain_scope) THEN
+ PERFORM admin_authority_fence();
+ PERFORM 1 FROM mailboxes
+  WHERE id=p_mailbox AND (COALESCE(p_domain_scope,0)=0 OR domain_id=p_domain_scope)
+  FOR UPDATE;
+ IF COALESCE(p_domain_scope,0)>0 AND NOT FOUND THEN
   RETURN false;
  END IF;
  DELETE FROM aliases WHERE mailbox_id=p_mailbox;

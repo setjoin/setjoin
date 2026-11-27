@@ -109,10 +109,13 @@ never the command result or user data. Retain IDs under the authenticated contex
 The legacy JMAP pilot keeps `run_command`, its same-transaction audit operation
 ID and `lookup_operation`'s actor/mailbox-scoped SELECT unchanged.
 
-V276 creates the receipt through the canonical forward schema path; provisioning
-ensures `setjoin_owner` owns it even on a fresh cluster. App and worker credentials
-can SELECT/INSERT. It is RLS-exempt system metadata: opaque UUID, static family
-and command names, commit timestamp; no actor, mailbox, payload or resource data.
+V276 creates the receipt through the canonical forward schema path; V284 (#473)
+indexes `committed_at`, restricts `setjoin_app` to SELECT/INSERT and grants
+`setjoin_worker` SELECT/INSERT/DELETE (both restated by `scripts/provision-roles.sql`),
+and installs the worker-only retention reducer `prune_rust_operation_receipts`
+(default 30 days via `rust_operation_receipts_retain_days`). It is RLS-exempt
+system metadata: opaque UUID, static family and command names, commit timestamp;
+no actor, mailbox, payload or resource data.
 Golden row-effect normalization rule: exclude `public.rust_operation_receipts`
 from Go/Rust business-effect comparisons. It is Rust-only recovery bookkeeping;
 all business rows, audits, state and notifications still compare unchanged.
@@ -370,3 +373,9 @@ user authority. Cancellation/unknown COMMIT discards the lease and withholds the
 result. `lookup_protocol_operation` waits on that same lock before its fresh
 receipt read; callers must re-prove the current protocol credential. OP uses
 this for an unbound authorization request, never for an authenticated user write.
+`run_protocol_tx` (#473) is the receipt-free anonymous protocol transaction for
+periodic heartbeats such as `POST /device/checkin`: `admit(sql)`, combined
+`BEGIN; SET LOCAL statement_timeout`, transaction-local empty user/mailbox GUCs,
+execute+decode, explicit bounded `COMMIT`, clean `ROLLBACK` + pool reuse on
+SQL/decode errors, and lease discard on timeout, cancellation or non-`RolledBack`
+`COMMIT` errors — with zero advisory locks and zero `rust_operation_receipts` writes.

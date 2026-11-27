@@ -2857,14 +2857,8 @@ async fn cron_scheduler() -> Result<Option<setjoin_gateway::workers::CronSchedul
     };
     let go_off = std::env::var("GO_WORKERS_OFF").unwrap_or_default();
     let mut scheduler = setjoin_gateway::workers::CronScheduler::per_task(db.clone());
-    for name in tasks {
-        let action = setjoin_gateway::cron_catalog::cron_action(name, &dbs)
-            .ok_or_else(|| format!("cron:{name} has no Rust implementation yet"))?;
-        scheduler
-            .register_transferred(name, action, &go_off)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
+    setjoin_gateway::cron_catalog::register_cron_tasks(&mut scheduler, &tasks, &dbs, &go_off)
+        .await?;
     Ok(Some(scheduler))
 }
 

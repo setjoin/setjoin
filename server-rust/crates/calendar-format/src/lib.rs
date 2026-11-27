@@ -607,3 +607,125 @@ pub fn parse_itip(data: &str) -> Result<(String, Event), &'static str> {
  if method.is_empty()||lines.is_empty(){return Err("missing METHOD or VEVENT")}
  Ok((method,parse_component(&lines.join("\n"))?))
 }
+
+/// Validate that an RFC 5545 RRULE uses only supported frequencies
+/// (`DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY`), has no duplicate `FREQ=`, and
+/// contains no unsupported sub-day or Easter parts (`BYHOUR`, `BYMINUTE`,
+/// `BYSECOND`, `BYEASTER`). Empty/whitespace-only input is accepted
+/// (non-recurring); an optional leading case-insensitive `RRULE:` prefix is
+/// stripped before parsing (a bare `RRULE:` with no `FREQ` is rejected).
+pub fn validate_rrule(raw: &str) -> Result<(), String> {
+    let mut trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    if let Some(prefix) = trimmed.get(..6) {
+        if prefix.eq_ignore_ascii_case("RRULE:") {
+            trimmed = trimmed[6..].trim();
+        }
+    }
+    let mut freq: Option<String> = None;
+    for segment in trimmed.split(';') {
+        let segment = segment.trim();
+        if segment.is_empty() {
+            continue;
+        }
+        let (key_raw, val_raw) = match segment.split_once('=') {
+            Some((k, v)) => (k.trim(), v.trim()),
+            None => (segment, ""),
+        };
+        let key = key_raw.to_ascii_uppercase();
+        match key.as_str() {
+            "FREQ" => {
+                if freq.is_some() {
+                    return Err("Duplicate FREQ part in RRULE".to_owned());
+                }
+                freq = Some(val_raw.to_ascii_uppercase());
+            }
+            "BYHOUR" | "BYMINUTE" | "BYSECOND" | "BYEASTER" => {
+                return Err(format!(
+                    "Unsupported RRULE part: {key} (only DAILY, WEEKLY, MONTHLY, YEARLY date-level rules are supported)"
+                ));
+            }
+            _ => {}
+        }
+    }
+    match freq.as_deref() {
+        None | Some("") => Err("RRULE missing required FREQ part".to_owned()),
+        Some("DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY") => Ok(()),
+        Some(other) => Err(format!(
+            "Unsupported RRULE frequency: {other} (supported: DAILY, WEEKLY, MONTHLY, YEARLY)"
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_rrule;
+
+    #[test]
+    fn validate_rrule_accepts_empty_and_supported_rules() {
+        assert!(validate_rrule("").is_ok());
+        assert!(validate_rrule("   \t\r\n").is_ok());
+        assert!(validate_rrule("FREQ=DAILY;COUNT=3").is_ok());
+        assert!(validate_rrule("RRULE:FREQ=DAILY;COUNT=3").is_ok());
+        assert!(validate_rrule("rrule:FREQ=DAILY;COUNT=3").is_ok());
+        assert!(validate_rrule("FREQ=DAILY;UNTIL=19970905").is_ok());
+        assert!(validate_rrule("FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU;WKST=SU;COUNT=3").is_ok());
+        assert!(validate_rrule("FREQ=MONTHLY;BYDAY=3TU,-3TH;COUNT=3").is_ok());
+        assert!(validate_rrule("FREQ=YEARLY;BYYEARDAY=1,-1;BYWEEKNO=20").is_ok());
+        assert!(validate_rrule("freq=daily;interval=2;count=5").is_ok());
+    }
+
+    #[test]
+    fn validate_rrule_rejects_missing_duplicate_or_unsupported_freq() {
+        let err = validate_rrule("INTERVAL=2;COUNT=3").unwrap_err();
+        assert!(err.contains("FREQ"), "unexpected error: {err}");
+
+        for bare in ["RRULE:", "rrule:   "] {
+            let err = validate_rrule(bare).unwrap_err();
+            assert_eq!(err, "RRULE missing required FREQ part");
+        }
+
+        for dup in ["FREQ=HOURLY;FREQ=DAILY;COUNT=3", "FREQ=DAILY;FREQ=WEEKLY"] {
+            let err = validate_rrule(dup).unwrap_err();
+            assert_eq!(err, "Duplicate FREQ part in RRULE", "input: {dup}");
+        }
+
+        for freq in ["HOURLY", "MINUTELY", "SECONDLY", "hourly", "FOOBAR"] {
+            let err = validate_rrule(&format!("FREQ={freq};COUNT=3")).unwrap_err();
+            assert!(
+                err.contains(&freq.to_ascii_uppercase()),
+                "expected {freq} in error: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_rrule_rejects_unsupported_by_parts() {
+        for rule in [
+            "RRULE:BYHOUR=9;FREQ=DAILY",
+            "rrule:BYHOUR=9;FREQ=DAILY",
+            "FREQ=DAILY;\nBYHOUR=9",
+            "FREQ=DAILY;\tBYHOUR=9",
+        ] {
+            let err = validate_rrule(rule).unwrap_err();
+            assert!(err.contains("BYHOUR"), "expected BYHOUR in error for {rule}: {err}");
+        }
+
+        for part in [
+            "BYHOUR=9,17",
+            "BYMINUTE=30",
+            "BYSECOND=0",
+            "BYEASTER=1",
+            "byhour=12",
+            "byminute=15",
+            "bysecond=45",
+            "byeaster=-2",
+        ] {
+            let err = validate_rrule(&format!("FREQ=DAILY;{part};COUNT=3")).unwrap_err();
+            let key = part.split('=').next().unwrap().to_ascii_uppercase();
+            assert!(err.contains(&key), "expected {key} in error: {err}");
+        }
+    }
+}

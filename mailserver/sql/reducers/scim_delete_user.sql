@@ -18,6 +18,14 @@ BEGIN
   END IF;
 
   IF p_hard_delete IS TRUE THEN
+    PERFORM 1 FROM users WHERE id = v_user_id FOR UPDATE;
+    PERFORM 1 FROM mailboxes WHERE user_id = v_user_id ORDER BY id FOR UPDATE;
+    DELETE FROM aliases WHERE mailbox_id IN (SELECT id FROM mailboxes WHERE user_id = v_user_id);
+    DELETE FROM message_attachments WHERE message_id IN (
+      SELECT id FROM messages WHERE mailbox_id IN (SELECT id FROM mailboxes WHERE user_id = v_user_id));
+    DELETE FROM messages WHERE mailbox_id IN (SELECT id FROM mailboxes WHERE user_id = v_user_id);
+    DELETE FROM folders WHERE mailbox_id IN (SELECT id FROM mailboxes WHERE user_id = v_user_id);
+    DELETE FROM mailboxes WHERE user_id = v_user_id;
     DELETE FROM users WHERE id = v_user_id;
 
     -- WP3/astra P2-5: a hard delete is the terminal lifecycle transition —

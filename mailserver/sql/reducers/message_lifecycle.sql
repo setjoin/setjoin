@@ -29,6 +29,8 @@ DECLARE
     v_is_undo        BOOLEAN;
     v_action_id      UUID;
 BEGIN
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
     -- Validate message exists and belongs to p_mailbox_id (R1).
     SELECT * INTO v_msg
     FROM messages
@@ -107,6 +109,8 @@ DECLARE
     v_received_at   TIMESTAMPTZ;
     v_cancelled     INT;
 BEGIN
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
     SELECT * INTO v_msg
     FROM messages
     WHERE id = p_message_id AND mailbox_id = p_mailbox_id;
@@ -168,6 +172,8 @@ DECLARE
     v_deleted_queue INT;
     v_deleted_tag   INT;
 BEGIN
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
     SELECT * INTO v_msg
     FROM messages
     WHERE id = p_message_id AND mailbox_id = p_mailbox_id;

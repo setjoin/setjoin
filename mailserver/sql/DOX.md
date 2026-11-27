@@ -1650,9 +1650,15 @@ None. This is a leaf node in the DOX tree.
 `dbschema/V276__rust_operation_receipts.sql` adds Rust-owned opaque operation
 commit metadata for the shared `setjoin-pg` authority helper. The UUID primary
 key, static family/command names and timestamp contain no user data, so the table
-is RLS-exempt (written table comment). `setjoin_owner` owns it; `setjoin_app` and
-`setjoin_worker` receive SELECT/INSERT. Provisioning also assigns ownership when
-roles are created after migrations on a fresh cluster. Reducers are unchanged.
+is RLS-exempt (written table comment). `setjoin_owner` owns it; `setjoin_app`
+receives only SELECT/INSERT while `setjoin_worker` receives SELECT/INSERT/DELETE.
+`dbschema/V284__rust_operation_receipts_retention.sql` (#473) indexes
+`committed_at`, revokes PUBLIC and tightens the table grants (restated in
+`scripts/provision-roles.sql` after its blanket table GRANT), and installs the
+worker-only `SECURITY INVOKER` reducer `prune_rust_operation_receipts(integer
+DEFAULT 5000)` (`reducers/prune_rust_operation_receipts.sql`) using
+`cron_retention_days('rust_operation_receipts_retain_days', 30)` and
+`ORDER BY committed_at, operation_id LIMIT p_batch_size` over PK `operation_id`.
 Receipt insertion commits with the command; Rust-only receipt rows are excluded
 from golden business-effect comparisons. See the [executor contract](../../server-rust/crates/pg/DOX.md#rust-operation-receipts-257265).
 
@@ -1925,7 +1931,7 @@ inline SQL (follow-up: retire it). Server contract:
 [Mailboxes DOX](../../server-rust/crates/domains/mailboxes/DOX.md).
 `tests/rust_admin_mailbox.pg` covers scope fences, the swallowed tag failure and cascade order.
 
-`rust_calendar_subscribe` (#296) is Go's webcal subscribe transaction (mirrored calendar, then its `calendar_subscriptions` row) for the Rust gateway; pgTAP: `tests/rust_calendar_subscribe.pg`.
+`rust_calendar_subscribe` / `rust_calendar_unsubscribe` (#296, #481) own Go's webcal subscribe transaction (mirrored calendar, then its `calendar_subscriptions` row) and canonical-lock-order unsubscribe delete for the Rust gateway; pgTAP: `tests/rust_calendar_subscribe.pg`, `tests/mailbox_delete_journal_lock_order.pg`.
 
 `rust_contacts_import_write`/`_remove` (#297) are Go's per-row contacts import statements (owner-mailbox book check in the same WHERE; upsert regenerates the etag) called one autocommit statement per row, with no tenant GUC and no receipt, as Go's pool does; pgTAP: `tests/rust_contacts_import.pg`.
 

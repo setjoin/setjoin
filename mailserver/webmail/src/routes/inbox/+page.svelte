@@ -22,6 +22,8 @@
 	import { stripLocationTags } from '$lib/stores/tagHelpers';
 	import { selectionFromUrl, replyAllRecipients, resendPrefill } from '$lib/stores/inboxModel';
 	import { InboxStore } from '$lib/stores/inboxStore.svelte';
+	import { getWebmailSyncCoordinator } from '$lib/sync/webmail/runtime.svelte';
+	import { createInboxSyncAdapter } from '$lib/sync/webmail/adapters/jmapOnline';
 	import { vipSenders } from '$lib/stores/vipSenders.svelte';
 	import { EmailActionStore, type Snapshot } from '$lib/stores/emailActionStore.svelte';
 	import { listQuickSteps } from '$lib/jmap/quicksteps';
@@ -209,6 +211,21 @@
 			return;
 		}
 		switchContext(mbx);
+	});
+
+	// Wave 2.8 (#555): attach the active mailbox scope (personal or shared ?mbx=)
+	// to the shared SyncCoordinator for SyncWakeup + shared-mailbox scope_revoked.
+	$effect(() => {
+		const mailboxScopeId = mbxParam ?? 'primary';
+		const isSharedMailbox = mbxParam !== null;
+		const coord = getWebmailSyncCoordinator('member');
+		return coord.register(
+			createInboxSyncAdapter({
+				store,
+				mailboxScopeId,
+				isSharedMailbox,
+			}),
+		);
 	});
 
 	// The SINGLE compose-open gate: every compose entry point (Compose button,

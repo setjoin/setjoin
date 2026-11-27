@@ -138,3 +138,40 @@ export async function withCriticalScope<T>(
 		handle.end();
 	}
 }
+
+// ── Shared process-wide singletons (ARCH-023 / #555) ─────────────────────────
+// Hosted in this zero-import leaf module so both `offline/boot.ts` and
+// `sync/webmail/runtime.svelte.ts` share the exact same CriticalActivityCounter
+// and pre-wipe hook registry without introducing circular or store-layer
+// transitive imports into component unit tests.
+
+let sharedCriticalActivity: CriticalActivityCounter = createCriticalActivityCounter();
+
+export function getSharedCriticalActivity(): CriticalActivityCounter {
+	return sharedCriticalActivity;
+}
+
+export function resetSharedCriticalActivityForTests(): void {
+	sharedCriticalActivity.teardown();
+	sharedCriticalActivity = createCriticalActivityCounter();
+}
+
+export type PreWipeRelease = () => void;
+export type PreWipeHook = () => Promise<PreWipeRelease | void> | PreWipeRelease | void;
+
+const preWipeHooks = new Set<PreWipeHook>();
+
+/**
+ * Register a security-lane pre-wipe hook (e.g. SyncCoordinator wipe admission
+ * fence) that executes AFTER fail-closed deviceId targeting succeeds and BEFORE
+ * `db.wipe(...)` runs. If the hook returns a release function, it is invoked in
+ * `finally` AFTER `db.wipe(...)` completes.
+ */
+export function registerPreWipeHook(hook: PreWipeHook): () => void {
+	preWipeHooks.add(hook);
+	return () => preWipeHooks.delete(hook);
+}
+
+export function getPreWipeHooks(): readonly PreWipeHook[] {
+	return [...preWipeHooks];
+}

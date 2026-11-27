@@ -1,6 +1,6 @@
 # ARCH-031: Go Is Deleted — Rust Server and PL/pgSQL Reducers Are Canonical
 
-- **Status:** Draft (flip to `Accepted` on `#142` merge after `#141` dress-rehearsal evidence and owner sign-off)
+- **Status:** Accepted (`#142` merge after `#141` dress-rehearsal evidence and owner sign-off)
 - **Date:** 2026-11-25
 - **Supersedes / Closes:** [ARCH-028](ARCH-028-rust-replaces-go-reducers-stay.md) (migration phase closed); Spec `#25` (Rust rewrite — Go-free Setjoin)
 - **Numbering note:** `ARCH-029` (owner decision on `#231`: front door ON by default, frozen Go as behavioral oracle with 2026-11-05 security-fix exceptions) and `ARCH-030` (`#317`: Go error-branch coverage and parity recording rules) were assigned during the rewrite and remain reserved.

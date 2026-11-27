@@ -104,9 +104,9 @@ SHA-256 fingerprints whole file bytes; the range column alone states inspection 
 |---|---|---|
 | `AGENTS.md` | full 1–311 | `7ff01755f4fda49eaa0f1b1a6f442a05e3355802d3e1aae9a0315c041985f329` |
 | `docs/AGENTS.md` | full 1–252 | `2767f16c6b87ca244d5a28a29a9b4a572ec2424be2dbc8788126afb463c64919` |
-| `docs/designs/composable-backup-data-inventory.md` | full 1–290 | `2988efda3c77bd71e5ae26f24647c36b4d2ef892346b7e242f8746226fa42fe6` |
-| `docs/designs/composable-backup-snapshot-contract.md` | full 1–153 | `d082522ad2f42acaa7f3507e441b339d39c5f2f7243cc8cc06b4f7cc7f13a5c9` |
-| `docs/designs/composable-recovery-records.md` | full 1–245 | `15e00fdfb04efe2d2d45900b1cddd95df1ecfb490a1ffd2a73807fa8fa559cc8` |
+| `docs/archive/designs/composable-backup-data-inventory.md` | full 1–290 | `2988efda3c77bd71e5ae26f24647c36b4d2ef892346b7e242f8746226fa42fe6` |
+| `docs/archive/designs/composable-backup-snapshot-contract.md` | full 1–153 | `d082522ad2f42acaa7f3507e441b339d39c5f2f7243cc8cc06b4f7cc7f13a5c9` |
+| `docs/archive/designs/composable-recovery-records.md` | full 1–245 | `15e00fdfb04efe2d2d45900b1cddd95df1ecfb490a1ffd2a73807fa8fa559cc8` |
 | `retired-docs:superpowers/plans/2026-09-06-composable-contract-freeze.md` | 218–250; heading matches only elsewhere | `e6143bc1847587c017a7df8def4070e272302d1e15bfcf9f4388a458e45821ee` |
 | `retired-docs:superpowers/plans/2026-09-06-app-data-backup-lifecycle.md` | 1–154; heading matches elsewhere | `8c4e0fad03cc06710a0bb2265377a6e7b39d7f55c08b7aa9dcdb0778c1bbace0` |
 | `mailserver/internal/drive/worker.go` | 1–90, 130–175, 177–414, 479–496 | `52cf26be3866dfcaf5195eb688e76f11ae039ed14e986582231bac79de82767b` |

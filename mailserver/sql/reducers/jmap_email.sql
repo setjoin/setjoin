@@ -459,10 +459,10 @@ DECLARE
   v_updated_ids  BIGINT[] := '{}'::BIGINT[];
 BEGIN
   -- Capture oldState before the loop so the batch return is correct.
-  SELECT jmap_email_state INTO v_old_state FROM mailboxes WHERE id = p_mailbox_id;
+  SELECT jmap_email_state INTO v_old_state FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
   v_new_state := v_old_state;  -- fallback if no messages are updated
 
-  FOR v_id, v_patch IN SELECT * FROM jsonb_each(p_updates)
+  FOR v_id, v_patch IN SELECT k::BIGINT, v FROM jsonb_each(p_updates) AS t(k, v) ORDER BY k::BIGINT
   LOOP
     BEGIN
       -- Verify message exists
@@ -666,14 +666,14 @@ DECLARE
   v_primary_tag  BIGINT;
   v_size_bytes   BIGINT;
 BEGIN
+  -- Capture oldState and lock mailbox before any tag/message reads or writes.
+  SELECT jmap_email_state INTO v_old_state FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  v_new_state := v_old_state;
+
   SELECT id INTO v_trash_id FROM tags
   WHERE name = 'Trash' AND mailbox_id = p_mailbox_id;
 
-  -- Capture oldState before any per-id bumps (mirrors jmap_email_set_update pattern).
-  SELECT jmap_email_state INTO v_old_state FROM mailboxes WHERE id = p_mailbox_id;
-  v_new_state := v_old_state;
-
-  FOREACH v_id IN ARRAY p_ids
+  FOR v_id IN SELECT x FROM unnest(COALESCE(p_ids, ARRAY[]::BIGINT[])) AS x ORDER BY x
   LOOP
     BEGIN
       -- Verify message exists and get metadata
@@ -807,7 +807,9 @@ DECLARE
   v_received_at TIMESTAMPTZ;
   v_size_bytes  BIGINT;
 BEGIN
-  FOREACH v_id IN ARRAY p_ids
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
+
+  FOR v_id IN SELECT x FROM unnest(COALESCE(p_ids, ARRAY[]::BIGINT[])) AS x ORDER BY x
   LOOP
     BEGIN
       SELECT received_at, size_bytes INTO v_received_at, v_size_bytes
@@ -884,7 +886,9 @@ DECLARE
   v_raw_ref    TEXT;
   v_shared     INT;
 BEGIN
-  FOREACH v_id IN ARRAY p_ids
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
+  FOR v_id IN SELECT x FROM unnest(COALESCE(p_ids, ARRAY[]::BIGINT[])) AS x ORDER BY x
   LOOP
     BEGIN
       SELECT received_at, raw_ref INTO v_received_at, v_raw_ref
@@ -952,8 +956,10 @@ BEGIN
     SELECT id, received_at, raw_ref, mailbox_id
     FROM messages
     WHERE is_deleted AND deleted_at < NOW() - INTERVAL '1 month'
+    ORDER BY mailbox_id, id
   LOOP
     BEGIN
+      PERFORM 1 FROM mailboxes WHERE id = v_row.mailbox_id FOR KEY SHARE;
       -- Deduplication check
       SELECT COUNT(*) INTO v_shared
       FROM messages
@@ -1033,6 +1039,8 @@ DECLARE
   v_vote_response TEXT;
   v_reply_to_arr JSONB;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
+
   FOR v_creation_id, v_obj IN SELECT * FROM jsonb_each(p_creates)
   LOOP
     BEGIN

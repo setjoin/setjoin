@@ -474,6 +474,6 @@ new hash in password history in the same transaction as guest activation.
 
 `device_trust` takes only a `VerifiedDevice`: `effective_policy` reads the
 `mdm_effective_policy` evaluator; `checkin` runs `rust_device_checkin` through
-`run_protocol_command` (scope `device:<id>`, receipt F21/device-checkin, empty
-user GUC as in Go); `EVENT_CAP` is the owner-approved 100-event bound;
-`Effective::version` is frozen Go's FNV-1a content hash (the ETag).
+`run_protocol_tx` (empty user/mailbox GUCs as in Go, explicit bounded COMMIT,
+zero `rust_operation_receipts` writes, #473); `EVENT_CAP` is the owner-approved
+100-event bound; `Effective::version` is frozen Go's FNV-1a content hash (the ETag).

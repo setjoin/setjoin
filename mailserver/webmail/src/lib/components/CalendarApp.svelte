@@ -24,7 +24,8 @@
 	} from '$lib/stores/calendar';
 	import { calendarEvents as eventsStore } from '$lib/stores/calendarEvents.svelte';
 	import { CalendarActionStore } from '$lib/stores/calendarActionStore.svelte';
-	import { PushHandlerStore } from '$lib/stores/pushHandler.svelte';
+	import { getWebmailSyncCoordinator } from '$lib/sync/webmail/runtime.svelte';
+	import { createJmapRefreshAdapter, PIM_DEBOUNCE_MS } from '$lib/sync/webmail/adapters/jmapOnline';
 	import { calendarSubscriptions, formatSyncedAgo } from '$lib/stores/calendarSubscriptions.svelte';
 	import { tasks as taskStore, loadTasks, priorityColor } from '$lib/stores/tasks';
 	import { parseError } from '$lib/errors';
@@ -234,7 +235,7 @@
 	let schedulingEndDate = $state('');
 
 	let mounted = $state(false);
-	const push = new PushHandlerStore();
+	let offCalendarSync: (() => void) | null = null;
 
 	onMount(async () => {
 		try {
@@ -246,17 +247,24 @@
 			} catch {
 				delegations = [];
 			}
-			push.register(['Calendar', 'CalendarEvent'], (changes) => {
-				const c = changes as Record<string, unknown>;
-				if (c && (c.Calendar || c.CalendarEvent)) {
-					refreshEvents();
-					// Re-fetch subscription status too — a webcal sync (async first
-					// fetch, or the worker's periodic tick) pushes on the same
-					// calendar channel; this is how "Updated Xh ago" / the failure
-					// dot settle without a manual reload (no per-subscription push).
-					calendarSubscriptions.load().catch(() => {});
-				}
-			});
+			// Wave 2.8 (#555): route Calendar wakeups, reconnect catch-up, and
+			// session fencing through SyncCoordinator (handles both canonical
+			// SyncWakeup frames and legacy StateChange pushes).
+			offCalendarSync = getWebmailSyncCoordinator('member').register(
+				createJmapRefreshAdapter({
+					consumerId: 'pim:calendar',
+					mailboxScopeId: 'primary',
+					dataTypes: ['Calendar', 'CalendarEvent'],
+					debounceMs: PIM_DEBOUNCE_MS,
+					refresh: async () => {
+						await refreshEvents();
+						// Re-fetch subscription status too — a webcal sync (async first
+						// fetch, or the worker's periodic tick) pushes on the same
+						// calendar channel.
+						calendarSubscriptions.load().catch(() => {});
+					},
+				}),
+			);
 		} catch (e) {
 			error = parseError(e).message;
 		} finally {
@@ -267,7 +275,8 @@
 	});
 
 	onDestroy(() => {
-		push.teardown();
+		offCalendarSync?.();
+		offCalendarSync = null;
 		// Drop any in-flight drag listeners if we unmount mid-gesture.
 		window.removeEventListener('pointermove', onDragMove);
 		window.removeEventListener('pointerup', onDragEnd);

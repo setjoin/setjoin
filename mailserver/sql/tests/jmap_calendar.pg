@@ -5,7 +5,7 @@
 -- both bump calendar jmap_state scoped by the account; coincident ids would mask the bug where
 -- that bump (or the destroy itself) was scoped by user_id instead of mailbox_id.
 BEGIN;
-SELECT plan(58);
+SELECT plan(64);
 
 INSERT INTO domains (name, is_local) VALUES ('cal2.test', TRUE), ('cal2-sister.test', TRUE);
 -- ADR-004: the owner carries a sister-domain alias + a UPN; a delegate naming the
@@ -547,6 +547,49 @@ SELECT is(
   (jmap_calendar_event_get(5301, ARRAY[59100]::BIGINT[])->'list'->0->>'isMeeting'),
   'false',
   'an {isMeeting:true} patch is a no-op — only meeting_create.sql may set it true'
+);
+
+-- ── #465: RRULE validation at create and update boundaries ───────────────────
+SELECT is(
+  (jmap_calendar_event_set_create(5301, 4301, 'owner@cal2.test',
+    '{"bad1":{"calendarId":"5301","title":"Hourly","start":"2026-09-01T09:00:00Z","end":"2026-09-01T10:00:00Z","recurrenceRule":"FREQ=HOURLY;COUNT=3"}}'::JSONB
+  )->'notCreated'->'bad1'->>'type'),
+  'invalidArguments',
+  'set_create rejects FREQ=HOURLY into notCreated with invalidArguments'
+);
+SELECT is(
+  (jmap_calendar_event_set_create(5301, 4301, 'owner@cal2.test',
+    '{"bad2":{"calendarId":"5301","title":"ByHour","start":"2026-09-01T09:00:00Z","end":"2026-09-01T10:00:00Z","recurrenceRule":"FREQ=DAILY;BYHOUR=9"}}'::JSONB
+  )->'notCreated'->'bad2'->>'type'),
+  'invalidArguments',
+  'set_create rejects BYHOUR into notCreated with invalidArguments'
+);
+SELECT ok(
+  (jmap_calendar_event_set_create(5301, 4301, 'owner@cal2.test',
+    '{"ok1":{"calendarId":"5301","title":"DateUntil","start":"2026-09-01T00:00:00Z","end":"2026-09-01T01:00:00Z","recurrenceRule":"FREQ=DAILY;UNTIL=20260905"}}'::JSONB
+  )->'created') ? 'ok1',
+  'set_create accepts valid DATE-form UNTIL RRULE'
+);
+SELECT is(
+  (jmap_calendar_event_set_update(5301,
+    jsonb_build_object(59100::TEXT, '{"recurrenceRule":"FREQ=MINUTELY;INTERVAL=15"}'::JSONB)
+  )->'notUpdated'->'59100'->>'type'),
+  'invalidArguments',
+  'set_update rejects FREQ=MINUTELY into notUpdated with invalidArguments'
+);
+SELECT is(
+  (jmap_calendar_event_set_update(5301,
+    jsonb_build_object(59100::TEXT, '{"recurrenceRule":"FREQ=YEARLY;BYEASTER=1"}'::JSONB)
+  )->'notUpdated'->'59100'->>'type'),
+  'invalidArguments',
+  'set_update rejects BYEASTER into notUpdated with invalidArguments'
+);
+SELECT is(
+  (jmap_calendar_event_set_update(5301,
+    jsonb_build_object(59100::TEXT, '{"recurrenceRule":"FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU;WKST=SU;COUNT=3"}'::JSONB)
+  )->'notUpdated'),
+  '{}'::JSONB,
+  'set_update accepts valid RRULE without error'
 );
 
 SELECT * FROM finish();

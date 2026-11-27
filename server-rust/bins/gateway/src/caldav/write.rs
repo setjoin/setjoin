@@ -81,6 +81,19 @@ pub(super) async fn put(
         Err(_) => return reply(400, String::new(), None, c.identity.proto, id),
     };
     let event = &objects[0];
+    if let Err(msg) = crate::ics::validate_rrule(&event.rrule) {
+        let escaped = super::xml::escape(&msg);
+        let body = format!(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<d:error xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><c:valid-calendar-data/><d:responsedescription>{escaped}</d:responsedescription></d:error>"
+        );
+        return reply(
+            400,
+            body,
+            Some("application/xml; charset=utf-8"),
+            c.identity.proto,
+            id,
+        );
+    }
     if event.uid != uid {
         return reply(403, String::new(), None, c.identity.proto, id);
     }

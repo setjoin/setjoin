@@ -9,6 +9,7 @@ CREATE OR REPLACE FUNCTION scim_remove_group_members(
 DECLARE
   v_group_id BIGINT;
 BEGIN
+  PERFORM admin_authority_fence();
   PERFORM 1 FROM identity_sources
    WHERE id=p_source_id
      AND kind='scim'

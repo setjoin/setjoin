@@ -7,7 +7,7 @@ Date: 2026-08-01
 > forward-only signed build lineage: Community receives current builds first and
 > Enterprise receives the same lineage after additional evidence and soak. Ordinary
 > changes are not maintained on an Enterprise LTS fork. The current authority is
-> `docs/designs/release-maturity-and-first-ga-boundary.md`.
+> `docs/design/release-maturity-and-first-ga-boundary.md`.
 
 ## Question
 

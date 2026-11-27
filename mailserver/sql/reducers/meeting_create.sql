@@ -21,12 +21,14 @@ CREATE OR REPLACE FUNCTION meeting_create(
     p_guest_allowed boolean DEFAULT false
 ) RETURNS jsonb AS $$
 DECLARE
-    v_title      text;
-    v_meeting_id bigint;
-    v_room_name  uuid;
-    v_slug       text;
-    v_channel_id bigint;
-    v_member     record;
+    v_title          text;
+    v_meeting_id     bigint;
+    v_room_name      uuid;
+    v_slug           text;
+    v_channel_id     bigint;
+    v_member         record;
+    v_cal_id         bigint;
+    v_cal_mailbox_id bigint;
 BEGIN
     -- Guest G3: meeting creation is a dedicated profile authority. A creator
     -- is necessarily host of the meeting; allow_meet_host separately governs
@@ -50,15 +52,31 @@ BEGIN
         RAISE EXCEPTION 'scheduled_end must be after scheduled_start'
             USING ERRCODE='BZ188', HINT='{"type":"invalidArguments","detail":"end must be after start"}';
     END IF;
-    -- calendar-event ownership: verified here (read) AND re-verified in the
-    -- stamping UPDATE below (mutation) — R3, no TOCTOU between the two.
-    IF p_calendar_event_id IS NOT NULL AND NOT EXISTS (
-         SELECT 1 FROM calendar_events e
-           JOIN calendars c ON c.id = e.calendar_id
-           JOIN mailboxes m ON m.id = c.mailbox_id
-          WHERE e.id = p_calendar_event_id AND m.user_id = p_user_id) THEN
-        RAISE EXCEPTION 'calendar event not found or not owned by caller'
-            USING ERRCODE='BZ188', HINT='{"type":"invalidArguments","detail":"calendar event not owned"}';
+    -- Canonical lock order: users -> mailboxes -> calendars -> calendar_events.
+    PERFORM 1 FROM users WHERE id = p_user_id FOR KEY SHARE;
+
+    -- calendar-event ownership: resolve then lock in canonical order (R3, no TOCTOU).
+    IF p_calendar_event_id IS NOT NULL THEN
+        SELECT c.id, m.id INTO v_cal_id, v_cal_mailbox_id
+          FROM calendar_events e
+          JOIN calendars c ON c.id = e.calendar_id
+          JOIN mailboxes m ON m.id = c.mailbox_id
+         WHERE e.id = p_calendar_event_id AND m.user_id = p_user_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'calendar event not found or not owned by caller'
+                USING ERRCODE='BZ188', HINT='{"type":"invalidArguments","detail":"calendar event not owned"}';
+        END IF;
+        PERFORM 1 FROM mailboxes WHERE id = v_cal_mailbox_id AND user_id = p_user_id FOR KEY SHARE;
+        IF FOUND THEN
+            PERFORM 1 FROM calendars WHERE id = v_cal_id AND mailbox_id = v_cal_mailbox_id FOR SHARE;
+        END IF;
+        IF FOUND THEN
+            PERFORM 1 FROM calendar_events WHERE id = p_calendar_event_id AND calendar_id = v_cal_id FOR NO KEY UPDATE;
+        END IF;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'calendar event not found or not owned by caller'
+                USING ERRCODE='BZ188', HINT='{"type":"invalidArguments","detail":"calendar event not owned"}';
+        END IF;
     END IF;
     -- huddle launch: caller must already belong to the channel being bound
     -- (BZ186) — a huddle is "start a call in a channel I'm in", not an

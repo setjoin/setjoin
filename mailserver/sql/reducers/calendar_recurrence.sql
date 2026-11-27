@@ -43,14 +43,17 @@ DECLARE
   v_new_uid     TEXT;
   v_attendees   JSONB;
   v_invite_payload JSONB;
+  v_rrule_err   TEXT;
 BEGIN
   IF p_scope NOT IN ('this', 'following', 'series') THEN
     RETURN jsonb_build_object('type', 'invalidArguments',
       'description', 'scope must be this, following, or series');
   END IF;
 
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
   -- Ownership: master must belong to this account's calendar.
-  SELECT ce.*, c.mailbox_id AS cal_mailbox_id INTO v_master
+  SELECT ce.calendar_id INTO v_calendar_id
   FROM calendar_events ce
   JOIN calendars c ON c.id = ce.calendar_id
   WHERE ce.id = p_master_id
@@ -63,7 +66,32 @@ BEGIN
             HINT = '{"type":"forbidden","master_id":"' || p_master_id || '"}';
   END IF;
 
-  v_calendar_id := v_master.calendar_id;
+  PERFORM 1 FROM calendars WHERE id = v_calendar_id AND mailbox_id = p_mailbox_id FOR NO KEY UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Recurring master event not found in this account'
+      USING ERRCODE = 'BZ001',
+            HINT = '{"type":"forbidden","master_id":"' || p_master_id || '"}';
+  END IF;
+
+  SELECT ce.*, p_mailbox_id AS cal_mailbox_id INTO v_master
+  FROM calendar_events ce
+  WHERE ce.id = p_master_id
+    AND ce.calendar_id = v_calendar_id
+    AND ce.recurrence_override IS NULL
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Recurring master event not found in this account'
+      USING ERRCODE = 'BZ001',
+            HINT = '{"type":"forbidden","master_id":"' || p_master_id || '"}';
+  END IF;
+
+  PERFORM 1 FROM calendar_events
+  WHERE calendar_id = v_calendar_id
+    AND uid = v_master.uid
+    AND id <> p_master_id
+  ORDER BY id FOR UPDATE;
+
   v_excluded := COALESCE((p_patch->>'excluded')::BOOLEAN, FALSE);
 
   -- BZ123: reject a recurrence id that is not a real occurrence of this series —
@@ -277,6 +305,13 @@ BEGIN
       v_new_id := p_master_id;
       v_event_name := 'event_destroyed';
     ELSE
+      IF p_patch ? 'recurrenceRule' THEN
+        v_rrule_err := validate_rrule(p_patch->>'recurrenceRule');
+        IF v_rrule_err IS NOT NULL THEN
+          RETURN jsonb_build_object('type', 'invalidArguments', 'description', v_rrule_err);
+        END IF;
+      END IF;
+
       UPDATE calendar_events ce SET
         title       = COALESCE(p_patch->>'title', ce.title),
         description = COALESCE(p_patch->>'description', ce.description),

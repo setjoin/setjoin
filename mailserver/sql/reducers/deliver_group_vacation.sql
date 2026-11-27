@@ -107,7 +107,7 @@ BEGIN
 
   IF v_group_id IS NOT NULL THEN
     FOR v_member IN
-      SELECT m.mailbox_id AS id FROM expand_group(v_group_id) m
+      SELECT m.mailbox_id AS id FROM expand_group(v_group_id) m ORDER BY m.mailbox_id
     LOOP
       -- Per-member subtransaction: one member's over-quota (BZ001) / no-mailbox (BZ007)
       -- must NOT roll back delivery to the whole list (a 300-10,000-user static list
@@ -144,6 +144,9 @@ BEGIN
     END LOOP;
     RETURN NULL; -- group itself doesn't get a message row
   END IF;
+
+  -- Canonical lock order: mailboxes FOR UPDATE before check_quota()/tags/messages/journal.
+  PERFORM 1 FROM mailboxes WHERE id = v_mailbox.id FOR UPDATE;
 
   -- 2. Quota check (advisory early-exit; atomic enforcement at step 7b)
   IF NOT check_quota(v_mailbox.id, p_size_bytes) THEN

@@ -524,6 +524,10 @@ export class FolderMirror implements MirrorContentStore {
 		await fsp.rm(abs, { force: true });
 	}
 
+	private isBusyErrno(code: string | undefined): boolean {
+		return code === 'EBUSY' || code === 'EPERM' || code === 'EACCES' || code === 'EAGAIN';
+	}
+
 	/** ACL revocation is deliberately different from an ordinary remote
 	 *  delete: dirty or pending bytes move under the watcher-ignored
 	 *  `.setjoin-quarantine` directory and are never uploaded. Clean bytes are
@@ -538,7 +542,13 @@ export class FolderMirror implements MirrorContentStore {
 			dirty ||= mirror.diskSha256 == null || fresh.contentSha256 !== mirror.diskSha256;
 		} catch (err) {
 			if (err instanceof UnsafeMirrorPathError) throw err;
-			return 'absent';
+			const code = (err as NodeJS.ErrnoException).code;
+			if (code === 'ENOENT') return 'absent';
+			if (this.isBusyErrno(code)) {
+				await this.recordIssue('revocation-busy', mirror.relPath, 'close the file so revoked local content can be removed');
+				return 'busy';
+			}
+			throw err;
 		}
 		return this.revokeRelPath(mirror.relPath, dirty);
 	}
@@ -551,8 +561,14 @@ export class FolderMirror implements MirrorContentStore {
 		const abs = this.absPath(relPath);
 		try {
 			await fsp.lstat(abs);
-		} catch {
-			return 'absent';
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code;
+			if (code === 'ENOENT') return 'absent';
+			if (this.isBusyErrno(code)) {
+				await this.recordIssue('revocation-busy', relPath, 'close the file so revoked local content can be removed');
+				return 'busy';
+			}
+			throw err;
 		}
 		try {
 			if (!quarantine) {
@@ -573,7 +589,8 @@ export class FolderMirror implements MirrorContentStore {
 			return 'quarantined';
 		} catch (err) {
 			const code = (err as NodeJS.ErrnoException).code;
-			if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES') {
+			if (code === 'ENOENT') return 'absent';
+			if (this.isBusyErrno(code)) {
 				await this.recordIssue('revocation-busy', relPath, 'close the file so revoked local content can be removed');
 				return 'busy';
 			}

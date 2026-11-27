@@ -8,6 +8,7 @@ fn enabled_inbound_receipt_pins_frozen_go_and_every_recorded_corpus() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
     let receipt: Value =
         serde_json::from_str(include_str!("../oracle/security-recording.json")).unwrap();
+    let mut verified_pins = 0usize;
     for files in std::iter::once(&receipt["go_runtime_sha256"]).chain(
         receipt["corpora"]
             .as_array()
@@ -16,6 +17,11 @@ fn enabled_inbound_receipt_pins_frozen_go_and_every_recorded_corpus() {
             .map(|c| &c["sha256"]),
     ) {
         for (file, digest) in files.as_object().unwrap() {
+            // Go sources were deleted in #142 (ARCH-031); immutable recorded
+            // JSON stimuli/goldens remain pinned on disk.
+            if file.ends_with(".go") {
+                continue;
+            }
             assert_eq!(
                 format!(
                     "{:x}",
@@ -24,8 +30,13 @@ fn enabled_inbound_receipt_pins_frozen_go_and_every_recorded_corpus() {
                 digest.as_str().unwrap(),
                 "recorded input changed: {file}"
             );
+            verified_pins += 1;
         }
     }
+    assert!(
+        verified_pins > 0,
+        "expected non-Go recorded oracle pins to be verified"
+    );
     for c in receipt["corpora"].as_array().unwrap() {
         let path = root.join(format!(
             "server-rust/crates/protocols/smtp/oracle/{}",
@@ -73,7 +84,13 @@ fn auth_recording_pins_match_the_files_on_disk() {
         serde_json::from_str(include_str!("../oracle/auth-recording.json")).unwrap();
     let pins = receipt["sha256"].as_object().unwrap();
     assert!(pins.contains_key("server-rust/crates/protocols/smtp/oracle/dkim-go.json"));
+    let mut verified_pins = 0usize;
     for (file, digest) in pins {
+        // Go sources were deleted in #142 (ARCH-031); immutable recorded
+        // JSON oracle files remain pinned on disk.
+        if file.ends_with(".go") {
+            continue;
+        }
         assert_eq!(
             format!(
                 "{:x}",
@@ -82,5 +99,10 @@ fn auth_recording_pins_match_the_files_on_disk() {
             digest.as_str().unwrap(),
             "auth-recording.json pin is stale: {file}"
         );
+        verified_pins += 1;
     }
+    assert!(
+        verified_pins > 0,
+        "expected non-Go auth-recording oracle pins to be verified"
+    );
 }

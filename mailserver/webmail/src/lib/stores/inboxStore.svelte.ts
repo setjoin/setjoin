@@ -238,11 +238,24 @@ export class InboxStore {
 	}
 
 	// ── JMAP data flow ──
-	async loadEmails(reset = true): Promise<void> {
+	async loadEmails(
+		reset = true,
+		syncExec?: { signal?: AbortSignal; fence?: { assertCommitAllowed(): void } },
+	): Promise<void> {
+		syncExec?.fence?.assertCommitAllowed();
 		const gen = ++this.#loadGen;
 		this.#abortController?.abort();
-		this.#abortController = new AbortController();
-		const signal = this.#abortController.signal;
+		const controller = new AbortController();
+		this.#abortController = controller;
+		const signal = controller.signal;
+		const onExternalAbort = () => controller.abort();
+		if (syncExec?.signal) {
+			if (syncExec.signal.aborted) {
+				controller.abort();
+				return;
+			}
+			syncExec.signal.addEventListener('abort', onExternalAbort, { once: true });
+		}
 		this.error = '';
 		if (reset) {
 			this.loading = true;
@@ -343,6 +356,7 @@ export class InboxStore {
 				);
 				if (result.ids.length > 0) {
 					const got = await emailGetWithState(result.ids, undefined, signal, this.accountOverride);
+					syncExec?.fence?.assertCommitAllowed();
 					// The state token is per account: only the primary account's anchors
 					// the push/reconnect resync (shared context is manual-refresh-only).
 					// A load-more page leaves the anchor at the first page's state.
@@ -367,14 +381,17 @@ export class InboxStore {
 							// leave `fetched` as-is; MailRow renders the plain preview
 						}
 					}
+					syncExec?.fence?.assertCommitAllowed();
 					this.emails = reset ? fetched : [...this.emails, ...fetched];
 				} else if (reset) {
+					syncExec?.fence?.assertCommitAllowed();
 					this.emails = [];
 					// #225: no Email/get ran, so no state describes this (empty) list.
 					this.#emailState = null;
 				}
 				if (mailboxStateRead) {
 					const mb = await mailboxStateRead;
+					syncExec?.fence?.assertCommitAllowed();
 					if (gen === this.#loadGen) this.#mailboxState = mb;
 				}
 				// The reducer echoes the REQUESTED offset (RFC 8620 'position'), so on a
@@ -386,10 +403,11 @@ export class InboxStore {
 				this.totalEmails = result.total ?? 0;
 				this.hasMore = this.currentPosition < this.totalEmails;
 			}
+			syncExec?.fence?.assertCommitAllowed();
 			this.buildThreads();
 		} catch (e) {
-			if ((e as Error).name === 'AbortError') {
-				// swallow — a newer load superseded this one
+			if ((e as Error).name === 'AbortError' || (e as Error).name === 'SyncFenceAbortedError') {
+				// swallow — a newer load or revocation fence superseded this one
 			} else if (this.accountOverride) {
 				// Shared-mailbox context: a denied call (accountNotFound/forbidden —
 				// grant revoked mid-session, or never granted) renders the full-pane
@@ -399,6 +417,9 @@ export class InboxStore {
 				throw e;
 			}
 		} finally {
+			if (syncExec?.signal) {
+				syncExec.signal.removeEventListener('abort', onExternalAbort);
+			}
 			this.loading = false;
 			this.loadingMore = false;
 		}
@@ -576,9 +597,59 @@ export class InboxStore {
 		);
 	}
 
-	async #pushReload(): Promise<void> {
-		await this.loadEmails();
+	async #pushReload(
+		syncExec?: { signal?: AbortSignal; fence?: { assertCommitAllowed(): void } },
+	): Promise<void> {
+		await this.loadEmails(true, syncExec);
+		syncExec?.fence?.assertCommitAllowed();
 		this.onAfterPushReload?.();
+	}
+
+	/**
+	 * SyncCoordinator wakeup entry point (#555): preserves `#reflects` + `#loadGen`
+	 * stale-load fencing and shared-mailbox isolation.
+	 */
+	async handleSyncWakeup(
+		changes?: PushChanges,
+		syncExec?: { signal?: AbortSignal; fence?: { assertCommitAllowed(): void } },
+	): Promise<void> {
+		if (this.accountOverride) return;
+		if (changes && this.#reflects(changes)) return;
+		await this.#pushReload(syncExec);
+	}
+
+	/** SyncCoordinator reconnect entry point (#555). */
+	async resyncFromReconnect(
+		syncExec?: { signal?: AbortSignal; fence?: { assertCommitAllowed(): void } },
+	): Promise<void> {
+		await this.#resyncAfterReconnect(syncExec);
+	}
+
+	/**
+	 * Shared-mailbox `scope_revoked` eviction (#555): evicts ONLY InboxStore
+	 * in-memory state and sets `accessRevoked = true` — NEVER touches native
+	 * SQLCipher `db.wipe('mail')` because shared mailboxes are online-only.
+	 */
+	revokeSharedMailbox(mailboxId?: string): void {
+		if (mailboxId !== undefined && this.accountOverride !== mailboxId) return;
+		this.#loadGen += 1;
+		this.#abortController?.abort();
+		this.#abortController = null;
+		this.#emailState = null;
+		this.#mailboxState = null;
+		this.emails = [];
+		this.threads = new Map();
+		this.selectedEmail = null;
+		this.threadEmails = [];
+		this.mailboxes = [];
+		this.scheduledMap = {};
+		this.bundles = [];
+		this.totalEmails = 0;
+		this.currentPosition = 0;
+		this.hasMore = false;
+		this.loading = false;
+		this.loadingMore = false;
+		this.accessRevoked = true;
 	}
 
 	/**
@@ -592,20 +663,23 @@ export class InboxStore {
 	 * re-read alongside, so a Mailbox-only change made while disconnected (or an
 	 * unknown Mailbox anchor) also reloads.
 	 */
-	async #resyncAfterReconnect(): Promise<void> {
+	async #resyncAfterReconnect(
+		syncExec?: { signal?: AbortSignal; fence?: { assertCommitAllowed(): void } },
+	): Promise<void> {
 		if (this.accountOverride) return;
+		syncExec?.fence?.assertCommitAllowed();
 		const since = this.#emailState;
 		const mailboxSince = this.#mailboxState;
 		const gen = this.#loadGen;
 		if (since === null) {
 			// No anchor to diff from is the client-side cannotCalculateChanges.
-			await this.#pushReload();
+			await this.#pushReload(syncExec);
 			return;
 		}
-		const mailboxNow = this.#readMailboxState();
+		const mailboxNow = this.#readMailboxState(syncExec?.signal);
 		let changed: boolean;
 		try {
-			const r = await emailChanges(since, RESYNC_MAX_CHANGES);
+			const r = await emailChanges(since, RESYNC_MAX_CHANGES, syncExec?.signal);
 			changed =
 				r.newState !== since ||
 				r.hasMoreChanges ||
@@ -618,10 +692,11 @@ export class InboxStore {
 			changed = true;
 		}
 		const mb = await mailboxNow;
+		syncExec?.fence?.assertCommitAllowed();
 		if (mailboxSince === null || mb === null || mb !== mailboxSince) changed = true;
 		// A load that started meanwhile (push, navigation) already re-read the list.
 		if (!changed || gen !== this.#loadGen || this.accountOverride) return;
-		await this.#pushReload();
+		await this.#pushReload(syncExec);
 	}
 
 	/** Tear down the push subscription + any pending debounce (onDestroy). */
