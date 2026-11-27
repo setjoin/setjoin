@@ -2538,3 +2538,29 @@ write-capture trigger `search_index_outbox_trg_fn()` attached to `messages`
 Zero `blobs` columns and zero `feature_toggles` rows are added. Proof:
 `tests/V291__search_extraction.pg`, `crates/search/tests/extraction_indexing_db.rs`,
 and `bins/gateway/tests/search_worker_db.rs`.
+
+## eDiscovery provenance, lawful purge eviction & HA search leader (`V292__search_ediscovery_purge_and_ha_leader.sql`, #558)
+
+`V292__search_ediscovery_purge_and_ha_leader.sql` adds the strictly additive
+`ediscovery_searches.search_provenance jsonb` column and the worker-only
+`system_only` table `public.search_leader_leases` (`ENABLE`+`FORCE ROW LEVEL SECURITY`,
+zero policies, `OWNER TO setjoin_owner`, grants strictly to `setjoin_worker`,
+restated in `scripts/provision-roles.sql`). Worker-only `SECURITY INVOKER` helpers
+(`reducers/search_ha_leader.sql`, embedded verbatim in `V292`) enforce `BZ003`
+(`rolbypassrls OR rolsuper`): `search_leader_try_acquire` (`FOR UPDATE SKIP LOCKED`
+on `'search_writer'` with strictly monotonic `fencing_token` including same-node
+expired re-acquisition), `search_leader_heartbeat`, `search_leader_release`
+(immediate release preserving `fencing_token` monotonicity), `search_leader_current`,
+`search_fenced_settle_batch` (atomic `FOR UPDATE` lease check + outbox settlement +
+contiguous watermark advance in one transaction), `search_purge_enqueue`,
+`search_ediscovery_complete_atomic`, and `search_ediscovery_complete_kql_atomic`
+(single-transaction eDiscovery results + provenance + core `audit_write`), plus
+`IMMUTABLE` `search_chat_revision_doc_id(bigint)` and worker-owned `SECURITY DEFINER`
+`search_purge_evict_trg_fn()` attached to hard `DELETE`s on `messages`,
+`message_attachments` (evicting both the attachment and its surviving parent Mail
+for clean re-index), `chat_messages` (incl. revisions), `drive_nodes`,
+`drive_file_versions`, and `scheduled_actions` (inert while
+`search_index_watermarks` is empty). Zero `blobs` columns and zero
+`feature_toggles` rows are added. Proof: `tests/V292__search_ediscovery_purge_ha.pg`,
+`crates/search/tests/reauth_ediscovery_ha_db.rs`,
+`bins/mailctl/tests/search_cli_db.rs`, and `bins/gateway/tests/search_worker_db.rs`.

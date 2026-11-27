@@ -211,6 +211,18 @@ async fn search(
         Err(r) => return r,
     };
     let q = query(r, "q").unwrap_or_default();
+    if let Some(facade) = r
+        .extensions()
+        .get::<Arc<crate::search_facade::GatewaySearchFacade>>()
+    {
+        if let Some(v) = facade.try_drive_search(actor, space, &q, max).await {
+            return crate::jmap::reply::response(
+                json!({"items":v}).to_string() + "\n",
+                c.identity.proto,
+                id,
+            );
+        }
+    }
     match setjoin_drive::part_b::search(exec, actor, space, &q, max).await {
         Ok(v) => crate::jmap::reply::response(
             json!({"items":v}).to_string() + "\n",

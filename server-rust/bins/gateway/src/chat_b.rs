@@ -546,9 +546,27 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
                     channel: filters[0],
                     author: filters[1],
                     before: filters[2],
-                    has,
+                    has: has.clone(),
                     han: query.chars().any(han::contains),
                 };
+                if let Some(facade) = r
+                    .extensions()
+                    .get::<Arc<crate::search_facade::GatewaySearchFacade>>()
+                {
+                    if let Some(value) = facade
+                        .try_chat_search(
+                            auth.context(),
+                            &query,
+                            filters[0],
+                            filters[1],
+                            filters[2],
+                            has.as_deref(),
+                        )
+                        .await
+                    {
+                        return read_reply(&value, instance.as_str(), &c, id);
+                    }
+                }
                 return match setjoin_chat::members::search(&exec, auth.context(), search).await {
                     Ok(value) => read_reply(&value, instance.as_str(), &c, id),
                     Err(ref error) => failure(error, path, &c, id),

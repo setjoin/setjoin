@@ -62,6 +62,16 @@ pub struct SearchConfig {
     pub zh_dict_path: Option<PathBuf>,
     /// Secret key for HMAC-SHA256 binding of opaque continuation cursors.
     pub cursor_secret: Vec<u8>,
+    /// Shared secret for HMAC-SHA256 authentication of internal HA search RPC
+    /// (`SETJOIN_SEARCH_RPC_SECRET`). Empty = fail closed (403/503).
+    pub rpc_secret: Vec<u8>,
+    /// Optional explicit HA search leader base URL override (`SETJOIN_SEARCH_LEADER_URL`).
+    pub leader_url_override: Option<String>,
+    /// Advertised internal HTTP base URL of this node when acting as HA search leader
+    /// (`SETJOIN_SEARCH_NODE_RPC_URL`).
+    pub node_rpc_url: Option<String>,
+    /// HA leader lease TTL in seconds (`SETJOIN_SEARCH_LEADER_LEASE_SECS`, clamped `[5, 300]`, default `30`).
+    pub leader_lease_secs: i32,
 }
 
 impl Default for SearchConfig {
@@ -77,6 +87,10 @@ impl Default for SearchConfig {
             cursor_secret: generate_cursor_secret()
                 .map(|k| k.to_vec())
                 .unwrap_or_default(),
+            rpc_secret: Vec::new(),
+            leader_url_override: None,
+            node_rpc_url: None,
+            leader_lease_secs: 30,
         }
     }
 }
@@ -143,6 +157,24 @@ impl SearchConfig {
                     .unwrap_or_default()
             });
 
+        let rpc_secret = get("SETJOIN_SEARCH_RPC_SECRET")
+            .filter(|s| !s.is_empty())
+            .map(|s| s.into_bytes())
+            .unwrap_or_default();
+
+        let leader_url_override = get("SETJOIN_SEARCH_LEADER_URL")
+            .map(|s| s.trim().trim_end_matches('/').to_owned())
+            .filter(|s| !s.is_empty());
+
+        let node_rpc_url = get("SETJOIN_SEARCH_NODE_RPC_URL")
+            .map(|s| s.trim().trim_end_matches('/').to_owned())
+            .filter(|s| !s.is_empty());
+
+        let leader_lease_secs = get("SETJOIN_SEARCH_LEADER_LEASE_SECS")
+            .and_then(|s| s.trim().parse::<i32>().ok())
+            .map(|n| n.clamp(5, 300))
+            .unwrap_or(30);
+
         Self {
             tier2_enabled,
             index_dir,
@@ -151,6 +183,10 @@ impl SearchConfig {
             query_timeout,
             zh_dict_path,
             cursor_secret,
+            rpc_secret,
+            leader_url_override,
+            node_rpc_url,
+            leader_lease_secs,
         }
     }
 

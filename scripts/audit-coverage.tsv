@@ -1216,6 +1216,16 @@ search_extraction.sql	search_outbox_enqueue	EXEMPT	-	background search indexing 
 search_extraction.sql	search_outbox_mark_processed	EXEMPT	-	background search outbox processed-at settlement; operational indexing transport
 search_extraction.sql	search_scheduled_action_doc_id	READ_ONLY	-	pure IMMUTABLE deterministic negative doc-id hash helper (guard re-derives no DML)
 search_extraction.sql	search_watermark_advance	EXEMPT	-	background monotonic search index watermark advance; operational indexing transport
+search_ha_leader.sql	search_chat_revision_doc_id	READ_ONLY	-	pure IMMUTABLE deterministic negative doc-id hash helper (guard re-derives no DML)
+search_ha_leader.sql	search_ediscovery_complete_atomic	MUST	core	commits eDiscovery search results, provenance, and core admin_audit_log atomically via audit_write
+search_ha_leader.sql	search_ediscovery_complete_kql_atomic	MUST	core	commits KQL eDiscovery search results, provenance, and core admin_audit_log atomically via audit_write
+search_ha_leader.sql	search_fenced_settle_batch	EXEMPT	-	fenced HA single-writer atomic outbox settlement and watermark advance; operational indexing transport
+search_ha_leader.sql	search_leader_current	READ_ONLY	-	pure read path returning active HA search leader lease (guard re-derives no DML)
+search_ha_leader.sql	search_leader_heartbeat	EXEMPT	-	fenced HA single-writer search leader lease heartbeat; operational transport
+search_ha_leader.sql	search_leader_release	EXEMPT	-	fenced graceful shutdown HA search leader lease release; operational transport
+search_ha_leader.sql	search_leader_try_acquire	EXEMPT	-	SKIP LOCKED HA single-writer search leader lease acquisition; operational transport
+search_ha_leader.sql	search_purge_enqueue	EXEMPT	-	background lawful-purge physical eviction WorkQueue enqueue; operational transport
+search_ha_leader.sql	search_purge_evict_trg_fn	EXEMPT	-	background lawful-purge physical eviction trigger gated on active search_index_watermarks; operational transport
 worker_schedules.sql	worker_schedule_claim	EXEMPT	-	SKIP LOCKED periodic schedule lease acquisition; operational transport
 worker_schedules.sql	worker_schedule_complete	EXEMPT	-	fenced periodic schedule completion and next_due_at advance; operational transport
 worker_schedules.sql	worker_schedule_heartbeat	EXEMPT	-	fenced periodic schedule lease heartbeat; operational transport

@@ -110,6 +110,7 @@ pub struct JmapServices {
     pub max_upload: i64,
     pub decrypt_limiter: Option<Arc<limit::Limiter>>,
     pub encrypt_algorithm: setjoin_smtp::smime::EncryptAlgorithm,
+    pub search_facade: Option<Arc<crate::search_facade::GatewaySearchFacade>>,
 }
 impl JmapServices {
     pub fn new(worker: ScopedExecutor, hostname: String, max_upload: i64) -> Self {
@@ -125,7 +126,15 @@ impl JmapServices {
             quota: 0,
             decrypt_limiter: Some(Arc::new(limit::Limiter::new(120, 60))),
             encrypt_algorithm: setjoin_smtp::smime::EncryptAlgorithm::from_env(),
+            search_facade: None,
         }
+    }
+    pub fn with_search_facade(
+        mut self,
+        facade: Arc<crate::search_facade::GatewaySearchFacade>,
+    ) -> Self {
+        self.search_facade = Some(facade);
+        self
     }
     pub fn from_env(worker: ScopedExecutor) -> Self {
         let mut services = Self::new(
@@ -678,10 +687,9 @@ impl<K: KeySource> JmapCommands<K> {
                 primary_mailbox_id,
                 REQUEST_AUTHORITY_GENERATION,
             ),
-            Err(_) => MailboxAuthContext::from_authenticated_user(
-                actor_id,
-                REQUEST_AUTHORITY_GENERATION,
-            ),
+            Err(_) => {
+                MailboxAuthContext::from_authenticated_user(actor_id, REQUEST_AUTHORITY_GENERATION)
+            }
         };
         let digest_bytes: [u8; 32] = Sha256::digest(raw_args.as_bytes()).into();
         let digest = Digest(digest_bytes);
@@ -1315,6 +1323,24 @@ impl<K: KeySource> JmapCommands<K> {
                         reply::jmap_error_json("serverFail", 500, "database error"),
                     );
                 };
+                if let Some(facade) = self
+                    .services
+                    .as_deref()
+                    .and_then(|s| s.search_facade.as_ref())
+                {
+                    if let Some(raw) = facade
+                        .try_mail_query(
+                            &resolved.auth,
+                            filter.as_deref(),
+                            sort.as_deref(),
+                            position,
+                            limit,
+                        )
+                        .await
+                    {
+                        return ("Email/query".into(), raw);
+                    }
+                }
                 return match query_email(
                     &self.exec,
                     &resolved.auth,

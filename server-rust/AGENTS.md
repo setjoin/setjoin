@@ -174,4 +174,4 @@ Shared Go UUID identifiers (#455): [contracts](crates/contracts/DOX.md#go-uuid-i
 
 - `crates/calendar-format` — shared Go calendar parser; [contract](crates/calendar-format/DOX.md).
 - `crates/workqueue` (#548/#549) — WorkQueue, `worker_schedules`, DLQ (`operator`), family-isolated `worker`; `WorkerSupervisor` in `bins/gateway/src/supervisor/`.
-- `crates/search` (`setjoin-search`, #556/#557) — foundation two-tier search, pure-MIT `tantivy` + content extraction/indexing pipeline; [contract](crates/search/DOX.md).
+- `crates/search` (`setjoin-search`, #556/#557/#558) — foundation two-tier search, pure-MIT `tantivy` + extraction/indexing + PG re-auth/eDiscovery/purge compaction/HA RPC; [contract](crates/search/DOX.md).

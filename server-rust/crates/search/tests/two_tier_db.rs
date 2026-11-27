@@ -781,11 +781,11 @@ async fn live_db_two_tier_security_isolation_xinchuang_and_pg_dump_exclusion() {
         let ids: Vec<i64> = auth_default.iter().map(|h| h.id).collect();
         assert_eq!(
             ids,
-            vec![msg_a_live, msg_a_live, msg_a_held_live, msg_a_smime],
-            "PG re-auth under setjoin_app MUST block Tenant B poison, bogus sub_id, deleted, and held-deleted rows"
+            vec![msg_a_live, msg_a_held_live, msg_a_smime],
+            "PG re-auth under setjoin_app MUST deduplicate Mail+MailAttachment and block Tenant B poison, bogus sub_id, deleted, and held-deleted rows"
         );
         assert!(
-            auth_default[3].crypto_sealed,
+            auth_default[2].crypto_sealed,
             "smime row must report crypto_sealed=true"
         );
 
@@ -800,7 +800,7 @@ async fn live_db_two_tier_security_isolation_xinchuang_and_pg_dump_exclusion() {
         .await
         .expect("reauth exclude_held");
         let no_held_ids: Vec<i64> = auth_no_held.iter().map(|h| h.id).collect();
-        assert_eq!(no_held_ids, vec![msg_a_live, msg_a_live, msg_a_smime]);
+        assert_eq!(no_held_ids, vec![msg_a_live, msg_a_smime]);
         tx.finish().await.expect("finish");
     }
 
@@ -1092,9 +1092,11 @@ async fn live_db_two_tier_security_isolation_xinchuang_and_pg_dump_exclusion() {
         !dump_text.trim().is_empty(),
         "pg_dump output must be non-empty"
     );
+    let dump_without_provenance_enum = dump_text.replace("tier2_tantivy_plus_pg_tail", "");
     assert!(
         !dump_text.contains("index-v000001")
-            && !dump_text.contains("tantivy")
+            && !dump_text.contains(".managed.json")
+            && !dump_without_provenance_enum.contains("tantivy")
             && !dump_text.contains(&index_dir.path().display().to_string()),
         "pg_dump must contain zero Tantivy index artifacts or paths"
     );

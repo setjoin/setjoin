@@ -491,9 +491,10 @@ pub async fn run_with_options(
     } else {
         setjoin_search::PgSearchCapabilities::default()
     };
-    let search_runtime = Arc::new(setjoin_search::SearchRuntime::from_env(search_caps));
-    if search_runtime.config().tier2_enabled {
-        let health = search_runtime.health();
+    let mut search_runtime_raw = setjoin_search::SearchRuntime::from_env(search_caps);
+    let tier2_search_enabled = search_runtime_raw.config().tier2_enabled;
+    if tier2_search_enabled {
+        let health = search_runtime_raw.health();
         if !health.is_healthy() {
             eprintln!(
                 "setjoin-gateway: Tier-2 search enabled but degraded ({health:?}); falling back to Tier-1 PostgreSQL baseline"
@@ -506,7 +507,7 @@ pub async fn run_with_options(
             || work_queue.is_some()
             || promote_store.is_some()
             || push_drain.is_some()
-            || search_runtime.config().tier2_enabled
+            || tier2_search_enabled
             || admin_jobs
                 .as_ref()
                 .is_some_and(|a| a.bulk.is_some() || a.eap.is_some()));
@@ -535,6 +536,148 @@ pub async fn run_with_options(
             Some(crate::supervisor::WorkerSupervisor::boot(sup_cfg).await?)
         } else {
             None
+        }
+    } else {
+        None
+    };
+
+    // Wave 3.3 (#558): attach RemoteSearchEngine & WorkQueue on BOTH worker-bearing
+    // and stateless HTTP-only follower nodes (`subsystems.http && !subsystems.workers`)
+    // when Tier-2 search is enabled.
+    let follower_worker_pool: Option<setjoin_pg::WorkerPool> = if tier2_search_enabled
+        && supervisor.is_none()
+        && subsystems.http
+    {
+        let fallback_dsn = std::env::var("DB_WORKER_DSN")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .or_else(|| std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()));
+        match fallback_dsn.and_then(|dsn| setjoin_pg::WorkerPool::from_dsn(&dsn, 2).ok()) {
+            Some(pool) => match pool.verify_bypassrls().await {
+                Ok(_) => Some(pool),
+                Err(err) => {
+                    eprintln!(
+                        "setjoin-gateway: HTTP-only search worker pool failed BYPASSRLS verification ({err:?}); disabling follower leader discovery"
+                    );
+                    None
+                }
+            },
+            None => None,
+        }
+    } else {
+        None
+    };
+
+    if tier2_search_enabled && !search_runtime_raw.config().rpc_secret.is_empty() {
+        let resolver: Option<Arc<dyn setjoin_search::LeaderResolver>> = if let Some(url) =
+            search_runtime_raw.config().leader_url_override.clone()
+        {
+            Some(Arc::new(setjoin_search::StaticLeaderResolver::new(url)))
+        } else if let Some(sup) = supervisor.as_ref() {
+            Some(Arc::new(setjoin_search::DbLeaderResolver::new(Arc::new(
+                crate::supervisor::search_worker::WorkerPoolSearchDb::new(sup.ctx().pool.clone()),
+            ))) as Arc<dyn setjoin_search::LeaderResolver>)
+        } else {
+            follower_worker_pool.as_ref().map(|pool| {
+                Arc::new(setjoin_search::DbLeaderResolver::new(Arc::new(
+                    crate::supervisor::search_worker::WorkerPoolSearchDb::new(pool.clone()),
+                ))) as Arc<dyn setjoin_search::LeaderResolver>
+            })
+        };
+        if let Some(resolver) = resolver {
+            if let Ok(remote) = setjoin_search::RemoteSearchEngine::new(
+                resolver,
+                search_runtime_raw.config().rpc_secret.clone(),
+                search_runtime_raw.config().query_timeout,
+            ) {
+                search_runtime_raw = search_runtime_raw.with_remote_tier2(Arc::new(remote));
+            }
+        }
+    }
+    let search_runtime = Arc::new(search_runtime_raw);
+    let search_work_queue = if tier2_search_enabled {
+        supervisor
+            .as_ref()
+            .map(|sup| sup.ctx().work_queue.clone())
+            .or_else(|| {
+                follower_worker_pool
+                    .as_ref()
+                    .map(|pool| setjoin_workqueue::WorkQueue::new(pool.clone()))
+            })
+    } else {
+        None
+    };
+    let search_facade = if tier2_search_enabled {
+        let explicit_app = std::env::var("DB_APP_DSN").ok().filter(|s| !s.is_empty());
+        let facade_dsn = explicit_app
+            .clone()
+            .or_else(|| std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()));
+        match facade_dsn.and_then(|dsn| setjoin_pg::AppPool::from_dsn(&dsn, 4).ok()) {
+            Some(pool) => {
+                // Verify AppPool connectivity and non-bypass RLS posture at boot.
+                let boot_ok = match setjoin_contracts::ids::ActorId::new(1) {
+                    Ok(probe_actor) => {
+                        let probe_principal = setjoin_pg::mint::user(
+                            probe_actor,
+                            setjoin_contracts::ids::Generation(1),
+                        );
+                        match pool.begin_user_read(&probe_principal).await {
+                            Ok(mut tx) => {
+                                let res = tx
+                                    .query(
+                                        "SELECT (NOT r.rolsuper AND NOT r.rolbypassrls), current_user::text \
+                                           FROM pg_catalog.pg_roles r WHERE r.rolname = current_user",
+                                        &[],
+                                    )
+                                    .await;
+                                let _ = tx.finish().await;
+                                match res {
+                                    Ok(rows) => {
+                                        let non_bypass: bool = rows
+                                            .first()
+                                            .and_then(|r| r.try_get(0).ok())
+                                            .unwrap_or(false);
+                                        if !non_bypass {
+                                            let role: String = rows
+                                                .first()
+                                                .and_then(|r| r.try_get(1).ok())
+                                                .unwrap_or_else(|| "unknown".to_owned());
+                                            eprintln!(
+                                                "setjoin-gateway: Tier-2 search facade AppPool role '{role}' holds SUPERUSER/BYPASSRLS (configure DB_APP_DSN with a NOBYPASSRLS role); disabling Tier-2 facade and deferring to canonical Tier-1 PG"
+                                            );
+                                            false
+                                        } else {
+                                            true
+                                        }
+                                    }
+                                    Err(err) => {
+                                        eprintln!(
+                                            "setjoin-gateway: Tier-2 search facade AppPool posture probe failed ({err:?}); disabling facade"
+                                        );
+                                        false
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                eprintln!(
+                                    "setjoin-gateway: Tier-2 search facade AppPool boot connect failed ({err:?}); disabling facade"
+                                );
+                                false
+                            }
+                        }
+                    }
+                    Err(_) => false,
+                };
+                if boot_ok {
+                    Some(Arc::new(crate::search_facade::GatewaySearchFacade::new(
+                        Arc::clone(&search_runtime),
+                        pool,
+                    )))
+                } else {
+                    None
+                }
+            }
+            None => None,
         }
     } else {
         None
@@ -582,8 +725,9 @@ pub async fn run_with_options(
             }
             wq_consumer_spawned = true;
         }
-        // Wave 3.2 (#557): opt-in content-addressed extraction and full-domain
-        // Mail/Chat/Drive indexing consumers (strictly OFF unless
+        // Wave 3.2/3.3 (#557/#558): opt-in content-addressed extraction, SKIP LOCKED
+        // single-writer search leader (indexing + lawful purge compaction), and
+        // watermark-complete eDiscovery consumer (strictly OFF unless
         // SETJOIN_SEARCH_TIER2_ENABLED=true).
         if search_runtime.config().tier2_enabled {
             if let (Some(engine), Some(store)) = (search_runtime.tier2().cloned(), promote_store) {
@@ -594,11 +738,31 @@ pub async fn run_with_options(
                 sup.spawn("search-extract-consumer", move |ctx| {
                     extract_consumer.run(ctx)
                 });
-                let index_consumer =
-                    crate::supervisor::search_worker::SearchIndexConsumer::new(engine, store)
-                        .with_single_flight(single_flight)
-                        .with_freshness_fence(search_runtime.freshness_fence().clone());
-                sup.spawn("search-index-consumer", move |ctx| index_consumer.run(ctx));
+                let rpc_url = search_runtime
+                    .config()
+                    .node_rpc_url
+                    .clone()
+                    .unwrap_or_else(|| format!("http://{listen}"));
+                // Start strictly non-leader until SearchLeaderElector acquires the lease.
+                search_runtime.set_leader_active(false);
+                let leader_elector = crate::supervisor::search_worker::SearchLeaderElector::new(
+                    Arc::clone(&engine),
+                    store,
+                    rpc_url,
+                    search_runtime.config().leader_lease_secs,
+                )
+                .with_single_flight(single_flight)
+                .with_freshness_fence(search_runtime.freshness_fence().clone())
+                .with_leader_gate(search_runtime.leader_gate());
+                sup.spawn("search-leader-elector", move |ctx| leader_elector.run(ctx));
+                let edisc_engine: Option<Arc<dyn setjoin_search::SearchEngine>> =
+                    Some(Arc::clone(&engine) as Arc<dyn setjoin_search::SearchEngine>);
+                let ediscovery_consumer =
+                    crate::supervisor::search_worker::SearchEdiscoveryConsumer::new(edisc_engine)
+                        .with_local_tantivy(engine);
+                sup.spawn("search-ediscovery-consumer", move |ctx| {
+                    ediscovery_consumer.run(ctx)
+                });
                 wq_consumer_spawned = true;
             }
         }
@@ -759,6 +923,8 @@ pub async fn run_with_options(
                 auth_authority: options.auth_authority.clone(),
                 listen_hub: options.listen_hub.clone(),
                 allow_private_keys: options.allow_private_keys,
+                search_facade: search_facade.clone(),
+                search_work_queue,
             },
         )
         .await?;
@@ -805,6 +971,9 @@ pub async fn run_with_options(
             .map_err(|e| format!("GATEWAY_MAX_CONNECTIONS: {e}"))?
             .with_configuration(&configuration)
             .with_search_runtime(search_runtime.clone());
+        if let Some(facade) = search_facade {
+            gateway = gateway.with_search_facade(facade);
+        }
         if let Some(authority) = options.auth_authority.clone() {
             gateway = gateway.with_auth_authority(authority);
         } else {

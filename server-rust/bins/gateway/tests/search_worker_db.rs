@@ -13,7 +13,8 @@ use setjoin_conformance::db_gate::{resolve as resolve_db_gate, DbGate};
 use setjoin_gateway::blob_gc::{BlobGcWorker, GcMode};
 use setjoin_gateway::recovery_worker::ObjectStore;
 use setjoin_gateway::supervisor::search_worker::{
-    ObjectStoreByteReader, SearchExtractConsumer, SearchIndexConsumer, WorkerPoolSearchDb,
+    ObjectStoreByteReader, SearchEdiscoveryConsumer, SearchExtractConsumer, SearchIndexConsumer,
+    SearchPurgeConsumer, WorkerPoolSearchDb,
 };
 use setjoin_pg::workers::WorkerDatabase;
 use setjoin_pg::WorkerPool;
@@ -605,4 +606,771 @@ async fn workqueue_extract_index_continuation_fence_lease_loss_and_blob_gc_e2e()
         .try_get(0)
         .expect("c");
     assert_eq!(orphan_left, 0);
+}
+
+#[tokio::test]
+async fn wave33_purge_consumer_ediscovery_consumer_and_ha_rpc_gateway_e2e() {
+    let _serial = GW_TEST_LOCK.lock().await;
+    let dsn = match resolve_db_gate(|k| std::env::var(k).ok()) {
+        DbGate::Run { dsn, .. } => dsn,
+        DbGate::Skip => {
+            eprintln!("GATEWAY-SEARCH-WORKER-33-SKIP");
+            return;
+        }
+        DbGate::Missing => panic!("REQUIRE_DB=1 set but TEST_DB_DSN/DB_DSN is absent"),
+    };
+    let worker_dsn = std::env::var("DB_WORKER_DSN")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| swap_dsn_user(&dsn, "setjoin_worker"));
+
+    let (owner_client, owner_conn) = tokio_postgres::connect(&dsn, NoTls)
+        .await
+        .expect("connect owner");
+    tokio::spawn(async move {
+        let _ = owner_conn.await;
+    });
+    let worker_pool = WorkerPool::from_dsn(&worker_dsn, 4).expect("worker pool");
+    let queue = WorkQueue::new(worker_pool.clone());
+    let tag = next_tag();
+
+    let email = format!("gw558_{tag}@example.test");
+    let row = owner_client
+        .query_one(
+            "WITH dom AS ( \
+               INSERT INTO public.domains (name) VALUES ('example.test') \
+               ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id \
+             ), u AS ( \
+               INSERT INTO public.users (domain_id, email, username, password_hash, display_name) \
+               SELECT id, $1, $2, 'hash', $2 FROM dom RETURNING id, domain_id \
+             ), mb AS ( \
+               INSERT INTO public.mailboxes (user_id, domain_id, email, display_name, is_primary) \
+               SELECT u.id, u.domain_id, $1, $2, true FROM u RETURNING id, user_id \
+             ), f AS ( \
+               INSERT INTO public.folders (mailbox_id, name, path, role) \
+               SELECT mb.id, 'Inbox', 'Inbox', 'inbox' FROM mb RETURNING id, mailbox_id \
+             ) \
+             SELECT mb.user_id, mb.id, f.id FROM mb JOIN f ON f.mailbox_id = mb.id",
+            &[&email, &format!("gw558_{tag}")],
+        )
+        .await
+        .expect("seed user");
+    let user_id: i64 = row.try_get(0).expect("uid");
+    let mailbox_id: i64 = row.try_get(1).expect("mb");
+    let folder_id: i64 = row.try_get(2).expect("fid");
+
+    let dir = TempDir::new().expect("tempdir");
+    let rpc_secret = b"gateway-wave33-ha-rpc-secret-32b".to_vec();
+    let cfg = SearchConfig {
+        tier2_enabled: true,
+        index_dir: dir.path().to_path_buf(),
+        rpc_secret: rpc_secret.clone(),
+        ..SearchConfig::default()
+    };
+    let runtime = Arc::new(setjoin_search::SearchRuntime::from_config(
+        cfg.clone(),
+        setjoin_search::PgSearchCapabilities::default(),
+    ));
+    let engine = Arc::clone(runtime.tier2().expect("tier2"));
+
+    // 1. Seed a message with a unique purge canary, index it, and verify purge eviction via SearchPurgeConsumer!
+    let canary = format!("gwpurgecanary{tag}");
+    let msg_row = owner_client
+        .query_one(
+            "INSERT INTO public.messages \
+               (mailbox_id, folder_id, message_id, subject, from_addr, body_text, thread_id, raw_ref) \
+             VALUES ($1, $2, $3, $4, 'purge@example.test', $5, $3, 'inline:gw558') \
+             RETURNING id, received_at",
+            &[
+                &mailbox_id,
+                &folder_id,
+                &format!("<gw558-purge-{tag}@example.test>"),
+                &canary,
+                &format!("body with {canary}"),
+            ],
+        )
+        .await
+        .expect("seed msg");
+    let msg_id: i64 = msg_row.try_get(0).expect("id");
+    let msg_ts: chrono::DateTime<Utc> = msg_row.try_get(1).expect("ts");
+
+    let keep_token = format!("gwkeepedisc{tag}");
+    let keep_row = owner_client
+        .query_one(
+            "INSERT INTO public.messages \
+               (mailbox_id, folder_id, message_id, subject, from_addr, body_text, thread_id, raw_ref) \
+             VALUES ($1, $2, $3, $4, 'keep@example.test', $5, $3, 'inline:gw558-keep') \
+             RETURNING id, received_at",
+            &[
+                &mailbox_id,
+                &folder_id,
+                &format!("<gw558-keep-{tag}@example.test>"),
+                &keep_token,
+                &format!("kept body {keep_token}"),
+            ],
+        )
+        .await
+        .expect("seed keep");
+    let keep_id: i64 = keep_row.try_get(0).expect("keep_id");
+    let keep_ts: chrono::DateTime<Utc> = keep_row.try_get(1).expect("keep_ts");
+
+    let m = engine
+        .rebuild_epoch(
+            &[
+                setjoin_search::IndexDocument {
+                    key: setjoin_search::DocumentKey::Mail {
+                        mailbox_id,
+                        id: msg_id,
+                        received_at: msg_ts,
+                    },
+                    visibility: SearchVisibility::Live,
+                    title: canary.clone(),
+                    body: Some(format!("body with {canary}")),
+                    headers: vec!["purge@example.test".to_owned()],
+                    identifiers: vec![canary.clone()],
+                    sort_i64: msg_ts.timestamp_micros(),
+                    sort_name: canary.clone(),
+                    crypto_sealed: false,
+                },
+                setjoin_search::IndexDocument {
+                    key: setjoin_search::DocumentKey::Mail {
+                        mailbox_id,
+                        id: keep_id,
+                        received_at: keep_ts,
+                    },
+                    visibility: SearchVisibility::Live,
+                    title: keep_token.clone(),
+                    body: Some(format!("kept body {keep_token}")),
+                    headers: vec!["keep@example.test".to_owned()],
+                    identifiers: vec![keep_token.clone()],
+                    sort_i64: keep_ts.timestamp_micros(),
+                    sort_name: keep_token.clone(),
+                    crypto_sealed: false,
+                },
+            ],
+            1,
+            Some(Utc::now()),
+        )
+        .expect("rebuild");
+    runtime
+        .freshness_fence()
+        .set_watermark(DocCorpus::Mail, m.generation, 0);
+    runtime
+        .freshness_fence()
+        .set_watermark(DocCorpus::MailAttachment, m.generation, 0);
+
+    // Enqueue search.purge_evict and drain via SearchPurgeConsumer!
+    queue
+        .enqueue(&WorkRequest::new(
+            setjoin_search::WORK_KIND_SEARCH_PURGE_EVICT,
+            serde_json::json!({
+                "corpus": "mail",
+                "scope_id": mailbox_id,
+                "entity_id": msg_id,
+                "sub_id": 0,
+                "received_at": msg_ts,
+            }),
+        ))
+        .await
+        .expect("enqueue purge");
+    let purge_consumer = SearchPurgeConsumer::new(Arc::clone(&engine))
+        .with_freshness_fence(runtime.freshness_fence().clone());
+    let mut purged_items = 0usize;
+    while let Ok(n) = purge_consumer
+        .drain_once(&queue, "gw-test-leader", None)
+        .await
+    {
+        if n == 0 {
+            break;
+        }
+        purged_items += n;
+    }
+    assert!(purged_items >= 1);
+    assert!(
+        !engine
+            .contains_doc_key(&setjoin_search::DocumentKey::Mail {
+                mailbox_id,
+                id: msg_id,
+                received_at: msg_ts,
+            })
+            .expect("contains"),
+        "purged key must be absent after SearchPurgeConsumer"
+    );
+
+    // 2. Enqueue search.ediscovery and drain via SearchEdiscoveryConsumer!
+    let search_row = owner_client
+        .query_one(
+            "INSERT INTO public.ediscovery_searches (name, created_by, query, status) \
+             VALUES ($1, $2, $3::text::jsonb, 'pending') RETURNING id",
+            &[
+                &format!("gw-edisc-{tag}"),
+                &user_id,
+                &serde_json::json!({ "keywords": keep_token, "mailboxIds": [mailbox_id] })
+                    .to_string(),
+            ],
+        )
+        .await
+        .expect("seed ediscovery search");
+    let search_id: i64 = search_row.try_get(0).expect("search_id");
+    queue
+        .enqueue(&WorkRequest::new(
+            setjoin_search::WORK_KIND_SEARCH_EDISCOVERY,
+            serde_json::json!({ "search_id": search_id, "actor_id": user_id }),
+        ))
+        .await
+        .expect("enqueue edisc");
+    let edisc_consumer =
+        SearchEdiscoveryConsumer::new(Some(Arc::clone(&engine) as Arc<dyn SearchEngine>));
+    let drained_edisc = edisc_consumer
+        .drain_once(&queue, "gw-test-edisc", None)
+        .await
+        .expect("drain edisc");
+    assert!(drained_edisc >= 1);
+    let status_row = owner_client
+        .query_one(
+            "SELECT status, result_count, search_provenance::text \
+               FROM public.ediscovery_searches WHERE id = $1",
+            &[&search_id],
+        )
+        .await
+        .expect("read search");
+    let status: String = status_row.try_get(0).expect("status");
+    let count: i32 = status_row.try_get(1).expect("count");
+    let prov_text: String = status_row.try_get(2).expect("prov");
+    assert_eq!(status, "complete");
+    assert_eq!(count, 1);
+    let prov: serde_json::Value = serde_json::from_str(&prov_text).expect("prov json");
+    assert!(prov["engine_tier"].as_str().is_some());
+
+    // 2b. KQL eDiscovery via SearchEdiscoveryConsumer MUST execute real KQL AST (never unfiltered full-org scan)!
+    let kql_search_id: i64 = owner_client
+        .query_one(
+            "INSERT INTO public.ediscovery_searches (name, created_by, query, status) \
+             VALUES ($1, $2, $3::text::jsonb, 'pending') RETURNING id",
+            &[
+                &format!("gw-kql-{tag}"),
+                &user_id,
+                &serde_json::json!({ "kql": format!("subject:{keep_token}") }).to_string(),
+            ],
+        )
+        .await
+        .expect("seed kql search")
+        .try_get(0)
+        .expect("kql_search_id");
+    queue
+        .enqueue(&WorkRequest::new(
+            setjoin_search::WORK_KIND_SEARCH_EDISCOVERY,
+            serde_json::json!({ "search_id": kql_search_id, "actor_id": user_id }),
+        ))
+        .await
+        .expect("enqueue kql");
+    while edisc_consumer
+        .drain_once(&queue, "gw-test-kql", None)
+        .await
+        .expect("drain kql")
+        > 0
+    {}
+    let kql_row = owner_client
+        .query_one(
+            "SELECT status, result_count, search_provenance::text \
+               FROM public.ediscovery_searches WHERE id = $1",
+            &[&kql_search_id],
+        )
+        .await
+        .expect("read kql search");
+    assert_eq!(kql_row.try_get::<_, String>(0).expect("st"), "complete");
+    assert_eq!(
+        kql_row.try_get::<_, i32>(1).expect("cnt"),
+        1,
+        "KQL search must return ONLY the single matching message, never a full-org scan"
+    );
+    let kql_audit_cnt: i64 = owner_client
+        .query_one(
+            "SELECT count(*) FROM public.admin_audit_log \
+              WHERE action = 'ediscovery_search_complete' AND target_id = $1",
+            &[&kql_search_id],
+        )
+        .await
+        .expect("kql audit")
+        .try_get(0)
+        .expect("cnt");
+    assert_eq!(kql_audit_cnt, 1);
+
+    // 2c. GatewaySearchFacade wire-contract & ACL parity (Mail jmap_email_state + tag/snooze,
+    //     Chat bare JSON array + GUEST_HISTORY_FLOOR, Drive 8-field JSON + node-level ACL grant)!
+    let app_dsn = std::env::var("DB_APP_DSN")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| swap_dsn_user(&dsn, "setjoin_app"));
+    let app_pool = setjoin_pg::AppPool::from_dsn(&app_dsn, 4).expect("facade app pool");
+    let facade =
+        setjoin_gateway::search_facade::GatewaySearchFacade::new(Arc::clone(&runtime), app_pool);
+
+    // Seed Mail location tag + snooze tag and verify inMailbox + snooze exclusion + exact JMAP JSON shape!
+    let inbox_tag: i64 = owner_client
+        .query_one(
+            "INSERT INTO public.tags (mailbox_id, name, exclusive_group) \
+             VALUES ($1, $2, 'location') RETURNING id",
+            &[&mailbox_id, &format!("Inbox558_{tag}")],
+        )
+        .await
+        .expect("inbox tag")
+        .try_get(0)
+        .expect("tid");
+    let snooze_tag: i64 = owner_client
+        .query_one(
+            "INSERT INTO public.tags (mailbox_id, name, exclusive_group) \
+             VALUES ($1, $2, 'snooze') RETURNING id",
+            &[&mailbox_id, &format!("Snoozed558_{tag}")],
+        )
+        .await
+        .expect("snooze tag")
+        .try_get(0)
+        .expect("stid");
+    owner_client
+        .execute(
+            "INSERT INTO public.message_tags (message_id, received_at, tag_id) VALUES ($1, $2, $3)",
+            &[&keep_id, &keep_ts, &inbox_tag],
+        )
+        .await
+        .expect("tag keep");
+    let actor_id = setjoin_contracts::ids::ActorId::new(user_id).expect("actor id");
+    let mb_id = setjoin_contracts::ids::MailboxId::new(mailbox_id).expect("mb id");
+    let mb_auth = setjoin_pg::MailboxAuthContext::from_authenticated_session(
+        actor_id,
+        mb_id,
+        setjoin_contracts::ids::Generation(1),
+    );
+    let filter_in_box = serde_json::json!({
+        "text": keep_token,
+        "inMailbox": inbox_tag.to_string(),
+    })
+    .to_string();
+    let mail_json_str = facade
+        .try_mail_query(&mb_auth, Some(&filter_in_box), None, 0, 20)
+        .await
+        .expect("facade mail query");
+    let mail_json: serde_json::Value = serde_json::from_str(&mail_json_str).expect("mail json");
+    assert_eq!(mail_json["accountId"], mailbox_id.to_string());
+    assert!(
+        mail_json["state"].as_str().is_some(),
+        "must emit canonical 'state' from jmap_email_state"
+    );
+    assert_eq!(mail_json["canCalculateChanges"], false);
+    assert_eq!(mail_json["position"], 0);
+    assert_eq!(mail_json["total"], 1);
+    assert_eq!(mail_json["ids"], serde_json::json!([keep_id.to_string()]));
+
+    // Adding a snooze tag must exclude the message from the 'location' inMailbox view!
+    owner_client
+        .execute(
+            "INSERT INTO public.message_tags (message_id, received_at, tag_id) VALUES ($1, $2, $3)",
+            &[&keep_id, &keep_ts, &snooze_tag],
+        )
+        .await
+        .expect("snooze keep");
+    let snoozed_str = facade
+        .try_mail_query(&mb_auth, Some(&filter_in_box), None, 0, 20)
+        .await
+        .expect("facade snoozed mail query");
+    let snoozed_json: serde_json::Value = serde_json::from_str(&snoozed_str).expect("snoozed json");
+    assert_eq!(snoozed_json["total"], 0);
+    assert_eq!(snoozed_json["ids"], serde_json::json!([]));
+
+    // Seed Chat message + Drive node reachable ONLY via node-level drive_acl_grants (no drive_space_members)!
+    let ch_id: i64 = owner_client
+        .query_one(
+            "INSERT INTO public.chat_channels (kind, visibility, name, created_by) \
+             VALUES ('channel', 'private', $1, $2) RETURNING id",
+            &[&format!("gwch558-{tag}"), &user_id],
+        )
+        .await
+        .expect("ch")
+        .try_get(0)
+        .expect("cid");
+    owner_client
+        .execute(
+            "INSERT INTO public.chat_channel_members (channel_id, user_id, role, history_floor_seq, joined_at) \
+             VALUES ($1, $2, 'member', 1, now() - interval '1 minute')",
+            &[&ch_id, &user_id],
+        )
+        .await
+        .expect("ch member");
+    let chat_tok = format!("gwchatfacade{tag}");
+    let ch_pre: i64 = owner_client
+        .query_one(
+            "INSERT INTO public.chat_messages (channel_id, author_id, body, seq, created_at) \
+             VALUES ($1, $2, $3, 1, now() - interval '5 minutes') RETURNING id",
+            &[&ch_id, &user_id, &format!("pre floor {chat_tok}")],
+        )
+        .await
+        .expect("pre")
+        .try_get(0)
+        .expect("id");
+    let ch_post: i64 = owner_client
+        .query_one(
+            "INSERT INTO public.chat_messages (channel_id, author_id, body, seq, created_at) \
+             VALUES ($1, $2, $3, 2, now()) RETURNING id",
+            &[&ch_id, &user_id, &format!("post floor {chat_tok}")],
+        )
+        .await
+        .expect("post")
+        .try_get(0)
+        .expect("id");
+
+    // Seed second user owning a Drive space, grant user_id node-level read_metadata ONLY!
+    let owner2_id: i64 = owner_client
+        .query_one(
+            "INSERT INTO public.users (domain_id, email, username, password_hash, display_name) \
+             SELECT domain_id, $1, $2, 'hash', $2 FROM public.users WHERE id = $3 RETURNING id",
+            &[
+                &format!("drvowner558_{tag}@example.test"),
+                &format!("drvowner558_{tag}"),
+                &user_id,
+            ],
+        )
+        .await
+        .expect("owner2")
+        .try_get(0)
+        .expect("o2");
+    let sp_id: i64 = owner_client
+        .query_one(
+            "INSERT INTO public.drive_spaces (name, classification, owner_user_id, acl_mode) \
+             VALUES ($1, 'regular', $2, 'acl') RETURNING id",
+            &[&format!("gwsp558-{tag}"), &owner2_id],
+        )
+        .await
+        .expect("sp")
+        .try_get(0)
+        .expect("sid");
+    let drv_tok = format!("gwdrivegrant{tag}");
+    let dn_id: i64 = owner_client
+        .query_one(
+            "INSERT INTO public.drive_nodes (space_id, kind, name, created_by) \
+             VALUES ($1, 'file', $2, $3) RETURNING id",
+            &[&sp_id, &format!("{drv_tok}.pdf"), &owner2_id],
+        )
+        .await
+        .expect("dn")
+        .try_get(0)
+        .expect("dn_id");
+    owner_client
+        .execute(
+            "INSERT INTO public.drive_node_closure (space_id, ancestor_id, descendant_id, depth) \
+             VALUES ($1, $2, $2, 0) ON CONFLICT DO NOTHING",
+            &[&sp_id, &dn_id],
+        )
+        .await
+        .expect("closure");
+    owner_client
+        .execute(
+            "INSERT INTO public.drive_acl_grants \
+               (space_id, node_id, subject_kind, subject_user_id, preset, capabilities, propagation, state, created_by) \
+             VALUES ($1, $2, 'user', $3, 'custom', ARRAY['read_metadata'], 'self', 'active', $4)",
+            &[&sp_id, &dn_id, &user_id, &owner2_id],
+        )
+        .await
+        .expect("acl grant");
+
+    // Index chat & drive docs into Tantivy and advance freshness fence.
+    use setjoin_search::SearchIndexer;
+    engine
+        .upsert_batch(&[
+            setjoin_search::IndexDocument {
+                key: setjoin_search::DocumentKey::Chat {
+                    channel_id: ch_id,
+                    id: ch_pre,
+                },
+                visibility: SearchVisibility::Live,
+                title: String::new(),
+                body: Some(format!("pre floor {chat_tok}")),
+                headers: Vec::new(),
+                identifiers: vec![chat_tok.clone()],
+                sort_i64: 1,
+                sort_name: String::new(),
+                crypto_sealed: false,
+            },
+            setjoin_search::IndexDocument {
+                key: setjoin_search::DocumentKey::Chat {
+                    channel_id: ch_id,
+                    id: ch_post,
+                },
+                visibility: SearchVisibility::Live,
+                title: String::new(),
+                body: Some(format!("post floor {chat_tok}")),
+                headers: Vec::new(),
+                identifiers: vec![chat_tok.clone()],
+                sort_i64: 2,
+                sort_name: String::new(),
+                crypto_sealed: false,
+            },
+            setjoin_search::IndexDocument {
+                key: setjoin_search::DocumentKey::Drive {
+                    space_id: sp_id,
+                    id: dn_id,
+                },
+                visibility: SearchVisibility::Live,
+                title: format!("{drv_tok}.pdf"),
+                body: None,
+                headers: Vec::new(),
+                identifiers: vec![format!("{drv_tok}.pdf")],
+                sort_i64: 3,
+                sort_name: format!("{drv_tok}.pdf"),
+                crypto_sealed: false,
+            },
+        ])
+        .await
+        .expect("upsert chat/drive");
+    let new_gen = engine.commit_generation().await.expect("commit gen");
+    for c in [
+        DocCorpus::Mail,
+        DocCorpus::MailAttachment,
+        DocCorpus::Chat,
+        DocCorpus::Drive,
+        DocCorpus::DriveFile,
+    ] {
+        runtime.freshness_fence().set_watermark(c, new_gen, 0);
+    }
+
+    let chat_raw = facade
+        .try_chat_search_actor(actor_id, &chat_tok, None, None, None, None)
+        .await
+        .expect("facade chat search");
+    let chat_arr: serde_json::Value = serde_json::from_str(&chat_raw).expect("chat json");
+    let chat_items = chat_arr
+        .as_array()
+        .expect("chat_search must return bare JSON array, NOT {messages: [...]}");
+    assert_eq!(chat_items.len(), 1, "GUEST_HISTORY_FLOOR must hide ch_pre");
+    assert_eq!(chat_items[0]["messageId"], ch_post);
+    assert_eq!(chat_items[0]["channelId"], ch_id);
+
+    let drive_val = facade
+        .try_drive_search_actor(actor_id, None, &drv_tok, None)
+        .await
+        .expect("facade drive search");
+    let drive_items = drive_val.as_array().expect("drive array");
+    assert_eq!(
+        drive_items.len(),
+        1,
+        "drive search must discover space via node-level drive_acl_grants"
+    );
+    let d0 = &drive_items[0];
+    assert_eq!(d0["id"], dn_id);
+    assert_eq!(d0["spaceId"], sp_id);
+    assert!(d0.get("parentId").is_some());
+    assert_eq!(d0["kind"], "file");
+    assert_eq!(d0["name"], format!("{drv_tok}.pdf"));
+    assert!(d0.get("sizeBytes").is_some());
+    assert!(d0.get("contentType").is_some());
+    assert!(d0.get("createdAt").is_some());
+
+    // 3. Boot a real Gateway HTTP listener with SearchRuntime and verify:
+    //    - Unauthenticated / stale-timestamp / bad-sig requests to /_internal/search/* get 403
+    //    - Authenticated RemoteSearchEngine hits Tier-2 leader cleanly
+    //    - Stopping leader causes TwoTierSearchEngine to fall back cleanly to Tier-1 PG!
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let base_url = format!("http://{addr}");
+    let gateway = setjoin_gateway::Gateway::new(
+        setjoin_gateway::Config {
+            upstream: None,
+            upstream_header_timeout: std::time::Duration::from_secs(5),
+            trusted_proxies: setjoin_gateway::TrustedProxies::default(),
+            edge_limit: None,
+        },
+        setjoin_gateway::RouteTable::proxy_all(),
+    )
+    .expect("gateway")
+    .with_search_runtime(Arc::clone(&runtime));
+    let shutdown_tok = tokio_util::sync::CancellationToken::new();
+    let srv_tok = shutdown_tok.clone();
+    let srv_handle = tokio::spawn(async move {
+        gateway.serve_until(listener, srv_tok.cancelled()).await;
+    });
+
+    // Unauthenticated health probe -> 403
+    let http = reqwest::Client::new();
+    let unauth = http
+        .get(format!(
+            "{base_url}{}",
+            setjoin_search::INTERNAL_SEARCH_HEALTH_PATH
+        ))
+        .send()
+        .await
+        .expect("unauth req");
+    assert_eq!(unauth.status().as_u16(), 403);
+
+    // Replay-expired timestamp -> 403
+    let expired_ts = Utc::now().timestamp() - 120;
+    let expired_sig = setjoin_search::sign_rpc_request(
+        &rpc_secret,
+        "GET",
+        setjoin_search::INTERNAL_SEARCH_HEALTH_PATH,
+        expired_ts,
+        b"",
+    )
+    .expect("sign expired");
+    let replay = http
+        .get(format!(
+            "{base_url}{}",
+            setjoin_search::INTERNAL_SEARCH_HEALTH_PATH
+        ))
+        .header(setjoin_search::HEADER_SEARCH_TS, expired_ts.to_string())
+        .header(setjoin_search::HEADER_SEARCH_SIG, expired_sig)
+        .send()
+        .await
+        .expect("replay req");
+    assert_eq!(replay.status().as_u16(), 403);
+
+    // Fresh SearchRuntime defaults to leader_active=false (HTTP-only stateless nodes
+    // and un-elected nodes MUST return 503 on BOTH /_internal/search/health and /candidates)!
+    let init_ts = Utc::now().timestamp();
+    let init_sig = setjoin_search::sign_rpc_request(
+        &rpc_secret,
+        "GET",
+        setjoin_search::INTERNAL_SEARCH_HEALTH_PATH,
+        init_ts,
+        b"",
+    )
+    .expect("sign init");
+    let init_health = http
+        .get(format!(
+            "{base_url}{}",
+            setjoin_search::INTERNAL_SEARCH_HEALTH_PATH
+        ))
+        .header(setjoin_search::HEADER_SEARCH_TS, init_ts.to_string())
+        .header(setjoin_search::HEADER_SEARCH_SIG, init_sig)
+        .send()
+        .await
+        .expect("init health req");
+    assert_eq!(
+        init_health.status().as_u16(),
+        503,
+        "un-elected / HTTP-only SearchRuntime must default to 503 on /_internal/search/health"
+    );
+
+    // Activate leader lease with a real deadline window -> 200 healthy=true
+    runtime.set_leader_active_for(std::time::Duration::from_secs(30));
+    let now_ts = Utc::now().timestamp();
+    let ok_sig = setjoin_search::sign_rpc_request(
+        &rpc_secret,
+        "GET",
+        setjoin_search::INTERNAL_SEARCH_HEALTH_PATH,
+        now_ts,
+        b"",
+    )
+    .expect("sign ok");
+    let health_resp = http
+        .get(format!(
+            "{base_url}{}",
+            setjoin_search::INTERNAL_SEARCH_HEALTH_PATH
+        ))
+        .header(setjoin_search::HEADER_SEARCH_TS, now_ts.to_string())
+        .header(setjoin_search::HEADER_SEARCH_SIG, ok_sig)
+        .send()
+        .await
+        .expect("health req");
+    assert_eq!(health_resp.status().as_u16(), 200);
+    let health_json: serde_json::Value =
+        serde_json::from_slice(&health_resp.bytes().await.expect("body")).expect("json");
+    assert_eq!(health_json["healthy"], true);
+
+    // Follower RemoteSearchEngine wired into TwoTierSearchEngine hits live leader!
+    let remote = Arc::new(
+        setjoin_search::RemoteSearchEngine::new(
+            Arc::new(setjoin_search::StaticLeaderResolver::new(base_url.clone())),
+            rpc_secret,
+            std::time::Duration::from_millis(500),
+        )
+        .expect("remote engine"),
+    );
+    let fallback_key = setjoin_search::DocumentKey::Mail {
+        mailbox_id,
+        id: 999_999,
+        received_at: keep_ts,
+    };
+    let fb_clone = fallback_key.clone();
+    let tier1 = Arc::new(setjoin_search::Tier1PgSearchEngine::new(
+        setjoin_search::PgSearchCapabilities::default(),
+        Arc::new(move |_q| {
+            let k = fb_clone.clone();
+            Box::pin(async move {
+                Ok(setjoin_search::CandidateBatch {
+                    keys: vec![k],
+                    generation: 0,
+                    continuation: None,
+                    tier: setjoin_search::SearchTier::Tier1Pg,
+                    degraded: false,
+                })
+            })
+        }),
+    ));
+    let follower = setjoin_search::TwoTierSearchEngine::with_remote_tier2(cfg, tier1, remote);
+    let q = CandidateQuery {
+        corpus: DocCorpus::Mail,
+        scope_hint: ScopeHint::Mailbox(mailbox_id),
+        terms: NormalizedQuery::parse(&keep_token).expect("q"),
+        visibility: SearchVisibility::Live,
+        limit: 10,
+        continuation: None,
+        metadata_only: false,
+        calculate_total: false,
+    };
+    let live_batch = follower.candidates(&q).await.expect("follower rpc hit");
+    assert_eq!(live_batch.tier, setjoin_search::SearchTier::Tier2Tantivy);
+    assert!(!live_batch.degraded);
+    assert!(live_batch.keys.iter().any(|k| matches!(
+        k,
+        setjoin_search::DocumentKey::Mail { id, .. } if *id == keep_id
+    )));
+
+    // Natural lease-deadline expiry WITHOUT manually calling `set_leader_active(false)`:
+    // `/_internal/search/health` and `/_internal/search/candidates` MUST flip to 503 automatically
+    // once the conservative deadline elapses, causing follower to fall back cleanly to Tier-1 PG!
+    runtime.set_leader_active_for(std::time::Duration::from_millis(120));
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let demoted_ts = Utc::now().timestamp();
+    let demoted_sig = setjoin_search::sign_rpc_request(
+        &runtime.config().rpc_secret,
+        "GET",
+        setjoin_search::INTERNAL_SEARCH_HEALTH_PATH,
+        demoted_ts,
+        b"",
+    )
+    .expect("sign demoted");
+    let demoted_health = http
+        .get(format!(
+            "{base_url}{}",
+            setjoin_search::INTERNAL_SEARCH_HEALTH_PATH
+        ))
+        .header(setjoin_search::HEADER_SEARCH_TS, demoted_ts.to_string())
+        .header(setjoin_search::HEADER_SEARCH_SIG, demoted_sig)
+        .send()
+        .await
+        .expect("demoted health req");
+    assert_eq!(
+        demoted_health.status().as_u16(),
+        503,
+        "expired leader deadline must automatically return HTTP 503 on /_internal/search/health"
+    );
+    let demoted_batch = follower
+        .candidates(&q)
+        .await
+        .expect("follower fallback on deadline-expired leader");
+    assert_eq!(demoted_batch.tier, setjoin_search::SearchTier::Tier1Pg);
+    assert!(demoted_batch.degraded);
+    assert_eq!(demoted_batch.keys, vec![fallback_key.clone()]);
+
+    // Shut down leader -> follower transparently degrades to Tier-1 PG!
+    shutdown_tok.cancel();
+    let _ = srv_handle.await;
+    let degraded_batch = follower
+        .candidates(&q)
+        .await
+        .expect("follower fallback after leader stop");
+    assert_eq!(degraded_batch.tier, setjoin_search::SearchTier::Tier1Pg);
+    assert!(degraded_batch.degraded);
+    assert_eq!(degraded_batch.keys, vec![fallback_key]);
 }

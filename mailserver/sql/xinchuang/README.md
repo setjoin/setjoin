@@ -49,22 +49,22 @@ Engines: polardb = PolarDB for PostgreSQL · opengauss = openGauss · gaussdb = 
 
 Counting unit: the function NAME. Live universe extracted from `mailserver/sql/reducers/*.sql`:
 
-- Reducer files: 800 · declarations: 1226 · unique names: 1223
+- Reducer files: 801 · declarations: 1236 · unique names: 1233
 - Represented in `compatibility_matrix.csv`: 106 names (106 rows) — representation is not attestation
 - Names with any evidence-bearing cell (attested anywhere): 0
-- Canonical complement (no CSV row): 1117 → `unattested_functions.csv`
+- Canonical complement (no CSV row): 1127 → `unattested_functions.csv`
 
-Per-engine attestation against the full 1223-name universe (a name is attested-for-engine iff its cell is non-`untested`):
+Per-engine attestation against the full 1233-name universe (a name is attested-for-engine iff its cell is non-`untested`):
 
 | Engine | Attested | Not attested |
 |---|---|---|
-| polardb | 0 | 1223 |
-| opengauss | 0 | 1223 |
-| gaussdb | 0 | 1223 |
-| kingbase | 0 | 1223 |
-| dameng | 0 | 1223 |
-| oceanbase_pg | 0 | 1223 |
-| oceanbase_oracle | 0 | 1223 |
+| polardb | 0 | 1233 |
+| opengauss | 0 | 1233 |
+| gaussdb | 0 | 1233 |
+| kingbase | 0 | 1233 |
+| dameng | 0 | 1233 |
+| oceanbase_pg | 0 | 1233 |
+| oceanbase_oracle | 0 | 1233 |
 
 `uses_digest` is SOURCE-DERIVED USAGE — a non-comment `digest(` call exists in the defining file (73 files / 142 call sites repo-wide). It is never a parity attestation; pgcrypto parity is attested (or not) per engine via `pgcrypto_digest_parity` above. Covered rows with `uses_digest`: 17 of 106.
 
@@ -182,7 +182,7 @@ The reducers below are the certification critical path for the primary combinati
 | saved | 3 |
 | scheduled | 13 |
 | scim | 5 |
-| search | 7 |
+| search | 17 |
 | secure | 1 |
 | security | 2 |
 | sender | 4 |
@@ -201,7 +201,7 @@ The reducers below are the certification critical path for the primary combinati
 | webhook | 10 |
 | work | 21 |
 | worker | 5 |
-| Total | 1117 across 102 families |
+| Total | 1127 across 102 families |
 
 <!-- END GENERATED -->
 

@@ -318,7 +318,15 @@ BEGIN
         ('public.search_outbox_claim_batch(text,bigint,integer)'),
         ('public.search_outbox_mark_processed(bigint[])'),
         ('public.search_watermark_advance(text,bigint,bigint,bigint,text)'),
-        ('public.search_index_outbox_trg_fn()')
+        ('public.search_index_outbox_trg_fn()'),
+        -- #558 (V292): HA single-writer search leader lease reducers, chat revision ID helper, and purge eviction trigger/helper.
+        ('public.search_chat_revision_doc_id(bigint)'),
+        ('public.search_leader_try_acquire(text,text,integer)'),
+        ('public.search_leader_heartbeat(text,bigint,bigint,bigint,integer)'),
+        ('public.search_leader_release(text,bigint)'),
+        ('public.search_leader_current()'),
+        ('public.search_purge_enqueue(text,bigint,bigint,timestamptz,bigint)'),
+        ('public.search_purge_evict_trg_fn()')
       ) AS exact_worker(signature)
      WHERE to_regprocedure(signature) IS NOT NULL
   LOOP
@@ -494,7 +502,8 @@ BEGIN
     'search_dirty_keys',
     'search_index_watermarks',
     'search_extracted_text',
-    'search_index_outbox'
+    'search_index_outbox',
+    'search_leader_leases'
   ] LOOP
     IF to_regclass('public.' || t) IS NOT NULL THEN
       EXECUTE format('ALTER TABLE public.%I OWNER TO setjoin_owner', t);
@@ -507,7 +516,8 @@ BEGIN
     REVOKE ALL ON SEQUENCE public.search_index_outbox_seq_seq FROM PUBLIC, setjoin_app, setjoin_worker;
     GRANT USAGE, SELECT ON SEQUENCE public.search_index_outbox_seq_seq TO setjoin_worker;
   END IF;
-  IF to_regprocedure('public.search_index_outbox_trg_fn()') IS NOT NULL THEN
+  IF to_regprocedure('public.search_index_outbox_trg_fn()') IS NOT NULL
+     OR to_regprocedure('public.search_purge_evict_trg_fn()') IS NOT NULL THEN
     DECLARE
       v_had_create boolean := false;
     BEGIN
@@ -515,12 +525,39 @@ BEGIN
       IF NOT v_had_create THEN
         GRANT CREATE ON SCHEMA public TO setjoin_worker;
       END IF;
-      ALTER FUNCTION public.search_index_outbox_trg_fn() OWNER TO setjoin_worker;
+      IF to_regprocedure('public.search_index_outbox_trg_fn()') IS NOT NULL THEN
+        ALTER FUNCTION public.search_index_outbox_trg_fn() OWNER TO setjoin_worker;
+        REVOKE ALL ON FUNCTION public.search_index_outbox_trg_fn() FROM PUBLIC, setjoin_app;
+        GRANT EXECUTE ON FUNCTION public.search_index_outbox_trg_fn() TO setjoin_worker;
+      END IF;
+      IF to_regprocedure('public.search_purge_evict_trg_fn()') IS NOT NULL THEN
+        ALTER FUNCTION public.search_purge_evict_trg_fn() OWNER TO setjoin_worker;
+        REVOKE ALL ON FUNCTION public.search_purge_evict_trg_fn() FROM PUBLIC, setjoin_app;
+        GRANT EXECUTE ON FUNCTION public.search_purge_evict_trg_fn() TO setjoin_worker;
+      END IF;
       IF NOT v_had_create THEN
         REVOKE CREATE ON SCHEMA public FROM setjoin_worker;
       END IF;
-      REVOKE ALL ON FUNCTION public.search_index_outbox_trg_fn() FROM PUBLIC, setjoin_app;
-      GRANT EXECUTE ON FUNCTION public.search_index_outbox_trg_fn() TO setjoin_worker;
     END;
   END IF;
+  DECLARE
+    v_fn text;
+  BEGIN
+    FOREACH v_fn IN ARRAY ARRAY[
+      'public.search_chat_revision_doc_id(bigint)',
+      'public.search_leader_try_acquire(text,text,integer)',
+      'public.search_leader_heartbeat(text,bigint,bigint,bigint,integer)',
+      'public.search_leader_release(text,bigint)',
+      'public.search_leader_current()',
+      'public.search_fenced_settle_batch(text,bigint,bigint[],text,bigint,bigint,bigint,text)',
+      'public.search_purge_enqueue(text,bigint,bigint,timestamptz,bigint)',
+      'public.search_ediscovery_complete_atomic(bigint,bigint,bigint[],bigint,jsonb)',
+      'public.search_ediscovery_complete_kql_atomic(bigint,bigint,text,text[],jsonb)'
+    ] LOOP
+      IF to_regprocedure(v_fn) IS NOT NULL THEN
+        EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, setjoin_app', v_fn);
+        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO setjoin_worker', v_fn);
+      END IF;
+    END LOOP;
+  END;
 END $$;

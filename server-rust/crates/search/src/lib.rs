@@ -13,7 +13,9 @@
 //!   `reauthorize_drive_candidates`) + bounded overfetch pagination (`<= 1500` candidates).
 
 pub mod config;
+pub mod ediscovery;
 pub mod extract;
+pub mod ha_rpc;
 pub mod model;
 pub mod pipeline;
 pub mod reauth;
@@ -28,17 +30,31 @@ pub use config::{
     MAX_DOC_BODY_BYTES, MAX_INFLIGHT_BYTES, MAX_INFLIGHT_DOCS, MAX_WRITER_HEAP_BYTES,
     MIN_WRITER_HEAP_BYTES,
 };
+pub use ediscovery::{
+    EdiscoveryProvenance, EdiscoverySearchExecutor, ExtractionStatusSummary, KqlCompiler,
+    SearchEdiscoveryPayload, SearchPurgeEvictPayload, WORK_KIND_SEARCH_EDISCOVERY,
+    WORK_KIND_SEARCH_PURGE_EVICT,
+};
 pub use extract::{
     decode_text_bytes, extract_bytes, extract_html_text, truncate_utf8_owned, ExtractionResult,
     ExtractionStatus, ExtractionStoragePlane, EXTRACTOR_VERSION, MAX_EXTRACTED_TEXT_BYTES,
     MAX_EXTRACT_INPUT_BYTES, MAX_ZIP_COMPRESSION_RATIO, MAX_ZIP_DECOMPRESSED_BYTES,
     MAX_ZIP_ENTRIES,
 };
+pub use ha_rpc::{
+    current_search_leader, heartbeat_search_leader, release_search_leader, sign_rpc_request,
+    try_acquire_search_leader, verify_rpc_request, DbLeaderResolver, LeaderAcquireResult,
+    LeaderLeaseState, LeaderResolver, RemoteSearchEngine, RpcAuthError, RpcCandidateRequest,
+    RpcCandidateResponse, RpcHealthResponse, StaticLeaderResolver, HEADER_SEARCH_SIG,
+    HEADER_SEARCH_TS, INTERNAL_SEARCH_CANDIDATES_PATH, INTERNAL_SEARCH_HEALTH_PATH,
+    MAX_RPC_BODY_BYTES, MAX_RPC_CLOCK_SKEW_SECS,
+};
 pub use model::{
     BoxFuture, CandidateBatch, CandidateQuery, CursorBinding, DocCorpus, DocumentKey, EngineHealth,
-    IndexDocument, NormalizedQuery, OpaqueCursor, QueryValidationError, ScopeHint, SearchEngine,
-    SearchError, SearchIndexer, SearchTier, SearchVisibility, MAX_CANDIDATE_LIMIT,
-    MAX_CURSOR_OFFSET, MAX_CURSOR_TOKEN_BYTES, MAX_QUERY_BYTES, MAX_QUERY_TERMS, MAX_SCOPE_IDS,
+    IndexDocument, NormalizedQuery, OpaqueCursor, PurgeCompactionReport, QueryValidationError,
+    ScopeHint, SearchEngine, SearchError, SearchIndexer, SearchTier, SearchVisibility,
+    MAX_CANDIDATE_LIMIT, MAX_CURSOR_OFFSET, MAX_CURSOR_TOKEN_BYTES, MAX_QUERY_BYTES,
+    MAX_QUERY_TERMS, MAX_SCOPE_IDS,
 };
 pub use pipeline::{
     chat_revision_doc_id, enqueue_outbox, ensure_search_watermarks_initialized,
@@ -50,12 +66,17 @@ pub use pipeline::{
     WORK_KIND_SEARCH_INDEX_BATCH,
 };
 pub use reauth::{
-    execute_overfetch_page, overfetch_limit, reauthorize_chat_candidates,
-    reauthorize_drive_candidates, reauthorize_mail_candidates, AuthorizedChatHit,
-    AuthorizedDriveHit, AuthorizedMailHit, AuthorizedPage, MailReauthFilter,
-    MAX_OVERFETCH_CANDIDATES, MAX_OVERFETCH_ROUNDS,
+    execute_overfetch_page, overfetch_limit, reauthorize_admin_chat_candidates,
+    reauthorize_admin_drive_candidates, reauthorize_admin_mail_candidates,
+    reauthorize_chat_candidates, reauthorize_drive_candidates, reauthorize_mail_candidates,
+    AdminChatReauthFilter, AdminDriveReauthFilter, AdminMailReauthFilter, AuthorizedAdminChatHit,
+    AuthorizedAdminDriveHit, AuthorizedAdminMailHit, AuthorizedChatHit, AuthorizedDriveHit,
+    AuthorizedMailHit, AuthorizedPage, MailReauthFilter, MAX_OVERFETCH_CANDIDATES,
+    MAX_OVERFETCH_ROUNDS,
 };
-pub use tantivy_engine::{schema_hash, EpochManifest, TantivySearchEngine};
+pub use tantivy_engine::{
+    schema_hash, EpochInspectStats, EpochManifest, StagingEpoch, TantivySearchEngine,
+};
 pub use tier1_pg::{
     escape_like_pattern, probe_pg_capabilities_client, probe_pg_capabilities_exec,
     tier1_chat_candidates, tier1_drive_candidates, tier1_mail_candidates, PgSearchCapabilities,
@@ -67,8 +88,8 @@ pub use tokenizers::{
     ZH_JIEBA_TOKENIZER,
 };
 pub use two_tier::{
-    AlwaysFresh, FreshnessFence, SearchRuntime, SnapshotFreshnessFence, TwoTierSearchEngine,
-    WatermarkSnapshot,
+    AlwaysFresh, FreshnessFence, LeaderLeaseGate, SearchRuntime, SnapshotFreshnessFence,
+    TwoTierSearchEngine, WatermarkSnapshot,
 };
 
 #[cfg(test)]
@@ -324,7 +345,7 @@ mod tests {
             index_dir: dir.path().to_path_buf(),
             ..SearchConfig::default()
         };
-        let engine = TantivySearchEngine::open_or_degraded(cfg);
+        let engine = TantivySearchEngine::open_or_degraded(cfg.clone());
         engine
             .rebuild_epoch(
                 &[mail_doc(
@@ -439,7 +460,7 @@ mod tests {
             index_dir: dir.path().to_path_buf(),
             ..SearchConfig::default()
         };
-        let engine = TantivySearchEngine::open_or_degraded(cfg);
+        let engine = TantivySearchEngine::open_or_degraded(cfg.clone());
 
         // Verify schema stores ONLY doc_key (zero plaintext body storage).
         assert_eq!(engine.stored_field_names(), vec!["doc_key".to_owned()]);
@@ -558,7 +579,7 @@ mod tests {
             index_dir: dir.path().to_path_buf(),
             ..SearchConfig::default()
         };
-        let engine = TantivySearchEngine::open_or_degraded(cfg);
+        let engine = TantivySearchEngine::open_or_degraded(cfg.clone());
 
         let sealed_mail = mail_doc(
             77,
@@ -897,5 +918,290 @@ mod tests {
         );
         assert_eq!(page.inspected_candidates, MAX_OVERFETCH_CANDIDATES);
         assert_eq!(page.items, vec![42]);
+    }
+
+    fn count_needle_in_dir(root: &std::path::Path, needle: &[u8]) -> usize {
+        let mut total = 0usize;
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(path) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&path) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else if p.is_file() {
+                    if let Ok(bytes) = std::fs::read(&p) {
+                        if !needle.is_empty() && bytes.len() >= needle.len() {
+                            total += bytes.windows(needle.len()).filter(|w| *w == needle).count();
+                        }
+                    }
+                }
+            }
+        }
+        total
+    }
+
+    #[tokio::test]
+    async fn lawful_purge_evict_and_compact_erases_purged_bytes_from_disk() {
+        let dir = TempDir::new().expect("tempdir");
+        let cfg = SearchConfig {
+            tier2_enabled: true,
+            index_dir: dir.path().to_path_buf(),
+            ..SearchConfig::default()
+        };
+        let engine = TantivySearchEngine::open_or_degraded(cfg.clone());
+        let canary = "lawfulpurgecanary987654321";
+        let survivor = "survivorkeepneedle112233";
+
+        let purged_doc = mail_doc(
+            42,
+            1001,
+            canary,
+            Some(&format!("confidential body {canary}")),
+            vec!["secret@example.test"],
+            vec![canary],
+            false,
+        );
+        let purged_key = purged_doc.key.clone();
+        let kept_doc = mail_doc(
+            42,
+            1002,
+            survivor,
+            Some(&format!("kept body {survivor}")),
+            vec!["keep@example.test"],
+            vec![survivor],
+            false,
+        );
+        let kept_key = kept_doc.key.clone();
+
+        // Create two segments via rebuild + incremental upsert so both single-segment and multi-segment compaction paths are exercised.
+        let m1 = engine
+            .rebuild_epoch(&[purged_doc], 1, Some(Utc::now()))
+            .expect("rebuild");
+        engine.upsert_batch(&[kept_doc]).await.expect("upsert");
+
+        let epoch_dir = engine.epoch_dir_path(m1.epoch);
+        let before_count = count_needle_in_dir(&epoch_dir, canary.as_bytes());
+        assert!(
+            before_count > 0,
+            "canary bytes must be physically present in segment files on disk before purge compaction"
+        );
+        assert!(engine
+            .contains_doc_key(&purged_key)
+            .expect("contains purged"));
+        assert!(engine.contains_doc_key(&kept_key).expect("contains kept"));
+
+        // Execute lawful physical purge eviction + segment compaction.
+        let report = engine
+            .evict_and_compact(std::slice::from_ref(&purged_key))
+            .await
+            .expect("evict_and_compact");
+        assert_eq!(report.evicted_keys, 1);
+        assert!(report.generation > m1.generation);
+
+        // Verify query & key lookup no longer find the purged doc while survivor remains searchable.
+        assert!(!engine.contains_doc_key(&purged_key).expect("purged gone"));
+        assert!(engine.contains_doc_key(&kept_key).expect("kept stays"));
+        let hits = engine
+            .candidates(&mail_query(42, survivor))
+            .await
+            .expect("survivor query");
+        assert_eq!(hits.keys, vec![kept_key.clone()]);
+
+        // Recursive byte-level scan across EVERY file in the epoch directory: 0 occurrences of purged canary!
+        let after_count = count_needle_in_dir(&epoch_dir, canary.as_bytes());
+        assert_eq!(
+            after_count, 0,
+            "lawful purge compaction left {after_count} occurrences of purged canary bytes on disk under {}",
+            epoch_dir.display()
+        );
+
+        // Also test single-segment purge compaction (now only 1 merged segment remains with survivor)!
+        let survivor_before = count_needle_in_dir(&epoch_dir, survivor.as_bytes());
+        assert!(
+            survivor_before > 0,
+            "survivor bytes present before second purge"
+        );
+        let report2 = engine
+            .evict_and_compact(std::slice::from_ref(&kept_key))
+            .await
+            .expect("second evict_and_compact");
+        assert_eq!(report2.evicted_keys, 1);
+        let survivor_after = count_needle_in_dir(&epoch_dir, survivor.as_bytes());
+        assert_eq!(
+            survivor_after, 0,
+            "single-segment purge left {survivor_after} occurrences on disk"
+        );
+
+        // Unloaded empty engine MUST fail closed on evict_and_compact (never silently Ok)!
+        let empty_dir = TempDir::new().expect("empty dir");
+        let empty_engine = TantivySearchEngine::open_or_degraded(SearchConfig {
+            tier2_enabled: true,
+            index_dir: empty_dir.path().to_path_buf(),
+            ..SearchConfig::default()
+        });
+        assert!(
+            matches!(
+                empty_engine
+                    .evict_and_compact(std::slice::from_ref(&purged_key))
+                    .await,
+                Err(SearchError::Unavailable(_))
+            ),
+            "evict_and_compact must fail closed when no epoch is loaded"
+        );
+
+        // External online rebuild (commit_rebuild_online) + private staging concurrency +
+        // live handle auto-reload + stale epoch physical erasure on purge + chmod 0500 read-only verify:
+        let ext = TantivySearchEngine::open_or_degraded(cfg.clone());
+        let mut st_a = ext.begin_rebuild().expect("begin concurrent rebuild A");
+        let st_b = ext.begin_rebuild().expect("begin concurrent rebuild B");
+        st_a.add_batch(&[mail_doc(
+            7,
+            777,
+            "ReloadedEpochDoc",
+            Some("auto reloaded body"),
+            vec![],
+            vec![],
+            false,
+        )])
+        .expect("stage doc A");
+        // Dropping aborted concurrent rebuild B MUST NOT disturb rebuild A's private staging dir!
+        drop(st_b);
+        let m_new = ext
+            .commit_rebuild_online(st_a, Some(Utc::now()))
+            .expect("commit_rebuild_online");
+        assert!(m_new.epoch > 1);
+        assert!(
+            engine
+                .reload_if_disk_epoch_advanced()
+                .expect("reload advanced epoch"),
+            "live gateway engine must pick up external online rebuild epoch"
+        );
+        assert_eq!(
+            engine.current_manifest().expect("reloaded manifest").epoch,
+            m_new.epoch
+        );
+
+        // Lawful purge compaction MUST also physically remove retained stale pre-rebuild epochs on disk!
+        let stale_epoch_dir = engine.epoch_dir_path(1);
+        assert!(
+            stale_epoch_dir.exists() || m_new.epoch == 2,
+            "verify epoch layout before purge GC"
+        );
+        let purge_report = engine
+            .evict_and_compact(&[DocumentKey::Mail {
+                mailbox_id: 7,
+                id: 777,
+                received_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("ts"),
+            }])
+            .await
+            .expect("evict_and_compact cleans stale epochs");
+        assert_eq!(purge_report.epoch, m_new.epoch);
+        assert!(
+            !stale_epoch_dir.exists(),
+            "stale pre-rebuild epoch dir must be physically removed during lawful purge compaction"
+        );
+
+        // Strictly read-only `open_read_only` MUST succeed with ZERO write/lockfile syscalls
+        // even on a `chmod 0500` read-only epoch directory!
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let active_dir = engine.epoch_dir_path(m_new.epoch);
+            let orig_mode = std::fs::metadata(&active_dir)
+                .expect("stat active_dir")
+                .permissions()
+                .mode();
+            std::fs::set_permissions(&active_dir, std::fs::Permissions::from_mode(0o500))
+                .expect("chmod 0500");
+            let ro_res = TantivySearchEngine::open_read_only(cfg);
+            std::fs::set_permissions(&active_dir, std::fs::Permissions::from_mode(orig_mode))
+                .expect("restore perms");
+            let ro_engine = ro_res.expect("open_read_only must succeed on chmod 0500 dir");
+            assert_eq!(
+                ro_engine.inspect_epoch().expect("inspect ro").epoch,
+                m_new.epoch
+            );
+        }
+    }
+
+    #[test]
+    fn ha_rpc_hmac_signing_replay_window_and_body_cap() {
+        let secret = b"super-secret-ha-rpc-key-32-bytes";
+        let body = br#"{"corpus":"mail"}"#;
+        let now = 1_700_000_000i64;
+        let sig = sign_rpc_request(secret, "POST", INTERNAL_SEARCH_CANDIDATES_PATH, now, body)
+            .expect("sign");
+
+        // Valid within ±30s window
+        assert!(verify_rpc_request(
+            secret,
+            "POST",
+            INTERNAL_SEARCH_CANDIDATES_PATH,
+            Some(&now.to_string()),
+            Some(&sig),
+            body,
+            now + 29,
+        )
+        .is_ok());
+
+        // Outside ±30s replay window -> rejected
+        assert_eq!(
+            verify_rpc_request(
+                secret,
+                "POST",
+                INTERNAL_SEARCH_CANDIDATES_PATH,
+                Some(&now.to_string()),
+                Some(&sig),
+                body,
+                now + 31,
+            ),
+            Err(RpcAuthError::TimestampOutOfWindow)
+        );
+
+        // Tampered body -> rejected
+        assert_eq!(
+            verify_rpc_request(
+                secret,
+                "POST",
+                INTERNAL_SEARCH_CANDIDATES_PATH,
+                Some(&now.to_string()),
+                Some(&sig),
+                br#"{"corpus":"chat"}"#,
+                now,
+            ),
+            Err(RpcAuthError::InvalidSignature)
+        );
+
+        // Empty secret -> fail closed 503
+        assert_eq!(
+            verify_rpc_request(
+                b"",
+                "POST",
+                INTERNAL_SEARCH_CANDIDATES_PATH,
+                Some(&now.to_string()),
+                Some(&sig),
+                body,
+                now,
+            ),
+            Err(RpcAuthError::SecretNotConfigured)
+        );
+
+        // Body > 64 KiB -> rejected 413
+        let huge = vec![b'a'; MAX_RPC_BODY_BYTES + 1];
+        assert_eq!(
+            verify_rpc_request(
+                secret,
+                "POST",
+                INTERNAL_SEARCH_CANDIDATES_PATH,
+                Some(&now.to_string()),
+                Some(&sig),
+                &huge,
+                now,
+            ),
+            Err(RpcAuthError::BodyTooLarge)
+        );
     }
 }

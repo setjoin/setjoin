@@ -14,25 +14,31 @@
 use crate::config::{SearchConfig, MAX_DOC_BODY_BYTES, MAX_INFLIGHT_BYTES, MAX_INFLIGHT_DOCS};
 use crate::model::{
     BoxFuture, CandidateBatch, CandidateQuery, CursorBinding, DocumentKey, EngineHealth,
-    IndexDocument, OpaqueCursor, SearchEngine, SearchError, SearchIndexer, SearchTier,
+    IndexDocument, OpaqueCursor, PurgeCompactionReport, SearchEngine, SearchError, SearchIndexer,
+    SearchTier,
 };
 use crate::tokenizers::{
     register_tokenizers, CjkBigramTokenizer, IdentExactTokenizer, ZhJiebaTokenizer,
     CJK_BIGRAM_TOKENIZER, IDENT_EXACT_TOKENIZER, ZH_JIEBA_TOKENIZER,
 };
+use crate::two_tier::FreshnessFence;
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{self, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tantivy::collector::TopDocs;
-use tantivy::directory::MmapDirectory;
+use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
+use tantivy::directory::{
+    Directory, DirectoryLock, FileHandle, FileSlice, Lock, MmapDirectory, WatchCallback,
+    WatchHandle, WritePtr,
+};
 use tantivy::indexer::{IndexWriterOptions, LogMergePolicy};
 use tantivy::query::{BooleanQuery, Occur, Query, TermQuery};
 use tantivy::schema::{
@@ -62,6 +68,146 @@ pub struct EpochManifest {
     pub generation: u64,
     pub watermark_ts: Option<DateTime<Utc>>,
     pub clean_shutdown: bool,
+}
+
+/// Inspection summary of the active on-disk Tantivy epoch (used by `mailctl search verify`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EpochInspectStats {
+    pub epoch: u64,
+    pub generation: u64,
+    pub schema_hash: String,
+    pub schema_matches: bool,
+    pub clean_shutdown: bool,
+    pub num_docs: u64,
+    pub num_segments: usize,
+}
+
+/// Strictly read-only [`Directory`] wrapper around [`MmapDirectory`] used by
+/// [`TantivySearchEngine::open_read_only`] (`mailctl search verify`).
+///
+/// Performs ZERO filesystem write, create, lock-file, or delete syscalls (works
+/// even on `chmod 0500` read-only epoch directories).
+#[derive(Clone, Debug)]
+struct ReadOnlyDirectory {
+    inner: MmapDirectory,
+}
+
+impl Directory for ReadOnlyDirectory {
+    fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
+        self.inner.get_file_handle(path)
+    }
+
+    fn open_read(&self, path: &Path) -> Result<FileSlice, OpenReadError> {
+        self.inner.open_read(path)
+    }
+
+    fn delete(&self, path: &Path) -> Result<(), DeleteError> {
+        Err(DeleteError::IoError {
+            io_error: Arc::new(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "read-only search directory refuses delete",
+            )),
+            filepath: path.to_path_buf(),
+        })
+    }
+
+    fn exists(&self, path: &Path) -> Result<bool, OpenReadError> {
+        self.inner.exists(path)
+    }
+
+    fn open_write(&self, path: &Path) -> Result<WritePtr, OpenWriteError> {
+        Err(OpenWriteError::IoError {
+            io_error: Arc::new(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "read-only search directory refuses open_write",
+            )),
+            filepath: path.to_path_buf(),
+        })
+    }
+
+    fn atomic_read(&self, path: &Path) -> Result<Vec<u8>, OpenReadError> {
+        self.inner.atomic_read(path)
+    }
+
+    fn atomic_write(&self, _path: &Path, _data: &[u8]) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "read-only search directory refuses atomic_write",
+        ))
+    }
+
+    fn sync_directory(&self) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn acquire_lock(&self, _lock: &Lock) -> Result<DirectoryLock, LockError> {
+        Ok(DirectoryLock::from(Box::new(())))
+    }
+
+    fn watch(&self, _watch_callback: WatchCallback) -> tantivy::Result<WatchHandle> {
+        Ok(WatchHandle::empty())
+    }
+}
+
+/// Active streaming staging handle for online zero-downtime epoch rebuilds
+/// (`begin_rebuild` -> `add_batch`* -> `commit_rebuild`).
+///
+/// Stages into a unique private `epochs/.staging-{pid}-{seq}-{rand}` directory so
+/// concurrent rebuilds never collide; `commit_rebuild` assigns the authoritative
+/// epoch number and renames into `epochs/index-vNNNNNN` strictly under `rebuild.lock`.
+/// Drops any uncommitted staging directory automatically if aborted before commit.
+pub struct StagingEpoch {
+    min_epoch: u64,
+    staging_dir: PathBuf,
+    fields: SearchFields,
+    writer: Option<IndexWriter<TantivyDocument>>,
+    docs_added: usize,
+    committed: bool,
+}
+
+impl StagingEpoch {
+    /// Minimum target epoch number requested when staging started.
+    #[must_use]
+    pub const fn epoch(&self) -> u64 {
+        self.min_epoch
+    }
+
+    /// Total documents staged into this epoch so far.
+    #[must_use]
+    pub const fn docs_added(&self) -> usize {
+        self.docs_added
+    }
+
+    /// Append a validated batch of documents into the staging epoch without
+    /// touching the live `CURRENT` manifest or active reader.
+    pub fn add_batch(&mut self, docs: &[IndexDocument]) -> Result<usize, SearchError> {
+        if docs.is_empty() {
+            return Ok(0);
+        }
+        validate_batch_bounds(docs)?;
+        let Some(writer) = self.writer.as_mut() else {
+            return Err(SearchError::Internal(
+                "staging epoch writer already finalized".to_owned(),
+            ));
+        };
+        for doc in docs {
+            let tdoc = build_tantivy_document(self.fields, doc);
+            writer
+                .add_document(tdoc)
+                .map_err(|e| SearchError::Internal(format!("tantivy staging add_document: {e}")))?;
+        }
+        self.docs_added = self.docs_added.saturating_add(docs.len());
+        Ok(docs.len())
+    }
+}
+
+impl Drop for StagingEpoch {
+    fn drop(&mut self) {
+        self.writer.take();
+        if !self.committed && self.staging_dir.exists() {
+            let _ = fs::remove_dir_all(&self.staging_dir);
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -219,6 +365,128 @@ impl TantivySearchEngine {
         engine
     }
 
+    /// Strictly read-only open for `mailctl search verify`: parses `CURRENT` and opens
+    /// the active Tantivy epoch WITHOUT running crash recovery, WITHOUT mutating `CURRENT`,
+    /// and WITHOUT touching `rebuild.lock`.
+    pub fn open_read_only(config: SearchConfig) -> Result<Self, SearchError> {
+        let clamped_config = config
+            .clone()
+            .with_writer_heap_bytes(config.writer_heap_bytes);
+        let permits = clamped_config.max_concurrent_searches.max(1);
+        let state = Arc::new(SharedState {
+            config: clamped_config,
+            loaded: ArcSwap::from_pointee(None),
+            active_epochs: Arc::new(Mutex::new(HashMap::new())),
+            health_error: Mutex::new(None),
+            write_mutex: Mutex::new(()),
+            search_semaphore: Arc::new(Semaphore::new(permits)),
+            tmp_seq: AtomicU64::new(1),
+            #[cfg(test)]
+            inject_panic: AtomicBool::new(false),
+            #[cfg(test)]
+            inject_delay_ms: AtomicU64::new(0),
+        });
+        let engine = Self { state };
+        engine.try_load_current_read_only()?;
+        Ok(engine)
+    }
+
+    fn try_load_current_read_only(&self) -> Result<EpochManifest, SearchError> {
+        let current_path = self.state.current_manifest_path();
+        if !current_path.exists() {
+            return Err(SearchError::Unavailable(format!(
+                "search epoch manifest not built at {}",
+                current_path.display()
+            )));
+        }
+        let raw = fs::read(&current_path)
+            .map_err(|e| SearchError::CorruptIndex(format!("read CURRENT: {e}")))?;
+        let manifest: EpochManifest = serde_json::from_slice(&raw)
+            .map_err(|e| SearchError::CorruptIndex(format!("parse CURRENT JSON: {e}")))?;
+        if manifest.schema_hash != schema_hash() {
+            return Err(SearchError::CorruptIndex(format!(
+                "schema_hash mismatch: manifest={} expected={}",
+                manifest.schema_hash,
+                schema_hash()
+            )));
+        }
+        let epoch_dir = self.state.epoch_dir_path(manifest.epoch);
+        let loaded = open_loaded_epoch_with_mode(
+            &epoch_dir,
+            manifest.clone(),
+            self.state.config.zh_dict_path.clone(),
+            Arc::clone(&self.state.active_epochs),
+            true,
+        )?;
+        self.state.loaded.store(Arc::new(Some(loaded)));
+        self.state.clear_degraded();
+        Ok(manifest)
+    }
+
+    /// Reload `CURRENT` from disk if another process (such as online `mailctl search rebuild`)
+    /// atomically published a strictly newer epoch (`disk_epoch > loaded_epoch`).
+    ///
+    /// Returns `Ok(true)` if a newer epoch was loaded into `ArcSwap`, or `Ok(false)` if
+    /// the in-memory epoch is already up-to-date. Old readers keep using their `Arc<LoadedEpoch>`
+    /// safely until dropped.
+    pub fn reload_if_disk_epoch_advanced(&self) -> Result<bool, SearchError> {
+        let Some(disk) = self.state.read_disk_manifest() else {
+            return Ok(false);
+        };
+        let loaded_epoch = self
+            .state
+            .loaded
+            .load()
+            .as_ref()
+            .as_ref()
+            .map_or(0, |e| e.manifest.epoch);
+        if disk.epoch <= loaded_epoch {
+            return Ok(false);
+        }
+        let _guard = self
+            .state
+            .write_mutex
+            .lock()
+            .map_err(|_| SearchError::Internal("write mutex poisoned".to_owned()))?;
+        let current_loaded_epoch = self
+            .state
+            .loaded
+            .load()
+            .as_ref()
+            .as_ref()
+            .map_or(0, |e| e.manifest.epoch);
+        let Some(fresh_disk) = self.state.read_disk_manifest() else {
+            return Ok(false);
+        };
+        if fresh_disk.epoch <= current_loaded_epoch {
+            return Ok(false);
+        }
+        if fresh_disk.schema_hash != schema_hash() {
+            return Err(SearchError::CorruptIndex(format!(
+                "schema_hash mismatch on reload: manifest={} expected={}",
+                fresh_disk.schema_hash,
+                schema_hash()
+            )));
+        }
+        let epoch_dir = self.state.epoch_dir_path(fresh_disk.epoch);
+        let reloaded = open_loaded_epoch(
+            &epoch_dir,
+            fresh_disk,
+            self.state.config.zh_dict_path.clone(),
+            Arc::clone(&self.state.active_epochs),
+        )?;
+        let next_dir = reloaded.epoch_dir.clone();
+        let old_slot = self.state.loaded.swap(Arc::new(Some(reloaded)));
+        if let Some(old) = old_slot.as_ref().as_ref() {
+            if old.epoch_dir != next_dir {
+                old.mark_for_cleanup();
+            }
+        }
+        drop(old_slot);
+        self.state.clear_degraded();
+        Ok(true)
+    }
+
     /// Return the effective clamped writer heap budget (`<= 50_000_000` bytes).
     #[must_use]
     pub fn effective_writer_heap_bytes(&self) -> usize {
@@ -303,6 +571,91 @@ impl TantivySearchEngine {
             .rebuild_epoch_sync(docs, generation, watermark_ts)
     }
 
+    /// Begin a streaming online zero-downtime epoch rebuild (`epochs/index-v{N+1}`).
+    /// Live reads against the current epoch remain completely uninterrupted until
+    /// [`Self::commit_rebuild`] atomically swaps `CURRENT`.
+    pub fn begin_rebuild(&self) -> Result<StagingEpoch, SearchError> {
+        self.state.begin_rebuild_sync(1)
+    }
+
+    /// Begin a streaming online zero-downtime epoch rebuild ensuring the staged epoch
+    /// is at least `min_epoch` (used by `mailctl search rebuild` to stay strictly ahead
+    /// of existing PostgreSQL `search_index_watermarks.epoch` even on a freshly wiped disk).
+    pub fn begin_rebuild_at_min_epoch(&self, min_epoch: u64) -> Result<StagingEpoch, SearchError> {
+        self.state.begin_rebuild_sync(min_epoch.max(1))
+    }
+
+    /// Finalize, validate, and atomically publish a staged online epoch rebuild
+    /// (prunes obsolete unreferenced epochs in-process).
+    pub fn commit_rebuild(
+        &self,
+        staging: StagingEpoch,
+        watermark_ts: Option<DateTime<Utc>>,
+    ) -> Result<EpochManifest, SearchError> {
+        self.state.commit_rebuild_sync(staging, watermark_ts, true)
+    }
+
+    /// Finalize, validate, and atomically publish a staged online epoch rebuild
+    /// WITHOUT immediately unlinking the previous epoch directory (used by external
+    /// `mailctl search rebuild` while a live gateway process may still hold readers
+    /// on the previous epoch).
+    pub fn commit_rebuild_online(
+        &self,
+        staging: StagingEpoch,
+        watermark_ts: Option<DateTime<Utc>>,
+    ) -> Result<EpochManifest, SearchError> {
+        self.state.commit_rebuild_sync(staging, watermark_ts, false)
+    }
+
+    /// Sweep any unreferenced stale `epochs/index-vNNNNNN` directories not pinned
+    /// by `CURRENT` or active readers, returning the number of directories removed.
+    #[must_use]
+    pub fn garbage_collect_stale_epochs(&self) -> usize {
+        self.state.garbage_collect_stale_epochs_sync()
+    }
+
+    /// Inspect `CURRENT` and the active on-disk Tantivy epoch (`mailctl search verify`).
+    pub fn inspect_epoch(&self) -> Result<EpochInspectStats, SearchError> {
+        self.state.inspect_epoch_sync()
+    }
+
+    /// Check whether an exact [`DocumentKey`] currently exists in the loaded epoch.
+    pub fn contains_doc_key(&self, key: &DocumentKey) -> Result<bool, SearchError> {
+        self.state.contains_doc_key_sync(key)
+    }
+
+    /// Execute candidate search against a single atomic `(reader, generation)` snapshot
+    /// ONLY if `fence.is_corpus_fresh(query.corpus, snapshot.generation)` holds.
+    pub async fn candidates_if_fresh(
+        &self,
+        query: &CandidateQuery,
+        fence: &dyn FreshnessFence,
+    ) -> Result<CandidateBatch, SearchError> {
+        let snapshot = self.load_snapshot();
+        let Some(loaded) = snapshot.as_ref().as_ref() else {
+            return Err(SearchError::Unavailable(
+                "no active Tantivy epoch loaded".to_owned(),
+            ));
+        };
+        let loaded_gen = loaded.manifest.generation;
+        if !fence.is_corpus_fresh(query.corpus, loaded_gen).await {
+            return Err(SearchError::Unavailable(format!(
+                "corpus {:?} is not fresh at generation {loaded_gen}",
+                query.corpus
+            )));
+        }
+        self.candidates_on_snapshot(snapshot, query).await
+    }
+
+    /// Physically evict purged document keys and compact segments so purged bytes
+    /// are overwritten/removed from disk rather than lingering in unmerged segments.
+    pub async fn evict_and_compact(
+        &self,
+        keys: &[DocumentKey],
+    ) -> Result<PurgeCompactionReport, SearchError> {
+        <Self as SearchIndexer>::evict_and_compact(self, keys).await
+    }
+
     /// Inspect stored field names on the active schema (used to verify zero plaintext storage).
     #[must_use]
     pub fn stored_field_names(&self) -> Vec<String> {
@@ -314,8 +667,10 @@ impl TantivySearchEngine {
             .collect()
     }
 
-    /// Load the current atomic `(reader, generation)` snapshot for paired freshness + search.
+    /// Load the current atomic `(reader, generation)` snapshot for paired freshness + search,
+    /// seamlessly picking up any strictly newer epoch published on disk by online rebuild.
     pub(crate) fn load_snapshot(&self) -> Arc<Option<LoadedEpoch>> {
+        let _ = self.reload_if_disk_epoch_advanced();
         self.state.loaded.load_full()
     }
 
@@ -564,6 +919,226 @@ impl SharedState {
         Ok(manifest_out)
     }
 
+    fn begin_rebuild_sync(&self, min_epoch: u64) -> Result<StagingEpoch, SearchError> {
+        // Stage into a unique private directory under `epochs/.staging-...` WITHOUT
+        // holding `rebuild.lock` so live writers and concurrent rebuilds never block
+        // or collide. Authoritative epoch numbering and atomic rename into
+        // `epochs/index-vNNNNNN` happen strictly under `rebuild.lock` in `commit_rebuild_sync`.
+        let epochs_dir = self.config.index_dir.join("epochs");
+        fs::create_dir_all(&epochs_dir)
+            .map_err(|e| SearchError::Io(format!("create epochs dir: {e}")))?;
+
+        let seq = self.tmp_seq.fetch_add(1, Ordering::Relaxed);
+        let mut rand_bytes = [0u8; 8];
+        let _ = ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut rand_bytes);
+        let rand_hex = hex::encode(rand_bytes);
+        let staging_dir =
+            epochs_dir.join(format!(".staging-{}-{seq}-{rand_hex}", std::process::id()));
+        fs::create_dir_all(&staging_dir)
+            .map_err(|e| SearchError::Io(format!("create private staging dir: {e}")))?;
+
+        let (schema, fields) = build_schema();
+        let mmap_dir = MmapDirectory::open(&staging_dir)
+            .map_err(|e| SearchError::Io(format!("open staging MmapDirectory: {e}")))?;
+        let index = Index::create(mmap_dir, schema, tantivy::IndexSettings::default())
+            .map_err(|e| SearchError::Io(format!("create staging Tantivy index: {e}")))?;
+        register_tokenizers(&index, self.config.zh_dict_path.clone());
+        let writer = create_bounded_writer(&index, self.config.effective_writer_heap_bytes())?;
+
+        Ok(StagingEpoch {
+            min_epoch: min_epoch.max(1),
+            staging_dir,
+            fields,
+            writer: Some(writer),
+            docs_added: 0,
+            committed: false,
+        })
+    }
+
+    fn commit_rebuild_sync(
+        &self,
+        mut staging: StagingEpoch,
+        watermark_ts: Option<DateTime<Utc>>,
+        prune_old: bool,
+    ) -> Result<EpochManifest, SearchError> {
+        let _guard = self
+            .write_mutex
+            .lock()
+            .map_err(|_| SearchError::Internal("write mutex poisoned".to_owned()))?;
+
+        if let Some(mut writer) = staging.writer.take() {
+            writer
+                .commit()
+                .map_err(|e| SearchError::Io(format!("tantivy staging commit: {e}")))?;
+            writer
+                .wait_merging_threads()
+                .map_err(|e| SearchError::Io(format!("tantivy staging merge wait: {e}")))?;
+        }
+
+        // Acquire `rebuild.lock` strictly around authoritative epoch allocation,
+        // atomic directory rename into `epochs/index-vNNNNNN`, and `CURRENT` swap.
+        let _lock = self.acquire_rebuild_lock()?;
+        let disk_manifest = self.read_disk_manifest();
+        let disk_epoch = disk_manifest.as_ref().map_or(0, |m| m.epoch);
+        let disk_gen = disk_manifest.as_ref().map_or(0, |m| m.generation);
+        let loaded_snap = self.loaded.load();
+        let mem_epoch = loaded_snap
+            .as_ref()
+            .as_ref()
+            .map_or(0, |e| e.manifest.epoch);
+        let mem_gen = loaded_snap
+            .as_ref()
+            .as_ref()
+            .map_or(0, |e| e.manifest.generation);
+        drop(loaded_snap);
+
+        let next_epoch = disk_epoch
+            .max(mem_epoch)
+            .saturating_add(1)
+            .max(staging.min_epoch);
+        let final_gen = disk_gen.max(mem_gen).saturating_add(1);
+        let final_dir = self.epoch_dir_path(next_epoch);
+        if final_dir.exists() {
+            fs::remove_dir_all(&final_dir)
+                .map_err(|e| SearchError::Io(format!("clean target epoch dir: {e}")))?;
+        }
+        fs::rename(&staging.staging_dir, &final_dir)
+            .map_err(|e| SearchError::Io(format!("rename staging epoch dir: {e}")))?;
+        staging.staging_dir = final_dir.clone();
+
+        let manifest = EpochManifest {
+            epoch: next_epoch,
+            schema_hash: schema_hash(),
+            generation: final_gen,
+            watermark_ts,
+            clean_shutdown: true,
+        };
+
+        let validated = open_loaded_epoch(
+            &final_dir,
+            manifest,
+            self.config.zh_dict_path.clone(),
+            Arc::clone(&self.active_epochs),
+        )?;
+        self.write_manifest_atomic(&validated.manifest)?;
+        staging.committed = true;
+
+        let manifest_out = validated.manifest.clone();
+        let next_dir = final_dir;
+        let old_slot = self.loaded.swap(Arc::new(Some(validated)));
+        self.clear_degraded();
+
+        if prune_old {
+            let prev_epoch_for_prune = old_slot.as_ref().as_ref().map(|old| {
+                if old.epoch_dir != next_dir {
+                    old.mark_for_cleanup();
+                }
+                old.manifest.epoch
+            });
+            drop(old_slot);
+            self.prune_stale_orphan_epochs(next_epoch, prev_epoch_for_prune);
+        } else {
+            drop(old_slot);
+        }
+        Ok(manifest_out)
+    }
+
+    fn garbage_collect_stale_epochs_sync(&self) -> usize {
+        let current_epoch = self
+            .read_disk_manifest()
+            .map(|m| m.epoch)
+            .or_else(|| {
+                self.loaded
+                    .load()
+                    .as_ref()
+                    .as_ref()
+                    .map(|e| e.manifest.epoch)
+            })
+            .unwrap_or(0);
+        let epochs_dir = self.config.index_dir.join("epochs");
+        let Ok(entries) = fs::read_dir(&epochs_dir) else {
+            return 0;
+        };
+        let mut removed = 0usize;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let Some(num_str) = name.strip_prefix("index-v") else {
+                continue;
+            };
+            let Ok(num) = num_str.parse::<u64>() else {
+                continue;
+            };
+            if num == current_epoch {
+                continue;
+            }
+            let in_use = self
+                .active_epochs
+                .lock()
+                .ok()
+                .and_then(|m| m.get(&num).copied())
+                .unwrap_or(0)
+                > 0;
+            if !in_use && fs::remove_dir_all(&path).is_ok() {
+                removed += 1;
+            }
+        }
+        removed
+    }
+
+    fn inspect_epoch_sync(&self) -> Result<EpochInspectStats, SearchError> {
+        let current_path = self.current_manifest_path();
+        if !current_path.exists() {
+            return Err(SearchError::Unavailable(format!(
+                "search manifest CURRENT missing at {}",
+                current_path.display()
+            )));
+        }
+        let raw = fs::read(&current_path)
+            .map_err(|e| SearchError::CorruptIndex(format!("read CURRENT: {e}")))?;
+        let manifest: EpochManifest = serde_json::from_slice(&raw)
+            .map_err(|e| SearchError::CorruptIndex(format!("parse CURRENT JSON: {e}")))?;
+        let expected_hash = schema_hash();
+        let schema_matches = manifest.schema_hash == expected_hash;
+        let epoch_dir = self.epoch_dir_path(manifest.epoch);
+        let loaded = open_loaded_epoch(
+            &epoch_dir,
+            manifest.clone(),
+            self.config.zh_dict_path.clone(),
+            Arc::clone(&self.active_epochs),
+        )?;
+        let searcher = loaded.reader.searcher();
+        let num_docs = searcher.num_docs();
+        let num_segments = searcher.segment_readers().len();
+        Ok(EpochInspectStats {
+            epoch: manifest.epoch,
+            generation: manifest.generation,
+            schema_hash: manifest.schema_hash,
+            schema_matches,
+            clean_shutdown: manifest.clean_shutdown,
+            num_docs,
+            num_segments,
+        })
+    }
+
+    fn contains_doc_key_sync(&self, key: &DocumentKey) -> Result<bool, SearchError> {
+        let snap = self.loaded.load_full();
+        let Some(epoch) = snap.as_ref().as_ref() else {
+            return Err(SearchError::Unavailable(
+                "no active Tantivy epoch loaded".to_owned(),
+            ));
+        };
+        let searcher = epoch.reader.searcher();
+        let term = Term::from_field_text(epoch.fields.doc_key, &key.encode_doc_key());
+        let query = TermQuery::new(term, IndexRecordOption::Basic);
+        let top = searcher
+            .search(&query, &TopDocs::with_limit(1).order_by_score())
+            .map_err(|e| SearchError::CorruptIndex(format!("contains_doc_key search: {e}")))?;
+        Ok(!top.is_empty())
+    }
+
     fn ensure_active_epoch_for_write(&self) -> Result<(), SearchError> {
         if self.loaded.load().as_ref().is_some() {
             return Ok(());
@@ -685,6 +1260,172 @@ impl SharedState {
         };
         let disk = self.verify_disk_epoch_matches(epoch.manifest.epoch)?;
         self.publish_reloaded_generation_locked(epoch, disk.generation, lease_lost)
+    }
+
+    /// Physically evict purged document keys and compact segments so purged document
+    /// bytes are physically rewritten/removed from disk (zero lingering bytes in old
+    /// `.pos`/`.term`/`.idx`/`.store` files).
+    fn evict_and_compact_sync(
+        &self,
+        keys: &[DocumentKey],
+        lease_lost: Option<&AtomicBool>,
+    ) -> Result<PurgeCompactionReport, SearchError> {
+        Self::check_lease(lease_lost)?;
+        let _guard = self
+            .write_mutex
+            .lock()
+            .map_err(|_| SearchError::Internal("write mutex poisoned".to_owned()))?;
+        let _lock = self.acquire_rebuild_lock()?;
+        Self::check_lease(lease_lost)?;
+
+        let snapshot = self.loaded.load_full();
+        let Some(epoch) = snapshot.as_ref().as_ref() else {
+            return Err(SearchError::Unavailable(
+                "no loaded epoch for lawful purge compaction".to_owned(),
+            ));
+        };
+        let epoch_num = epoch.manifest.epoch;
+        let epoch_dir = epoch.epoch_dir.clone();
+        let old_manifest = epoch.manifest.clone();
+        let mut dirty_manifest = self.verify_disk_epoch_matches(epoch_num)?;
+
+        let mut writer =
+            create_bounded_writer(&epoch.index, self.config.effective_writer_heap_bytes())?;
+        for key in keys {
+            let term = Term::from_field_text(epoch.fields.doc_key, &key.encode_doc_key());
+            writer.delete_term(term);
+        }
+        Self::check_lease(lease_lost)?;
+        dirty_manifest.clean_shutdown = false;
+        self.write_manifest_atomic(&dirty_manifest)?;
+        writer
+            .commit()
+            .map_err(|e| SearchError::Io(format!("tantivy purge delete commit: {e}")))?;
+
+        // Force full segment compaction across all remaining searchable segments so
+        // deleted document postings/terms/stored fields are physically rewritten out.
+        let seg_ids = epoch
+            .index
+            .searchable_segment_ids()
+            .map_err(|e| SearchError::Io(format!("searchable_segment_ids: {e}")))?;
+        let segments_merged = seg_ids.len();
+        if !seg_ids.is_empty() {
+            writer
+                .merge(&seg_ids)
+                .wait()
+                .map_err(|e| SearchError::Io(format!("tantivy purge segment merge: {e}")))?;
+            writer
+                .commit()
+                .map_err(|e| SearchError::Io(format!("tantivy purge post-merge commit: {e}")))?;
+        }
+        writer
+            .wait_merging_threads()
+            .map_err(|e| SearchError::Io(format!("tantivy purge wait_merging_threads: {e}")))?;
+
+        // Publish freshly reloaded generation FIRST, dropping the old snapshot/IndexReader
+        // so Tantivy's ManagedDirectory GC can physically unlink every superseded segment file.
+        let next_gen = old_manifest
+            .generation
+            .max(dirty_manifest.generation)
+            .saturating_add(1);
+        let mut updated = old_manifest;
+        updated.generation = next_gen;
+        updated.watermark_ts = Some(Utc::now());
+        updated.clean_shutdown = true;
+
+        drop(snapshot);
+        let reloaded = open_loaded_epoch(
+            &epoch_dir,
+            updated.clone(),
+            self.config.zh_dict_path.clone(),
+            Arc::clone(&self.active_epochs),
+        )?;
+        Self::check_lease(lease_lost)?;
+        self.write_manifest_atomic(&updated)?;
+        let prev_slot = self.loaded.swap(Arc::new(Some(reloaded)));
+        drop(prev_slot);
+        self.clear_degraded();
+
+        // Now run ManagedDirectory garbage collection on a fresh Index handle so every
+        // unreferenced old segment file containing purged bytes is unlinked from disk.
+        let gc_mmap = MmapDirectory::open(&epoch_dir)
+            .map_err(|e| SearchError::Io(format!("open gc MmapDirectory: {e}")))?;
+        let gc_index = Index::open(gc_mmap)
+            .map_err(|e| SearchError::Io(format!("open gc Tantivy index: {e}")))?;
+        register_tokenizers(&gc_index, self.config.zh_dict_path.clone());
+        let gc_writer =
+            create_bounded_writer(&gc_index, self.config.effective_writer_heap_bytes())?;
+        let gc_result = gc_writer
+            .garbage_collect_files()
+            .wait()
+            .map_err(|e| SearchError::Io(format!("tantivy garbage_collect_files: {e}")))?;
+        drop(gc_writer);
+        if !gc_result.failed_to_delete_files.is_empty() {
+            return Err(SearchError::Io(format!(
+                "tantivy purge GC failed to delete {} stale segment file(s): {:?}",
+                gc_result.failed_to_delete_files.len(),
+                gc_result.failed_to_delete_files
+            )));
+        }
+
+        // Also physically remove any pre-rebuild stale `epochs/index-vNNNNNN` directories
+        // so retained older epochs can never keep purged bytes on disk. Fail closed (retryable)
+        // if an older epoch is still pinned by an active reader or cannot be unlinked.
+        self.garbage_collect_stale_epochs_strict(epoch_num)?;
+
+        Ok(PurgeCompactionReport {
+            evicted_keys: keys.len(),
+            segments_merged,
+            epoch: epoch_num,
+            generation: next_gen,
+        })
+    }
+
+    fn garbage_collect_stale_epochs_strict(&self, active_epoch: u64) -> Result<usize, SearchError> {
+        let epochs_dir = self.config.index_dir.join("epochs");
+        if !epochs_dir.is_dir() {
+            return Ok(0);
+        }
+        let entries = fs::read_dir(&epochs_dir)
+            .map_err(|e| SearchError::Io(format!("read epochs dir for purge GC: {e}")))?;
+        let mut removed = 0usize;
+        for entry in entries {
+            let entry = entry
+                .map_err(|e| SearchError::Io(format!("iterate epochs dir for purge GC: {e}")))?;
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let Some(num_str) = name.strip_prefix("index-v") else {
+                continue;
+            };
+            let Ok(num) = num_str.parse::<u64>() else {
+                continue;
+            };
+            if num == active_epoch {
+                continue;
+            }
+            let in_use = self
+                .active_epochs
+                .lock()
+                .ok()
+                .and_then(|m| m.get(&num).copied())
+                .unwrap_or(0)
+                > 0;
+            if in_use {
+                return Err(SearchError::Unavailable(format!(
+                    "stale search epoch v{num:06} still pinned by active reader during lawful purge compaction"
+                )));
+            }
+            fs::remove_dir_all(&path).map_err(|e| {
+                SearchError::Io(format!(
+                    "remove stale search epoch {} during lawful purge compaction: {e}",
+                    path.display()
+                ))
+            })?;
+            removed += 1;
+        }
+        Ok(removed)
     }
 
     /// Atomically publish a new `(reader, generation)` pair into `ArcSwap` + `CURRENT`
@@ -1009,6 +1750,16 @@ fn open_loaded_epoch(
     zh_dict_path: Option<PathBuf>,
     active_epochs: Arc<Mutex<HashMap<u64, usize>>>,
 ) -> Result<LoadedEpoch, SearchError> {
+    open_loaded_epoch_with_mode(epoch_dir, manifest, zh_dict_path, active_epochs, false)
+}
+
+fn open_loaded_epoch_with_mode(
+    epoch_dir: &Path,
+    manifest: EpochManifest,
+    zh_dict_path: Option<PathBuf>,
+    active_epochs: Arc<Mutex<HashMap<u64, usize>>>,
+    read_only: bool,
+) -> Result<LoadedEpoch, SearchError> {
     if !epoch_dir.is_dir() {
         return Err(SearchError::CorruptIndex(format!(
             "epoch directory missing: {}",
@@ -1017,8 +1768,12 @@ fn open_loaded_epoch(
     }
     let mmap_dir = MmapDirectory::open(epoch_dir)
         .map_err(|e| SearchError::CorruptIndex(format!("open MmapDirectory: {e}")))?;
-    let index = Index::open(mmap_dir)
-        .map_err(|e| SearchError::CorruptIndex(format!("open Tantivy index: {e}")))?;
+    let index = if read_only {
+        Index::open(ReadOnlyDirectory { inner: mmap_dir })
+    } else {
+        Index::open(mmap_dir)
+    }
+    .map_err(|e| SearchError::CorruptIndex(format!("open Tantivy index: {e}")))?;
     register_tokenizers(&index, zh_dict_path);
 
     let schema = index.schema();
@@ -1300,5 +2055,25 @@ impl SearchIndexer for TantivySearchEngine {
                 .await
                 .map_err(|e| SearchError::Internal(format!("indexer commit join error: {e}")))?
         })
+    }
+
+    fn evict_and_compact_checked<'a>(
+        &'a self,
+        keys: &'a [DocumentKey],
+        lease_lost: Option<Arc<AtomicBool>>,
+    ) -> BoxFuture<'a, Result<PurgeCompactionReport, SearchError>> {
+        let state = Arc::clone(&self.state);
+        let owned_keys = keys.to_vec();
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || {
+                state.evict_and_compact_sync(&owned_keys, lease_lost.as_deref())
+            })
+            .await
+            .map_err(|e| SearchError::Internal(format!("indexer purge compact join error: {e}")))?
+        })
+    }
+
+    fn reload_if_disk_epoch_advanced(&self) -> Result<bool, SearchError> {
+        TantivySearchEngine::reload_if_disk_epoch_advanced(self)
     }
 }

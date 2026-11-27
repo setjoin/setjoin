@@ -716,6 +716,15 @@ pub trait SearchEngine: Send + Sync {
     fn health(&self) -> EngineHealth;
 }
 
+/// Report returned after physical lawful-purge eviction and segment compaction.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PurgeCompactionReport {
+    pub evicted_keys: usize,
+    pub segments_merged: usize,
+    pub epoch: u64,
+    pub generation: u64,
+}
+
 /// Object-safe write-side ingestion seam (consumed by Wave 3.2 `WorkQueue` and Wave 3.3 RPC leader).
 pub trait SearchIndexer: Send + Sync {
     fn upsert_batch<'a>(
@@ -787,5 +796,38 @@ pub trait SearchIndexer: Send + Sync {
             });
         }
         self.commit_generation()
+    }
+
+    /// Physically evict purged document keys and compact segments so purged bytes
+    /// are overwritten/removed from disk rather than lingering in unmerged segments.
+    fn evict_and_compact<'a>(
+        &'a self,
+        keys: &'a [DocumentKey],
+    ) -> BoxFuture<'a, Result<PurgeCompactionReport, SearchError>> {
+        self.evict_and_compact_checked(keys, None)
+    }
+
+    /// Lease-fenced variant of [`Self::evict_and_compact`].
+    fn evict_and_compact_checked<'a>(
+        &'a self,
+        keys: &'a [DocumentKey],
+        lease_lost: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    ) -> BoxFuture<'a, Result<PurgeCompactionReport, SearchError>> {
+        Box::pin(async move {
+            let deleted = self.delete_batch_checked(keys, lease_lost.clone()).await?;
+            let generation = self.commit_generation_checked(lease_lost).await?;
+            Ok(PurgeCompactionReport {
+                evicted_keys: deleted,
+                segments_merged: 0,
+                epoch: 0,
+                generation,
+            })
+        })
+    }
+
+    /// Reload `CURRENT` on disk if an external process (e.g. online `mailctl search rebuild`)
+    /// atomically published a strictly newer epoch.
+    fn reload_if_disk_epoch_advanced(&self) -> Result<bool, SearchError> {
+        Ok(false)
     }
 }

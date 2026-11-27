@@ -3426,6 +3426,12 @@
       "rls_posture": "enforced",
       "read_contracts": []
     },
+    "search_leader_leases": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
     "security_event_outbox": {
       "owner": "foundation",
       "security_class": "system_only",

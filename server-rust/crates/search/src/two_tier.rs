@@ -9,7 +9,80 @@ use crate::model::{
 use crate::tantivy_engine::TantivySearchEngine;
 use crate::tier1_pg::PgSearchCapabilities;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn now_unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// Fail-closed deadline-enforced gate controlling whether this node holds an active,
+/// unexpired HA single-writer search leader lease for `/_internal/search/*` RPCs.
+///
+/// Defaults to **inactive** (`active = false`, `deadline_unix_ms = 0`) so stateless
+/// HTTP-only nodes and un-elected worker nodes automatically return `503`. Even if a
+/// heartbeat task stalls under DB partition or scheduler lag, [`Self::is_active`]
+/// flips to `false` automatically as soon as `now_unix_ms() >= deadline_unix_ms`.
+#[derive(Debug)]
+pub struct LeaderLeaseGate {
+    active: AtomicBool,
+    deadline_unix_ms: AtomicU64,
+}
+
+impl LeaderLeaseGate {
+    #[must_use]
+    pub const fn inactive() -> Self {
+        Self {
+            active: AtomicBool::new(false),
+            deadline_unix_ms: AtomicU64::new(0),
+        }
+    }
+
+    /// Activate leadership strictly until the given UTC epoch-millisecond deadline.
+    pub fn set_active_until_unix_ms(&self, deadline_ms: u64) {
+        self.deadline_unix_ms.store(deadline_ms, Ordering::Release);
+        self.active.store(true, Ordering::Release);
+    }
+
+    /// Activate leadership for `ttl` from now (conservative lease window).
+    pub fn set_active_for(&self, ttl: std::time::Duration) {
+        let ttl_ms = u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX);
+        self.set_active_until_unix_ms(now_unix_ms().saturating_add(ttl_ms));
+    }
+
+    /// Unbounded toggle (intended for single-node local tests); `false` demotes immediately.
+    pub fn set_active_unbounded(&self, active: bool) {
+        if active {
+            self.deadline_unix_ms.store(u64::MAX, Ordering::Release);
+            self.active.store(true, Ordering::Release);
+        } else {
+            self.demote();
+        }
+    }
+
+    /// Immediately revoke leadership so `/_internal/search/*` returns `503`.
+    pub fn demote(&self) {
+        self.active.store(false, Ordering::Release);
+        self.deadline_unix_ms.store(0, Ordering::Release);
+    }
+
+    /// Return `true` ONLY if leadership is active AND the conservative local lease deadline
+    /// has not yet elapsed.
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        if !self.active.load(Ordering::Acquire) {
+            return false;
+        }
+        let deadline = self.deadline_unix_ms.load(Ordering::Acquire);
+        if deadline == u64::MAX {
+            return true;
+        }
+        now_unix_ms() < deadline
+    }
+}
 
 /// Verified watermark snapshot for one corpus (`search_index_watermarks` + `search_dirty_keys`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,6 +164,25 @@ impl SnapshotFreshnessFence {
         }
     }
 
+    /// Clear ALL corpus watermarks so subsequent queries fail closed to Tier-1
+    /// (used immediately on HA leader lease loss / expiry).
+    pub fn clear_all(&self) {
+        if let Ok(mut guard) = self.watermarks.write() {
+            guard.clear();
+        }
+    }
+
+    /// Advance the recorded generation for every corpus ALREADY present in this fence,
+    /// preserving each corpus's existing `dirty_count` and NEVER marking an unset corpus
+    /// fresh (`dirty_count = 0`).
+    pub fn advance_existing_corpora(&self, generation: u64) {
+        if let Ok(mut guard) = self.watermarks.write() {
+            for wm in guard.values_mut() {
+                wm.generation = wm.generation.max(generation);
+            }
+        }
+    }
+
     /// Inspect the currently recorded watermark for `corpus`.
     #[must_use]
     pub fn watermark(&self, corpus: DocCorpus) -> Option<WatermarkSnapshot> {
@@ -132,7 +224,8 @@ impl FreshnessFence for SnapshotFreshnessFence {
 pub struct TwoTierSearchEngine {
     config: SearchConfig,
     tier1: Arc<dyn SearchEngine>,
-    tier2: Option<Arc<TantivySearchEngine>>,
+    local_tier2: Option<Arc<TantivySearchEngine>>,
+    remote_tier2: Option<Arc<dyn SearchEngine>>,
     freshness: Arc<dyn FreshnessFence>,
 }
 
@@ -148,9 +241,34 @@ impl TwoTierSearchEngine {
         Self {
             config,
             tier1,
-            tier2,
+            local_tier2: tier2,
+            remote_tier2: None,
             freshness: Arc::new(SnapshotFreshnessFence::unset()),
         }
+    }
+
+    /// Construct a `TwoTierSearchEngine` backed by a remote HA Tier-2 [`SearchEngine`]
+    /// (e.g. [`crate::ha_rpc::RemoteSearchEngine`] on stateless HTTP follower nodes).
+    #[must_use]
+    pub fn with_remote_tier2(
+        config: SearchConfig,
+        tier1: Arc<dyn SearchEngine>,
+        remote_tier2: Arc<dyn SearchEngine>,
+    ) -> Self {
+        Self {
+            config,
+            tier1,
+            local_tier2: None,
+            remote_tier2: Some(remote_tier2),
+            freshness: Arc::new(SnapshotFreshnessFence::unset()),
+        }
+    }
+
+    /// Attach a remote HA Tier-2 fallback/follower engine alongside or instead of a local index.
+    #[must_use]
+    pub fn with_remote_engine(mut self, remote_tier2: Arc<dyn SearchEngine>) -> Self {
+        self.remote_tier2 = Some(remote_tier2);
+        self
     }
 
     #[must_use]
@@ -166,7 +284,12 @@ impl TwoTierSearchEngine {
 
     #[must_use]
     pub fn tier2(&self) -> Option<&Arc<TantivySearchEngine>> {
-        self.tier2.as_ref()
+        self.local_tier2.as_ref()
+    }
+
+    #[must_use]
+    pub fn remote_tier2(&self) -> Option<&Arc<dyn SearchEngine>> {
+        self.remote_tier2.as_ref()
     }
 
     async fn run_tier1_degraded(
@@ -192,38 +315,53 @@ impl SearchEngine for TwoTierSearchEngine {
                 return self.run_tier1_degraded(query, false).await;
             }
 
-            // 2. Load ONE atomic (reader, generation) snapshot from Tier-2.
-            let Some(tier2) = self.tier2.as_ref() else {
-                return self.run_tier1_degraded(query, true).await;
-            };
-            let snapshot = tier2.load_snapshot();
-            let Some(loaded) = snapshot.as_ref().as_ref() else {
-                return self.run_tier1_degraded(query, true).await;
-            };
-            let loaded_gen = loaded.manifest.generation;
-
-            // 3. Check fail-closed freshness fence against that EXACT snapshot generation.
-            if !self
-                .freshness
-                .is_corpus_fresh(query.corpus, loaded_gen)
-                .await
-            {
-                return self.run_tier1_degraded(query, true).await;
+            // 2. Prefer local Tantivy snapshot when healthy and fresh.
+            if let Some(tier2) = self.local_tier2.as_ref() {
+                let snapshot = tier2.load_snapshot();
+                if let Some(loaded) = snapshot.as_ref().as_ref() {
+                    let loaded_gen = loaded.manifest.generation;
+                    if self
+                        .freshness
+                        .is_corpus_fresh(query.corpus, loaded_gen)
+                        .await
+                    {
+                        match tier2.candidates_on_snapshot(snapshot, query).await {
+                            Ok(batch) if !batch.degraded => return Ok(batch),
+                            Err(SearchError::InvalidCursor) => {
+                                return Err(SearchError::InvalidCursor);
+                            }
+                            Ok(_) | Err(_) => {
+                                // Fall through to remote leader or Tier-1 PG.
+                            }
+                        }
+                    }
+                }
             }
 
-            // 4. Execute Tier-2 on that EXACT snapshot; any runtime error / timeout / panic /
-            //    corrupt index degrades cleanly to Tier-1.
-            match tier2.candidates_on_snapshot(snapshot, query).await {
-                Ok(batch) if !batch.degraded => Ok(batch),
-                Ok(_) => self.run_tier1_degraded(query, true).await,
-                Err(SearchError::InvalidCursor) => Err(SearchError::InvalidCursor),
-                Err(_) => self.run_tier1_degraded(query, true).await,
+            // 3. Follower path: query remote HA single-writer leader via authenticated RPC.
+            if let Some(remote) = self.remote_tier2.as_ref() {
+                match remote.candidates(query).await {
+                    Ok(batch) if !batch.degraded => return Ok(batch),
+                    Err(SearchError::InvalidCursor) => return Err(SearchError::InvalidCursor),
+                    Ok(_) | Err(_) => return self.run_tier1_degraded(query, true).await,
+                }
             }
+
+            // 4. Transparent fail-closed fallback to Tier-1 PG.
+            self.run_tier1_degraded(query, true).await
         })
     }
 
     fn tier(&self) -> SearchTier {
-        if self.config.tier2_enabled && self.tier2.as_ref().is_some_and(|e| e.health().is_healthy())
+        if self.config.tier2_enabled
+            && (self
+                .local_tier2
+                .as_ref()
+                .is_some_and(|e| e.health().is_healthy())
+                || self
+                    .remote_tier2
+                    .as_ref()
+                    .is_some_and(|e| e.health().is_healthy()))
         {
             SearchTier::Tier2Tantivy
         } else {
@@ -235,8 +373,18 @@ impl SearchEngine for TwoTierSearchEngine {
         if !self.config.tier2_enabled {
             return EngineHealth::Disabled;
         }
-        match self.tier2.as_ref() {
-            Some(t2) => t2.health(),
+        if let Some(t2) = self.local_tier2.as_ref() {
+            let h = t2.health();
+            if h.is_healthy() {
+                return h;
+            }
+            if let Some(remote) = self.remote_tier2.as_ref() {
+                return remote.health();
+            }
+            return h;
+        }
+        match self.remote_tier2.as_ref() {
+            Some(remote) => remote.health(),
             None => EngineHealth::Degraded {
                 reason: "tier-2 search engine not initialized".to_owned(),
             },
@@ -254,7 +402,9 @@ pub struct SearchRuntime {
     config: SearchConfig,
     capabilities: PgSearchCapabilities,
     tier2: Option<Arc<TantivySearchEngine>>,
+    remote_tier2: Option<Arc<dyn SearchEngine>>,
     freshness: Arc<SnapshotFreshnessFence>,
+    leader_gate: Arc<LeaderLeaseGate>,
 }
 
 impl SearchRuntime {
@@ -268,6 +418,9 @@ impl SearchRuntime {
     }
 
     /// Initialize from an explicit [`SearchConfig`] and probed PostgreSQL capabilities.
+    ///
+    /// Starts strictly with [`LeaderLeaseGate::inactive()`] so HTTP-only follower nodes
+    /// and un-elected nodes return `503` on `/_internal/search/*` until leadership is acquired.
     #[must_use]
     pub fn from_config(config: SearchConfig, capabilities: PgSearchCapabilities) -> Self {
         let tier2 = if config.tier2_enabled {
@@ -281,8 +434,17 @@ impl SearchRuntime {
             config,
             capabilities,
             tier2,
+            remote_tier2: None,
             freshness: Arc::new(SnapshotFreshnessFence::unset()),
+            leader_gate: Arc::new(LeaderLeaseGate::inactive()),
         }
+    }
+
+    /// Attach a remote HA leader [`SearchEngine`] for stateless HTTP follower reads.
+    #[must_use]
+    pub fn with_remote_tier2(mut self, remote: Arc<dyn SearchEngine>) -> Self {
+        self.remote_tier2 = Some(remote);
+        self
     }
 
     #[must_use]
@@ -301,8 +463,37 @@ impl SearchRuntime {
     }
 
     #[must_use]
+    pub fn remote_tier2(&self) -> Option<&Arc<dyn SearchEngine>> {
+        self.remote_tier2.as_ref()
+    }
+
+    #[must_use]
     pub fn freshness_fence(&self) -> &Arc<SnapshotFreshnessFence> {
         &self.freshness
+    }
+
+    /// Update whether this node currently holds the active HA single-writer search
+    /// leader lease (unbounded toggle for single-node/local tests; `false` demotes immediately).
+    pub fn set_leader_active(&self, active: bool) {
+        self.leader_gate.set_active_unbounded(active);
+    }
+
+    /// Activate HA leadership strictly until `ttl` elapses from now.
+    pub fn set_leader_active_for(&self, ttl: std::time::Duration) {
+        self.leader_gate.set_active_for(ttl);
+    }
+
+    /// Return `true` ONLY when this node holds an active, unexpired HA leader lease
+    /// permitted to serve `/_internal/search/*` RPCs.
+    #[must_use]
+    pub fn is_leader_active(&self) -> bool {
+        self.leader_gate.is_active()
+    }
+
+    /// Shared deadline-enforced gate controlling active HA leadership.
+    #[must_use]
+    pub fn leader_gate(&self) -> Arc<LeaderLeaseGate> {
+        Arc::clone(&self.leader_gate)
     }
 
     #[must_use]
@@ -310,17 +501,32 @@ impl SearchRuntime {
         if !self.config.tier2_enabled {
             return EngineHealth::Disabled;
         }
-        match self.tier2.as_ref() {
-            Some(engine) => engine.health(),
+        if let Some(engine) = self.tier2.as_ref() {
+            let h = engine.health();
+            if h.is_healthy() {
+                return h;
+            }
+            if let Some(remote) = self.remote_tier2.as_ref() {
+                return remote.health();
+            }
+            return h;
+        }
+        match self.remote_tier2.as_ref() {
+            Some(remote) => remote.health(),
             None => EngineHealth::Disabled,
         }
     }
 
     /// Build a [`TwoTierSearchEngine`] pairing the runtime's optional Tier-2
-    /// engine, fail-closed watermark fence, and a caller-supplied Tier-1 engine.
+    /// engine (local and/or remote HA leader), fail-closed watermark fence,
+    /// and a caller-supplied Tier-1 engine.
     #[must_use]
     pub fn engine(&self, tier1: Arc<dyn SearchEngine>) -> TwoTierSearchEngine {
-        TwoTierSearchEngine::new(self.config.clone(), tier1, self.tier2.clone())
-            .with_freshness_fence(Arc::clone(&self.freshness) as Arc<dyn FreshnessFence>)
+        let mut eng = TwoTierSearchEngine::new(self.config.clone(), tier1, self.tier2.clone())
+            .with_freshness_fence(Arc::clone(&self.freshness) as Arc<dyn FreshnessFence>);
+        if let Some(remote) = self.remote_tier2.as_ref() {
+            eng = eng.with_remote_engine(Arc::clone(remote));
+        }
+        eng
     }
 }

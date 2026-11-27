@@ -323,7 +323,7 @@ pub async fn hold(
 
 /// Go's GetSearch uses the worker credential and only reads persisted bindings.
 pub async fn get_search(exec: &ScopedExecutor, id: i64) -> Result<String, StatementFailure> {
-    let rows=exec.read("SELECT id,name,query->>'keywords',query->>'kql',query->>'fromAddr',query->>'dateFrom',query->>'dateTo',query::text,status,result_count,case_id,to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') FROM ediscovery_searches WHERE id=$1",&[(&id,Type::INT8)]).await?;
+    let rows=exec.read("SELECT id,name,query->>'keywords',query->>'kql',query->>'fromAddr',query->>'dateFrom',query->>'dateTo',query::text,status,result_count,case_id,to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),search_provenance::text FROM ediscovery_searches WHERE id=$1",&[(&id,Type::INT8)]).await?;
     let r = rows.first().ok_or_else(invalid)?;
     let id: i64 = r.try_get(0).map_err(|_| invalid())?;
     let name: String = r.try_get(1).map_err(|_| invalid())?;
@@ -345,6 +345,7 @@ pub async fn get_search(exec: &ScopedExecutor, id: i64) -> Result<String, Statem
     let count: Option<i32> = r.try_get(9).map_err(|_| invalid())?;
     let case: Option<i64> = r.try_get(10).map_err(|_| invalid())?;
     let created: String = r.try_get(11).map_err(|_| invalid())?;
+    let provenance: Option<String> = r.try_get(12).ok().flatten();
     let mut search = format!(
         "{{\"id\":{id},\"name\":{},\"keywords\":{}",
         quote(&name),
@@ -386,6 +387,9 @@ pub async fn get_search(exec: &ScopedExecutor, id: i64) -> Result<String, Statem
     search += &format!(",\"status\":{}", quote(&status));
     if let Some(count) = count {
         search += &format!(",\"resultCount\":{count}");
+    }
+    if let Some(prov) = provenance.as_deref().filter(|s| !s.is_empty()) {
+        search += &format!(",\"searchProvenance\":{prov}");
     }
     search += &format!(",\"createdAt\":{}}}", quote(&created));
     let mut results = Vec::new();

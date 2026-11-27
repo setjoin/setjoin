@@ -579,6 +579,7 @@ where
     db: Arc<dyn SearchPipelineDb>,
     engine: Arc<E>,
     extractor: Option<Arc<ContentExtractionService>>,
+    leader_fence: Option<(String, i64)>,
 }
 
 impl<E> SearchIndexPipeline<E>
@@ -591,12 +592,21 @@ where
             db,
             engine,
             extractor: None,
+            leader_fence: None,
         }
     }
 
     #[must_use]
     pub fn with_extraction_service(mut self, extractor: Arc<ContentExtractionService>) -> Self {
         self.extractor = Some(extractor);
+        self
+    }
+
+    /// Fence outbox settlement and watermark advancement on active HA single-writer
+    /// leadership `(node_id, fencing_token)` (`#558`).
+    #[must_use]
+    pub fn with_leader_fence(mut self, node_id: String, fencing_token: i64) -> Self {
+        self.leader_fence = Some((node_id, fencing_token));
         self
     }
 
@@ -620,6 +630,8 @@ where
         lease_lost: Option<Arc<AtomicBool>>,
     ) -> Result<IndexBatchSummary, SearchError> {
         let lease_ref = lease_lost.as_deref();
+        // Seamlessly pick up any strictly newer epoch committed on disk by `mailctl search rebuild`.
+        let _ = self.engine.reload_if_disk_epoch_advanced();
         let limit = payload
             .batch_limit
             .unwrap_or(DEFAULT_INDEX_BATCH_LIMIT)
@@ -648,6 +660,7 @@ where
         // Per-key chronological collapse: last operation for a DocumentKey wins deterministically.
         let mut final_ops: HashMap<DocumentKey, FinalOp> = HashMap::new();
         let mut corpus_max_seq: Vec<(DocCorpus, i64)> = Vec::new();
+        let mut corpus_seqs: HashMap<DocCorpus, Vec<i64>> = HashMap::new();
         let mut processed_seqs: Vec<i64> = Vec::new();
         let mut processed_dirty: Vec<DirtyKeyRef> = Vec::new();
         let mut handled_scheduled_uuids: HashSet<String> = HashSet::new();
@@ -679,10 +692,12 @@ where
                 continue;
             }
             let mut max_seq = 0i64;
+            let cseqs = corpus_seqs.entry(corpus).or_default();
             for entry in &rows {
                 if entry.seq > max_seq {
                     max_seq = entry.seq;
                 }
+                cseqs.push(entry.seq);
                 processed_seqs.push(entry.seq);
                 summary.outbox_rows_processed += 1;
                 processed_dirty.push(DirtyKeyRef {
@@ -776,37 +791,77 @@ where
 
         check_lease_alive(lease_ref)?;
 
-        // Mark exact claimed outbox seqs processed AFTER Tantivy commit succeeds.
-        mark_outbox_processed(self.db.as_ref(), &processed_seqs).await?;
-
         let mut accepted_corpora: HashSet<DocCorpus> = HashSet::new();
-        for (corpus, max_seq) in corpus_max_seq {
-            check_lease_alive(lease_ref)?;
-            // Contiguous watermark: never jump past an unprocessed lower seq.
-            let contiguous_seq =
-                contiguous_processed_seq(self.db.as_ref(), corpus, max_seq).await?;
-            let (returned_epoch, committed_seq) = advance_watermark(
-                self.db.as_ref(),
-                corpus,
-                post_epoch,
-                generation as i64,
-                contiguous_seq,
-                &hash,
-            )
-            .await?;
-            if returned_epoch == post_epoch {
-                accepted_corpora.insert(corpus);
+        if let Some((ref expected_node, expected_token)) = self.leader_fence {
+            // Atomic single-transaction HA leader fence + outbox settlement + watermark advance
+            // (`public.search_fenced_settle_batch` locks `'search_writer' FOR UPDATE`, verifies
+            // `(holder_node_id, fencing_token, leased_until > now())`, marks outbox rows processed,
+            // and advances `search_index_watermarks` in ONE transaction — zero split-brain race).
+            for (corpus, max_seq) in corpus_max_seq {
+                check_lease_alive(lease_ref)?;
+                let seqs_for_corpus = corpus_seqs.remove(&corpus).unwrap_or_default();
+                let (settled, returned_epoch, committed_seq) = fenced_settle_batch(
+                    self.db.as_ref(),
+                    expected_node,
+                    expected_token,
+                    &seqs_for_corpus,
+                    corpus,
+                    post_epoch,
+                    generation as i64,
+                    max_seq,
+                    &hash,
+                )
+                .await?;
+                if !settled {
+                    return Err(SearchError::Unavailable(
+                        "HA search leader atomic fenced settlement rejected (leadership lost)"
+                            .to_owned(),
+                    ));
+                }
+                if returned_epoch == post_epoch {
+                    accepted_corpora.insert(corpus);
+                }
+                summary.watermarks.insert(corpus, committed_seq);
+                let (remaining_outbox, remaining_dirty_keys) =
+                    count_remaining_unindexed(self.db.as_ref(), corpus).await?;
+                if remaining_outbox > 0 {
+                    summary.has_more = true;
+                }
+                summary.remaining_dirty.insert(
+                    corpus,
+                    remaining_outbox.saturating_add(remaining_dirty_keys),
+                );
             }
-            summary.watermarks.insert(corpus, committed_seq);
-            let (remaining_outbox, remaining_dirty_keys) =
-                count_remaining_unindexed(self.db.as_ref(), corpus).await?;
-            if remaining_outbox > 0 {
-                summary.has_more = true;
+        } else {
+            // Unfenced single-node/direct pipeline settlement.
+            mark_outbox_processed(self.db.as_ref(), &processed_seqs).await?;
+            for (corpus, max_seq) in corpus_max_seq {
+                check_lease_alive(lease_ref)?;
+                let contiguous_seq =
+                    contiguous_processed_seq(self.db.as_ref(), corpus, max_seq).await?;
+                let (returned_epoch, committed_seq) = advance_watermark(
+                    self.db.as_ref(),
+                    corpus,
+                    post_epoch,
+                    generation as i64,
+                    contiguous_seq,
+                    &hash,
+                )
+                .await?;
+                if returned_epoch == post_epoch {
+                    accepted_corpora.insert(corpus);
+                }
+                summary.watermarks.insert(corpus, committed_seq);
+                let (remaining_outbox, remaining_dirty_keys) =
+                    count_remaining_unindexed(self.db.as_ref(), corpus).await?;
+                if remaining_outbox > 0 {
+                    summary.has_more = true;
+                }
+                summary.remaining_dirty.insert(
+                    corpus,
+                    remaining_outbox.saturating_add(remaining_dirty_keys),
+                );
             }
-            summary.remaining_dirty.insert(
-                corpus,
-                remaining_outbox.saturating_add(remaining_dirty_keys),
-            );
         }
 
         // Delete ONLY processed dirty keys for corpora whose epoch was accepted
@@ -2572,6 +2627,43 @@ async fn contiguous_processed_seq(
         .first()
         .ok_or_else(|| SearchError::Database("contiguous_processed_seq returned no rows".into()))?;
     col(row, 0)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn fenced_settle_batch(
+    db: &dyn SearchPipelineDb,
+    node_id: &str,
+    fencing_token: i64,
+    seqs: &[i64],
+    corpus: DocCorpus,
+    epoch: i64,
+    generation: i64,
+    indexed_outbox_seq: i64,
+    schema_hash: &str,
+) -> Result<(bool, i64, i64), SearchError> {
+    let seqs_vec = seqs.to_vec();
+    let c = corpus.as_str();
+    let params: [Param<'_>; 8] = [
+        (&node_id, Type::TEXT),
+        (&fencing_token, Type::INT8),
+        (&seqs_vec, Type::INT8_ARRAY),
+        (&c, Type::TEXT),
+        (&epoch, Type::INT8),
+        (&generation, Type::INT8),
+        (&indexed_outbox_seq, Type::INT8),
+        (&schema_hash, Type::TEXT),
+    ];
+    let rows = db
+        .query_typed(
+            "SELECT settled, returned_epoch, committed_outbox_seq \
+               FROM public.search_fenced_settle_batch($1, $2, $3, $4, $5, $6, $7, $8)",
+            &params,
+        )
+        .await?;
+    let row = rows.first().ok_or_else(|| {
+        SearchError::Database("search_fenced_settle_batch returned no rows".into())
+    })?;
+    Ok((col(row, 0)?, col(row, 1)?, col(row, 2)?))
 }
 
 async fn advance_watermark(

@@ -268,3 +268,6 @@ search_index_watermarks	COVERED	V290__search_two_tier.pg	search_index_watermarks
 # ── V291 Content-addressed search extraction cache & indexing outbox (#557). ─
 search_extracted_text	COVERED	V291__search_extraction.pg	search_extracted_text denies all setjoin_app SELECT access (42501)	V291 (#557): worker-only content-addressed extraction cache with ENABLE+FORCE RLS, zero policies, and REVOKE ALL FROM PUBLIC/setjoin_app; SET LOCAL ROLE setjoin_app SELECT/INSERT raise 42501.
 search_index_outbox	COVERED	V291__search_extraction.pg	search_index_outbox denies all setjoin_app SELECT access (42501)	V291 (#557): worker-only monotonic search indexing outbox with ENABLE+FORCE RLS, zero policies, and REVOKE ALL FROM PUBLIC/setjoin_app; SET LOCAL ROLE setjoin_app SELECT/INSERT raise 42501.
+
+# ── V292 HA single-writer search leader leases (#558). ──────────────────────
+search_leader_leases	COVERED	V292__search_ediscovery_purge_ha.pg	search_leader_leases denies all setjoin_app SELECT access (42501)	V292 (#558): worker-only HA single-writer search leader lease table with ENABLE+FORCE RLS, zero policies, and REVOKE ALL FROM PUBLIC/setjoin_app; SET LOCAL ROLE setjoin_app SELECT/INSERT raise 42501.

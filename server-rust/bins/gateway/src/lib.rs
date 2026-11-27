@@ -66,6 +66,7 @@ pub mod recovery_worker;
 pub mod routes;
 pub mod rtc;
 pub mod runtime;
+pub mod search_facade;
 pub mod served_stats;
 pub mod smtp_runtime;
 pub mod supervisor;
@@ -132,6 +133,7 @@ struct Shared {
     http_limits: http_limits::HttpLimits,
     connections: Arc<tokio::sync::Semaphore>,
     search_runtime: Option<Arc<setjoin_search::SearchRuntime>>,
+    search_facade: Option<Arc<search_facade::GatewaySearchFacade>>,
 }
 
 #[derive(Clone)]
@@ -162,6 +164,7 @@ impl Gateway {
                     http_limits::HttpLimits::default().max_connections,
                 )),
                 search_runtime: None,
+                search_facade: None,
             }),
         })
     }
@@ -173,6 +176,14 @@ impl Gateway {
     ) -> Self {
         if let Some(shared) = Arc::get_mut(&mut self.shared) {
             shared.search_runtime = Some(search_runtime);
+        }
+        self
+    }
+
+    /// Attach the gateway two-tier search facade (PG ACL re-auth for Mail/Chat/Drive, #558).
+    pub fn with_search_facade(mut self, facade: Arc<search_facade::GatewaySearchFacade>) -> Self {
+        if let Some(shared) = Arc::get_mut(&mut self.shared) {
+            shared.search_facade = Some(facade);
         }
         self
     }
@@ -482,6 +493,14 @@ async fn handle(
             Method::GET | Method::HEAD => shared.go_proxies.response(req.method() == Method::HEAD),
             _ => proxy::status(StatusCode::METHOD_NOT_ALLOWED, "method not allowed\n"),
         };
+    }
+    if matches!(
+        req.uri().path(),
+        setjoin_search::INTERNAL_SEARCH_CANDIDATES_PATH
+            | setjoin_search::INTERNAL_SEARCH_HEALTH_PATH
+    ) {
+        return search_facade::handle_internal_search_rpc(shared.search_runtime.as_deref(), req)
+            .await;
     }
     // Go's net/http request-line unescape runs before CSRF and edge rate limiting.
     if route.is_some_and(|r| r.target == inventory::Target::LocalRust)
@@ -798,6 +817,9 @@ async fn handle(
                 identity,
                 upstream: go_mail,
             };
+            if let Some(facade) = &shared.search_facade {
+                req.extensions_mut().insert(Arc::clone(facade));
+            }
             route.handle(req, ctx).await
         }
         None => {

@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 mod bootstrap;
 mod push;
 mod scim;
+mod search;
 mod smime;
 mod sources;
 mod work;
@@ -72,6 +73,7 @@ async fn execute(cmd: &str, action: &str, args: &[String]) -> Result<i32, String
             work::execute(action, args).await?;
             Ok(0)
         }
+        ("search", _) => search::execute(action, args).await,
         ("schema", "apply") => {
             let fs = crate::flags::parse("schema apply", args, &[], &["yes", "y"], false);
             let mut db = database(true).await?;

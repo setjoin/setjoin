@@ -6,6 +6,14 @@ pub struct Predicate {
     pub(crate) sql: String,
     pub(crate) values: Vec<String>,
 }
+
+impl Predicate {
+    /// Extract the allowlisted SQL template and bound parameter array.
+    #[must_use]
+    pub fn into_parts(self) -> (String, Vec<String>) {
+        (self.sql, self.values)
+    }
+}
 struct Expr {
     or: bool,
     terms: Vec<Term>,
