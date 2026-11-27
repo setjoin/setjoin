@@ -75,14 +75,13 @@ def check_asrbot_route(root, route, executable):
                        f"MUTANT-REJECTED: {route['method']} {route['path']} :: status"))
 
 
-# Platform's non-HTTP listeners (#305): the :80 ACME responder and the unix setup control socket
-# are separate listeners the gateway never mounts. Like the captions bot, their oracle is a
-# byte-for-byte replay of goldens recorded from frozen Go, not the DB observation catalog.
-PLATFORM_LISTENER_FLOOR = {"control": {200, 400, 403, 409}, "acme": {200, 301}}
+# Platform's non-HTTP listener (#305): the unix setup control socket is a separate listener
+# the gateway never mounts. Like the captions bot, its oracle is a byte-for-byte replay of
+# goldens recorded from frozen Go, not the DB observation catalog.
+PLATFORM_LISTENER_FLOOR = {"control": {200, 400, 403, 409}}
 PLATFORM_LISTENER_TESTS = {
     "control": [("setup_control_recorded", "control_socket_matches_recorded_go"),
                 ("setup_control_recorded", "socket_hardening")],
-    "acme": [("acme_http80_recorded", "http80_matches_recorded_go")],
 }
 
 
@@ -117,8 +116,7 @@ def check_platform_listener_route(root, route, executable):
     for target, test in PLATFORM_LISTENER_TESTS[route["listener"]]:
         receipt = (f"GOLDEN-REPLAY: {first[0]} {route['path']} :: {first[1]}"
                    if test == "control_socket_matches_recorded_go"
-                   else "GOLDEN-REPLAY: control socket :: hardening" if test == "socket_hardening"
-                   else "GOLDEN-REPLAY: acme :80 :: http80")
+                   else "GOLDEN-REPLAY: control socket :: hardening")
         item = ({"package": "setjoin-gateway", "target": target, "test": test}, receipt)
         if item not in executable:
             executable.append(item)

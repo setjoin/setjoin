@@ -1,0 +1,22 @@
+# Setjoin Edge TLS PEM Export Oneshot Service Template (#559)
+#
+# Render placeholders and install to /etc/systemd/system/setjoin-tls-export.service
+# alongside setjoin-tls-export.path. Runs as root so exported PEM files in
+# {{TLS_DIR}} (default /etc/mail/tls) stay root-owned (0750 dir, 0644 cert,
+# 0640 root:setjoin key) and readable by setjoind without granting setjoin write
+# access to its own TLS directory.
+
+[Unit]
+Description=Export edge TLS PEM certificate and key for Setjoin
+After=caddy.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart={{INSTALL_DIR}}/deploy/scripts/export-edge-pem.sh --cert {{CADDY_CERT_PATH}} --key {{CADDY_KEY_PATH}} --dest-dir {{TLS_DIR}}
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadOnlyPaths={{CADDY_DATA_DIR}}
+ReadWritePaths={{TLS_DIR}}

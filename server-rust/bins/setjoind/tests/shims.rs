@@ -208,7 +208,7 @@ fn shim_refuses_conflicting_subsystems_and_symlinked_setjoind_fail_closed() {
 }
 
 #[tokio::test]
-async fn server_shim_inherits_nine_fds_including_fd_10_11_without_jwt_secret() {
+async fn server_shim_inherits_eight_fds_including_fd_10_without_jwt_secret() {
     let dsn = common::test_db_dsn();
     let tmp = tempfile::tempdir().expect("tempdir");
     let (_, server_shim, _) = stage_release_n_dir(tmp.path());
@@ -216,11 +216,11 @@ async fn server_shim_inherits_nine_fds_including_fd_10_11_without_jwt_secret() {
     let (cert_path, key_path) = generate_self_signed_cert(tmp.path());
     let (notify_path, notify_sock) = common::bind_notify_socket(tmp.path());
 
-    // Bind 9 loopback TCP listeners mapped onto FDs 3..=11 (explicitly exercising FD 10 & 11).
+    // Bind 8 loopback TCP listeners mapped onto FDs 3..=10 (explicitly exercising FD 10;
+    // the retired `acme` socket slot was removed in #560).
     let slot_names = [
         "setjoin-gateway.socket",
         "https",
-        "acme",
         "federation",
         "imap",
         "imaps",
@@ -322,7 +322,7 @@ async fn server_shim_inherits_nine_fds_including_fd_10_11_without_jwt_secret() {
 }
 
 #[tokio::test]
-async fn auth_shim_serves_health_and_jwks_and_unified_mode_supports_static_tls_and_acme() {
+async fn auth_shim_serves_health_and_jwks_and_unified_mode_supports_static_tls_and_proxy() {
     let dsn = common::test_db_dsn();
 
     // 1. Real setjoin-auth-shim with config.env + auth.env semantics.
@@ -386,16 +386,14 @@ async fn auth_shim_serves_health_and_jwks_and_unified_mode_supports_static_tls_a
         assert!(status.success(), "expected clean auth exit, got {status}");
     }
 
-    // 2. Unified `setjoind --subsystems=all` under static-TLS AND ACME (empty TLS_CERT=) envs.
-    for is_acme in [false, true] {
+    // 2. Unified `setjoind --subsystems=all` under static-TLS AND proxy (empty TLS_CERT=) envs.
+    for is_proxy in [false, true] {
         let tmp = tempfile::tempdir().expect("tempdir");
         let (setjoind_exe, _, _) = stage_release_n_dir(tmp.path());
         let cfg_path = common::temp_config_file(tmp.path());
         let (notify_path, notify_sock) = common::bind_notify_socket(tmp.path());
         let http_addr = common::free_addr();
         let http_str = http_addr.to_string();
-        let autocert_dir = tmp.path().join("autocert");
-        std::fs::create_dir_all(&autocert_dir).unwrap();
 
         let mut cmd = Command::new(&setjoind_exe);
         cmd.env_clear()
@@ -413,11 +411,10 @@ async fn auth_shim_serves_health_and_jwks_and_unified_mode_supports_static_tls_a
             .env("DB_ENCRYPTION_KEY", TEST_DB_ENC_KEY)
             .env("INTERNAL_API_KEY", TEST_INTERNAL_KEY);
 
-        if is_acme {
+        if is_proxy {
             cmd.env("TLS_CERT", "")
                 .env("TLS_KEY", "")
-                .env("TLS_AUTOCERT_DOMAINS", "mail.example.test")
-                .env("TLS_AUTOCERT_CACHE_DIR", &autocert_dir);
+                .env("HTTP_MODE", "proxy");
         } else {
             let (cert_path, key_path) = generate_self_signed_cert(tmp.path());
             cmd.env("TLS_CERT", &cert_path).env("TLS_KEY", &key_path);
@@ -463,7 +460,7 @@ async fn auth_shim_serves_health_and_jwks_and_unified_mode_supports_static_tls_a
         let status = proc.wait_exit(Duration::from_secs(15)).expect("exit");
         assert!(
             status.success(),
-            "unified (acme={is_acme}) exit failed: {status}"
+            "unified (proxy={is_proxy}) exit failed: {status}"
         );
     }
 }

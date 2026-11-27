@@ -26,7 +26,6 @@ done
 : > "$tmp/systemd/setjoin-gateway.socket"
 : > "$tmp/systemd/setjoin-federation.socket"
 : > "$tmp/systemd/setjoin-https.socket"
-: > "$tmp/systemd/setjoin-acme.socket"
 : > "$tmp/systemd/setjoin-imap.socket"
 : > "$tmp/systemd/setjoin-imaps.socket"
 printf '{"version":1,"enabled":false}\n' > "$tmp/etc/execution.json"
@@ -67,7 +66,7 @@ run_lifecycle stop --allow-updater-stop >/dev/null
 # A stopped front door must not be reactivated by its still-listening socket.
 : > "$log"
 run_lifecycle stop --allow-updater-stop >/dev/null
-for socket in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket; do
+for socket in setjoin-https.socket setjoin-imap.socket setjoin-imaps.socket; do
   grep -qx "stop $socket" "$log" || { echo "stop retained $socket" >&2; exit 1; }
   [ "$(grep -n "^stop $socket$" "$log" | cut -d: -f1)" -lt "$(grep -n '^stop setjoin-gateway$' "$log" | cut -d: -f1)" ] || exit 1
 done
@@ -90,7 +89,7 @@ run_lifecycle uninstall --allow-updater-stop --confirm-preserve-data >/dev/null
 [ -f "$preserved" ] || { echo "uninstall removed preserved data" >&2; exit 1; }
 [ ! -e "$tmp/systemd/setjoin-federation.socket" ] || { echo "uninstall retained federation socket" >&2; exit 1; }
 [ ! -e "$tmp/systemd/setjoin-gateway.socket" ] || { echo "uninstall retained the front-door socket" >&2; exit 1; }
-for socket in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket; do
+for socket in setjoin-https.socket setjoin-imap.socket setjoin-imaps.socket; do
   [ ! -e "$tmp/systemd/$socket" ] || { echo "uninstall retained $socket" >&2; exit 1; }
 done
 for unit in "${base[@]}" "${optional[@]}"; do
@@ -110,7 +109,7 @@ for unit in "${uni_base[@]}"; do
   : >"$tmp/systemd/$unit.service"
 done
 for sock in setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket \
-  setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket \
+  setjoin-imap.socket setjoin-imaps.socket \
   setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
   : >"$tmp/systemd/$sock"
 done
@@ -135,7 +134,7 @@ expected_uni_start=$'start setjoin-valkey\nstart setjoin-sfu\nstart setjoin-egre
 : >"$log"
 run_lifecycle stop --allow-updater-stop >/dev/null
 for sock in setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket \
-  setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket \
+  setjoin-imap.socket setjoin-imaps.socket \
   setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
   grep -qx "stop $sock" "$log" || {
     echo "unified stop retained $sock" >&2
@@ -149,7 +148,7 @@ done
 
 run_lifecycle uninstall --allow-updater-stop --confirm-preserve-data >/dev/null
 for sock in setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket \
-  setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket \
+  setjoin-imap.socket setjoin-imaps.socket \
   setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
   [ ! -e "$tmp/systemd/$sock" ] || {
     echo "unified uninstall retained $sock" >&2

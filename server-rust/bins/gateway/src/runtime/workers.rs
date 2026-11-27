@@ -249,7 +249,6 @@ pub(super) fn session_worker() -> Result<Option<(Arc<SessionDenylist>, String)>,
                     | "migration-runner"
                     | "webhook-publications"
                     | "webhook-retry"
-                    | "acme-renewal"
                     | "cert-monitor"
                     | "tls-ticket-keys"
                     | "http-tls"
@@ -261,6 +260,11 @@ pub(super) fn session_worker() -> Result<Option<(Arc<SessionDenylist>, String)>,
             )
     }) {
         return Err("RUST_WORKERS_ON contains an unknown worker".into());
+    }
+    if names.contains(&"tls-ticket-keys") {
+        eprintln!(
+            "setjoin-gateway: RUST_WORKERS_ON contains retired worker `tls-ticket-keys` (#560); ignoring (rustls now manages TLS session tickets in-process; run upgrade.sh refresh-gateway-env to clean config.env)"
+        );
     }
     if !names.contains(&"session-denylist-refresh") {
         return Ok(None);

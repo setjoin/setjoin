@@ -76,7 +76,6 @@ ARCH_MAP = {
 CORE_SOCKETS = (
     "setjoin-gateway.socket",
     "setjoin-https.socket",
-    "setjoin-acme.socket",
     "setjoin-federation.socket",
     "setjoin-imap.socket",
     "setjoin-imaps.socket",

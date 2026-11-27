@@ -9,9 +9,14 @@ fn base() -> Command {
 #[test]
 fn tls_workers_require_the_activated_https_listener() {
     for (name, needle) in [
-        ("cert-monitor", "TLS workers require the activated https listener"),
-        ("tls-ticket-keys", "TLS workers require the activated https listener"),
-        ("http-tls", "http-tls requires the socket-activated descriptor named `https`"),
+        (
+            "cert-monitor",
+            "TLS workers require the activated https listener",
+        ),
+        (
+            "http-tls",
+            "http-tls requires the socket-activated descriptor named `https`",
+        ),
     ] {
         let output = base()
             .env("RUST_WORKERS_ON", name)
@@ -22,6 +27,33 @@ fn tls_workers_require_the_activated_https_listener() {
         assert!(!output.status.success());
         let error = String::from_utf8_lossy(&output.stderr);
         assert!(error.contains(needle), "{name}: {error}");
+    }
+}
+
+#[test]
+fn retired_acme_configuration_refuses_startup_fail_closed() {
+    for (key, val) in [
+        ("TLS_AUTOCERT_DOMAINS", "mail.example.test"),
+        ("TLS_DNS_PROVIDER", "cloudflare"),
+        ("ACME_DOMAINS", "mail.example.test"),
+        ("RUST_WORKERS_ON", "acme-renewal"),
+    ] {
+        let output = base()
+            .env(key, val)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "retired ACME setting {key}={val} unexpectedly started"
+        );
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            error.contains("retired in Release N+1 (#560)")
+                && error.contains("docs/guides/EDGE_TLS_ACME_MIGRATION.md"),
+            "{key}: {error}"
+        );
     }
 }
 
@@ -41,21 +73,15 @@ impl Drop for Files {
 
 #[tokio::test]
 async fn activated_https_listener_serves_and_drains_with_the_plain_front_door() {
-    check_https(&[], None).await;
+    check_https("http-tls", false).await;
 }
 
 #[tokio::test]
-async fn dns_configuration_failure_keeps_native_https_serving() {
-    for settings in [
-        vec![("TLS_DNS_PROVIDER", "unknown")],
-        vec![("TLS_DNS_PROVIDER", "cloudflare"), ("TLS_DNS_CONFIG", "{}")],
-        vec![("TLS_DNS_PROVIDER", "cloudflare"), ("TLS_DNS_CONFIG", "/missing/gofree-tlsfront-dns.json")],
-    ] {
-        check_https(&settings, Some("managed ACME client creation failed")).await;
-    }
+async fn retired_tls_ticket_keys_worker_is_tolerated_with_deprecation_log() {
+    check_https("http-tls,tls-ticket-keys", true).await;
 }
 
-async fn check_https(settings: &[(&str, &str)], warning: Option<&str>) {
+async fn check_https(rust_workers_on: &str, expect_ticket_deprecation: bool) {
     use http_body_util::BodyExt;
     use hyper_util::rt::TokioIo;
     use std::os::{fd::AsRawFd, unix::process::CommandExt};
@@ -64,9 +90,11 @@ async fn check_https(settings: &[(&str, &str)], warning: Option<&str>) {
         self,
         pki_types::{pem::PemObject, CertificateDer, ServerName},
     };
-    let prefix = std::env::var("GOFREE_RESOURCE_PREFIX").unwrap_or_else(|_| "gofree-tlsfront".into());
+    let prefix =
+        std::env::var("GOFREE_RESOURCE_PREFIX").unwrap_or_else(|_| "gofree-tlsfront".into());
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-results").join(&prefix)
+        .join("../../../test-results")
+        .join(&prefix)
         .join(format!("activated-{}-{}", std::process::id(), {
             // Both cases run in this process on parallel threads: one directory each.
             static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -98,20 +126,10 @@ async fn check_https(settings: &[(&str, &str)], warning: Option<&str>) {
     command
         .env_clear()
         .env("GATEWAY_AUTH_UPSTREAM", "http://127.0.0.1:1")
-        .env("RUST_WORKERS_ON", "http-tls")
+        .env("RUST_WORKERS_ON", rust_workers_on)
         .env("GO_WORKERS_OFF", "http-tls,http-h2c")
         .env("TLS_CERT_FILE", files.0.join("cert.pem"))
         .env("TLS_KEY_FILE", files.0.join("key.pem"));
-    if warning.is_some() {
-        command
-            .env("RUST_WORKERS_ON", "http-tls,acme-renewal")
-            .env("GO_WORKERS_OFF", "http-tls,http-h2c,acme-renewal")
-            .env("TLS_AUTOCERT_DOMAINS", "localhost")
-            .env("TLS_AUTOCERT_EMAIL", "ops@example.test")
-            .env("TLS_AUTOCERT_CACHE_DIR", files.0.join("cache"))
-            .env("TLS_AUTOCERT_CHALLENGE", "dns-01")
-            .envs(settings.iter().copied());
-    }
     command
         .args([
             "-c",
@@ -213,14 +231,13 @@ async fn check_https(settings: &[(&str, &str)], warning: Option<&str>) {
     })
     .await
     .unwrap();
-    assert!(
-        status.success(),
-        "{}",
-        std::fs::read_to_string(files.0.join("stderr.log")).unwrap()
-    );
-    if let Some(warning) = warning {
-        let error = std::fs::read_to_string(files.0.join("stderr.log")).unwrap();
-        assert!(error.contains(warning), "{error}");
+    let stderr_log = std::fs::read_to_string(files.0.join("stderr.log")).unwrap();
+    assert!(status.success(), "{stderr_log}");
+    if expect_ticket_deprecation {
+        assert!(
+            stderr_log.contains("retired worker `tls-ticket-keys` (#560)"),
+            "expected tls-ticket-keys deprecation notice in stderr:\n{stderr_log}"
+        );
     }
     assert_eq!(body, "ok\n");
     assert!(tokio::net::TcpStream::connect(addr).await.is_err());

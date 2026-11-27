@@ -1,0 +1,55 @@
+# Setjoin Official GuoMi (TLCP / GB/T 38636) Edge Proxy Template (#559, ARCH-014)
+#
+# Terminator: Angie 1.2+ built with Tongsuo (BabaSSL) NTLS support.
+# Implements ARCH-014:
+#   - Edge-proxy TLCP termination using Tongsuo's native dual-argument syntax
+#     (SM2 sign cert + SM2 enc cert; SM2 sign key + SM2 enc key).
+#   - TLS 1.3 baseline (`ARCH-014`) for optional RSA/ECDSA dual-stack clients.
+#   - Proxies strictly to literal 127.0.0.1:8090 (NEVER `localhost`) with
+#     X-Forwarded-For, X-Forwarded-Proto, HSTS, WebSocket upgrade headers, and
+#     `proxy_buffering off` for JMAP EventSource (SSE) / WebSocket streams.
+#
+# Substitute {{HOSTNAME}}, {{GUOMI_SIGN_CERT}}, {{GUOMI_ENC_CERT}},
+# {{GUOMI_SIGN_KEY}}, and {{GUOMI_ENC_KEY}} (and optional RSA/ECDSA dual-stack
+# paths if serving standard international browsers on the same port).
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name {{HOSTNAME}};
+
+    # Enable Tongsuo NTLS (TLCP / GB/T 38636) dual-certificate handshake.
+    ssl_ntls on;
+    ssl_certificate     {{GUOMI_SIGN_CERT}} {{GUOMI_ENC_CERT}};
+    ssl_certificate_key {{GUOMI_SIGN_KEY}} {{GUOMI_ENC_KEY}};
+
+    # Optional RSA/ECDSA dual-stack for international browsers (uncomment with
+    # Tongsuo+Angie dual-stack build; ARCH-014 baseline is TLSv1.3):
+    # ssl_certificate     {{INTL_CERT}};
+    # ssl_certificate_key {{INTL_KEY}};
+
+    ssl_protocols TLSv1.3;
+    ssl_ciphers ECC-SM2-SM4-CBC-SM3:ECC-SM2-SM4-GCM-SM3:ECDHE-SM2-SM4-CBC-SM3:ECDHE-SM2-SM4-GCM-SM3:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256;
+    ssl_prefer_server_ciphers on;
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+
+    location / {
+        proxy_pass http://127.0.0.1:8090;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
+        # Required for JMAP WebSocket & EventSource (SSE) live push streams.
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+}

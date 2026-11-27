@@ -1,4 +1,14 @@
-# ACME DNS-01 Challenge -- Configuration Reference
+# ACME DNS-01 Challenge -- Configuration Reference (Retired in Release N+1)
+
+> **RETIRED (Release N+1 / #560):** Built-in ACME (`setjoin-acme`, including
+> DNS-01, HTTP-01, and TLS-ALPN-01) was deprecated in Release N (`#559`) and
+> **removed in Release N+1 (`#560`)**. Leaving any `TLS_AUTOCERT_*` /
+> `TLS_DNS_*` / `ACME_*` variable set causes `setjoind` / `setjoin-server` to
+> refuse startup fail-closed. Migrate to an edge TLS/ACME terminator (Caddy or
+> certbot with DNS-01 plugins) exporting PEM files to `TLS_CERT` / `TLS_KEY`
+> via `mailserver/deploy/scripts/export-edge-pem.sh` (hot-reloaded
+> automatically by all Setjoin listeners with zero restarts). See
+> `docs/guides/EDGE_TLS_ACME_MIGRATION.md`.
 
 SetJoin supports three ACME challenge types for automatic TLS certificate issuance.
 

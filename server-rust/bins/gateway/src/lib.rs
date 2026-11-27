@@ -72,7 +72,6 @@ pub mod served_stats;
 pub mod smtp_runtime;
 pub mod supervisor;
 pub mod surface;
-pub mod ticket_keys;
 pub mod tls_runtime;
 pub mod translate;
 pub mod workers;
@@ -321,9 +320,6 @@ impl Gateway {
                             accepted = frontend.accept(stream) => accepted,
                         };
                         let Ok(stream) = accepted else { return };
-                        if stream.get_ref().1.alpn_protocol() == Some(b"acme-tls/1") {
-                            return;
-                        }
                         let h2 = stream.get_ref().1.alpn_protocol() == Some(b"h2");
                         let leaf = stream
                             .get_ref()

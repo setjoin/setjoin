@@ -11,6 +11,7 @@ oracle-mutants = ["setjoin-contracts/oracle-mutants"]
 
 [dependencies]
 setjoin-threat = { path = "../../threat" }
+setjoin-tls = { path = "../../tls", default-features = false }
 setjoin-authz = { path = "../../authz" }
 setjoin-contracts = { path = "../../contracts" }
 setjoin-db = { path = "../../db" }
@@ -23,6 +24,7 @@ tokio-rustls = { version = "=0.26.6", default-features = false, features = ["rin
 serde_json = "=1.0.145"
 
 [dev-dependencies]
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
 setjoin-conformance = { path = "../../../tests/conformance" }
 tokio-postgres = "0.7.18"
 tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }

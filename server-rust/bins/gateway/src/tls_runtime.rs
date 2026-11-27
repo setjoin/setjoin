@@ -1,6 +1,5 @@
-//! Native HTTPS listener and certificate/ticket worker ownership (#413).
+//! Native HTTPS listener and certificate expiry monitoring (#413, #560).
 pub const CERT_MONITOR: &str = "cert-monitor";
-pub const TICKET_KEYS: &str = "tls-ticket-keys";
 pub const HTTP_TLS: &str = "http-tls";
 pub const HTTP_H2C: &str = "http-h2c";
 
@@ -10,32 +9,30 @@ fn listed(get: &dyn Fn(&str) -> Option<String>, key: &str, name: &str) -> bool {
         .split(',')
         .any(|part| part.trim() == name)
 }
+
 /// Retained for caller compatibility; Go-free cutover (#359) no longer requires `GO_WORKERS_OFF`.
 pub fn guard(_get: &dyn Fn(&str) -> Option<String>) -> Result<(), String> {
     Ok(())
 }
 
-use crate::{
-    cert_monitor::{CertMonitor, Certificate},
-    ticket_keys::{secure_ticket_key, TicketKeys},
-};
-use setjoin_pg::{cert_monitor::CertMonitorDatabase, ticket_keys::TicketKeyStore};
+use crate::cert_monitor::{CertMonitor, Certificate};
+use setjoin_pg::cert_monitor::CertMonitorDatabase;
 use std::{sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
 
-/// Owned worker lifetime. Explicit shutdown cancels and joins both SQL adapters.
+/// Owned TLS background worker lifetime. Explicit shutdown cancels and joins `CertMonitor`.
 pub struct Running {
     stop: CancellationToken,
     tasks: Vec<tokio::task::JoinHandle<Result<(), String>>>,
 }
+
 impl Drop for Running {
     fn drop(&mut self) {
         self.stop.cancel();
     }
 }
+
 impl Running {
-    /// A ticket entropy failure must terminate the listener, as crypto/rand does
-    /// in Go. A stopped worker is never silently left with stale live keys.
     pub async fn failed(&mut self) -> String {
         if self.tasks.is_empty() {
             return std::future::pending().await;
@@ -74,8 +71,8 @@ impl Running {
     }
 }
 
-/// Apply persisted keys before admitting the first handshake, then start Go's
-/// immediate/24h certificate check over the selector that actually serves TLS.
+/// Start immediate + 24h certificate expiry monitoring over the live
+/// `ReloadingPem`-backed TLS frontend.
 pub async fn start(
     frontend: Arc<setjoin_tls::Frontend>,
     get: &dyn Fn(&str) -> Option<String>,
@@ -85,9 +82,8 @@ pub async fn start(
         stop: CancellationToken::new(),
         tasks: Vec::new(),
     };
-    let tickets = listed(get, "RUST_WORKERS_ON", TICKET_KEYS);
     let monitor = listed(get, "RUST_WORKERS_ON", CERT_MONITOR);
-    if !tickets && !monitor {
+    if !monitor {
         return Ok(running);
     }
     let request = get("DB_DSN")
@@ -96,67 +92,21 @@ pub async fn start(
     let dsn = get("DB_WORKER_DSN")
         .filter(|s| !s.is_empty())
         .unwrap_or(request);
-    if tickets {
-        let seconds = get("TLS_SESSION_TICKET_KEY_ROTATE_SECS")
-            .filter(|s| !s.is_empty())
-            .map(|s| {
-                s.parse::<i64>()
-                    .map_err(|_| "invalid TLS_SESSION_TICKET_KEY_ROTATE_SECS")
-            })
-            .transpose()?
-            .unwrap_or(0);
-        let interval = Duration::from_secs(if seconds > 0 { seconds as u64 } else { 86400 });
-        let store = TicketKeyStore::new(&dsn).map_err(|e| e.to_string())?;
-        let codec = crate::ticket_keys::codec(&store, get).await;
-        let (ready, initialized) = tokio::sync::oneshot::channel();
-        let mut ready = Some(ready);
-        let target = frontend.clone();
-        let stop = running.stop.clone();
-        running.tasks.push(tokio::spawn(async move {
-            TicketKeys::run(
-                store,
-                interval,
-                codec,
-                secure_ticket_key,
-                move |current, previous| {
-                    target.set_ticket_keys(current, previous);
-                    if let Some(ready) = ready.take() {
-                        let _ = ready.send(());
-                    }
-                },
+    let monitor = CertMonitor::new(CertMonitorDatabase::new(&dsn).map_err(|e| e.to_string())?);
+    let stop = running.stop.clone();
+    running.tasks.push(tokio::spawn(async move {
+        monitor
+            .run_until(
+                move || monitored_chain(&frontend),
+                Duration::from_secs(86400),
                 stop.cancelled_owned(),
             )
-            .await
-            .map_err(|e| format!("{TICKET_KEYS}: {e}"))
-        }));
-        if initialized.await.is_err() {
-            let error = running
-                .tasks
-                .pop()
-                .unwrap()
-                .await
-                .map_err(|e| e.to_string())?
-                .err()
-                .unwrap_or_else(|| "ticket worker ended before initialization".into());
-            return Err(error);
-        }
-    }
-    if monitor {
-        let monitor = CertMonitor::new(CertMonitorDatabase::new(&dsn).map_err(|e| e.to_string())?);
-        let stop = running.stop.clone();
-        running.tasks.push(tokio::spawn(async move {
-            monitor
-                .run_until(
-                    move || monitored_chain(&frontend),
-                    Duration::from_secs(86400),
-                    stop.cancelled_owned(),
-                )
-                .await;
-            Ok(())
-        }));
-    }
+            .await;
+        Ok(())
+    }));
     Ok(running)
 }
+
 fn monitored_chain(frontend: &setjoin_tls::Frontend) -> Vec<Certificate> {
     frontend
         .served_chain()
@@ -197,8 +147,8 @@ fn monitored_chain(frontend: &setjoin_tls::Frontend) -> Vec<Certificate> {
         .collect()
 }
 
-/// A whole public listener never silently turns into a Go proxy or a plaintext
-/// endpoint. The explicit descriptor and both Go HTTP listener switches are required.
+/// Ensure the `https` socket-activated listener and `cert-monitor` worker are
+/// wired unambiguously.
 pub fn guard_activation(
     get: &dyn Fn(&str) -> Option<String>,
     has_https: bool,
@@ -210,24 +160,18 @@ pub fn guard_activation(
     if listed(get, "RUST_WORKERS_ON", HTTP_TLS) && !has_https {
         return Err("http-tls requires the socket-activated descriptor named `https`".into());
     }
-    if has_https {
-        if matches!(get("GATEWAY_ENABLED").as_deref(), Some("false" | "0")) {
-            return Err("the native https listener requires the Rust front door".into());
-        }
+    if has_https && matches!(get("GATEWAY_ENABLED").as_deref(), Some("false" | "0")) {
+        return Err("the native https listener requires the Rust front door".into());
     }
-    if !has_https
-        && [CERT_MONITOR, TICKET_KEYS]
-            .iter()
-            .any(|name| listed(get, "RUST_WORKERS_ON", name))
-    {
+    if !has_https && listed(get, "RUST_WORKERS_ON", CERT_MONITOR) {
         return Err("TLS workers require the activated https listener".into());
     }
     Ok(())
 }
 
-/// Go's VerifyClientCertIfGiven: operator-owned, startup-only auth-method CAs.
-/// This global configuration read uses the request credential, not LISTEN or
-/// worker privileges. Missing/broken methods are skipped as in auth.Chain.
+/// Optional HTTP mTLS client certificate verifier (VerifyClientCertIfGiven).
+/// Reads operator-owned `auth_methods` CAs at startup on the request credential,
+/// falling back to system roots when no custom CA bundle is configured.
 pub async fn client_verifier(
     exec: Option<&setjoin_pg::ScopedExecutor>,
 ) -> Result<Arc<dyn tokio_rustls::rustls::server::danger::ClientCertVerifier>, String> {
@@ -242,22 +186,41 @@ pub async fn client_verifier(
     }
     let mut roots = rustls::RootCertStore::empty();
     if let Some(exec) = exec {
-        if let Ok(rows) = exec.read("SELECT config_json::text FROM auth_methods WHERE enabled AND slug='certificate' ORDER BY priority", &[]).await {
+        if let Ok(rows) = exec
+            .read(
+                "SELECT config_json::text FROM auth_methods WHERE enabled AND slug='certificate' ORDER BY priority",
+                &[],
+            )
+            .await
+        {
             for row in rows {
-                let Ok(raw) = row.try_get::<_, String>(0) else { continue };
-                let Ok(method) = serde_json::from_str::<CertificateMethod>(&raw) else { continue };
-                let Some(path) = method.ca_bundle_path.filter(|p| !p.is_empty()) else { continue };
-                let Ok(pem) = tokio::fs::read(path).await else { continue };
+                let Ok(raw) = row.try_get::<_, String>(0) else {
+                    continue;
+                };
+                let Ok(method) = serde_json::from_str::<CertificateMethod>(&raw) else {
+                    continue;
+                };
+                let Some(path) = method.ca_bundle_path.filter(|p| !p.is_empty()) else {
+                    continue;
+                };
+                let Ok(pem) = tokio::fs::read(path).await else {
+                    continue;
+                };
                 let mut candidates = rustls::RootCertStore::empty();
                 for cert in CertificateDer::pem_slice_iter(&pem).flatten() {
                     if setjoin_mail_security::certificate::accepts_der(cert.as_ref()) {
                         let _ = candidates.add(cert);
                     }
                 }
-                if candidates.is_empty() { continue }
+                if candidates.is_empty() {
+                    continue;
+                }
                 let mut valid_crls = true;
                 for path in method.crl_paths.unwrap_or_default() {
-                    let Ok(der) = tokio::fs::read(path).await else { valid_crls = false; break };
+                    let Ok(der) = tokio::fs::read(path).await else {
+                        valid_crls = false;
+                        break;
+                    };
                     if x509_parser::parse_x509_crl(&der).is_err() {
                         valid_crls = false;
                         break;
@@ -265,21 +228,18 @@ pub async fn client_verifier(
                 }
                 if valid_crls {
                     roots = candidates;
-                    break; // Chain.ClientCertPool returns its first loaded method.
+                    break;
                 }
             }
         }
     }
     let system = roots.is_empty();
     if system {
-        // A nil Go ClientCAs uses system roots with an empty advertised CA list.
         for cert in rustls_native_certs::load_native_certs().certs {
             let _ = roots.add(cert);
         }
     }
     if roots.is_empty() {
-        // Go still serves certificate-free clients when its system pool is empty.
-        // No certificate can be trusted; preserve the request and reject every peer.
         return Ok(Arc::new(NoClientRoots));
     }
     let builder = rustls::server::WebPkiClientVerifier::builder_with_provider(

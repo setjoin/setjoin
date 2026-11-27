@@ -344,7 +344,13 @@ restore_socket_enabled_state() {
     fi
 }
 restore_gateway_refresh() {
-    local file state="" rc=0
+    local file state="" rc=0 removed_https=0 removed_acme=0
+    if [ ! -e "$SYSTEMD_DIR/setjoin-https.socket" ] && [ -e "$DEPLOYMENT_PREV/units/setjoin-https.socket" ]; then
+        removed_https=1
+    fi
+    if [ ! -e "$SYSTEMD_DIR/setjoin-acme.socket" ] && [ -e "$DEPLOYMENT_PREV/units/setjoin-acme.socket" ]; then
+        removed_acme=1
+    fi
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         state="$(cat "$DEPLOYMENT_PREV/$file-enabled" 2>/dev/null || true)"
         if { [ ! -f "$DEPLOYMENT_PREV/$file-enabled" ] || [ "$state" = enabled-runtime ]; } && [ -e "$SYSTEMD_DIR/$file" ]; then
@@ -359,6 +365,13 @@ restore_gateway_refresh() {
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         restore_socket_enabled_state "$file" "$DEPLOYMENT_PREV/$file-enabled" || rc=1
     done
+    if [ "$removed_https" = 1 ] && [ -f "$DEPLOYMENT_PREV/setjoin-https.socket-active" ]; then
+        systemctl start setjoin-https.socket || rc=1
+    fi
+    if [ "$removed_acme" = 1 ] && [ -f "$DEPLOYMENT_PREV/setjoin-acme.socket-active" ]; then
+        local legacy_acme_socket="setjoin-acme.socket"
+        systemctl start "$legacy_acme_socket" || rc=1
+    fi
     restore_socket_enabled_state setjoin-federation.socket "$DEPLOYMENT_PREV/socket-enabled" || rc=1
     if [ "$rc" != 0 ]; then
         echo "   ✗ Incomplete refresh rollback: failed to restore one or more deployment files or socket states." >&2
@@ -475,8 +488,10 @@ render_gateway_deployment() (
        [ -n "$(config_value "$CONFIG_ENV" FEDERATION_KEY)" ]; then
         FEDERATION_ENABLED=true
     fi
+    # Fail closed on retired built-in ACME configuration (#560) before mutating config.env or env files.
+    check_no_retired_acme_config "$CONFIG_ENV" || return 1
     for key in GO_WORKERS_OFF RUST_WORKERS_ON; do
-        names="$(config_value "$CONFIG_ENV" "$key")"
+        names="$(config_env_value "$CONFIG_ENV" "$key")"
         if [ "$key" = GO_WORKERS_OFF ]; then
             for file in federation-service federation-residue-reap; do
                 case ",$names," in *,$file,*) ;; *) names="${names:+$names,}$file" ;; esac
@@ -521,13 +536,21 @@ render_gateway_deployment() (
     ensure_tls_cache_dir "$_tls_cache" "${DEPLOYMENT_PREV:-}/tls-cache.meta" || return 1
     # A descriptor belongs to the matching new binary. Recreate only this
     # release's socket set; snapshots preserve prior bytes, absence and state.
+    if [ -e "$SYSTEMD_DIR/setjoin-acme.socket" ] || [ -L "$SYSTEMD_DIR/setjoin-acme.socket" ]; then
+        systemctl stop setjoin-acme.socket || true
+        systemctl disable setjoin-acme.socket || true
+    fi
+    if ! tls_front_enabled "$CONFIG_ENV" && { [ -e "$SYSTEMD_DIR/setjoin-https.socket" ] || [ -L "$SYSTEMD_DIR/setjoin-https.socket" ]; }; then
+        systemctl stop setjoin-https.socket || true
+        systemctl disable setjoin-https.socket || true
+    fi
     rm -f "$SYSTEMD_DIR/setjoin-https.socket" "$SYSTEMD_DIR/setjoin-acme.socket" "$SYSTEMD_DIR/setjoin-imap.socket" "$SYSTEMD_DIR/setjoin-imaps.socket" "$SYSTEMD_DIR/setjoin-smtp.socket" "$SYSTEMD_DIR/setjoin-smtps.socket" "$SYSTEMD_DIR/setjoin-submission.socket"
     if [ "$render_auth" = 1 ]; then
         render_authserver_unit "$root/mailserver/deploy/authserver.service.template" "$SYSTEMD_DIR/setjoin-auth.service" || return 1
     fi
     render_gateway_unit "$root/mailserver/deploy/setjoin-gateway.service.template" "$SYSTEMD_DIR/setjoin-gateway.service" || return 1
     systemctl daemon-reload || return 1
-    for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+    for file in setjoin-https.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         if [ -f "$SYSTEMD_DIR/$file" ]; then systemctl enable "$file" || return 1; fi
     done
     if [ "${FEDERATION_ENABLED:-false}" = true ]; then
@@ -560,6 +583,8 @@ render_setjoind_deployment() (
        [ -n "$(config_value "$CONFIG_ENV" FEDERATION_KEY)" ]; then
         FEDERATION_ENABLED=true
     fi
+    # Fail closed on retired built-in ACME configuration (#560) before mutating config.env or env files.
+    check_no_retired_acme_config "$CONFIG_ENV" || return 1
     configure_tls_front "$CONFIG_ENV" || return 1
     configure_imap_front "$CONFIG_ENV" || return 1
     configure_smtp_front "$CONFIG_ENV" || return 1
@@ -578,11 +603,19 @@ render_setjoind_deployment() (
     render_smtp_env "$SMTP_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
     chown root:setjoin "$SMTP_ENV" || return 1
     ensure_tls_cache_dir "$_tls_cache" "${DEPLOYMENT_PREV:-}/tls-cache.meta" || return 1
+    if [ -e "$SYSTEMD_DIR/setjoin-acme.socket" ] || [ -L "$SYSTEMD_DIR/setjoin-acme.socket" ]; then
+        systemctl stop setjoin-acme.socket || true
+        systemctl disable setjoin-acme.socket || true
+    fi
+    if ! tls_front_enabled "$CONFIG_ENV" && { [ -e "$SYSTEMD_DIR/setjoin-https.socket" ] || [ -L "$SYSTEMD_DIR/setjoin-https.socket" ]; }; then
+        systemctl stop setjoin-https.socket || true
+        systemctl disable setjoin-https.socket || true
+    fi
     rm -f "$SYSTEMD_DIR/setjoin-https.socket" "$SYSTEMD_DIR/setjoin-acme.socket" "$SYSTEMD_DIR/setjoin-imap.socket" "$SYSTEMD_DIR/setjoin-imaps.socket" "$SYSTEMD_DIR/setjoin-smtp.socket" "$SYSTEMD_DIR/setjoin-smtps.socket" "$SYSTEMD_DIR/setjoin-submission.socket" "$SYSTEMD_DIR/setjoin-federation.socket"
     render_setjoind_unit "$root/mailserver/deploy/setjoind.service.template" "$SYSTEMD_DIR/setjoind.service" || return 1
     systemctl daemon-reload || return 1
     systemctl enable setjoin-gateway.socket || return 1
-    for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket setjoin-federation.socket; do
+    for file in setjoin-https.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket setjoin-federation.socket; do
         if [ -f "$SYSTEMD_DIR/$file" ]; then systemctl enable "$file" || return 1; fi
     done
 )
@@ -705,6 +738,7 @@ if [ "$SUBCOMMAND" = "migrate-to-setjoind" ]; then
         echo "   ✗ $CONFIG_ENV contains DB_OWNER_DSN or DB_DIRECT_OWNER_DSN; complete DEPLOY-004 credential split / mailctl schema provision-roles before cutover." >&2
         exit 1
     fi
+    check_no_retired_acme_config "$CONFIG_ENV" || exit 1
     if [ -L "$CUTOVER_PREV" ]; then
         echo "   ✗ $CUTOVER_PREV is a symlink; refusing unsafe snapshot path." >&2
         exit 1
@@ -719,10 +753,18 @@ if [ "$SUBCOMMAND" = "migrate-to-setjoind" ]; then
         fi
     done
     : > "$CUTOVER_PREV/enabled-sockets"
+    : > "$CUTOVER_PREV/active-sockets"
     for sock in "${ALL_SERVER_SOCKETS[@]}"; do
         if [ -e "$SYSTEMD_DIR/$sock" ]; then
-            if systemctl is-enabled "$sock" >/dev/null 2>&1; then
-                printf '%s\n' "$sock" >> "$CUTOVER_PREV/enabled-sockets"
+            sock_state=""
+            if sock_state="$(systemctl is-enabled "$sock" 2>/dev/null)"; then
+                case "$sock_state" in
+                    enabled-runtime) printf 'enabled-runtime %s\n' "$sock" >> "$CUTOVER_PREV/enabled-sockets" ;;
+                    enabled|'') printf 'enabled %s\n' "$sock" >> "$CUTOVER_PREV/enabled-sockets" ;;
+                esac
+            fi
+            if systemctl is-active --quiet "$sock" 2>/dev/null; then
+                printf '%s\n' "$sock" >> "$CUTOVER_PREV/active-sockets"
             fi
         fi
     done
@@ -734,7 +776,7 @@ if [ "$SUBCOMMAND" = "migrate-to-setjoind" ]; then
 
     rollback_cutover_and_exit() {
         echo "   Rolling back failed setjoind cutover to split units..." >&2
-        local s f
+        local s f mode
         for s in "${ALL_SERVER_SOCKETS[@]}"; do
             if [ -e "$SYSTEMD_DIR/$s" ]; then
                 systemctl stop "$s" || true
@@ -757,11 +799,18 @@ if [ "$SUBCOMMAND" = "migrate-to-setjoind" ]; then
             fi
         done
         systemctl daemon-reload || true
+        while IFS=' ' read -r mode s; do
+            [ -n "$s" ] || continue
+            if [ "$mode" = enabled-runtime ]; then
+                systemctl enable --runtime "$s" || true
+            else
+                systemctl enable "$s" || true
+            fi
+        done < "$CUTOVER_PREV/enabled-sockets"
         while IFS= read -r s; do
             [ -n "$s" ] || continue
-            systemctl enable "$s" || true
             systemctl start "$s" || true
-        done < "$CUTOVER_PREV/enabled-sockets"
+        done < "$CUTOVER_PREV/active-sockets"
         systemctl enable setjoin-auth || true
         systemctl enable setjoin-gateway || true
         systemctl start setjoin-auth || true
@@ -828,6 +877,7 @@ if [ "$SUBCOMMAND" = "rollback-to-split-units" ]; then
         exit 1
     fi
     validate_db_cred_file_posture "$DB_CRED_FILE" || exit 1
+    check_no_retired_acme_config "$CONFIG_ENV" || exit 1
 
     # Stop ALL 9 sockets FIRST, then stop and remove setjoind.service.
     for sock in "${ALL_SERVER_SOCKETS[@]}"; do
@@ -895,6 +945,7 @@ if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
             echo "   ✗ mixed unit topology: setjoind.service coexists with split units in $SYSTEMD_DIR." >&2
             exit 1
         fi
+        check_no_retired_acme_config "$CONFIG_ENV" || exit 1
         backup_gateway_deployment
         if ! RUNTIME_DIR="$RUNTIME_DIR" render_setjoind_deployment; then
             echo "   ✗ setjoind unit/config refresh failed." >&2
@@ -903,6 +954,7 @@ if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
         fi
         exit 0
     fi
+    check_no_retired_acme_config "$CONFIG_ENV" || exit 1
     backup_gateway_deployment
     if ! RUNTIME_DIR="$RUNTIME_DIR" render_gateway_deployment; then
         echo "   ✗ gateway unit/config refresh failed." >&2
@@ -1036,6 +1088,7 @@ if [ -n "$PREFLIGHT_MAILCTL" ] && [ -n "$PREFLIGHT_SCHEMA_DSN" ]; then
     fi
 fi
 
+check_no_retired_acme_config "$CONFIG_ENV" || exit 1
 backup_gateway_deployment
 
 LEGACY_SETJOIN_PRESENT=0
@@ -1051,10 +1104,16 @@ echo "1. Stopping services..."
 # Stop the front door before changing its upstreams or descriptor set.
 systemctl stop setjoin-gateway
 systemctl stop setjoin-federation.socket || true
-for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+for file in setjoin-https.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
     systemctl stop "$file" || true
     systemctl disable "$file" || true
 done
+if [ -e "$SYSTEMD_DIR/setjoin-acme.socket" ] || [ -L "$SYSTEMD_DIR/setjoin-acme.socket" ]; then
+    # Pre-#560 cutover: retire legacy :80 ACME socket (backed up in $DEPLOYMENT_PREV/units/).
+    systemctl stop setjoin-acme.socket || true
+    systemctl disable setjoin-acme.socket || true
+    rm -f "$SYSTEMD_DIR/setjoin-acme.socket"
+fi
 LEGACY_GO_UNIT="setjoin"
 if [ -e "$SYSTEMD_DIR/${LEGACY_GO_UNIT}.service" ] || [ -L "$SYSTEMD_DIR/${LEGACY_GO_UNIT}.service" ]; then
     # Pre-#142 cutover: retire legacy Go unit (backed up in $DEPLOYMENT_PREV/units/).

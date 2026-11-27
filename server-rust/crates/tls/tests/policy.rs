@@ -22,9 +22,7 @@ struct Case {
     version: u16,
     ciphers: Vec<SupportedCipherSuite>,
     p384: bool,
-    cold: bool,
     alpn: &'static str,
-    switch: bool,
 }
 fn cases() -> Vec<Case> {
     let base = |name, version, ciphers| Case {
@@ -32,9 +30,7 @@ fn cases() -> Vec<Case> {
         version,
         ciphers,
         p384: false,
-        cold: false,
         alpn: "h2",
-        switch: false,
     };
     let mut cases = vec![
         base(
@@ -98,20 +94,6 @@ fn cases() -> Vec<Case> {
     );
     alpn.alpn = "smtp";
     cases.push(alpn);
-    let mut cold = base(
-        "cold-certificate-alert",
-        0x304,
-        vec![cs::TLS13_AES_128_GCM_SHA256],
-    );
-    cold.cold = true;
-    cases.push(cold);
-    let mut switch = base(
-        "tls13-same-hash-cipher-resumption",
-        0x304,
-        vec![cs::TLS13_AES_128_GCM_SHA256],
-    );
-    switch.switch = true;
-    cases.push(switch);
     cases
 }
 #[derive(Debug)]
@@ -181,7 +163,7 @@ async fn connect(address: &str, cfg: ClientConfig) -> Value {
 }
 async fn native(
     files: &Work,
-    c: &Case,
+    _c: &Case,
     aes: bool,
 ) -> (
     String,
@@ -190,17 +172,14 @@ async fn native(
 ) {
     let front = setjoin_tls::Frontend::from_env_with_aes(
         &|key| match key {
-            "TLS_CERT" if !c.cold => Some(files.0.join("cert.pem").display().to_string()),
-            "TLS_KEY" if !c.cold => Some(files.0.join("key.pem").display().to_string()),
-            "TLS_AUTOCERT_DOMAINS" if c.cold => Some("localhost".into()),
-            "TLS_AUTOCERT_CACHE_DIR" => Some(files.0.join("cache").display().to_string()),
+            "TLS_CERT" => Some(files.0.join("cert.pem").display().to_string()),
+            "TLS_KEY" => Some(files.0.join("key.pem").display().to_string()),
             _ => None,
         },
         aes,
     )
     .unwrap()
     .unwrap();
-    front.set_ticket_keys([7; 32], None);
     let ln = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = ln.local_addr().unwrap().to_string();
     let (stop, stopped) = tokio::sync::oneshot::channel();
@@ -270,15 +249,7 @@ async fn negotiations_and_resumption_match_go_policy() {
         for c in cases() {
             let (address, stop, task) = native(&work, &c, aes).await;
             let cfg = config(&c, verifier.clone(), auth.clone());
-            let resume = cfg.resumption.clone();
-            let mut observed = vec![connect(&address, cfg).await];
-            if c.switch {
-                let mut next = c.clone();
-                next.ciphers = vec![cs::TLS13_CHACHA20_POLY1305_SHA256];
-                let mut cfg = config(&next, verifier.clone(), auth.clone());
-                cfg.resumption = resume;
-                observed.push(connect(&address, cfg).await);
-            }
+            let observed = vec![connect(&address, cfg).await];
             let _ = stop.send(());
             task.await.unwrap();
             rows.push(json!({"case": c.name, "aes": aes, "observation": observed}));
@@ -286,5 +257,59 @@ async fn negotiations_and_resumption_match_go_policy() {
     }
     let path = root.join("server-rust/tests/conformance/tlsfront/policy.json");
     let golden: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-    assert_eq!(golden["rows"], json!(rows));
+    // Filter out the two cases retired in Release N+1 (#560):
+    // - `cold-certificate-alert`: required built-in ACME empty DirCache.
+    // - `tls13-same-hash-cipher-resumption`: required the retired `state.rs`
+    //   hack mutating pinned `rustls = "=0.23.46"` internal ServerSessionValue
+    //   cipher bytes; standard `rustls` compares exact suite IDs on resumption
+    //   (verified directly by `tls13_same_suite_resumes_and_cross_suite_falls_back_cleanly`).
+    let expected: Vec<Value> = golden["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| {
+            !matches!(
+                row["case"].as_str(),
+                Some("cold-certificate-alert" | "tls13-same-hash-cipher-resumption")
+            )
+        })
+        .cloned()
+        .collect();
+    assert_eq!(json!(expected), json!(rows));
+
+    // Verify standard rustls in-process Ticketer behavior: same-suite TLS 1.3
+    // resumes, while cross-suite (same HKDF hash) falls back cleanly to a full
+    // handshake without alert.
+    let probe = Case {
+        name: "tls13-resumption",
+        version: 0x304,
+        ciphers: vec![cs::TLS13_AES_128_GCM_SHA256],
+        p384: false,
+        alpn: "h2",
+    };
+    let (address, stop, task) = native(&work, &probe, true).await;
+    let first_cfg = config(&probe, verifier.clone(), auth.clone());
+    let resume = first_cfg.resumption.clone();
+    let first = connect(&address, first_cfg).await;
+    assert_eq!(first["resumed"], false, "initial handshake: {first}");
+
+    let mut same_cfg = config(&probe, verifier.clone(), auth.clone());
+    same_cfg.resumption = resume.clone();
+    let second = connect(&address, same_cfg).await;
+    assert_eq!(second["resumed"], true, "same-suite resumption: {second}");
+    assert_eq!(second["cipher"], "TLS13_AES_128_GCM_SHA256");
+
+    let mut cross = probe.clone();
+    cross.ciphers = vec![cs::TLS13_CHACHA20_POLY1305_SHA256];
+    let mut cross_cfg = config(&cross, verifier.clone(), auth.clone());
+    cross_cfg.resumption = resume;
+    let third = connect(&address, cross_cfg).await;
+    assert_eq!(
+        third["resumed"], false,
+        "standard rustls requires exact suite match for resumption: {third}"
+    );
+    assert_eq!(third["cipher"], "TLS13_CHACHA20_POLY1305_SHA256");
+
+    let _ = stop.send(());
+    task.await.unwrap();
 }

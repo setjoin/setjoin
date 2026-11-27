@@ -37,7 +37,6 @@ dependencies = [
  "cfg-if",
  "cipher 0.4.4",
  "cpufeatures 0.2.17",
- "zeroize",
 ]
 
 [[package]]
@@ -2705,7 +2704,6 @@ dependencies = [
  "hyper-util",
  "rustls",
  "rustls-native-certs",
- "rustls-platform-verifier",
  "tokio",
  "tokio-rustls",
  "tower-service",
@@ -2949,29 +2947,6 @@ checksum = "3b5cf4372d022092674a83b8febf5865f7a573cc0c5baec5e49c879b6a20978f"
 dependencies = [
  "block-padding 0.4.2",
  "hybrid-array",
-]
-
-[[package]]
-name = "instant-acme"
-version = "0.8.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f05ad37c421b962354c358d347d4a6130151df9407978372d3ad7f0c8f71a64"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "http",
- "http-body",
- "http-body-util",
- "httpdate",
- "hyper-rustls",
- "rcgen",
- "ring",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
 ]
 
 [[package]]
@@ -5207,63 +5182,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "reqsign-aws-core"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d63b56638bb3cc7bd376a7cdce1ba3089777a08f47e4097888f2d784cc3f46c"
-dependencies = [
- "bytes",
- "form_urlencoded",
- "hex",
- "http",
- "log",
- "percent-encoding",
- "quick-xml",
- "reqsign-core",
- "rust-ini",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "sha1 0.11.0",
-]
-
-[[package]]
-name = "reqsign-aws-v4"
-version = "3.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a0c499f4ed12d04c3d4c78fe4cb01aee22c9dae22848c14db2c6313d9df9f43"
-dependencies = [
- "bytes",
- "http",
- "log",
- "quick-xml",
- "reqsign-aws-core",
- "reqsign-core",
- "serde",
-]
-
-[[package]]
-name = "reqsign-core"
-version = "3.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4ac1510872d9481205975d264deb39c109797e5068cc882ed9064270eaae5fa"
-dependencies = [
- "anyhow",
- "base64 0.23.1",
- "bytes",
- "futures",
- "hex",
- "hmac 0.13.0",
- "http",
- "jiff",
- "log",
- "percent-encoding",
- "sha1 0.11.0",
- "sha2 0.11.1",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "reqwest"
 version = "0.12.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5926,33 +5844,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustls-platform-verifier"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1167586491e2b18b8bfbb293e8180ec17c201c4f076d7cb3070ca964e7598f98"
-dependencies = [
- "core-foundation 0.10.1",
- "core-foundation-sys",
- "jni",
- "log",
- "once_cell",
- "rustls",
- "rustls-native-certs",
- "rustls-platform-verifier-android",
- "rustls-webpki",
- "security-framework",
- "security-framework-sys",
- "webpki-root-certs",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "rustls-platform-verifier-android"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
-
-[[package]]
 name = "rustls-webpki"
 version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6316,35 +6207,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "setjoin-acme"
-version = "0.0.0"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "hickory-proto",
- "hickory-resolver",
- "http",
- "http-body-util",
- "instant-acme",
- "libc",
- "openssl",
- "p256",
- "pem 3.0.6",
- "quick-xml",
- "rcgen",
- "reqsign-aws-v4",
- "reqsign-core",
- "reqwest",
- "ring",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "x509-parser 0.18.1",
-]
-
-[[package]]
 name = "setjoin-admin-identity"
 version = "0.0.0"
 dependencies = [
@@ -6448,6 +6310,7 @@ dependencies = [
  "setjoin-pg",
  "setjoin-schema",
  "setjoin-threat",
+ "setjoin-tls",
  "sha2 0.10.9",
  "tokio",
  "tokio-postgres",
@@ -6734,12 +6597,14 @@ dependencies = [
  "bytes",
  "futures-util",
  "hickory-resolver",
+ "rcgen",
  "regex",
  "rustls-pki-types",
  "rustls-webpki",
  "serde_json",
  "setjoin-conformance",
  "setjoin-pg",
+ "setjoin-tls",
  "tokio",
  "tokio-postgres",
  "tokio-rustls",
@@ -6796,7 +6661,6 @@ dependencies = [
  "serde",
  "serde-saphyr",
  "serde_json",
- "setjoin-acme",
  "setjoin-admin-identity",
  "setjoin-approvals",
  "setjoin-authz",
@@ -6922,6 +6786,7 @@ version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
+ "rcgen",
  "serde_json",
  "setjoin-authz",
  "setjoin-conformance",
@@ -6929,6 +6794,7 @@ dependencies = [
  "setjoin-db",
  "setjoin-pg",
  "setjoin-threat",
+ "setjoin-tls",
  "sha2 0.10.9",
  "tokio",
  "tokio-postgres",
@@ -6957,11 +6823,13 @@ dependencies = [
  "futures-util",
  "ldap3_lber",
  "ldap3_proto",
+ "rcgen",
  "serde_json",
  "setjoin-authz",
  "setjoin-conformance",
  "setjoin-pg",
  "setjoin-threat",
+ "setjoin-tls",
  "tokio",
  "tokio-rustls",
  "tokio-util",
@@ -7248,6 +7116,7 @@ dependencies = [
  "percent-encoding",
  "psl",
  "quoted_printable",
+ "rcgen",
  "regex",
  "reqwest",
  "ring",
@@ -7263,6 +7132,7 @@ dependencies = [
  "setjoin-pg",
  "setjoin-spam",
  "setjoin-threat",
+ "setjoin-tls",
  "sha2 0.10.9",
  "smtp-proto",
  "subtle",
@@ -7355,18 +7225,11 @@ dependencies = [
 name = "setjoin-tls"
 version = "0.0.0"
 dependencies = [
- "aes 0.8.4",
- "base64 0.22.1",
- "ctr 0.9.2",
  "rcgen",
- "ring",
  "rustls",
  "serde_json",
- "setjoin-acme",
- "sha2 0.10.9",
  "tokio",
  "tokio-rustls",
- "zeroize",
 ]
 
 [[package]]
@@ -8895,15 +8758,6 @@ dependencies = [
  "serde_json",
  "serde_with",
  "url",
-]
-
-[[package]]
-name = "webpki-root-certs"
-version = "1.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e49d0e65abc00c142e8f9428da991da9f1a250c39be97459901eb12b9b49f62a"
-dependencies = [
- "rustls-pki-types",
 ]
 
 [[package]]

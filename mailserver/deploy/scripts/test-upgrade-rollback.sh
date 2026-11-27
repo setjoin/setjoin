@@ -79,7 +79,7 @@ done
   echo 'webmail.prev does not contain previous content' >&2
   exit 1
 }
-expected=$'stop setjoin-gateway\nstop setjoin-federation.socket\nstop setjoin-https.socket\ndisable setjoin-https.socket\nstop setjoin-acme.socket\ndisable setjoin-acme.socket\nstop setjoin-imap.socket\ndisable setjoin-imap.socket\nstop setjoin-imaps.socket\ndisable setjoin-imaps.socket\nstop setjoin-smtp.socket\ndisable setjoin-smtp.socket\nstop setjoin-smtps.socket\ndisable setjoin-smtps.socket\nstop setjoin-submission.socket\ndisable setjoin-submission.socket\nis-active --quiet setjoin-auth\nstop setjoin-auth\ndaemon-reload\nstart setjoin-auth\nstart setjoin-gateway'
+expected=$'stop setjoin-gateway\nstop setjoin-federation.socket\nstop setjoin-https.socket\ndisable setjoin-https.socket\nstop setjoin-imap.socket\ndisable setjoin-imap.socket\nstop setjoin-imaps.socket\ndisable setjoin-imaps.socket\nstop setjoin-smtp.socket\ndisable setjoin-smtp.socket\nstop setjoin-smtps.socket\ndisable setjoin-smtps.socket\nstop setjoin-submission.socket\ndisable setjoin-submission.socket\nis-active --quiet setjoin-auth\nstop setjoin-auth\ndaemon-reload\nstart setjoin-auth\nstart setjoin-gateway'
 [ "$(cat "$tmp/systemctl.log")" = "$expected" ] || {
   echo 'unexpected stop/restart actions' >&2
   cat "$tmp/systemctl.log" >&2
@@ -541,8 +541,8 @@ fi
   echo 'failed cutover retained setjoind.service' >&2
   exit 1
 }
-[ -f "$cu/units/setjoin-gateway.service" ] && [ -f "$cu/units/setjoin-auth.service" ] || {
-  echo 'failed cutover did not restore split units' >&2
+[ -f "$cu/units/setjoin-gateway.service" ] && [ -f "$cu/units/setjoin-auth.service" ] && [ -f "$cu/units/setjoin-acme.socket" ] || {
+  echo 'failed cutover did not restore split units and legacy acme socket' >&2
   exit 1
 }
 [ ! -e "$cu/install/setjoind-cutover.prev" ] || {
@@ -567,6 +567,14 @@ for sock in setjoin-gateway.socket setjoin-https.socket setjoin-acme.socket \
     exit 1
   }
 done
+[ ! -e "$cu/units/setjoin-acme.socket" ] || {
+  echo 'migrate-to-setjoind retained retired setjoin-acme.socket' >&2
+  exit 1
+}
+grep -qx 'disable setjoin-acme.socket' "$cu/systemctl.log" || {
+  echo 'migrate-to-setjoind did not disable retired setjoin-acme.socket' >&2
+  exit 1
+}
 [ -f "$cu/units/setjoind.service" ] || {
   echo 'setjoind.service missing after cutover' >&2
   exit 1
@@ -598,8 +606,23 @@ run_cu refresh-gateway-env >"$cu/uni-refresh.out" 2>&1 || {
   exit 1
 }
 
-# 2g. Rotate DB_WORKER_DSN in live db-credentials.env, then rollback-to-split-units:
+# 2g. Rotate DB_WORKER_DSN in live db-credentials.env, verify retired ACME refuses
+#     rollback-to-split-units BEFORE stopping setjoind, then rollback-to-split-units:
 #     re-rendered auth.env MUST carry the rotated live secret (never stale snapshot).
+printf 'ACME_DOMAINS=mail.example.test\n' >>"$cu/config/config.env"
+: >"$cu/systemctl.log"
+if run_cu rollback-to-split-units >"$cu/rb-acme-refuse.out" 2>&1; then
+  echo 'rollback-to-split-units accepted retired ACME_DOMAINS' >&2
+  exit 1
+fi
+[ -f "$cu/units/setjoind.service" ] && [ ! -s "$cu/systemctl.log" ] || {
+  echo 'rollback-to-split-units stopped or removed setjoind before ACME preflight' >&2
+  exit 1
+}
+grep -v '^ACME_DOMAINS=' "$cu/config/config.env" >"$cu/config/config.env.tmp"
+mv "$cu/config/config.env.tmp" "$cu/config/config.env"
+chmod 600 "$cu/config/config.env"
+
 sed 's/workerpw/rotatedpw/' "$cu/config/db-credentials.d/db-credentials.env" >"$cu/config/db-credentials.d/db-credentials.env.new"
 mv "$cu/config/db-credentials.d/db-credentials.env.new" "$cu/config/db-credentials.d/db-credentials.env"
 chmod 600 "$cu/config/db-credentials.d/db-credentials.env"

@@ -73,10 +73,8 @@ def verify(binary):
             "RUST_WORKERS_ON=http-tls\nGO_WORKERS_OFF=http-tls,http-h2c,federation-service\n"
             f"FEDERATION_LOCAL_DOMAIN=zulu.test\nFEDERATION_CERT={directory}/cert.pem\nFEDERATION_KEY={directory}/key.pem\n"
         )
-        literal_dns = '{"CF_API_TOKEN":"literal-$-value"}'
         (directory / "tls.env").write_text(
             f"TLS_CERT={directory}/cert.pem\nTLS_KEY={directory}/key.pem\n"
-            f"TLS_DNS_CONFIG={literal_dns}\nTLS_SESSION_TICKET_KEY_ROTATE_SECS=60\n"
         )
         # Public test data only; the substituted nobody account must read it.
         for filename in ("cert.pem", "key.pem", "gateway.env", "federation.env", "tls.env"):
@@ -128,8 +126,7 @@ def verify(binary):
                 for field in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"):
                     assert int(status[field], 16) == 0, (field, status[field])
                 environment = dict(item.split(b"=", 1) for item in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0") if b"=" in item)
-                assert environment[b"TLS_DNS_CONFIG"] == literal_dns.encode()
-                assert environment[b"TLS_SESSION_TICKET_KEY_ROTATE_SECS"] == b"60"
+                assert environment[b"TLS_CERT"] == f"{directory}/cert.pem".encode()
                 assert not {b"DB_OWNER_DSN", b"DB_DIRECT_OWNER_DSN", b"JWT_SECRET", b"S3_SECRET_KEY"}.intersection(environment)
                 assert run("systemctl", "show", mappings["setjoin-federation.socket"], "-p", "ActiveState", "--value") == "failed"
                 assert "activated socket named federation missing" in run("journalctl", "-u", service, "--no-pager", "-o", "cat")

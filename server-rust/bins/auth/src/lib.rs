@@ -41,6 +41,24 @@ pub fn body(text: impl Into<Bytes>) -> Body {
         .map_err(|never| match never {})
         .boxed()
 }
+
+/// Build a pure-rustls TLS acceptor backed by [`setjoin_tls::ReloadingPem`] so
+/// certificate renewals take effect on new handshakes without restarting
+/// `setjoin-auth` or `setjoind` (#559).
+pub fn load_reloading_tls_config(
+    cert_path: &str,
+    key_path: &str,
+) -> Result<tokio_rustls::TlsAcceptor, String> {
+    let resolver = Arc::new(setjoin_tls::ReloadingPem::load(cert_path, key_path)?);
+    let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
+    let mut tls = tokio_rustls::rustls::ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|e| format!("auth TLS protocol config: {e}"))?
+        .with_no_client_auth()
+        .with_cert_resolver(resolver);
+    tls.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    Ok(tokio_rustls::TlsAcceptor::from(Arc::new(tls)))
+}
 /// Request-body cap shared by every JSON route (the mutant restores Go's none for
 /// the owner-approved #491 fix test).
 fn body_cap() -> usize {

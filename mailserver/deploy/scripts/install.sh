@@ -913,8 +913,9 @@ else
     -addext "basicConstraints=critical,CA:FALSE" 2>/dev/null
   chmod 600 "$TLS_KEY"
 fi
-info "For a PUBLICLY-TRUSTED cert: enable ACME (set TLS_AUTOCERT_DOMAINS=$HOSTNAME and"
-info "open :80 for the HTTP-01 challenge), or drop a real cert at $TLS_CERT / $TLS_KEY."
+info "For a PUBLICLY-TRUSTED cert: terminate TLS/ACME at an edge proxy (Caddy or certbot)"
+info "and export PEM files via mailserver/deploy/scripts/export-edge-pem.sh into /etc/mail/tls"
+info "(see docs/guides/EDGE_TLS_ACME_MIGRATION.md), or drop a real cert at $TLS_CERT / $TLS_KEY."
 
 # Self-signed trust for ON-BOX sidecars (Meet B1/B2): livekit-server delivers
 # every webhook to https://$HOSTNAME/api/meet/webhook and verifies the cert
@@ -1482,6 +1483,7 @@ case ",$RUST_WORKERS_ON," in
   *) RUST_WORKERS_ON="${RUST_WORKERS_ON:+$RUST_WORKERS_ON,}federation-residue-reap" ;;
 esac
 
+check_no_retired_acme_config "$CONFIG_ENV" || die "retired built-in ACME configuration detected (see error above)"
 _TLS_PRESERVED=$(tls_front_preserve_settings "$CONFIG_ENV") || die "invalid managed TLS setting"
 _INSTALL_UMASK="$(umask)"
 umask 077
@@ -1595,12 +1597,6 @@ chown root:setjoin "$TLS_ENV"
 _tls_cache=$(tls_import_cache_dir "$CONFIG_ENV")
 validate_tls_cache_target "$_tls_cache" || die "invalid TLS cache directory: $_tls_cache"
 ensure_tls_cache_dir "$_tls_cache" || die "failed to prepare TLS cache directory: $_tls_cache"
-if [ -n "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_DOMAINS)" ]; then
-  _tls_account=$(strip_env_quotes "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_KEY_FILE)")
-  if [ -n "$_tls_account" ] && [ ! -d "${_tls_account%/*}" ]; then
-    install -d -m 0700 -o setjoin -g setjoin "${_tls_account%/*}"
-  fi
-fi
 render_gateway_env "$GATEWAY_ENV" || die "failed to render $GATEWAY_ENV — see the error above."
 render_federation_env "$FEDERATION_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" \
   || die "failed to render $FEDERATION_ENV — see the error above."
@@ -1790,7 +1786,7 @@ if command -v systemctl >/dev/null 2>&1; then
   if [ "$FEDERATION_ENABLED" = true ]; then
     systemctl enable setjoin-federation.socket
   fi
-  for _tls_socket in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+  for _tls_socket in setjoin-https.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
     if [ -f "/etc/systemd/system/$_tls_socket" ]; then systemctl enable "$_tls_socket"; fi
   done
   systemctl enable "${SETJOIN_DEFAULT_ENABLE[@]}" >/dev/null 2>&1 || true

@@ -243,28 +243,19 @@ queue reads and the storage reads, `requireQueueWrite` for the journal retry,
 - Storage status, DR start/reconcile and migration start/cancel are owned by the process
   runtime (#459); lifecycle, transports and oracles: [storage.DOX.md](storage.DOX.md).
 
-## Slice `acme-control` (#305)
+## Slice `acme-control` (#305; ACME retired in #560)
 
-Auxiliary listeners the gateway never mounts publicly (`listener` `acme` and `control` in the
-inventory, ON as `local-rust`; their oracle is the Go-recorded goldens named in each entry's
-`oracle_goldens`, checked by `scripts/check-gofree-oracle-adequacy.py` like the captions bot).
+Auxiliary listener the gateway never mounts publicly (`listener` `control` in the inventory, ON as
+`local-rust`; its oracle is the Go-recorded goldens named in each entry's `oracle_goldens`, checked
+by `scripts/check-gofree-oracle-adequacy.py` like the captions bot). Built-in ACME :80,
+`setjoin-acme.socket`, `crates/acme`, and the `acme-renewal` worker were retired in Release N+1
+(`#560`; `bins/gateway/src/acme.rs` now enforces a fail-closed startup error directing operators to
+`docs/guides/EDGE_TLS_ACME_MIGRATION.md`).
 
-- **ACME :80** (`bins/gateway/src/acme.rs`): the activated descriptor named `acme` answers a
-  pending HTTP-01 token with its key authorization (`text/plain`) and redirects everything else
-  (`301`, Go's `http.Redirect` body). Needs `GO_WORKERS_OFF=http-port80`. Only `HTTP_MODE=redirect`
-  behaviour is ported: Go's proxy/serve modes serve the app on :80 and keep Go's listener.
-- **`acme-renewal` worker**: `RUST_WORKERS_ON=acme-renewal` + `GO_WORKERS_OFF=acme-renewal` +
-  the :80 descriptor; http-01 only (see [setjoin-acme](../../acme/DOX.md)). Configuration is read
-  from the environment names koanf derives (`TLS_AUTOCERT_DOMAINS`, `_EMAIL`, `_CACHE_DIR`,
-  `_KEY_FILE`, `TLS_AUTOCERT_CHALLENGE`, `HOSTNAME`); Go's config file is not readable.
 - **Setup control socket** (`bins/gateway/src/setup_control.rs`, restore engine in
-  `setjoin-backup::restore`): `RUST_WORKERS_ON=setup-control` + `GO_WORKERS_OFF=setup-control`
-  (a name this ticket added to Go's `main.go`). Socket 0600 (born 0700), directory 0750, refuses a
-  relative path, a non-socket path and an active socket; `X-Setup-Token` compared constant-time,
-  empty token answers 503; preflight/restore refuse once any user exists. Rollback: remove both
-  names; Go binds the same `SETJOIN_CONTROL_SOCKET` again.
-- **Kill switch**: drop the three names from `RUST_WORKERS_ON` and `GO_WORKERS_OFF`
-  (`acme-renewal`, `http-port80`, `setup-control`) and the descriptor from the socket unit.
+  `setjoin-backup::restore`): `RUST_WORKERS_ON=setup-control`. Socket 0600 (born 0700), directory
+  0750, refuses a relative path, a non-socket path and an active socket; `X-Setup-Token` compared
+  constant-time, empty token answers 503; preflight/restore refuse once any user exists.
 
 ## Terms-remaining groups (#303)
 

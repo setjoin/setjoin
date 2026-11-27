@@ -75,7 +75,7 @@ pub struct Submission {
     events: Option<Arc<dyn SubmissionEvents>>,
     flags: Arc<dyn Flags>,
     blobs: Option<Arc<dyn crate::RawBlobs>>,
-    starttls: Option<(PathBuf, PathBuf)>,
+    starttls: Option<Arc<tokio_rustls::rustls::ServerConfig>>,
     max_connections: usize,
     users: ConnTracker,
     registry: Option<Arc<ProtocolSessionRegistry>>,
@@ -158,10 +158,9 @@ impl Submission {
         self.blobs = Some(blobs);
         self
     }
-    /// Go `SetTLS`: STARTTLS with the files re-read at every upgrade.
+    /// Go `SetTLS`: STARTTLS backed by `setjoin_tls::ReloadingPem` hot-reload.
     pub fn with_starttls_files(mut self, cert: PathBuf, key: PathBuf) -> Result<Self, String> {
-        crate::tls::server_config(&cert, &key)?;
-        self.starttls = Some((cert, key));
+        self.starttls = Some(crate::tls::server_config(&cert, &key)?);
         Ok(self)
     }
     /// `SetMaxConns`: 0 is unlimited; accepts wait for a slot like `LimitListener`.
@@ -219,8 +218,7 @@ impl Submission {
     }
 
     fn starttls_config(&self) -> Result<Arc<tokio_rustls::rustls::ServerConfig>, String> {
-        let (cert, key) = self.starttls.as_ref().ok_or("no certificate")?;
-        crate::tls::server_config(cert, key)
+        self.starttls.clone().ok_or_else(|| "no certificate".into())
     }
 
     fn feature(&self, key: &str) -> bool {
