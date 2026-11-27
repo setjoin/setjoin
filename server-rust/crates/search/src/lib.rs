@@ -101,6 +101,12 @@ mod tests {
     use std::time::Duration;
     use tempfile::TempDir;
 
+    /// PostgreSQL `TIMESTAMPTZ` and `DocumentKey::encode_doc_key` store microsecond precision.
+    fn now_micros() -> chrono::DateTime<Utc> {
+        let now = Utc::now();
+        chrono::DateTime::from_timestamp_micros(now.timestamp_micros()).unwrap_or(now)
+    }
+
     fn mail_doc(
         mailbox_id: i64,
         id: i64,
@@ -114,7 +120,7 @@ mod tests {
             key: DocumentKey::Mail {
                 mailbox_id,
                 id,
-                received_at: Utc::now(),
+                received_at: now_micros(),
             },
             visibility: SearchVisibility::Live,
             title: subject.to_owned(),
@@ -594,7 +600,7 @@ mod tests {
             key: DocumentKey::MailAttachment {
                 mailbox_id: 77,
                 id: 501,
-                received_at: Utc::now(),
+                received_at: now_micros(),
                 sub_id: 99,
             },
             visibility: SearchVisibility::Live,
@@ -748,7 +754,7 @@ mod tests {
         let fallback_key = DocumentKey::Mail {
             mailbox_id: 5,
             id: 999,
-            received_at: Utc::now(),
+            received_at: now_micros(),
         };
         let two_tier = TwoTierSearchEngine::new(
             cfg,
@@ -794,7 +800,7 @@ mod tests {
         let fallback_key = DocumentKey::Mail {
             mailbox_id: 9,
             id: 777,
-            received_at: Utc::now(),
+            received_at: now_micros(),
         };
         // Default fence is UNSET -> must fail closed to Tier-1!
         let fence = Arc::new(SnapshotFreshnessFence::unset());
