@@ -3693,7 +3693,7 @@ fn native_349b_wiring_and_with_user_id_are_pinned() {
     ));
     assert!(
         backup.contains("self.mfa_finish(")
-            && backup.contains("risk,ca_enabled,dt_enabled,true,).await")
+            && backup.contains("risk,ca_enabled,dt_enabled,true,)}).await")
     );
     assert!(!totp.contains("totp_completion_route("));
     assert!(!ca.contains("feature.rate_limit"));
@@ -3705,7 +3705,7 @@ fn native_349b_wiring_and_with_user_id_are_pinned() {
     ));
     assert!(
         push_st.contains("self.mfa_finish(")
-            && push_st.contains("risk,ca_enabled,dt_enabled,false,).await")
+            && push_st.contains("risk,ca_enabled,dt_enabled,false,)}).await")
     );
     assert_eq!(guest_invite.matches("self.forward(").count(), 0);
     assert!(!section(

@@ -278,10 +278,71 @@ fn is_listening_stream_socket(fd: i32) -> bool {
     false
 }
 
+/// Inherited systemd descriptors captured and validated synchronously BEFORE
+/// constructing a Tokio runtime (so `capture_and_cloexec` never touches
+/// Tokio's own epoll/eventfd descriptors on Linux when systemd did not pass
+/// `SD_LISTEN_FDS_START`).
+#[derive(Debug, Default)]
+pub struct CapturedActivation {
+    listeners: Vec<(Slot, std::net::TcpListener)>,
+}
+
+impl CapturedActivation {
+    /// Refuse any inherited listener whose owning subsystem is disabled.
+    /// Dropping `self` on error closes every inherited FD with zero `accept()`
+    /// calls.
+    pub fn validate_for_subsystems(
+        &self,
+        subsystems: setjoin_boot::Subsystems,
+    ) -> Result<(), String> {
+        for (slot, _) in &self.listeners {
+            let (name, subsystem, enabled) = match slot {
+                Slot::Http => ("http", "http", subsystems.http),
+                Slot::Https => ("https", "http", subsystems.http),
+                Slot::Auth => ("auth", "auth", subsystems.auth),
+                Slot::Imap => ("imap", "protocols", subsystems.protocols),
+                Slot::Imaps => ("imaps", "protocols", subsystems.protocols),
+                Slot::Federation => ("federation", "protocols", subsystems.protocols),
+                Slot::Smtp => ("smtp", "protocols", subsystems.protocols),
+                Slot::Smtps => ("smtps", "protocols", subsystems.protocols),
+                Slot::Submission => ("submission", "protocols", subsystems.protocols),
+            };
+            if !enabled {
+                return Err(format!(
+                    "socket activation: descriptor `{name}` is not allowed when subsystem `{subsystem}` is disabled"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Convert captured standard listeners into Tokio [`TcpListener`]s inside an
+    /// active Tokio runtime.
+    pub fn into_activated(self) -> Result<Activated, String> {
+        let mut out = Activated::default();
+        for (slot, std_listener) in self.listeners {
+            let listener = TcpListener::from_std(std_listener)
+                .map_err(|e| format!("socket activation: {e}"))?;
+            match slot {
+                Slot::Http => out.http = Some(listener),
+                Slot::Https => out.https = Some(listener),
+                Slot::Auth => out.auth = Some(listener),
+                Slot::Imap => out.imap = Some(listener),
+                Slot::Imaps => out.imaps = Some(listener),
+                Slot::Federation => out.federation = Some(listener),
+                Slot::Smtp => out.smtp = Some(listener),
+                Slot::Smtps => out.smtps = Some(listener),
+                Slot::Submission => out.submission = Some(listener),
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// Validate and convert an already-owned, `FD_CLOEXEC` descriptor into a
-/// nonblocking Tokio [`TcpListener`]. On any error, `owned` is dropped and
+/// nonblocking [`std::net::TcpListener`]. On any error, `owned` is dropped and
 /// closed immediately.
-fn adopt_owned(owned: OwnedFd) -> Result<TcpListener, String> {
+fn adopt_std(owned: OwnedFd) -> Result<std::net::TcpListener, String> {
     if !is_listening_stream_socket(owned.as_raw_fd()) {
         return Err("socket activation descriptor is not a listening stream socket".into());
     }
@@ -292,40 +353,35 @@ fn adopt_owned(owned: OwnedFd) -> Result<TcpListener, String> {
     listener
         .set_nonblocking(true)
         .map_err(|e| format!("socket activation: {e}"))?;
-    TcpListener::from_std(listener).map_err(|e| format!("socket activation: {e}"))
+    Ok(listener)
 }
 
-fn adopt_planned(fds: Vec<OwnedFd>, names: Option<&str>) -> Result<Activated, String> {
+fn capture_planned(fds: Vec<OwnedFd>, names: Option<&str>) -> Result<CapturedActivation, String> {
     let count = fds.len();
     if count > 1 && names.is_none_or(str::is_empty) {
         return Err("socket activation requires exactly one listener".into());
     }
     let slots = plan(count, names)?;
-    let mut out = Activated::default();
+    let mut listeners = Vec::with_capacity(count);
     for (owned, slot) in fds.into_iter().zip(slots) {
-        let listener = adopt_owned(owned)?;
-        match slot {
-            Slot::Http => out.http = Some(listener),
-            Slot::Https => out.https = Some(listener),
-            Slot::Auth => out.auth = Some(listener),
-            Slot::Imap => out.imap = Some(listener),
-            Slot::Imaps => out.imaps = Some(listener),
-            Slot::Federation => out.federation = Some(listener),
-            Slot::Smtp => out.smtp = Some(listener),
-            Slot::Smtps => out.smtps = Some(listener),
-            Slot::Submission => out.submission = Some(listener),
-        }
+        listeners.push((slot, adopt_std(owned)?));
     }
-    Ok(out)
+    Ok(CapturedActivation { listeners })
 }
 
-/// Take what systemd passed to this process, if anything.
+#[cfg(test)]
+fn adopt_planned(fds: Vec<OwnedFd>, names: Option<&str>) -> Result<Activated, String> {
+    capture_planned(fds, names)?.into_activated()
+}
+
+/// Synchronously capture what systemd passed to this process BEFORE building a
+/// Tokio runtime.
 ///
 /// Captures and sets `FD_CLOEXEC` on all inherited descriptors **before** any
 /// fallible check so every descriptor is closed cleanly on error.
-pub fn take_from_env() -> Result<Activated, String> {
+pub fn capture_from_env() -> Result<CapturedActivation, String> {
     if std::env::var("LISTEN_PID").ok().as_deref() != Some(&std::process::id().to_string()) {
-        return Ok(Activated::default());
+        return Ok(CapturedActivation::default());
     }
     let fds = std::env::var("LISTEN_FDS").unwrap_or_default();
     let names = std::env::var("LISTEN_FDNAMES").ok();
@@ -333,13 +389,13 @@ pub fn take_from_env() -> Result<Activated, String> {
     std::env::remove_var("LISTEN_FDS");
     std::env::remove_var("LISTEN_FDNAMES");
     if fds == "0" {
-        return Ok(Activated::default());
+        return Ok(CapturedActivation::default());
     }
     let raw_count: usize = fds
         .parse()
         .map_err(|_| "socket activation requires exactly one listener".to_string())?;
     if raw_count == 0 {
-        return Ok(Activated::default());
+        return Ok(CapturedActivation::default());
     }
     // Atomically own + FD_CLOEXEC all descriptors BEFORE validating count/names/sockets.
     let owned = capture_and_cloexec(FIRST_FD, raw_count)?;
@@ -348,7 +404,15 @@ pub fn take_from_env() -> Result<Activated, String> {
             "socket activation supports 1..={MAX_LISTEN_FDS} listeners (got {raw_count})"
         ));
     }
-    adopt_planned(owned, names.as_deref())
+    capture_planned(owned, names.as_deref())
+}
+
+/// Take what systemd passed to this process, if anything.
+///
+/// Prefer calling [`capture_from_env`] before building a Tokio runtime and then
+/// [`CapturedActivation::into_activated`] inside the runtime.
+pub fn take_from_env() -> Result<Activated, String> {
+    capture_from_env()?.into_activated()
 }
 
 /// Zero-dependency systemd `sd_notify` Unix datagram helper.
