@@ -7,14 +7,29 @@ fn full(raw: String) -> Body {
         .map_err(|never| match never {})
         .boxed()
 }
-use setjoin_authz::{push, token::KeySource};
+use setjoin_authz::{
+    auth_authority::{AuthAuthority, AuthAuthorityError, DriveTokenRequest},
+    push,
+    token::KeySource,
+};
 use setjoin_pg::ScopedExecutor;
 use std::sync::Arc;
+
+/// Scoped Drive native-token HMAC secret (`DRIVE_NATIVE_TOKEN_SECRET`), falling
+/// back to `JWT_SECRET` in co-located / legacy deployments.
+pub fn drive_native_secret_from_env() -> Option<String> {
+    std::env::var("DRIVE_NATIVE_TOKEN_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("JWT_SECRET").ok().filter(|s| !s.is_empty()))
+}
+
 pub struct NativeTokenRoute<K: KeySource + 'static> {
     exec: ScopedExecutor,
     keys: Arc<K>,
     issuer: String,
     signer: Option<Arc<setjoin_identity::drive_token::Issuer>>,
+    authority: Option<Arc<dyn AuthAuthority>>,
     basic: crate::dav_auth::DavBasicAuth,
 }
 impl<K: KeySource + 'static> NativeTokenRoute<K> {
@@ -30,8 +45,15 @@ impl<K: KeySource + 'static> NativeTokenRoute<K> {
             keys,
             issuer,
             signer,
+            authority: None,
             basic: crate::dav_auth::DavBasicAuth::default(),
         }
+    }
+    /// Delegate Drive native-token minting to an [`AuthAuthority`] when no
+    /// local signing secret is configured on this HTTP node.
+    pub fn with_authority(mut self, authority: Arc<dyn AuthAuthority>) -> Self {
+        self.authority = Some(authority);
+        self
     }
     pub fn with_chain(mut self, chain: Option<Arc<setjoin_authz::auth_chain::Chain>>) -> Self {
         self.basic.chain = chain;
@@ -87,11 +109,12 @@ impl<K: KeySource + 'static> Intercept for NativeTokenRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, context: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer, signer, basic) = (
+        let (exec, keys, issuer, signer, authority, basic) = (
             self.exec.clone(),
             self.keys.clone(),
             self.issuer.clone(),
             self.signer.clone(),
+            self.authority.clone(),
             self.basic.clone(),
         );
         Box::pin(async move {
@@ -149,35 +172,74 @@ impl<K: KeySource + 'static> Intercept for NativeTokenRoute<K> {
                     true,
                 );
             }
-            let Some(signer) = signer else {
-                return response(
-                    500,
-                    crate::problem::Problem::new(500, "native-token minting is not configured")
-                        .body(),
-                    true,
-                );
-            };
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
-            match signer.issue(&source, now) {
-                Ok(raw) => response(200, raw, false),
-                Err(setjoin_identity::drive_token::Refused::DeviceBound) => response(
-                    403,
-                    crate::problem::Problem::new(
+            if let Some(signer) = signer {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as i64;
+                return match signer.issue(&source, now) {
+                    Ok(raw) => response(200, raw, false),
+                    Err(setjoin_identity::drive_token::Refused::DeviceBound) => response(
                         403,
-                        "native tokens are unavailable to device-bound sessions",
-                    )
-                    .body(),
-                    true,
-                ),
-                Err(setjoin_identity::drive_token::Refused::Expired) => response(
-                    401,
-                    crate::problem::Problem::new(401, "session expired").body(),
-                    true,
-                ),
+                        crate::problem::Problem::new(
+                            403,
+                            "native tokens are unavailable to device-bound sessions",
+                        )
+                        .body(),
+                        true,
+                    ),
+                    Err(setjoin_identity::drive_token::Refused::Expired) => response(
+                        401,
+                        crate::problem::Problem::new(401, "session expired").body(),
+                        true,
+                    ),
+                };
             }
+            if let Some(authority) = authority {
+                let req = DriveTokenRequest {
+                    user_id: source.user_id(),
+                    email: source.email().to_owned(),
+                    jti: source.token_id().to_owned(),
+                    family: source.token_family().to_owned(),
+                    account_type: source.account_type().to_owned(),
+                    actor_id: source.act(),
+                    expires_at: source.expires_at(),
+                    device_bound: source.has_device_binding(),
+                };
+                return match authority.mint_drive_token(req).await {
+                    Ok(minted) => response(200, minted.raw_json, false),
+                    Err(AuthAuthorityError::DeviceBound) => response(
+                        403,
+                        crate::problem::Problem::new(
+                            403,
+                            "native tokens are unavailable to device-bound sessions",
+                        )
+                        .body(),
+                        true,
+                    ),
+                    Err(AuthAuthorityError::Expired) => response(
+                        401,
+                        crate::problem::Problem::new(401, "session expired").body(),
+                        true,
+                    ),
+                    Err(AuthAuthorityError::Unavailable(_)) => response(
+                        503,
+                        crate::problem::Problem::new(503, "service unavailable").body(),
+                        true,
+                    ),
+                    Err(_) => response(
+                        500,
+                        crate::problem::Problem::new(500, "native-token minting is not configured")
+                            .body(),
+                        true,
+                    ),
+                };
+            }
+            response(
+                500,
+                crate::problem::Problem::new(500, "native-token minting is not configured").body(),
+                true,
+            )
         })
     }
 }

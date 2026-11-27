@@ -127,6 +127,34 @@ impl ApprovalNotify {
             tokio::select! {_=&mut stop=>return,_=tokio::time::sleep(std::time::Duration::from_secs(1))=>{}}
         }
     }
+
+    /// Multiplex `approval_created` onto a shared [`setjoin_pg::ListenHub`] (#543).
+    pub async fn run_with_hub(self, hub: setjoin_pg::ListenHub, stop: impl Future<Output = ()>) {
+        tokio::pin!(stop);
+        let Ok(mut sub) = hub.subscribe("approval_created").await else {
+            stop.await;
+            return;
+        };
+        loop {
+            let event = tokio::select! {
+                _ = &mut stop => return,
+                event = sub.recv() => event,
+            };
+            let Some(event) = event else {
+                return;
+            };
+            if let setjoin_pg::ListenEvent::Notification(notification) = event {
+                tokio::select! {
+                    _ = &mut stop => return,
+                    result = self.tick(&notification.payload) => {
+                        if result.is_err() {
+                            eprintln!("approval notify: event failed");
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Default)]

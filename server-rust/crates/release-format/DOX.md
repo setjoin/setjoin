@@ -32,3 +32,5 @@ in the CI image with `REL1_RECORD_DIR` pointing at an empty directory and
 `GOFREE_GO_SOURCE` set to the frozen full commit. Recordings refuse overwrite.
 
 Rust-only artifact class `setjoin-auth` → `core_setjoin_auth` (#359b). Frozen Go maps it to the empty target and rejects such manifests; no Go updater is deployed. Recorded divergence: new capability, not parity.
+
+Wave 1.6 (#544) adds artifact class `setjoind` → `core_setjoind` supporting four mutually-exclusive cohorts: Legacy Go, Release N-1 split (`setjoin-server` + `setjoin-auth`), Release N expand (`setjoind` + both shims), and Release N+1 contract (`setjoind`-only). Mixing `setjoind` with any legacy Go binary or shipping a half-shim cohort (`setjoind` + only one shim) is rejected fail-closed.

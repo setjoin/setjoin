@@ -91,7 +91,9 @@ pub struct RuntimeAccess<K: KeySource + 'static> {
     replay: dpop::ReplayCache,
     geo: Option<CountryDb>,
     direct: String,
+    listen_hub: Option<setjoin_pg::ListenHub>,
     listener: Mutex<Option<DirectListener>>,
+    hub_sub: Mutex<Option<setjoin_pg::ListenSubscription>>,
 }
 impl<K: KeySource + 'static> RuntimeAccess<K> {
     pub fn new(exec: ScopedExecutor, keys: Arc<K>, issuer: String) -> Self {
@@ -111,7 +113,9 @@ impl<K: KeySource + 'static> RuntimeAccess<K> {
             replay: Default::default(),
             geo: CountryDb::from_env(),
             direct: String::new(),
+            listen_hub: None,
             listener: Mutex::new(None),
+            hub_sub: Mutex::new(None),
         }
     }
     pub fn with_workers(mut self, exec: ScopedExecutor, db: WorkerDatabase) -> Self {
@@ -135,6 +139,10 @@ impl<K: KeySource + 'static> RuntimeAccess<K> {
     }
     pub fn with_direct(mut self, direct: String) -> Self {
         self.direct = direct;
+        self
+    }
+    pub fn with_listen_hub(mut self, hub: setjoin_pg::ListenHub) -> Self {
+        self.listen_hub = Some(hub);
         self
     }
     pub fn with_device_secret(
@@ -579,7 +587,12 @@ fn fingerprint(ua: &str, ip: std::net::IpAddr) -> String {
 impl<K: KeySource + 'static> RuntimeGate for RuntimeAccess<K> {
     fn initialize(&self) -> Task<'_> {
         Box::pin(async move {
-            if !self.direct.is_empty() {
+            if let Some(hub) = &self.listen_hub {
+                match hub.subscribe("conditional_access").await {
+                    Ok(sub) => *self.hub_sub.lock().await = Some(sub),
+                    Err(error) => eprintln!("conditional access listen hub unavailable: {error}"),
+                }
+            } else if !self.direct.is_empty() {
                 match DirectListener::connect(&self.direct, "conditional_access").await {
                     Ok(listener) => *self.listener.lock().await = Some(listener),
                     Err(error) => eprintln!("conditional access listener unavailable: {error}"),
@@ -595,6 +608,55 @@ impl<K: KeySource + 'static> RuntimeGate for RuntimeAccess<K> {
     }
     fn run(&self, stop: watch::Receiver<bool>) -> Task<'_> {
         Box::pin(async move {
+            if let Some(hub) = self.listen_hub.clone() {
+                let initial_sub = self.hub_sub.lock().await.take();
+                let engine = self.engine.clone();
+                let policy_hub = hub.clone();
+                let policy_stop = stop.clone();
+                let policy = async move {
+                    let sub = match initial_sub {
+                        Some(sub) => Some(sub),
+                        None => policy_hub.subscribe("conditional_access").await.ok(),
+                    };
+                    let Some(mut sub) = sub else {
+                        stopped(policy_stop).await;
+                        return;
+                    };
+                    loop {
+                        tokio::select! {
+                            _ = stopped(policy_stop.clone()) => return,
+                            event = sub.recv() => {
+                                if event.is_none() {
+                                    return;
+                                }
+                                engine.invalidate().await;
+                            }
+                        }
+                    }
+                };
+                let groups = self
+                    .engine
+                    .group_resolver()
+                    .clone()
+                    .listen_with_hub(hub.clone(), stop.clone());
+                let sessions = async {
+                    if self.own_sessions {
+                        if let Some(sessions) = &self.sessions {
+                            if let Err(error) = sessions
+                                .clone()
+                                .run_with_hub(hub.clone(), stopped(stop.clone()))
+                                .await
+                            {
+                                eprintln!("runtime session cache stopped: {error}");
+                            }
+                            return;
+                        }
+                    }
+                    stopped(stop).await;
+                };
+                tokio::join!(policy, groups, sessions);
+                return;
+            }
             let initial = self.listener.lock().await.take();
             let policy = policies(
                 self.engine.clone(),
@@ -602,6 +664,11 @@ impl<K: KeySource + 'static> RuntimeGate for RuntimeAccess<K> {
                 initial,
                 stop.clone(),
             );
+            let groups = self
+                .engine
+                .group_resolver()
+                .clone()
+                .listen_watch(self.direct.clone(), stop.clone());
             let sessions = async {
                 if self.own_sessions && !self.direct.is_empty() {
                     if let Some(sessions) = &self.sessions {
@@ -617,7 +684,7 @@ impl<K: KeySource + 'static> RuntimeGate for RuntimeAccess<K> {
                 }
                 stopped(stop).await;
             };
-            tokio::join!(policy, sessions);
+            tokio::join!(policy, groups, sessions);
         })
     }
     fn check<'a>(&'a self, r: &'a mut Request<Body>, c: &'a RequestContext) -> Check<'a> {

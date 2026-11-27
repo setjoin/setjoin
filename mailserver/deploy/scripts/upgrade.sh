@@ -13,7 +13,35 @@ set -euo pipefail
 
 INSTALL_DIR="${INSTALL_DIR:-/opt/setjoin}"
 REFRESH_GATEWAY_ENV=0
-if [ -L "$INSTALL_DIR/current" ]; then
+SUBCOMMAND=""
+ALLOW_SINGLE_COHORT=0
+
+case "${1:-}" in
+    migrate-to-setjoind)
+        SUBCOMMAND="migrate-to-setjoind"
+        shift
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                --allow-single-cohort) ALLOW_SINGLE_COHORT=1 ;;
+                *)
+                    echo "Usage: $0 migrate-to-setjoind [--allow-single-cohort]" >&2
+                    exit 2
+                    ;;
+            esac
+            shift
+        done
+        ;;
+    rollback-to-split-units)
+        SUBCOMMAND="rollback-to-split-units"
+        shift
+        if [ "$#" -ne 0 ]; then
+            echo "Usage: $0 rollback-to-split-units" >&2
+            exit 2
+        fi
+        ;;
+esac
+
+if [ -z "$SUBCOMMAND" ] && [ -L "$INSTALL_DIR/current" ]; then
     case "${1:-}" in
         status|evidence|activate-previous)
             action="$1"; shift
@@ -24,7 +52,7 @@ if [ -L "$INSTALL_DIR/current" ]; then
             ;;
         *)
             echo "This installation uses the transactional immutable layout; positional artifact-copy upgrades are disabled." >&2
-            echo "Use the signed Updates workflow, or 'sudo $0 refresh-gateway-env' to regenerate gateway unit/env files; for recovery: sudo $0 status | evidence | activate-previous --reason TEXT" >&2
+            echo "Use the signed Updates workflow, or 'sudo $0 refresh-gateway-env | migrate-to-setjoind | rollback-to-split-units'; for recovery: sudo $0 status | evidence | activate-previous --reason TEXT" >&2
             exit 2
             ;;
     esac
@@ -34,16 +62,18 @@ NEW_SERVER=""
 NEW_MAILCTL=""
 NEW_WEBMAIL=""
 NEW_AUTH=""
-if [ "$REFRESH_GATEWAY_ENV" = 0 ]; then
+NEW_SETJOIND=""
+if [ -z "$SUBCOMMAND" ] && [ "$REFRESH_GATEWAY_ENV" = 0 ]; then
     NEW_SERVER="${1:-}"
     NEW_MAILCTL="${2:-}"
     NEW_WEBMAIL="${3:-}"
     NEW_AUTH="${4:-}"
+    NEW_SETJOIND="${5:-}"
     if [ ! -f "$NEW_SERVER" ]; then
-        echo "Usage: $0 /path/to/new/setjoin-server [/path/to/new/mailctl] [/path/to/webmail-build] [/path/to/new/setjoin-auth]"
-        echo "  1. Build: cd server-rust && cargo build --release --locked -p setjoin-gateway -p setjoin-auth -p setjoin-mailctl"
-        echo "  2. Deploy: scp setjoin-server setjoin-auth mailctl user@host:/tmp/ && \\"
-        echo "             ssh user@host 'sudo /opt/setjoin/deploy/scripts/upgrade.sh /tmp/setjoin-server /tmp/mailctl /tmp/webmail-build /tmp/setjoin-auth'"
+        echo "Usage: $0 /path/to/new/setjoin-server [/path/to/new/mailctl] [/path/to/webmail-build] [/path/to/new/setjoin-auth] [/path/to/new/setjoind]"
+        echo "  1. Build: cd server-rust && cargo build --release --locked -p setjoind -p setjoin-mailctl"
+        echo "  2. Deploy: scp setjoin-server setjoin-auth setjoind mailctl user@host:/tmp/ && \\"
+        echo "             ssh user@host 'sudo /opt/setjoin/deploy/scripts/upgrade.sh /tmp/setjoin-server /tmp/mailctl /tmp/webmail-build /tmp/setjoin-auth /tmp/setjoind'"
         exit 1
     fi
     if [ -n "$NEW_WEBMAIL" ] && [ ! -f "$NEW_WEBMAIL/index.html" ]; then
@@ -52,6 +82,19 @@ if [ "$REFRESH_GATEWAY_ENV" = 0 ]; then
     fi
     if [ -n "$NEW_AUTH" ] && [ ! -f "$NEW_AUTH" ]; then
         echo "Auth binary does not exist: $NEW_AUTH"
+        exit 1
+    fi
+    if [ -z "$NEW_SETJOIND" ] && [ -f "$(dirname "$NEW_SERVER")/setjoind" ]; then
+        NEW_SETJOIND="$(dirname "$NEW_SERVER")/setjoind"
+    fi
+    if [ -n "$NEW_SETJOIND" ] && [ ! -f "$NEW_SETJOIND" ]; then
+        echo "setjoind binary does not exist: $NEW_SETJOIND" >&2
+        exit 1
+    fi
+    if { grep -aq 'SETJOIND_SHIM_V1' "$NEW_SERVER" 2>/dev/null ||
+         { [ -n "$NEW_AUTH" ] && grep -aq 'SETJOIND_SHIM_V1' "$NEW_AUTH" 2>/dev/null; }; } &&
+       [ -z "$NEW_SETJOIND" ]; then
+        echo "Refusing to install Release N shim binary without a companion setjoind executable (pass arg 5 or place setjoind beside $NEW_SERVER)." >&2
         exit 1
     fi
 fi
@@ -63,12 +106,26 @@ AUTH_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/auth.env"
 DB_CRED_FILE="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/db-credentials.d/db-credentials.env"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 GATEWAY_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/gateway.env"
+SETJOIND_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/setjoind.env"
+SETJOIND_AUTH_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/setjoind-auth.env"
 FEDERATION_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/federation.env"
 STORAGE_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/storage.env"
 TLS_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/tls.env"
 SMTP_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/smtp.env"
 source "$(dirname "${BASH_SOURCE[0]}")/lib-livekit.sh"
 DEPLOYMENT_PREV="$INSTALL_DIR/federation-deploy.prev"
+CUTOVER_PREV="$INSTALL_DIR/setjoind-cutover.prev"
+ALL_SERVER_SOCKETS=(
+    setjoin-gateway.socket
+    setjoin-https.socket
+    setjoin-acme.socket
+    setjoin-federation.socket
+    setjoin-imap.socket
+    setjoin-imaps.socket
+    setjoin-smtp.socket
+    setjoin-smtps.socket
+    setjoin-submission.socket
+)
 HAD_WEBMAIL=0
 AUTH_WAS_ACTIVE=0
 
@@ -79,7 +136,7 @@ backup_gateway_deployment() {
     [ ! -L "$DEPLOYMENT_PREV" ] || return 1
     rm -rf "$DEPLOYMENT_PREV"
     ( umask 077; mkdir -p "$DEPLOYMENT_PREV/units" "$DEPLOYMENT_PREV/config" )
-    for file in setjoin.service setjoin-auth.service setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+    for file in setjoin.service setjoin-auth.service setjoin-gateway.service setjoind.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         if [ -e "$SYSTEMD_DIR/$file" ] || [ -L "$SYSTEMD_DIR/$file" ]; then
             cp -a "$SYSTEMD_DIR/$file" "$DEPLOYMENT_PREV/units/"
         fi
@@ -94,7 +151,7 @@ backup_gateway_deployment() {
             esac
         fi
     fi
-    for file in config.env auth.env gateway.env federation.env tls.env smtp.env storage.env; do
+    for file in config.env auth.env gateway.env setjoind.env setjoind-auth.env federation.env tls.env smtp.env storage.env; do
         if [ -e "${CONFIG_ENV%/*}/$file" ]; then
             cp -a "${CONFIG_ENV%/*}/$file" "$DEPLOYMENT_PREV/config/"
         fi
@@ -260,13 +317,13 @@ PY
 }
 restore_gateway_files_only() {
     local file rc=0
-    for file in setjoin.service setjoin-auth.service setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+    for file in setjoin.service setjoin-auth.service setjoin-gateway.service setjoind.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         rm -f "$SYSTEMD_DIR/$file" || rc=1
         if [ -e "$DEPLOYMENT_PREV/units/$file" ] || [ -L "$DEPLOYMENT_PREV/units/$file" ]; then
             cp -a "$DEPLOYMENT_PREV/units/$file" "$SYSTEMD_DIR/" || rc=1
         fi
     done
-    for file in config.env auth.env gateway.env federation.env tls.env smtp.env storage.env; do
+    for file in config.env auth.env gateway.env setjoind.env setjoind-auth.env federation.env tls.env smtp.env storage.env; do
         rm -f "${CONFIG_ENV%/*}/$file" || rc=1
         if [ -e "$DEPLOYMENT_PREV/config/$file" ]; then
             cp -a "$DEPLOYMENT_PREV/config/$file" "${CONFIG_ENV%/*}/" || rc=1
@@ -478,7 +535,60 @@ render_gateway_deployment() (
     fi
 )
 
-if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
+render_setjoind_deployment() (
+    local root key names file tmp _tls_cache
+    root="$(cd "$(dirname "$0")/../../.." && pwd)"
+    source "$root/mailserver/deploy/scripts/lib-livekit.sh" || return 1
+    RUNTIME_DIR="${RUNTIME_DIR:-$INSTALL_DIR}"
+    if [ ! -x "$RUNTIME_DIR/setjoind" ]; then
+        echo "missing executable $RUNTIME_DIR/setjoind — refusing to render setjoind.service" >&2
+        return 1
+    fi
+    validate_db_cred_file_posture "$DB_CRED_FILE" || return 1
+    if [ -f "$CONFIG_ENV" ] && grep -Eq '^[[:space:]]*(DB_OWNER_DSN|DB_DIRECT_OWNER_DSN)=' "$CONFIG_ENV"; then
+        echo "config.env still contains DB_OWNER_DSN or DB_DIRECT_OWNER_DSN; run DEPLOY-004 credential split / mailctl schema provision-roles first" >&2
+        return 1
+    fi
+    GATEWAY_LISTEN="$(config_value "$SETJOIND_ENV" GATEWAY_LISTEN)"
+    [ -n "$GATEWAY_LISTEN" ] || GATEWAY_LISTEN="$(config_value "$GATEWAY_ENV" GATEWAY_LISTEN)"
+    GATEWAY_TRUSTED_PROXIES="$(config_value "$SETJOIND_ENV" GATEWAY_TRUSTED_PROXIES)"
+    [ -n "$GATEWAY_TRUSTED_PROXIES" ] || GATEWAY_TRUSTED_PROXIES="$(config_value "$GATEWAY_ENV" GATEWAY_TRUSTED_PROXIES)"
+    FEDERATION_ENABLED="$(config_value "$CONFIG_ENV" FEDERATION_ENABLED)"
+    FEDERATION_LISTEN_ADDR="$(config_value "$CONFIG_ENV" FEDERATION_LISTEN_ADDR)"
+    if [ -n "$(config_value "$CONFIG_ENV" FEDERATION_LOCAL_DOMAIN)" ] &&
+       [ -n "$(config_value "$CONFIG_ENV" FEDERATION_CERT)" ] &&
+       [ -n "$(config_value "$CONFIG_ENV" FEDERATION_KEY)" ]; then
+        FEDERATION_ENABLED=true
+    fi
+    configure_tls_front "$CONFIG_ENV" || return 1
+    configure_imap_front "$CONFIG_ENV" || return 1
+    configure_smtp_front "$CONFIG_ENV" || return 1
+    _tls_cache=$(tls_import_cache_dir "$CONFIG_ENV")
+    validate_tls_cache_target "$_tls_cache" || return 1
+    render_tls_front_env "$TLS_ENV" "$CONFIG_ENV" || return 1
+    chown root:setjoin "$TLS_ENV" || return 1
+    render_setjoind_env "$SETJOIND_ENV" || return 1
+    render_setjoind_auth_env "$SETJOIND_AUTH_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
+    chown root:root "$SETJOIND_AUTH_ENV" || return 1
+    chmod 0600 "$SETJOIND_AUTH_ENV" || return 1
+    render_federation_env "$FEDERATION_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
+    chown root:setjoin "$FEDERATION_ENV" || return 1
+    render_storage_env "$STORAGE_ENV" "$CONFIG_ENV" || return 1
+    chown root:setjoin "$STORAGE_ENV" || return 1
+    render_smtp_env "$SMTP_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
+    chown root:setjoin "$SMTP_ENV" || return 1
+    ensure_tls_cache_dir "$_tls_cache" "${DEPLOYMENT_PREV:-}/tls-cache.meta" || return 1
+    rm -f "$SYSTEMD_DIR/setjoin-https.socket" "$SYSTEMD_DIR/setjoin-acme.socket" "$SYSTEMD_DIR/setjoin-imap.socket" "$SYSTEMD_DIR/setjoin-imaps.socket" "$SYSTEMD_DIR/setjoin-smtp.socket" "$SYSTEMD_DIR/setjoin-smtps.socket" "$SYSTEMD_DIR/setjoin-submission.socket" "$SYSTEMD_DIR/setjoin-federation.socket"
+    render_setjoind_unit "$root/mailserver/deploy/setjoind.service.template" "$SYSTEMD_DIR/setjoind.service" || return 1
+    systemctl daemon-reload || return 1
+    systemctl enable setjoin-gateway.socket || return 1
+    for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket setjoin-federation.socket; do
+        if [ -f "$SYSTEMD_DIR/$file" ]; then systemctl enable "$file" || return 1; fi
+    done
+)
+
+acquire_updater_lock_and_check_journal() {
+    local check_journal="${1:-0}" _updater_state _old_umask recovery_bin status_json
     _updater_state="${UPDATER_STATE_DIR:-}"
     if [ -z "$_updater_state" ] && [ -f "$SYSTEMD_DIR/setjoin-updater.service" ]; then
         _updater_state="$(sed -n '/^[[:space:]]*ExecStart=/s/.*--state-dir=\([^[:space:]]*\).*/\1/p' "$SYSTEMD_DIR/setjoin-updater.service" | tail -1 || true)"
@@ -489,11 +599,11 @@ if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
     if [ -d "$_updater_state" ] || [ -f "$SYSTEMD_DIR/setjoin-updater.service" ]; then
         [ -d "$_updater_state" ] || {
             echo "   ✗ updater state directory $_updater_state missing; cannot verify executor.lock." >&2
-            exit 1
+            return 1
         }
         command -v flock >/dev/null 2>&1 || {
-            echo "   ✗ flock is required to coordinate refresh with setjoin-updater." >&2
-            exit 1
+            echo "   ✗ flock is required to coordinate with setjoin-updater." >&2
+            return 1
         }
         # Append mode preserves the executor.lock inode shared with setjoin-updater.
         _old_umask=$(umask)
@@ -501,11 +611,298 @@ if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
         exec 9>>"$_updater_state/executor.lock"
         umask "$_old_umask"
         if ! flock -n 9; then
-            echo "   ✗ active signed update holds $_updater_state/executor.lock; refusing concurrent refresh." >&2
+            echo "   ✗ active signed update holds $_updater_state/executor.lock; refusing concurrent operation." >&2
+            return 1
+        fi
+    fi
+    if [ "$check_journal" = "1" ] && [ -d "$_updater_state" ]; then
+        recovery_bin="${SETJOIN_RECOVERY_BIN:-/usr/libexec/setjoin-recovery}"
+        if [ -x "$recovery_bin" ] && { [ -L "$INSTALL_DIR/current" ] || [ -e "$_updater_state/rust-events.jsonl" ] || [ -e "$_updater_state/events.jsonl" ] || [ -e "$_updater_state/rust-tip.json" ]; }; then
+            if ! status_json="$("$recovery_bin" --install-root "$INSTALL_DIR" --state-dir "$_updater_state" status --json)"; then
+                echo "   ✗ updater journal status check failed; reconcile updater state before continuing." >&2
+                return 1
+            fi
+            if ! python3 - "$status_json" <<'PY'; then
+import json, sys
+s = json.loads(sys.argv[1])
+if s.get("recovery_required") or s.get("database_reconciliation_required"):
+    sys.stderr.write("   ✗ updater journal reports recovery_required or database_reconciliation_required; reconcile first.\n")
+    sys.exit(1)
+state = s.get("intent_state") or ""
+if state and state not in ("verified", "failed", "rolled_back", "cancelled"):
+    sys.stderr.write(f"   ✗ updater journal has non-terminal transaction state ({state!r}); finish or reconcile first.\n")
+    sys.exit(1)
+PY
+                return 1
+            fi
+        elif [ -e "$_updater_state/rust-tip.json" ] || [ -s "$_updater_state/rust-events.jsonl" ] || [ -s "$_updater_state/events.jsonl" ]; then
+            echo "   ✗ updater journal files exist in $_updater_state but $recovery_bin is unavailable; refusing cutover." >&2
+            return 1
+        fi
+    fi
+    return 0
+}
+
+verify_unified_readiness() {
+    local ready_url jwks_url gw_addr https_probe attempt
+    gw_addr="$(config_value "$SETJOIND_ENV" GATEWAY_LISTEN)"
+    gw_addr="${gw_addr:-127.0.0.1:8090}"
+    if tls_front_enabled "$CONFIG_ENV"; then
+        https_probe="$(tls_front_probe_url "$CONFIG_ENV")"
+        ready_url="${https_probe%/_gateway/healthz}/ready"
+        jwks_url="${https_probe%/_gateway/healthz}/.well-known/jwks.json"
+    else
+        ready_url="http://${gw_addr}/ready"
+        jwks_url="http://${gw_addr}/.well-known/jwks.json"
+    fi
+    for attempt in $(seq 1 30); do
+        if curl -skf --max-time 3 "$ready_url" >/dev/null 2>&1; then
+            local jwks_body=""
+            if jwks_body="$(curl -skf --max-time 3 "$jwks_url" 2>/dev/null)" &&
+               python3 - "$jwks_body" <<'PY' 2>/dev/null; then
+import json, sys
+doc = json.loads(sys.argv[1])
+assert isinstance(doc.get("keys"), list)
+PY
+                echo "   setjoind ready after ${attempt} attempt(s)."
+                return 0
+            fi
+        fi
+        sleep 2
+    done
+    echo "   ✗ setjoind readiness check failed (/ready + /.well-known/jwks.json)." >&2
+    return 1
+}
+
+if [ "$SUBCOMMAND" = "migrate-to-setjoind" ]; then
+    echo "=== Setjoin Cutover: Split Units -> Unified setjoind ==="
+    acquire_updater_lock_and_check_journal 1 || exit 1
+    if [ -L "$INSTALL_DIR/current" ]; then
+        RUNTIME_DIR="$INSTALL_DIR/current"
+    else
+        RUNTIME_DIR="$INSTALL_DIR"
+    fi
+    if [ -e "$SYSTEMD_DIR/setjoind.service" ] || [ -L "$SYSTEMD_DIR/setjoind.service" ]; then
+        echo "   ✗ setjoind.service is already installed in $SYSTEMD_DIR; refusing duplicate or mixed cutover." >&2
+        exit 1
+    fi
+    if [ ! -f "$SYSTEMD_DIR/setjoin-gateway.service" ] || [ ! -f "$SYSTEMD_DIR/setjoin-auth.service" ]; then
+        echo "   ✗ split units (setjoin-gateway.service and setjoin-auth.service) must both exist in $SYSTEMD_DIR before cutover." >&2
+        exit 1
+    fi
+    if [ ! -x "$RUNTIME_DIR/setjoind" ]; then
+        echo "   ✗ missing executable $RUNTIME_DIR/setjoind; stage a Release N cohort first." >&2
+        exit 1
+    fi
+    if [ -L "$INSTALL_DIR/current" ] && { [ -e "$INSTALL_DIR/previous" ] || [ -L "$INSTALL_DIR/previous" ]; } && [ "$ALLOW_SINGLE_COHORT" != "1" ]; then
+        if [ ! -x "$INSTALL_DIR/previous/setjoind" ]; then
+            echo "   ✗ $INSTALL_DIR/previous lacks setjoind; upgrade twice through Release N first or pass --allow-single-cohort." >&2
             exit 1
         fi
     fi
+    validate_db_cred_file_posture "$DB_CRED_FILE" || exit 1
+    if [ -f "$CONFIG_ENV" ] && grep -Eq '^[[:space:]]*(DB_OWNER_DSN|DB_DIRECT_OWNER_DSN)=' "$CONFIG_ENV"; then
+        echo "   ✗ $CONFIG_ENV contains DB_OWNER_DSN or DB_DIRECT_OWNER_DSN; complete DEPLOY-004 credential split / mailctl schema provision-roles before cutover." >&2
+        exit 1
+    fi
+    if [ -L "$CUTOVER_PREV" ]; then
+        echo "   ✗ $CUTOVER_PREV is a symlink; refusing unsafe snapshot path." >&2
+        exit 1
+    fi
+    rm -rf "$CUTOVER_PREV"
+    ( umask 077; mkdir -p "$CUTOVER_PREV/units" "$CUTOVER_PREV/config" )
+    chmod 0700 "$CUTOVER_PREV"
+    if [ "$(id -u)" = 0 ]; then chown root:root "$CUTOVER_PREV"; fi
+    for file in setjoin-gateway.service setjoin-auth.service "${ALL_SERVER_SOCKETS[@]}"; do
+        if [ -e "$SYSTEMD_DIR/$file" ] || [ -L "$SYSTEMD_DIR/$file" ]; then
+            cp -a "$SYSTEMD_DIR/$file" "$CUTOVER_PREV/units/"
+        fi
+    done
+    : > "$CUTOVER_PREV/enabled-sockets"
+    for sock in "${ALL_SERVER_SOCKETS[@]}"; do
+        if [ -e "$SYSTEMD_DIR/$sock" ]; then
+            if systemctl is-enabled "$sock" >/dev/null 2>&1; then
+                printf '%s\n' "$sock" >> "$CUTOVER_PREV/enabled-sockets"
+            fi
+        fi
+    done
+    for file in config.env auth.env gateway.env federation.env storage.env smtp.env tls.env; do
+        if [ -e "${CONFIG_ENV%/*}/$file" ]; then
+            cp -a "${CONFIG_ENV%/*}/$file" "$CUTOVER_PREV/config/"
+        fi
+    done
+
+    rollback_cutover_and_exit() {
+        echo "   Rolling back failed setjoind cutover to split units..." >&2
+        local s f
+        for s in "${ALL_SERVER_SOCKETS[@]}"; do
+            if [ -e "$SYSTEMD_DIR/$s" ]; then
+                systemctl stop "$s" || true
+                systemctl disable "$s" || true
+            fi
+        done
+        systemctl stop setjoind || true
+        systemctl disable setjoind || true
+        rm -f "$SYSTEMD_DIR/setjoind.service" "$SETJOIND_ENV" "$SETJOIND_AUTH_ENV"
+        for f in setjoin-gateway.service setjoin-auth.service "${ALL_SERVER_SOCKETS[@]}"; do
+            rm -f "$SYSTEMD_DIR/$f"
+            if [ -e "$CUTOVER_PREV/units/$f" ] || [ -L "$CUTOVER_PREV/units/$f" ]; then
+                cp -a "$CUTOVER_PREV/units/$f" "$SYSTEMD_DIR/"
+            fi
+        done
+        for f in config.env auth.env gateway.env federation.env storage.env smtp.env tls.env; do
+            rm -f "${CONFIG_ENV%/*}/$f"
+            if [ -e "$CUTOVER_PREV/config/$f" ]; then
+                cp -a "$CUTOVER_PREV/config/$f" "${CONFIG_ENV%/*}/"
+            fi
+        done
+        systemctl daemon-reload || true
+        while IFS= read -r s; do
+            [ -n "$s" ] || continue
+            systemctl enable "$s" || true
+            systemctl start "$s" || true
+        done < "$CUTOVER_PREV/enabled-sockets"
+        systemctl enable setjoin-auth || true
+        systemctl enable setjoin-gateway || true
+        systemctl start setjoin-auth || true
+        systemctl start setjoin-gateway || true
+        rm -rf "$CUTOVER_PREV"
+        exit 1
+    }
+
+    # Stop ALL 9 sockets FIRST so systemd cannot reactivate setjoin-gateway mid-cutover.
+    for sock in "${ALL_SERVER_SOCKETS[@]}"; do
+        if [ -e "$SYSTEMD_DIR/$sock" ]; then
+            systemctl stop "$sock" || rollback_cutover_and_exit
+        fi
+    done
+    systemctl stop setjoin-gateway || rollback_cutover_and_exit
+    systemctl stop setjoin-auth || rollback_cutover_and_exit
+    systemctl disable setjoin-gateway || rollback_cutover_and_exit
+    systemctl disable setjoin-auth || rollback_cutover_and_exit
+
+    if ! RUNTIME_DIR="$RUNTIME_DIR" render_setjoind_deployment; then
+        rollback_cutover_and_exit
+    fi
+    rm -f "$SYSTEMD_DIR/setjoin-gateway.service" "$SYSTEMD_DIR/setjoin-auth.service"
+    systemctl daemon-reload || rollback_cutover_and_exit
+    systemctl enable setjoin-gateway.socket || rollback_cutover_and_exit
+    systemctl start setjoin-gateway.socket || rollback_cutover_and_exit
+    for sock in "${ALL_SERVER_SOCKETS[@]}"; do
+        [ "$sock" = setjoin-gateway.socket ] && continue
+        if [ -f "$SYSTEMD_DIR/$sock" ]; then
+            systemctl enable "$sock" || rollback_cutover_and_exit
+            systemctl start "$sock" || rollback_cutover_and_exit
+        fi
+    done
+    systemctl enable setjoind || rollback_cutover_and_exit
+    systemctl start setjoind || rollback_cutover_and_exit
+
+    if ! verify_unified_readiness; then
+        rollback_cutover_and_exit
+    fi
+    # Purge secret env copies so stale credentials never linger on disk.
+    rm -rf "$CUTOVER_PREV/config" "$CUTOVER_PREV/units"
+    echo "Cutover to unified setjoind.service succeeded."
+    exit 0
+fi
+
+if [ "$SUBCOMMAND" = "rollback-to-split-units" ]; then
+    echo "=== Setjoin Reverse Cutover: Unified setjoind -> Split Units ==="
+    acquire_updater_lock_and_check_journal 1 || exit 1
+    if [ -L "$INSTALL_DIR/current" ]; then
+        RUNTIME_DIR="$INSTALL_DIR/current"
+    else
+        RUNTIME_DIR="$INSTALL_DIR"
+    fi
+    if [ ! -f "$SYSTEMD_DIR/setjoind.service" ]; then
+        echo "   ✗ setjoind.service is not installed in $SYSTEMD_DIR." >&2
+        exit 1
+    fi
+    if [ -e "$SYSTEMD_DIR/setjoin-gateway.service" ] || [ -e "$SYSTEMD_DIR/setjoin-auth.service" ]; then
+        echo "   ✗ mixed unit topology detected in $SYSTEMD_DIR; resolve manually before rollback." >&2
+        exit 1
+    fi
+    if [ ! -x "$RUNTIME_DIR/setjoin-server" ] || [ ! -x "$RUNTIME_DIR/setjoin-auth" ]; then
+        echo "   ✗ $RUNTIME_DIR lacks setjoin-server or setjoin-auth shims; cannot return to split units." >&2
+        exit 1
+    fi
+    validate_db_cred_file_posture "$DB_CRED_FILE" || exit 1
+
+    # Stop ALL 9 sockets FIRST, then stop and remove setjoind.service.
+    for sock in "${ALL_SERVER_SOCKETS[@]}"; do
+        if [ -e "$SYSTEMD_DIR/$sock" ]; then
+            systemctl stop "$sock" || true
+            systemctl disable "$sock" || true
+        fi
+    done
+    systemctl stop setjoind || true
+    systemctl disable setjoind || true
+    rm -f "$SYSTEMD_DIR/setjoind.service" "$SETJOIND_ENV" "$SETJOIND_AUTH_ENV"
+
+    # Re-render split units & env files from LIVE config.env + db-credentials.env.
+    if ! RUNTIME_DIR="$RUNTIME_DIR" render_gateway_deployment; then
+        echo "   ✗ failed to re-render split units from live configuration." >&2
+        exit 1
+    fi
+    systemctl daemon-reload
+    systemctl enable setjoin-gateway.socket
+    systemctl start setjoin-gateway.socket
+    for sock in "${ALL_SERVER_SOCKETS[@]}"; do
+        [ "$sock" = setjoin-gateway.socket ] && continue
+        if [ -f "$SYSTEMD_DIR/$sock" ]; then
+            systemctl enable "$sock"
+            systemctl start "$sock"
+        fi
+    done
+    systemctl enable setjoin-auth
+    systemctl enable setjoin-gateway
+    systemctl start setjoin-auth
+    systemctl start setjoin-gateway
+
+    AUTH_LISTEN_ADDR="$(config_value "$AUTH_ENV" LISTEN_ADDR)"
+    AUTH_LISTEN_ADDR="${AUTH_LISTEN_ADDR:-127.0.0.1:8443}"
+    GATEWAY_ADDR="$(config_value "$GATEWAY_ENV" GATEWAY_LISTEN)"
+    GATEWAY_ADDR="${GATEWAY_ADDR:-127.0.0.1:8090}"
+    READY_URL="http://${GATEWAY_ADDR}/ready"
+    if tls_front_enabled "$CONFIG_ENV"; then
+        HTTPS_BASE="$(tls_front_probe_url "$CONFIG_ENV")"
+        READY_URL="${HTTPS_BASE%/_gateway/healthz}/ready"
+    fi
+    SPLIT_READY=0
+    for attempt in $(seq 1 30); do
+        if curl -skf --max-time 3 "$READY_URL" >/dev/null 2>&1 &&
+           curl -sf --max-time 3 "http://${AUTH_LISTEN_ADDR}/health" >/dev/null 2>&1; then
+            SPLIT_READY=1
+            echo "   Split units ready after ${attempt} attempt(s)."
+            break
+        fi
+        sleep 2
+    done
+    if [ "$SPLIT_READY" != "1" ]; then
+        echo "   ✗ Split unit readiness check failed after rollback." >&2
+        exit 1
+    fi
+    echo "Reverse cutover to split units succeeded."
+    exit 0
+fi
+
+if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
+    acquire_updater_lock_and_check_journal 0 || exit 1
     RUNTIME_DIR="$INSTALL_DIR/current"
+    if [ -e "$SYSTEMD_DIR/setjoind.service" ] || [ -L "$SYSTEMD_DIR/setjoind.service" ]; then
+        if [ -e "$SYSTEMD_DIR/setjoin-gateway.service" ] || [ -e "$SYSTEMD_DIR/setjoin-auth.service" ]; then
+            echo "   ✗ mixed unit topology: setjoind.service coexists with split units in $SYSTEMD_DIR." >&2
+            exit 1
+        fi
+        backup_gateway_deployment
+        if ! RUNTIME_DIR="$RUNTIME_DIR" render_setjoind_deployment; then
+            echo "   ✗ setjoind unit/config refresh failed." >&2
+            restore_gateway_refresh || true
+            exit 1
+        fi
+        exit 0
+    fi
     backup_gateway_deployment
     if ! RUNTIME_DIR="$RUNTIME_DIR" render_gateway_deployment; then
         echo "   ✗ gateway unit/config refresh failed." >&2
@@ -524,6 +921,7 @@ HAD_LEGACY_MAILSERVER=0
 HAD_MAILCTL=0
 HAD_AUTH=0
 HAD_LEGACY_AUTHSERVER=0
+HAD_SETJOIND=0
 
 echo "=== Setjoin Server Upgrade ==="
 echo "1. Stopping services..."
@@ -574,6 +972,10 @@ if [ -n "$NEW_AUTH" ] && [ -f "$INSTALL_DIR/authserverd" ]; then
     HAD_LEGACY_AUTHSERVER=1
     cp "$INSTALL_DIR/authserverd" "$INSTALL_DIR/authserverd.prev"
 fi
+if [ -n "$NEW_SETJOIND" ] && [ -f "$INSTALL_DIR/setjoind" ]; then
+    HAD_SETJOIND=1
+    cp "$INSTALL_DIR/setjoind" "$INSTALL_DIR/setjoind.prev"
+fi
 if [ -n "$NEW_WEBMAIL" ] && [ -d "$INSTALL_DIR/webmail" ]; then
     HAD_WEBMAIL=1
     rm -rf "$INSTALL_DIR/webmail.prev"
@@ -602,6 +1004,10 @@ if [ -n "$NEW_AUTH" ]; then
     if [ "$HAD_LEGACY_AUTHSERVER" = "1" ]; then
         rm -f "$INSTALL_DIR/authserverd"
     fi
+fi
+if [ -n "$NEW_SETJOIND" ]; then
+    cp "$NEW_SETJOIND" "$INSTALL_DIR/setjoind"
+    chmod 755 "$INSTALL_DIR/setjoind"
 fi
 if [ -n "$NEW_WEBMAIL" ]; then
     rm -rf "$INSTALL_DIR/webmail.new"
@@ -639,6 +1045,13 @@ roll_back_and_exit() {
         fi
         if [ "$HAD_LEGACY_AUTHSERVER" = "1" ] && [ -f "$INSTALL_DIR/authserverd.prev" ]; then
             cp "$INSTALL_DIR/authserverd.prev" "$INSTALL_DIR/authserverd"
+        fi
+    fi
+    if [ -n "$NEW_SETJOIND" ]; then
+        if [ "$HAD_SETJOIND" = "1" ] && [ -f "$INSTALL_DIR/setjoind.prev" ]; then
+            cp "$INSTALL_DIR/setjoind.prev" "$INSTALL_DIR/setjoind"
+        else
+            rm -f "$INSTALL_DIR/setjoind"
         fi
     fi
     if [ -n "$NEW_WEBMAIL" ]; then

@@ -61,3 +61,14 @@ source provenance, including adapter/case/harness SHA-256 per recording.
 Fixture-only `BOOT_DECRYPT` observations open selected known
 secrets after boot; no production path reads these probe flags. Random file
 keys and timestamps are normalized; the secret fixture is restored per case.
+
+## Subsystem-gated preflight & strict schema (#543)
+
+`subsystems::Subsystems` (`http`, `auth`, `protocols`, `workers`; `ALL`, `NONE`,
+`parse("--subsystems=...")`) parameterizes `run_for_subsystems(subsystems,
+strict_schema)`: `secrets::bootstrap` runs only when `subsystems.auth` is set,
+partition ensure and `startup_recovery()` run only when `subsystems.workers` is
+set, S3/WORM checks run only when `subsystems.workers || subsystems.http`, and
+`strict_schema == true` refuses both behind and ahead schema versions
+(`actual != expected`) before any listener binds. `run()` delegates to
+`(Subsystems::ALL, false)` for backward compatibility.

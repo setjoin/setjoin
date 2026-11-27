@@ -3,7 +3,7 @@ use super::*;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 
-pub(super) struct CaListener(tokio::task::JoinHandle<()>);
+pub struct CaListener(tokio::task::JoinHandle<()>);
 impl Drop for CaListener {
     fn drop(&mut self) {
         self.0.abort();
@@ -39,7 +39,7 @@ impl AuthServer {
             .map_or(&self.ca_engine, |gate| gate.engine())
     }
 
-    pub(super) fn start_ca_listener(self: &Arc<Self>) -> Option<CaListener> {
+    pub fn start_ca_listener(self: &Arc<Self>) -> Option<CaListener> {
         if self.gate.is_some() || self.config.direct_dsn.is_empty() {
             return None;
         }
@@ -64,6 +64,27 @@ impl AuthServer {
                 }
                 tokio::time::sleep(retry).await;
                 retry = (retry * 2).min(Duration::from_secs(30));
+            }
+        })))
+    }
+
+    /// Multiplex `conditional_access` cache invalidation onto a shared
+    /// [`setjoin_pg::ListenHub`] (#543).
+    pub async fn start_ca_listener_with_hub(
+        self: &Arc<Self>,
+        hub: &setjoin_pg::ListenHub,
+    ) -> Option<CaListener> {
+        if self.gate.is_some() {
+            return None;
+        }
+        let mut sub = hub.subscribe("conditional_access").await.ok()?;
+        let server = self.clone();
+        Some(CaListener(tokio::spawn(async move {
+            let _ = server.ca_engine.invalidate_auth().await;
+            while sub.recv().await.is_some() {
+                if let Err(err) = server.ca_engine.invalidate_auth().await {
+                    eprintln!("auth CA reload: {}", err.message);
+                }
             }
         })))
     }

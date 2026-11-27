@@ -125,6 +125,13 @@ pub struct ClientProof {
     client: Option<String>,
 }
 impl ClientProof {
+    /// Sealed in-process internal-service proof for co-located `setjoin-auth` /
+    /// `setjoind` authorities. Gated behind the `in-process-authority` Cargo
+    /// feature, which CI restricts to `setjoin-auth` and `setjoind`.
+    #[cfg(feature = "in-process-authority")]
+    pub fn in_process() -> Self {
+        Self { client: None }
+    }
     pub fn internal(header: &str, key: &str) -> Option<Self> {
         use subtle::ConstantTimeEq;
         let presented = header.strip_prefix("Bearer ")?;
@@ -276,7 +283,9 @@ impl SessionProof {
         if session.user() <= 0 {
             return Err(SessionError::Invalid);
         }
-        Ok(Self { claims: session.claims().clone() })
+        Ok(Self {
+            claims: session.claims().clone(),
+        })
     }
     pub async fn pending(
         &self,
@@ -395,7 +404,12 @@ pub fn now_rfc3339() -> String {
 
 impl SessionProof {
     /// WebPush is a delivery subscription, not a native MFA approval device.
-    pub async fn register_webpush(&self,exec:&ScopedExecutor,subscription:&str,name:&str)->setjoin_pg::CommandOutcome<(),setjoin_pg::StatementFailure>{
+    pub async fn register_webpush(
+        &self,
+        exec: &ScopedExecutor,
+        subscription: &str,
+        name: &str,
+    ) -> setjoin_pg::CommandOutcome<(), setjoin_pg::StatementFailure> {
         exec.run_user_command(setjoin_contracts::ids::ActorId::new(self.user()).expect("verified user"),setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),
             "INSERT INTO push_devices(user_id,push_provider,push_token_enc,device_public_key,device_name) VALUES($1,'webpush',pgp_sym_encrypt($2::text,current_setting('app.encryption_key'))::bytea,NULL,$3) ON CONFLICT DO NOTHING",
             &[(&self.user(),Type::INT8),(&subscription,Type::TEXT),(&name,Type::TEXT)],|_|Ok(())).await

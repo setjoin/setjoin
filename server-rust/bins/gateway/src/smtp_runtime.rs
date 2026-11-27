@@ -38,6 +38,7 @@ pub struct SmtpRuntime {
     closed: Vec<TcpListener>,
     revocations: Arc<crate::workers::SessionDenylist>,
     direct: String,
+    listen_hub: Option<setjoin_pg::ListenHub>,
     flags: Arc<dyn Flags>,
 }
 
@@ -344,11 +345,18 @@ pub fn start_with_trust_cache(
         closed,
         revocations,
         direct,
+        listen_hub: None,
         flags,
     }))
 }
 
 impl SmtpRuntime {
+    /// Multiplex `session_revoke` onto a shared [`setjoin_pg::ListenHub`] (#543).
+    pub fn with_listen_hub(mut self, hub: setjoin_pg::ListenHub) -> Self {
+        self.listen_hub = Some(hub);
+        self
+    }
+
     /// Serve until `stop` flips; sessions end with the listener.
     pub async fn run(self, mut stop: watch::Receiver<bool>) {
         // A cold registry cannot reject already-revoked password sessions: load a
@@ -396,16 +404,20 @@ impl SmtpRuntime {
             let mut revoked_stop = stop.clone();
             let revocations = self.revocations.clone();
             let direct = self.direct.clone();
+            let hub = self.listen_hub.clone();
             tasks.spawn(async move {
-                let _ = revocations
-                    .run(direct, async move {
-                        while !*revoked_stop.borrow() {
-                            if revoked_stop.changed().await.is_err() {
-                                break;
-                            }
+                let shutdown = async move {
+                    while !*revoked_stop.borrow() {
+                        if revoked_stop.changed().await.is_err() {
+                            break;
                         }
-                    })
-                    .await;
+                    }
+                };
+                if let Some(hub) = hub {
+                    let _ = revocations.run_with_hub(hub, shutdown).await;
+                } else {
+                    let _ = revocations.run(direct, shutdown).await;
+                }
             });
         }
         for (server, listener) in self.inbound {

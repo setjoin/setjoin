@@ -145,7 +145,10 @@ fn sm2_with_header(pem: &str, header: &str) -> String {
     let sig: sm2::dsa::Signature = signer
         .sign_prehash(&sm3::Sm3::digest(signed.as_bytes()))
         .unwrap();
-    format!("{signed}.{}", URL_SAFE_NO_PAD.encode(sig.to_der().as_bytes()))
+    format!(
+        "{signed}.{}",
+        URL_SAFE_NO_PAD.encode(sig.to_der().as_bytes())
+    )
 }
 
 /// SEC1 private key d = 1 (public point = the SM2 generator G, the key the
@@ -180,7 +183,10 @@ fn legacy_signature_layer_fails_closed_on_confusion_and_empty_keys() {
         .verify_signature(&setjoin_authz::legacy_jwt::sign_hs256(secret, PUSH_CLAIMS))
         .is_some());
     assert!(keys
-        .verify_signature(&hmac_with(secret, r#"{"alg":"HS256","kid":"mailserver-drive-native-1"}"#))
+        .verify_signature(&hmac_with(
+            secret,
+            r#"{"alg":"HS256","kid":"mailserver-drive-native-1"}"#
+        ))
         .is_some());
     let sm2 = setjoin_authz::legacy_jwt::sign_sm2(pem, PUSH_CLAIMS).unwrap();
     assert!(keys.verify_signature(&sm2).is_some());
@@ -202,7 +208,10 @@ fn legacy_signature_layer_fails_closed_on_confusion_and_empty_keys() {
         r#"{"alg":"hs256","kid":"authserver-hmac-1"}"#,
         r#"{"alg":"HS256"}"#,
     ] {
-        assert!(keys.verify_signature(&hmac_with(secret, header)).is_none(), "{header}");
+        assert!(
+            keys.verify_signature(&hmac_with(secret, header)).is_none(),
+            "{header}"
+        );
     }
     let none = format!(
         "{}.{}.",
@@ -212,25 +221,43 @@ fn legacy_signature_layer_fails_closed_on_confusion_and_empty_keys() {
     assert!(keys.verify_signature(&none).is_none());
     // Duplicated alg member: last member wins, as Go's encoding/json does.
     assert!(keys
-        .verify_signature(&hmac_with(secret, r#"{"alg":"ES256","alg":"HS256","kid":"authserver-hmac-1"}"#))
+        .verify_signature(&hmac_with(
+            secret,
+            r#"{"alg":"ES256","alg":"HS256","kid":"authserver-hmac-1"}"#
+        ))
         .is_some());
     assert!(keys
-        .verify_signature(&hmac_with(secret, r#"{"alg":"HS256","alg":"SM2","kid":"authserver-hmac-1"}"#))
+        .verify_signature(&hmac_with(
+            secret,
+            r#"{"alg":"HS256","alg":"SM2","kid":"authserver-hmac-1"}"#
+        ))
         .is_none());
     // An HMAC tag presented as SM2; an SM2 signature under an HMAC kid.
     assert!(keys
-        .verify_signature(&hmac_with(secret, r#"{"alg":"SM2","kid":"authserver-sm2-1"}"#))
+        .verify_signature(&hmac_with(
+            secret,
+            r#"{"alg":"SM2","kid":"authserver-sm2-1"}"#
+        ))
         .is_none());
     assert!(keys
-        .verify_signature(&sm2_with_header(pem, r#"{"alg":"SM2","kid":"authserver-hmac-1"}"#))
+        .verify_signature(&sm2_with_header(
+            pem,
+            r#"{"alg":"SM2","kid":"authserver-hmac-1"}"#
+        ))
         .is_none());
     assert!(keys
-        .verify_signature(&sm2_with_header(pem, r#"{"alg":"HS256","kid":"authserver-hmac-1"}"#))
+        .verify_signature(&sm2_with_header(
+            pem,
+            r#"{"alg":"HS256","kid":"authserver-hmac-1"}"#
+        ))
         .is_none());
     // HMAC keyed with public key material is never accepted.
     let sm2_point: Vec<u8> = {
         let s = f["sm2_point"].as_str().unwrap();
-        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
     };
     let jwks: Value = serde_json::from_str(include_str!(
         "../../../tests/conformance/jmap/test-jwks.json"
@@ -238,7 +265,11 @@ fn legacy_signature_layer_fails_closed_on_confusion_and_empty_keys() {
     .unwrap();
     let mut es256_point = vec![4u8];
     for c in ["x", "y"] {
-        es256_point.extend(URL_SAFE_NO_PAD.decode(jwks["keys"][0][c].as_str().unwrap()).unwrap());
+        es256_point.extend(
+            URL_SAFE_NO_PAD
+                .decode(jwks["keys"][0][c].as_str().unwrap())
+                .unwrap(),
+        );
     }
     for key in [&sm2_point, &es256_point] {
         for kid in ["authserver-hmac-1", "authserver-sm2-1", "test-es256-1"] {
@@ -251,7 +282,8 @@ fn legacy_signature_layer_fails_closed_on_confusion_and_empty_keys() {
     let foreign = foreign_sm2_pem();
     let foreign_token = setjoin_authz::legacy_jwt::sign_sm2(&foreign, PUSH_CLAIMS).unwrap();
     assert!(keys.verify_signature(&foreign_token).is_none());
-    let foreign_keys = LegacyKeys::from_pem(secret, &["authserver-hmac-1"], Some(&foreign)).unwrap();
+    let foreign_keys =
+        LegacyKeys::from_pem(secret, &["authserver-hmac-1"], Some(&foreign)).unwrap();
     assert!(foreign_keys.verify_signature(&foreign_token).is_some());
     // Wrong secret and an extra segment.
     assert!(keys
@@ -288,4 +320,83 @@ async fn es256_header_never_falls_back_to_the_hmac_secret() {
             .await
             .is_none()
     );
+}
+
+#[test]
+fn public_only_sm2_verifies_without_private_key_or_hmac_secret() {
+    use sm2::pkcs8::{DecodePrivateKey, EncodePublicKey, LineEnding};
+    let f = fixture_keys();
+    let private_pem = f["sm2_pem"].as_str().unwrap();
+    let secret_key = if private_pem.contains("BEGIN EC PRIVATE KEY") {
+        sm2::SecretKey::from_sec1_pem(private_pem).unwrap()
+    } else {
+        sm2::SecretKey::from_pkcs8_pem(private_pem).unwrap()
+    };
+    let public_pem = secret_key
+        .public_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+
+    // Reject private key PEM passed to from_sm2_public_pem.
+    assert!(LegacyKeys::from_sm2_public_pem(b"", &[], Some(private_pem)).is_err());
+
+    // Public-only SM2 with empty HMAC secret & non-empty hmac_kids:
+    // SM2 MUST verify; HS256 (even signed with empty secret) MUST be refused.
+    let pub_only =
+        LegacyKeys::from_sm2_public_pem(b"", &["authserver-hmac-1"], Some(&public_pem)).unwrap();
+    let sm2_tok = setjoin_authz::legacy_jwt::sign_sm2(private_pem, PUSH_CLAIMS).unwrap();
+    assert!(pub_only.verify_signature(&sm2_tok).is_some());
+    assert!(pub_only
+        .validate(
+            &sm2_tok,
+            "mailserver",
+            "mailserver-gateway",
+            1_800_000_000.0
+        )
+        .is_some());
+
+    let empty_hs256 = setjoin_authz::legacy_jwt::sign_hs256(b"", PUSH_CLAIMS);
+    assert!(pub_only.verify_signature(&empty_hs256).is_none());
+    let non_empty_hs256 = setjoin_authz::legacy_jwt::sign_hs256(
+        f["secret"].as_str().unwrap().as_bytes(),
+        PUSH_CLAIMS,
+    );
+    assert!(pub_only.verify_signature(&non_empty_hs256).is_none());
+}
+
+#[test]
+fn per_kid_hmac_verifies_distinct_jwt_and_drive_native_secrets_without_cross_verification() {
+    let jwt_secret = b"co-located-jwt-secret-32-bytes-minimum!!";
+    let drive_secret = b"distinct-drive-native-secret-32-bytes!!!";
+
+    let keys = LegacyKeys::new(
+        jwt_secret,
+        &["authserver-hmac-1", "mailserver-drive-native-1"],
+        None,
+    )
+    .unwrap()
+    .with_hmac_kid("mailserver-drive-native-1", drive_secret);
+
+    let auth_tok = setjoin_authz::legacy_jwt::sign_hs256(jwt_secret, PUSH_CLAIMS);
+    let drive_tok = hmac_with(
+        drive_secret,
+        r#"{"alg":"HS256","kid":"mailserver-drive-native-1"}"#,
+    );
+    assert!(keys.verify_signature(&auth_tok).is_some());
+    assert!(keys.verify_signature(&drive_tok).is_some());
+
+    // Cross-verification MUST fail in both directions.
+    let wrong_auth = setjoin_authz::legacy_jwt::sign_hs256(drive_secret, PUSH_CLAIMS);
+    let wrong_drive = hmac_with(
+        jwt_secret,
+        r#"{"alg":"HS256","kid":"mailserver-drive-native-1"}"#,
+    );
+    assert!(keys.verify_signature(&wrong_auth).is_none());
+    assert!(keys.verify_signature(&wrong_drive).is_none());
+
+    // Empty override is ignored and never allows verifying with empty secret.
+    let keys_after_empty = keys.with_hmac_kid("mailserver-drive-native-1", b"");
+    let empty_drive = hmac_with(b"", r#"{"alg":"HS256","kid":"mailserver-drive-native-1"}"#);
+    assert!(keys_after_empty.verify_signature(&empty_drive).is_none());
+    assert!(keys_after_empty.verify_signature(&drive_tok).is_some());
 }

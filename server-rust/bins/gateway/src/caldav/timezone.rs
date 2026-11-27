@@ -121,6 +121,33 @@ impl Timezones {
             }
         }));
     }
+    pub fn start_with_hub(self: &Arc<Self>, exec: ScopedExecutor, hub: setjoin_pg::ListenHub) {
+        let mut task = self.task.lock().expect("timezone task");
+        if task.is_some() {
+            return;
+        }
+        let cache = Arc::downgrade(self);
+        *task = Some(tokio::spawn(async move {
+            let Ok(mut sub) = hub.subscribe("timezone_changed").await else {
+                return;
+            };
+            if let Some(cache) = cache.upgrade() {
+                cache.listening.store(true, Ordering::SeqCst);
+            } else {
+                return;
+            }
+            while sub.recv().await.is_some() {
+                if let Some(cache) = cache.upgrade() {
+                    cache.reload(&exec).await;
+                } else {
+                    return;
+                }
+            }
+            if let Some(cache) = cache.upgrade() {
+                cache.listening.store(false, Ordering::SeqCst);
+            }
+        }));
+    }
     pub fn stop(&self) {
         if let Some(task) = self.task.lock().expect("timezone task").take() {
             task.abort();

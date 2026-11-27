@@ -1,5 +1,7 @@
 //! HTTP transport for the standalone identity process. See DOX.md.
-mod ca;
+#[cfg(feature = "in-process-authority")]
+pub mod authority;
+pub mod ca;
 mod captcha;
 mod config;
 mod device;
@@ -17,7 +19,10 @@ mod rp;
 mod saml;
 mod totp;
 mod webauthn;
+#[cfg(feature = "in-process-authority")]
+pub use authority::InProcessAuthAuthority;
 use bytes::Bytes;
+pub use ca::CaListener;
 pub use config::Config;
 use http_body_util::{combinators::BoxBody, BodyExt, Full, Limited};
 use hyper::body::Body as _;
@@ -72,6 +77,8 @@ pub struct AuthServer {
     ca_engine: setjoin_authz::policy::eval::Engine,
     /// Captcha tokens already accepted by this process (#349 single-use).
     captcha_used: captcha::UsedSet,
+    /// True when running in-process alongside `http` inside `setjoind` (#543).
+    unified: bool,
 }
 impl AuthServer {
     fn oidc_cors(&self, req: &Request<Body>, mut reply: Response<Body>) -> Response<Body> {
@@ -189,6 +196,7 @@ impl AuthServer {
             gate: None,
             ca_engine,
             captcha_used: Default::default(),
+            unified: false,
         }
     }
     pub async fn load(exec: setjoin_pg::ScopedExecutor, config: Config) -> Result<Self, String> {
@@ -199,11 +207,36 @@ impl AuthServer {
         )
         .await
     }
+    /// Load `AuthServer` with shared `DB_DSN` and `DB_WORKER_DSN` pools (#543).
+    pub async fn load_shared(
+        exec: setjoin_pg::ScopedExecutor,
+        worker_exec: Option<setjoin_pg::ScopedExecutor>,
+        config: Config,
+        unified: bool,
+    ) -> Result<Self, String> {
+        Self::load_inner(
+            exec,
+            worker_exec,
+            config,
+            Arc::new(setjoin_identity::rp::SafeHttp::new()?),
+            unified,
+        )
+        .await
+    }
     /// Embedding boundary for external IdP HTTPS only; it carries no identity authority.
     pub async fn load_with_rp_http(
         exec: setjoin_pg::ScopedExecutor,
         config: Config,
         http: Arc<dyn setjoin_identity::rp::Http>,
+    ) -> Result<Self, String> {
+        Self::load_inner(exec, None, config, http, false).await
+    }
+    async fn load_inner(
+        exec: setjoin_pg::ScopedExecutor,
+        shared_worker: Option<setjoin_pg::ScopedExecutor>,
+        config: Config,
+        http: Arc<dyn setjoin_identity::rp::Http>,
+        unified: bool,
     ) -> Result<Self, String> {
         if config.secret.is_empty() || config.issuer.is_empty() {
             return Err("JWT secret and issuer required".into());
@@ -252,31 +285,38 @@ impl AuthServer {
         } else {
             setjoin_identity::push_delivery::Dispatch::from_env()
         };
-        let recovery_worker = config
-            .worker_dsn
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()))
-            .map(|dsn| setjoin_pg::ScopedExecutor::from_dsn(dsn, 4).map_err(|e| e.0))
-            .transpose()?;
-        // #342: Go's guest-invite workerPool on its own two-connection pool.
-        let guest_worker = config
-            .worker_dsn
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()))
-            .map(|dsn| setjoin_pg::ScopedExecutor::from_dsn(dsn, 2).map_err(|e| e.0))
-            .transpose()?
-            .map(|w| {
-                if !config.db_encryption_key.is_empty() || !config.audit_hmac_key.is_empty() {
-                    w.with_audit_keys(
-                        config.db_encryption_key.clone(),
-                        config.audit_hmac_key.clone(),
-                    )
-                } else {
-                    w
-                }
-            });
+        let recovery_worker = match shared_worker.clone() {
+            Some(w) => Some(w),
+            None => config
+                .worker_dsn
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()))
+                .map(|dsn| setjoin_pg::ScopedExecutor::from_dsn(dsn, 4).map_err(|e| e.0))
+                .transpose()?,
+        };
+        // #342: Go's guest-invite workerPool on its own two-connection pool
+        // (or shared worker pool in unified setjoind mode).
+        let guest_worker = match shared_worker {
+            Some(w) => Some(w),
+            None => config
+                .worker_dsn
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()))
+                .map(|dsn| setjoin_pg::ScopedExecutor::from_dsn(dsn, 2).map_err(|e| e.0))
+                .transpose()?,
+        }
+        .map(|w| {
+            if !config.db_encryption_key.is_empty() || !config.audit_hmac_key.is_empty() {
+                w.with_audit_keys(
+                    config.db_encryption_key.clone(),
+                    config.audit_hmac_key.clone(),
+                )
+            } else {
+                w
+            }
+        });
         match &guest_worker {
             Some(w) => {
                 if let Err(e) = setjoin_identity::guest_invite::readiness(w).await {
@@ -376,6 +416,7 @@ impl AuthServer {
             keys: Some(Arc::new(keys)),
             legacy: Some(legacy),
             config,
+            unified,
         })
     }
     /// Embedding/test seam (#342): replace the guest-invite worker executor; the
@@ -467,6 +508,12 @@ impl AuthServer {
             .unwrap()
     }
     fn client_ip(&self, req: &Request<Body>) -> std::net::IpAddr {
+        if let Some(meta) = req
+            .extensions()
+            .get::<setjoin_authz::auth_authority::AuthRequestMeta>()
+        {
+            return meta.client_ip;
+        }
         let peer = req.extensions().get::<ConnectionMeta>().map_or(
             std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             |m| {
@@ -1486,6 +1533,12 @@ impl AuthServer {
     // shared/middleware/csrf.go: malformed proxy values fall back to the
     // actual connection/Host, including a direct TLS deployment.
     fn csrf_context(req: &Request<Body>) -> (hyper::HeaderMap, &'static str) {
+        if let Some(meta) = req
+            .extensions()
+            .get::<setjoin_authz::auth_authority::AuthRequestMeta>()
+        {
+            return (req.headers().clone(), meta.proto);
+        }
         let mut headers = req.headers().clone();
         if let Some(host) = req.headers().get("x-forwarded-host").filter(|v| {
             let b = v.as_bytes();
@@ -1584,9 +1637,16 @@ impl AuthServer {
                     .iter()
                     .any(|n| n.contains(&m.peer.ip()))
         });
-        let secure = self.config.cookie_secure
-            || meta.is_some_and(|m| m.tls)
-            || ((self.config.trust_proxy || trusted) && scheme == "https");
+        let secure = if let Some(auth_meta) =
+            req.extensions()
+                .get::<setjoin_authz::auth_authority::AuthRequestMeta>()
+        {
+            self.config.cookie_secure || auth_meta.tls || auth_meta.proto == "https"
+        } else {
+            self.config.cookie_secure
+                || meta.is_some_and(|m| m.tls)
+                || ((self.config.trust_proxy || trusted) && scheme == "https")
+        };
         let ip = self.client_ip(&req).to_string();
         let agent = req
             .headers()
@@ -1882,33 +1942,95 @@ pub async fn serve_until(
     tls: Option<tokio_rustls::TlsAcceptor>,
     shutdown: impl std::future::Future<Output = ()>,
 ) {
+    serve_until_with_hub(server, listener, tls, None, shutdown).await;
+}
+
+/// Same as [`serve_until`], optionally multiplexing SAML/RP/CA invalidation onto
+/// a shared [`setjoin_pg::ListenHub`] (#543).
+pub async fn serve_until_with_hub(
+    server: Arc<AuthServer>,
+    listener: tokio::net::TcpListener,
+    tls: Option<tokio_rustls::TlsAcceptor>,
+    hub: Option<&setjoin_pg::ListenHub>,
+    shutdown: impl std::future::Future<Output = ()>,
+) {
     // These subscriptions keep the native SSO & CA registries current for this server.
-    let _saml_listener = server.start_saml_listener().await;
-    let _rp_listener = server.start_rp_listener().await;
-    let _ca_listener = server.start_ca_listener();
+    let _saml_listener = match hub {
+        Some(hub) => server.start_saml_listener_with_hub(hub).await,
+        None => server.start_saml_listener().await,
+    };
+    let _rp_listener = match hub {
+        Some(hub) => server.start_rp_listener_with_hub(hub).await,
+        None => server.start_rp_listener().await,
+    };
+    let _ca_listener = match hub {
+        Some(hub) => server.start_ca_listener_with_hub(hub).await,
+        None => server.start_ca_listener(),
+    };
+    serve_http_until(server, listener, tls, shutdown).await;
+}
+
+/// Serve HTTP/TLS connections for an `AuthServer` whose background SAML/RP/CA
+/// invalidation listeners are already owned by the caller (e.g. `setjoind`),
+/// preventing duplicate `LISTEN` subscriptions (#543).
+pub async fn serve_http_until(
+    server: Arc<AuthServer>,
+    listener: tokio::net::TcpListener,
+    tls: Option<tokio_rustls::TlsAcceptor>,
+    shutdown: impl std::future::Future<Output = ()>,
+) {
     let mut tasks = tokio::task::JoinSet::new();
+    let (drain_tx, drain_rx) = tokio::sync::watch::channel(false);
     tokio::pin!(shutdown);
     loop {
         tokio::select! {
-            _=&mut shutdown=>break,
-            accepted=listener.accept()=>{
-                let Ok((stream,peer))=accepted else{break;};let server=server.clone();let tls=tls.clone();
-                tasks.spawn(async move{
-                    let meta=ConnectionMeta{peer,tls:tls.is_some()};
-                    let stream:Box<dyn Io>=if let Some(tls)=tls{match tokio::time::timeout(std::time::Duration::from_secs(30),tls.accept(stream)).await{Ok(Ok(s))=>Box::new(s),_=>return}}else{Box::new(stream)};
-                    let service=hyper::service::service_fn(move|mut req:Request<hyper::body::Incoming>|{
-                        let server=server.clone();req.extensions_mut().insert(meta);
-                        Box::pin(async move{Ok::<_,std::convert::Infallible>(server.handle(req.map(|b|b.map_err(std::io::Error::other).boxed())).await)}) as std::pin::Pin<Box<dyn std::future::Future<Output=Result<Response<Body>,std::convert::Infallible>>+Send>>
+            _ = &mut shutdown => break,
+            accepted = listener.accept() => {
+                let Ok((stream, peer)) = accepted else { break; };
+                let server = server.clone();
+                let tls = tls.clone();
+                let mut drain = drain_rx.clone();
+                tasks.spawn(async move {
+                    let meta = ConnectionMeta { peer, tls: tls.is_some() };
+                    let stream: Box<dyn Io> = if let Some(tls) = tls {
+                        match tokio::time::timeout(std::time::Duration::from_secs(30), tls.accept(stream)).await {
+                            Ok(Ok(s)) => Box::new(s),
+                            _ => return,
+                        }
+                    } else {
+                        Box::new(stream)
+                    };
+                    let service = hyper::service::service_fn(move |mut req: Request<hyper::body::Incoming>| {
+                        let server = server.clone();
+                        req.extensions_mut().insert(meta);
+                        Box::pin(async move {
+                            Ok::<_, std::convert::Infallible>(
+                                server
+                                    .handle(req.map(|b| b.map_err(std::io::Error::other).boxed()))
+                                    .await,
+                            )
+                        }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response<Body>, std::convert::Infallible>> + Send>>
                     });
-                    let builder=hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new());
-                    let _=builder.serve_connection(hyper_util::rt::TokioIo::new(stream),service).await;
+                    let builder = hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new());
+                    let conn = builder.serve_connection(hyper_util::rt::TokioIo::new(stream), service);
+                    tokio::pin!(conn);
+                    tokio::select! {
+                        _ = &mut conn => {}
+                        _ = drain.changed() => {
+                            conn.as_mut().graceful_shutdown();
+                            let _ = conn.await;
+                        }
+                    }
                 });
             },
-            _=tasks.join_next(),if !tasks.is_empty()=>{},
+            _ = tasks.join_next(), if !tasks.is_empty() => {},
         }
     }
     drop(listener);
-    // Go bounds shutdown at 30 seconds. Abort/drop every task after draining.
+    let _ = drain_tx.send(true);
+    // Go bounds shutdown at 30 seconds. Signal graceful shutdown to idle
+    // keep-alive/HTTP2 connections and drain in-flight requests, then abort any
+    // stragglers after the timeout.
     let drain = async { while tasks.join_next().await.is_some() {} };
     let _ = tokio::time::timeout(std::time::Duration::from_secs(30), drain).await;
     tasks.abort_all();

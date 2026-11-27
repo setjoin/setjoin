@@ -321,6 +321,17 @@ impl AuthServer {
             None => None,
         }
     }
+
+    /// Start SAML cache invalidation multiplexed onto a shared [`setjoin_pg::ListenHub`] (#543).
+    pub async fn start_saml_listener_with_hub(
+        &self,
+        hub: &setjoin_pg::ListenHub,
+    ) -> Option<setjoin_identity::saml::Listener> {
+        match &self.saml {
+            Some(registry) => Some(registry.listen_with_hub(hub).await),
+            None => None,
+        }
+    }
 }
 
 /// Largest ACS form body: a 1 MiB document is 1.4 MiB of base64, which URL-encoding can

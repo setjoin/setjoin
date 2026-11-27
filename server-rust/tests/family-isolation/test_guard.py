@@ -413,6 +413,210 @@ class FamilyIsolation(unittest.TestCase):
                 )
                 self.assertIn(expected, result.stderr)
 
+    def test_in_process_authority_feature_restricted_to_allowlist(self):
+        for pkg_dir, pkg_name, allowed in (
+            ("bins/auth", "setjoin-auth", True),
+            ("bins/setjoind", "setjoind", True),
+            ("bins/gateway", "setjoin-gateway", False),
+            ("crates/domains/alpha", "alpha", False),
+        ):
+            with (
+                self.subTest(pkg=pkg_name),
+                tempfile.TemporaryDirectory(prefix="gofree-t1-inproc-feat-") as tmp,
+            ):
+                root = pathlib.Path(tmp)
+                ident = root / "crates/domains/identity"
+                (ident / "src").mkdir(parents=True)
+                (ident / "src/lib.rs").write_text("")
+                (ident / "Cargo.toml").write_text(
+                    '[package]\nname = "setjoin-identity"\nversion = "0.1.0"\n'
+                    "[features]\nin-process-authority = []\n"
+                )
+                pkg = root / pkg_dir
+                (pkg / "src").mkdir(parents=True)
+                (pkg / "src/lib.rs").write_text("")
+                rel_ident = (
+                    "../identity"
+                    if pkg_dir.startswith("crates/domains/")
+                    else "../../crates/domains/identity"
+                )
+                (pkg / "Cargo.toml").write_text(
+                    f'[package]\nname = "{pkg_name}"\nversion = "0.1.0"\n'
+                    "[dependencies]\n"
+                    f'setjoin-identity = {{ path = "{rel_ident}", '
+                    'features = ["in-process-authority"] }\n'
+                )
+                (root / "Cargo.toml").write_text(
+                    '[workspace]\nresolver = "2"\n'
+                    f'members = ["crates/domains/identity", "{pkg_dir}"]\n'
+                )
+                result = subprocess.run(
+                    ["python3", str(GUARD), str(root)],
+                    capture_output=True,
+                    text=True,
+                )
+                if allowed:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(
+                        'forbidden setjoin-identity feature "in-process-authority"',
+                        result.stderr,
+                    )
+
+    def test_renamed_in_process_authority_feature_forwarding_is_rejected(self):
+        for feat_line in (
+            'sneak = ["id_alias/in-process-authority"]',
+            'sneak = ["id_alias?/in-process-authority"]',
+        ):
+            with (
+                self.subTest(feat_line=feat_line),
+                tempfile.TemporaryDirectory(prefix="gofree-t1-inproc-fwd-") as tmp,
+            ):
+                root = pathlib.Path(tmp)
+                ident = root / "crates/domains/identity"
+                (ident / "src").mkdir(parents=True)
+                (ident / "src/lib.rs").write_text("")
+                (ident / "Cargo.toml").write_text(
+                    '[package]\nname = "setjoin-identity"\nversion = "0.1.0"\n'
+                    "[features]\nin-process-authority = []\n"
+                )
+                gw = root / "bins/gateway"
+                (gw / "src").mkdir(parents=True)
+                (gw / "src/lib.rs").write_text("")
+                (gw / "Cargo.toml").write_text(
+                    '[package]\nname = "setjoin-gateway"\nversion = "0.1.0"\n'
+                    f"[features]\n{feat_line}\n"
+                    "[dependencies]\n"
+                    'id_alias = { package = "setjoin-identity", '
+                    'path = "../../crates/domains/identity", optional = true }\n'
+                )
+                (root / "Cargo.toml").write_text(
+                    '[workspace]\nresolver = "2"\n'
+                    'members = ["crates/domains/identity", "bins/gateway"]\n'
+                )
+                result = subprocess.run(
+                    ["python3", str(GUARD), str(root)],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    'forbidden setjoin-identity feature "in-process-authority" '
+                    "forwarded by setjoin-gateway",
+                    result.stderr,
+                )
+
+    def test_in_process_source_ban_covers_domains_and_gateway_but_allows_issuance(self):
+        bad_cases = [
+            (
+                "crates/domains/alpha",
+                "alpha",
+                "src/lib.rs",
+                "fn f() { let _ = ClientProof::in_process(); }",
+                "ClientProof::in_process",
+            ),
+            (
+                "crates/domains/identity",
+                "setjoin-identity",
+                "src/other.rs",
+                "fn f() { let _ = in_process(); }",
+                "in_process",
+            ),
+            (
+                "bins/gateway",
+                "setjoin-gateway",
+                "src/lib.rs",
+                "fn f() { let _ = ClientProof::in_process(); }",
+                "ClientProof::in_process",
+            ),
+        ]
+        for crate_dir, pkg_name, rel_file, source, expected in bad_cases:
+            with (
+                self.subTest(crate=crate_dir, file=rel_file),
+                tempfile.TemporaryDirectory(prefix="gofree-t1-inproc-src-") as tmp,
+            ):
+                root = pathlib.Path(tmp)
+                crate = root / crate_dir
+                (crate / "src").mkdir(parents=True)
+                (crate / "src/lib.rs").write_text("")
+                (crate / rel_file).write_text(source)
+                (crate / "Cargo.toml").write_text(
+                    f'[package]\nname = "{pkg_name}"\nversion = "0.1.0"\n'
+                )
+                (root / "Cargo.toml").write_text(
+                    f'[workspace]\nresolver = "2"\nmembers = ["{crate_dir}"]\n'
+                )
+                result = subprocess.run(
+                    ["python3", str(GUARD), str(root)],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(expected, result.stderr)
+
+        # Defining pub fn in_process() inside identity/src/issuance.rs is allowed,
+        # and is_in_process() in gateway is allowed.
+        with tempfile.TemporaryDirectory(prefix="gofree-t1-inproc-ok-") as tmp:
+            root = pathlib.Path(tmp)
+            ident = root / "crates/domains/identity"
+            (ident / "src").mkdir(parents=True)
+            (ident / "src/lib.rs").write_text("")
+            (ident / "src/issuance.rs").write_text("pub fn in_process() {}")
+            (ident / "Cargo.toml").write_text(
+                '[package]\nname = "setjoin-identity"\nversion = "0.1.0"\n'
+            )
+            gw = root / "bins/gateway"
+            (gw / "src").mkdir(parents=True)
+            (gw / "src/lib.rs").write_text("pub fn check() -> bool { is_in_process() }")
+            (gw / "Cargo.toml").write_text(
+                '[package]\nname = "setjoin-gateway"\nversion = "0.1.0"\n'
+            )
+            (root / "Cargo.toml").write_text(
+                '[workspace]\nresolver = "2"\n'
+                'members = ["crates/domains/identity", "bins/gateway"]\n'
+            )
+            result = subprocess.run(
+                ["python3", str(GUARD), str(root)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_setjoin_identity_default_feature_cannot_enable_in_process_authority(self):
+        for features_toml in (
+            'default = ["in-process-authority"]\nin-process-authority = []\n',
+            'default = ["alias"]\nalias = ["in-process-authority"]\n'
+            "in-process-authority = []\n",
+        ):
+            with (
+                self.subTest(features_toml=features_toml),
+                tempfile.TemporaryDirectory(prefix="gofree-t1-inproc-def-") as tmp,
+            ):
+                root = pathlib.Path(tmp)
+                ident = root / "crates/domains/identity"
+                (ident / "src").mkdir(parents=True)
+                (ident / "src/lib.rs").write_text("")
+                (ident / "Cargo.toml").write_text(
+                    '[package]\nname = "setjoin-identity"\nversion = "0.1.0"\n'
+                    f"[features]\n{features_toml}"
+                )
+                (root / "Cargo.toml").write_text(
+                    '[workspace]\nresolver = "2"\n'
+                    'members = ["crates/domains/identity"]\n'
+                )
+                result = subprocess.run(
+                    ["python3", str(GUARD), str(root)],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    'forbidden default feature "in-process-authority" '
+                    "in setjoin-identity",
+                    result.stderr,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

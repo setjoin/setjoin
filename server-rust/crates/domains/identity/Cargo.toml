@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [features]
+in-process-authority = []
 oracle-mutants = ["dep:aes", "dep:cfb-mode", "setjoin-contracts/oracle-mutants"]
 
 [dependencies]

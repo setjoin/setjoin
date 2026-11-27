@@ -430,7 +430,8 @@ grep -Fq 'setjoin-updater' "$ROOT/scripts/build.sh" || {
 }
 for unit_template in \
   "$ROOT/mailserver/deploy/setjoin-gateway.service.template" \
-  "$ROOT/mailserver/deploy/authserver.service.template"; do
+  "$ROOT/mailserver/deploy/authserver.service.template" \
+  "$ROOT/mailserver/deploy/setjoind.service.template"; do
   # Exposure means an ACTIVE unit line carrying a privileged DSN (an
   # Environment= assignment or a rendered/interpolated credential) — not a
   # comment naming the variables. The DEPLOY-004 split (b07736bdd) documents
@@ -439,8 +440,14 @@ for unit_template in \
   # which is the isolation this contract exists to enforce.
   if grep -Ev '^[[:space:]]*#' "$unit_template" | \
       grep -Eq 'DB_OWNER_DSN|DB_UPDATER_DSN|UPDATER_DSN'; then
-    echo "[upgrade-contract] gateway/auth unit exposes owner or updater DSN: $unit_template" >&2
+    echo "[upgrade-contract] gateway/auth/setjoind unit exposes owner or updater DSN: $unit_template" >&2
     exit 1
   fi
 done
+setjoind_template="$ROOT/mailserver/deploy/setjoind.service.template"
+if grep -Ev '^[[:space:]]*#' "$setjoind_template" | \
+    grep -Eq 'db-credentials\.env|DB_CREDENTIALS_FILE|(/|\{\{)auth\.env|\{\{AUTH_ENV\}\}'; then
+  echo "[upgrade-contract] setjoind unit must never source db-credentials.env or auth.env: $setjoind_template" >&2
+  exit 1
+fi
 echo "upgrade contracts: U-1 through deterministic U7 plus U8 OFF/hardware gates, routes, lifecycle, guides, immutable layout, and units passed"

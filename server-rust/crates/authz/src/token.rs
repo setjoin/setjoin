@@ -919,6 +919,7 @@ mod verify_detailed_tests {
             c["acct"] = json!("guest");
             c
         };
+        #[allow(clippy::type_complexity)]
         let cases: Vec<(&str, Value, Value, bool, Result<(), Refusal>)> = vec![
             ("valid", claims(), es256(), false, Ok(())),
             ("act positive", with("act", json!(3)), es256(), false, Ok(())),

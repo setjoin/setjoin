@@ -634,6 +634,12 @@ impl AuthServer {
         }
     }
     pub(super) fn totp_secure(&self, req: &Request<Body>) -> bool {
+        if let Some(auth_meta) = req
+            .extensions()
+            .get::<setjoin_authz::auth_authority::AuthRequestMeta>()
+        {
+            return self.config.cookie_secure || auth_meta.tls || auth_meta.proto == "https";
+        }
         let (_, scheme) = Self::csrf_context(req);
         let meta = req.extensions().get::<ConnectionMeta>();
         let trusted = meta.is_some_and(|m| {

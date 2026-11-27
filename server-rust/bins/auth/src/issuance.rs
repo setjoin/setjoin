@@ -190,6 +190,25 @@ impl AuthServer {
 }
 impl AuthServer {
     fn csrf_failure(req: &Request<Body>) -> Option<Response<Body>> {
+        if let Some(meta) = req
+            .extensions()
+            .get::<setjoin_authz::auth_authority::AuthRequestMeta>()
+        {
+            if meta.csrf_verified {
+                return None;
+            }
+            return (!setjoin_authz::csrf::allows(req.headers(), meta.proto)).then(|| {
+                Response::builder()
+                    .status(403)
+                    .header("content-type", "application/problem+json")
+                    .body(body(problem::middleware(
+                        403,
+                        "csrf_failed",
+                        "CSRF validation failed",
+                    )))
+                    .unwrap()
+            });
+        }
         let mut headers = req.headers().clone();
         if let Some(host) = req.headers().get("x-forwarded-host") {
             headers.insert("host", host.clone());
@@ -336,7 +355,7 @@ impl AuthServer {
     /// One live internal-key generation is shared by every gate. Signing keys,
     /// pools, threat settings and SSO options remain boot-bound, exactly as Go.
     pub fn reload(&self) -> Result<(), String> {
-        let next = Config::from_env()?;
+        let next = Config::from_env_for(self.unified)?;
         *self
             .internal_key
             .write()
@@ -403,13 +422,20 @@ impl AuthServer {
                 .iter()
                 .any(|n| n.contains(&m.peer.ip()))
         });
-        let secure = self.config.cookie_secure
-            || meta.is_some_and(|m| m.tls)
-            || ((self.config.trust_proxy || trusted)
-                && req
-                    .headers()
-                    .get("x-forwarded-proto")
-                    .is_some_and(|v| v == "https"));
+        let secure = if let Some(auth_meta) =
+            req.extensions()
+                .get::<setjoin_authz::auth_authority::AuthRequestMeta>()
+        {
+            self.config.cookie_secure || auth_meta.tls || auth_meta.proto == "https"
+        } else {
+            self.config.cookie_secure
+                || meta.is_some_and(|m| m.tls)
+                || ((self.config.trust_proxy || trusted)
+                    && req
+                        .headers()
+                        .get("x-forwarded-proto")
+                        .is_some_and(|v| v == "https"))
+        };
         let mut response = Response::builder()
             .header("content-type", "application/json")
             .body(body(format!(

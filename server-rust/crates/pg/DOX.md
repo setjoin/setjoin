@@ -484,3 +484,15 @@ pre-Wave-1.2 legacy entrypoints
   cap `<= min(configured_cap, max_prepared_statements - 16)`). All prepare and
   LRU eviction runs strictly before `BEGIN`. `PlanCacheHint::ForceCustomPlan`
   appends `; SET LOCAL plan_cache_mode = force_custom_plan` to Step 1 at 0 RTT.
+
+
+### `ListenHub` single-backend `DB_DIRECT_DSN` multiplexer (#543)
+
+`listen_hub::ListenHub` runs one `DB_DIRECT_DSN` actor serializing ref-counted
+`LISTEN`/`UNLISTEN` (`0 -> 1` / `1 -> 0`) across subscribers. On reconnect it
+re-`LISTEN`s every active channel before broadcasting
+`ListenEvent::ResyncRequired { epoch }`. Each subscriber pairs a bounded queue
+with a coalesced `watch` dirty-epoch watermark so slow/overflowing subscribers
+never block other channels, never lose `ResyncRequired`, and never surface stale
+pre-watermark notifications; `UNLISTEN` errors transition cleanly to reconnect,
+and root `CancellationToken` cancellation tears down cleanly without `Drop::abort`.

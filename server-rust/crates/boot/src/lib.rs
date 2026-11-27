@@ -3,7 +3,10 @@ use setjoin_pg::workers::{WorkerConnection, WorkerDatabase};
 pub mod geoip;
 mod secrets;
 mod storage;
+pub mod subsystems;
 mod upgrade;
+
+pub use subsystems::Subsystems;
 
 /// A refused boot is not always exit 1 in frozen Go: runGateway returns normally
 /// on several initialization failures. Keep the process result beside the log.
@@ -43,39 +46,73 @@ fn refuse_detail(exit_code: u8, message: &str, error: &str) -> Refusal {
 /// No database means the established bare front door, with no local boot work.
 /// Server deployments run these checks before constructing workers/listeners.
 pub async fn run() -> Result<(), Refusal> {
+    run_for_subsystems(Subsystems::ALL, false).await
+}
+
+/// Subsystem-gated pre-listener initialization.
+///
+/// - `secrets::bootstrap` runs ONLY when `subsystems.auth` is enabled.
+/// - Monthly partition ensure and `startup_recovery()` run ONLY when
+///   `subsystems.workers` is enabled.
+/// - Object storage / WORM bootstrap checks run ONLY when `subsystems.workers`
+///   or `subsystems.http` is enabled.
+/// - When `strict_schema` is `true`, the database schema version must match
+///   this binary's exact expected version (`actual == expected`), refusing both
+///   behind and ahead schemas before any listener binds.
+pub async fn run_for_subsystems(
+    subsystems: Subsystems,
+    strict_schema: bool,
+) -> Result<(), Refusal> {
+    if subsystems.is_empty() {
+        return Err(refuse(1, "at least one subsystem must be enabled"));
+    }
     let Some(dsn) = std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()) else {
         return Ok(());
     };
-    let configured = std::env::var("GEOIP_DB_PATH").unwrap_or_default();
-    let path = if configured.is_empty() {
-        "/var/lib/setjoin/geoip.mmdb"
-    } else {
-        &configured
-    };
-    let _ = geoip::ensure(
-        std::path::Path::new(path),
-        configured.is_empty(),
-        &std::env::var("GEOIP_DB_SHA256").unwrap_or_default(),
-        &std::env::var("GEO_BLOCK_COUNTRIES").unwrap_or_default(),
-    )
-    .await;
+    if subsystems.http || subsystems.auth || subsystems.protocols {
+        let configured = std::env::var("GEOIP_DB_PATH").unwrap_or_default();
+        let path = if configured.is_empty() {
+            "/var/lib/setjoin/geoip.mmdb"
+        } else {
+            &configured
+        };
+        let _ = geoip::ensure(
+            std::path::Path::new(path),
+            configured.is_empty(),
+            &std::env::var("GEOIP_DB_SHA256").unwrap_or_default(),
+            &std::env::var("GEO_BLOCK_COUNTRIES").unwrap_or_default(),
+        )
+        .await;
+    }
     let db = connect(&dsn)
         .await
         .map_err(|_| refuse(0, "database pool failed"))?;
-    let worker_dsn = std::env::var("DB_WORKER_DSN")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| dsn.clone());
-    let worker = connect(&worker_dsn)
-        .await
-        .map_err(|_| refuse(0, "worker database pool failed"))?;
-    let owner_dsn = std::env::var("DB_OWNER_DSN")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| dsn.clone());
-    let owner = connect(&owner_dsn)
-        .await
-        .map_err(|_| refuse(0, "owner database pool failed"))?;
+    let worker = if subsystems.workers {
+        let worker_dsn = std::env::var("DB_WORKER_DSN")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| dsn.clone());
+        Some(
+            connect(&worker_dsn)
+                .await
+                .map_err(|_| refuse(0, "worker database pool failed"))?,
+        )
+    } else {
+        None
+    };
+    let owner = if subsystems.workers {
+        let owner_dsn = std::env::var("DB_OWNER_DSN")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| dsn.clone());
+        Some(
+            connect(&owner_dsn)
+                .await
+                .map_err(|_| refuse(0, "owner database pool failed"))?,
+        )
+    } else {
+        None
+    };
     let rows = db
         .query(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -93,74 +130,79 @@ pub async fn run() -> Result<(), Refusal> {
         }
     };
     let expected = setjoin_schema::MIGRATIONS.last().map_or(0, |m| m.0);
-    if actual < expected {
-        return Err(refuse(
-            1,
-            if actual == 0 {
-                "database has no schema — refusing to start"
-            } else {
-                "database schema is behind this binary — refusing to start"
-            },
-        ));
-    }
+    verify_schema_version(actual, expected, strict_schema)?;
     log("INFO", "database schema version verified");
-    let store =
-        storage::Store::from_env().map_err(|_| refuse(0, "object storage client init failed"))?;
+    let store = if subsystems.workers || subsystems.http {
+        Some(
+            storage::Store::from_env()
+                .map_err(|_| refuse(0, "object storage client init failed"))?,
+        )
+    } else {
+        None
+    };
     assert_rls(&db)
         .await
         .map_err(|_| refuse(1, "native-RLS boot check FAILED — refusing to start"))?;
-    if owner
-        .query("SELECT create_monthly_partitions(1)", &[])
-        .await
-        .is_err()
-    {
-        log("ERROR", "startup: create_monthly_partitions failed — audit/auth inserts will hard-fail once a month boundary passes without its partition");
-        return Err(refuse(
-            0,
-            "monthly partition ensure failed — refusing to start",
-        ));
-    }
-    log(
-        "INFO",
-        "monthly partitions ready (current + next month, catalog-derived)",
-    );
-    let recovered = worker
-        .query("SELECT startup_recovery()::text", &[])
-        .await
-        .map_err(|_| refuse(0, "database startup recovery failed — refusing to start"))?;
-    log("INFO", "database startup recovery completed");
-    report(&worker, &recovered[0].get::<_, String>(0)).await;
-    let mode = resolve_worm_mode_from_env();
-    if !mode.is_empty() {
-        store
-            .ensure_worm_bucket()
+    if let Some(owner) = &owner {
+        if owner
+            .query("SELECT create_monthly_partitions(1)", &[])
             .await
-            .map_err(|_| refuse(0, "WORM bucket bootstrap failed — refusing to start"))?;
+            .is_err()
+        {
+            log("ERROR", "startup: create_monthly_partitions failed — audit/auth inserts will hard-fail once a month boundary passes without its partition");
+            return Err(refuse(
+                0,
+                "monthly partition ensure failed — refusing to start",
+            ));
+        }
+        log(
+            "INFO",
+            "monthly partitions ready (current + next month, catalog-derived)",
+        );
     }
-    if store.abort_stale().await.is_err() {
-        log("WARN", "startup: stale multipart abort encountered errors");
+    if let Some(worker) = &worker {
+        let recovered = worker
+            .query("SELECT startup_recovery()::text", &[])
+            .await
+            .map_err(|_| refuse(0, "database startup recovery failed — refusing to start"))?;
+        log("INFO", "database startup recovery completed");
+        report(worker, &recovered[0].get::<_, String>(0)).await;
     }
-    store.ping(&db).await;
-    let days = if mode.is_empty() {
-        2557
-    } else {
-        let raw_days = env_last_ci("WORM_RETENTION_DAYS");
-        parse_worm_retention_days(raw_days.as_deref())
-            .map_err(|_| refuse(0, "invalid WORM_RETENTION_DAYS — refusing to start"))?
-    };
-    store
-        .init_worm(&mode, days)
-        .await
-        .map_err(|error| Refusal {
-            exit_code: 0,
-            message: error,
-        })?;
-    let path = std::env::var("CONFIG_PATH")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "/etc/mail/config.env".into());
-    secrets::bootstrap(std::path::Path::new(&path))
-        .map_err(|_| refuse(1, "secret bootstrap failed"))?;
+    if let Some(store) = &store {
+        let mode = resolve_worm_mode_from_env();
+        if !mode.is_empty() {
+            store
+                .ensure_worm_bucket()
+                .await
+                .map_err(|_| refuse(0, "WORM bucket bootstrap failed — refusing to start"))?;
+        }
+        if store.abort_stale().await.is_err() {
+            log("WARN", "startup: stale multipart abort encountered errors");
+        }
+        store.ping(&db).await;
+        let days = if mode.is_empty() {
+            2557
+        } else {
+            let raw_days = env_last_ci("WORM_RETENTION_DAYS");
+            parse_worm_retention_days(raw_days.as_deref())
+                .map_err(|_| refuse(0, "invalid WORM_RETENTION_DAYS — refusing to start"))?
+        };
+        store
+            .init_worm(&mode, days)
+            .await
+            .map_err(|error| Refusal {
+                exit_code: 0,
+                message: error,
+            })?;
+    }
+    if subsystems.auth {
+        let path = std::env::var("CONFIG_PATH")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "/etc/mail/config.env".into());
+        secrets::bootstrap(std::path::Path::new(&path))
+            .map_err(|_| refuse(1, "secret bootstrap failed"))?;
+    }
     let flags = db.query("SELECT ft.key, ft.enabled, s.mode FROM feature_toggle_registry_state s LEFT JOIN feature_toggles ft ON true WHERE s.singleton ORDER BY ft.key", &[]).await
         .map_err(|error| refuse_detail(0,"toggle init failed", &error))?;
     if !flags
@@ -190,16 +232,38 @@ pub async fn run() -> Result<(), Refusal> {
             return Err(refuse(0, "security toggle seed check failed"));
         }
     }
-    let upgraded = upgrade::run(&db)
-        .await
-        .map_err(|_| refuse(1, "identity connector secret startup validation failed"))?;
-    if upgraded > 0 {
-        log(
-            "INFO",
-            "legacy identity connector secrets encrypted at rest",
-        );
+    if subsystems.auth || subsystems.workers {
+        let upgraded = upgrade::run(&db)
+            .await
+            .map_err(|_| refuse(1, "identity connector secret startup validation failed"))?;
+        if upgraded > 0 {
+            log(
+                "INFO",
+                "legacy identity connector secrets encrypted at rest",
+            );
+        }
     }
     log("INFO", "server boot checks completed");
+    Ok(())
+}
+
+fn verify_schema_version(actual: i32, expected: i32, strict_schema: bool) -> Result<(), Refusal> {
+    if actual < expected {
+        return Err(refuse(
+            1,
+            if actual == 0 {
+                "database has no schema — refusing to start"
+            } else {
+                "database schema is behind this binary — refusing to start"
+            },
+        ));
+    }
+    if strict_schema && actual != expected {
+        return Err(refuse(
+            1,
+            "database schema is ahead of this binary — refusing to start",
+        ));
+    }
     Ok(())
 }
 
@@ -292,14 +356,13 @@ async fn connect(dsn: &str) -> Result<WorkerConnection, String> {
 }
 
 fn env_last_ci(target: &str) -> Option<String> {
-    std::env::vars()
-        .fold(None, |acc, (k, v)| {
-            if k.eq_ignore_ascii_case(target) {
-                Some(v)
-            } else {
-                acc
-            }
-        })
+    std::env::vars().fold(None, |acc, (k, v)| {
+        if k.eq_ignore_ascii_case(target) {
+            Some(v)
+        } else {
+            acc
+        }
+    })
 }
 
 fn resolve_worm_mode_from_env() -> String {
@@ -344,7 +407,9 @@ fn parse_go_hex_float64(s: &str) -> Option<f64> {
     } else {
         (false, s)
     };
-    let rest = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X"))?;
+    let rest = rest
+        .strip_prefix("0x")
+        .or_else(|| rest.strip_prefix("0X"))?;
     let p_idx = rest.find(['p', 'P'])?;
     let mant_raw = &rest[..p_idx];
     let exp_raw = &rest[p_idx + 1..];
@@ -362,13 +427,10 @@ fn parse_go_hex_float64(s: &str) -> Option<f64> {
     let exp_p = if exp_neg { -exp_mag } else { exp_mag };
     let (int_hex, frac_hex) = match mant_raw.split_once('.') {
         Some((i, f)) => {
-            if !i.is_empty()
-                && !valid_digits_with_underscores(i, true, |b| b.is_ascii_hexdigit())
-            {
+            if !i.is_empty() && !valid_digits_with_underscores(i, true, |b| b.is_ascii_hexdigit()) {
                 return None;
             }
-            if !f.is_empty()
-                && !valid_digits_with_underscores(f, false, |b| b.is_ascii_hexdigit())
+            if !f.is_empty() && !valid_digits_with_underscores(f, false, |b| b.is_ascii_hexdigit())
             {
                 return None;
             }
@@ -460,8 +522,7 @@ fn parse_worm_retention_days(raw: Option<&str>) -> Result<i64, String> {
     if let Ok(days) = s.parse::<i64>() {
         return Ok(days);
     }
-    let v = parse_go_float64(s)
-        .ok_or_else(|| format!("invalid WORM_RETENTION_DAYS: {s:?}"))?;
+    let v = parse_go_float64(s).ok_or_else(|| format!("invalid WORM_RETENTION_DAYS: {s:?}"))?;
     if !v.is_finite() || v < (i64::MIN as f64) || v >= 9_223_372_036_854_775_808.0 {
         return Err(format!("invalid WORM_RETENTION_DAYS: {s:?}"));
     }
@@ -470,7 +531,23 @@ fn parse_worm_retention_days(raw: Option<&str>) -> Result<i64, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_worm_retention_days;
+    use super::{parse_worm_retention_days, verify_schema_version};
+
+    #[test]
+    fn strict_schema_version_requires_exact_match() {
+        assert!(verify_schema_version(100, 100, false).is_ok());
+        assert!(verify_schema_version(100, 100, true).is_ok());
+        assert!(verify_schema_version(101, 100, false).is_ok());
+        let ahead = verify_schema_version(101, 100, true).unwrap_err();
+        assert_eq!(ahead.exit_code, 1);
+        assert!(ahead.message.contains("ahead"));
+        let behind = verify_schema_version(99, 100, true).unwrap_err();
+        assert_eq!(behind.exit_code, 1);
+        assert!(behind.message.contains("behind"));
+        let empty = verify_schema_version(0, 100, true).unwrap_err();
+        assert_eq!(empty.exit_code, 1);
+        assert!(empty.message.contains("no schema"));
+    }
 
     #[test]
     fn worm_retention_days_matches_koanf_int_and_rejects_malformed() {

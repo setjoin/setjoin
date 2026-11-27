@@ -667,10 +667,52 @@ impl FeatureCache {
             stop: guard,
         }
     }
+    async fn new_with_hub(worker: ScopedExecutor, hub: setjoin_pg::ListenHub) -> Self {
+        let value = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (send, mut stop) = tokio::sync::oneshot::channel();
+        let guard = std::sync::Arc::new(CacheStop(std::sync::Mutex::new(Some(send))));
+        let sub = hub.subscribe("config_changed").await.ok();
+        Self::reload(&value, &worker).await;
+        if let Some(mut sub) = sub {
+            let value = value.clone();
+            tokio::spawn(async move {
+                loop {
+                    let event = tokio::select! {
+                        _ = &mut stop => return,
+                        ev = sub.recv() => ev,
+                    };
+                    if event.is_none() {
+                        return;
+                    }
+                    tokio::select! {
+                        _ = &mut stop => return,
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(50)) => {}
+                    }
+                    Self::reload(&value, &worker).await;
+                }
+            });
+        }
+        Self {
+            enabled: value,
+            stop: guard,
+        }
+    }
 }
 impl RecoveryAdmin {
     pub(crate) async fn new(worker: ScopedExecutor, ready: bool, direct: Option<String>) -> Self {
         let feature = FeatureCache::new(worker.clone(), direct).await;
+        Self {
+            worker,
+            ready,
+            feature,
+        }
+    }
+    pub(crate) async fn new_with_hub(
+        worker: ScopedExecutor,
+        ready: bool,
+        hub: setjoin_pg::ListenHub,
+    ) -> Self {
+        let feature = FeatureCache::new_with_hub(worker.clone(), hub).await;
         Self {
             worker,
             ready,

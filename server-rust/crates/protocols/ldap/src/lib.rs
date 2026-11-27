@@ -33,6 +33,8 @@ pub struct Server {
     starttls: bool,
     max_connections: Option<usize>,
     inflight: Arc<tokio::sync::Semaphore>,
+    passwords: Arc<setjoin_authz::basic::PasswordCache>,
+    registry: Option<Arc<setjoin_threat::registry::ProtocolSessionRegistry>>,
 }
 impl Default for Server {
     fn default() -> Self {
@@ -44,11 +46,21 @@ impl Default for Server {
             starttls: false,
             max_connections: None,
             inflight: Arc::new(tokio::sync::Semaphore::new(128)),
+            passwords: Arc::new(setjoin_authz::basic::PasswordCache::new()),
+            registry: None,
         }
     }
 }
 impl Server {
     pub fn with_threat_gate(mut self,gate:Arc<dyn setjoin_threat::ThreatGate>)->Self{self.threat=ThreatPolicy::Enforced(gate);self}
+
+    pub fn with_session_registry(
+        mut self,
+        registry: Arc<setjoin_threat::registry::ProtocolSessionRegistry>,
+    ) -> Self {
+        self.registry = Some(registry);
+        self
+    }
 
     pub fn with_threat_policy(mut self, policy: ThreatPolicy) -> Self {
         self.threat = policy;
@@ -162,45 +174,29 @@ impl Server {
                 if gate.evaluate_post_auth(&mut meta).await.0==ThreatAction::Reject{return None}
             }
         }
+        if let (Some(db), Some(user)) = (self.db.as_ref(), result) {
+            if setjoin_authz::policy_gate::check_protocol_post_auth(
+                db,
+                setjoin_authz::policy_gate::ProtocolSurface::Ldap,
+                user,
+            )
+            .await
+            .is_err()
+            {
+                return None;
+            }
+        }
         result
     }
     async fn credential(&self,email:&str,password:String)->Option<i64>{
         let db = self.db.as_ref()?;
-        let rows=db.read("SELECT u.id,u.password_hash FROM users u JOIN domains d ON d.id=u.domain_id WHERE u.email=$1 AND u.enabled=TRUE", &[(&email,setjoin_pg::Type::TEXT)]).await.ok()?;
-        let row = rows.first()?;
-        let id: i64 = row.get(0);
-        let hash: String = row.try_get(1).ok()?;
-        let verified_hash = hash.clone();
-        let (valid, upgrade) = tokio::task::spawn_blocking(move || {
-            let valid = setjoin_authz::password::verify(&hash, &password);
-            let upgrade = if valid {
-                setjoin_authz::password::standard_upgrade(&hash, &password)
-            } else {
-                None
-            };
-            (valid, upgrade)
-        })
-        .await
-        .ok()?;
-        if !valid {
-            return None;
+        let policy = setjoin_authz::policy_gate::ProtocolSurface::Ldap
+            .basic_policy()
+            .expect("ldap basic policy");
+        match setjoin_authz::basic::verify(db, &self.passwords, email, &password, policy).await {
+            setjoin_authz::basic::Verdict::AccountPassword(verified) => Some(verified.user_id),
+            setjoin_authz::basic::Verdict::AppPassword(_) | setjoin_authz::basic::Verdict::Refused => None,
         }
-        if let Some(upgrade) = upgrade {
-            let _ = db
-                .upgrade_legacy_protocol_password(id, &email, &verified_hash, &upgrade)
-                .await;
-        }
-        let guest = db
-            .read(
-                "SELECT is_guest_account($1)",
-                &[(&id, setjoin_pg::Type::INT8)],
-            )
-            .await
-            .ok()?;
-        if guest.first()?.get::<_, bool>(0) {
-            return None;
-        }
-        Some(id)
     }
     async fn session<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
         &self,
@@ -235,13 +231,24 @@ impl Server {
         };
         let reader = async {
             let bound = AtomicI64::new(0);
+            let (evict_tx, mut evict_rx) = watch::channel(false);
+            let closer: setjoin_threat::registry::Closer = Arc::new(evict_tx);
+            let mut _session_release: Option<setjoin_threat::registry::SessionRelease> = None;
             let registry = Arc::new(cancel::Registry::default());
             let slots = Arc::new(tokio::sync::Semaphore::new(16));
             let mut pending = FuturesUnordered::new();
             let mut held: Option<LdapMsg> = None;
             let mut binding = false;
+            let mut bind_started_at = std::time::SystemTime::now();
             loop {
                 tokio::select! {
+                    _=async {
+                        while !*evict_rx.borrow() {
+                            if evict_rx.changed().await.is_err() {
+                                std::future::pending::<()>().await;
+                            }
+                        }
+                    } => return Ok(()),
                     _=tx.closed()=>return Err(io::Error::new(io::ErrorKind::BrokenPipe,"LDAP writer closed")),
                     permit=slots.clone().acquire_owned(),if !binding && held.as_ref().is_some_and(|m| !matches!(m.op,LdapOp::BindRequest(_)) || pending.is_empty())=>{
                         let message=held.take().expect("held frame");let permit=permit.expect("connection admission open");
@@ -252,6 +259,7 @@ impl Server {
                             // global admission will reject this one as Busy.
                             bound.store(0,std::sync::atomic::Ordering::SeqCst);
                             binding = true;
+                            bind_started_at = std::time::SystemTime::now();
                             pending.push(self.admitted(message,secure,&bound,permit,&registry,peer).boxed());
                         } else if matches!(message.op,LdapOp::AbandonRequest(_)){release_abandon(permit);}else{pending.push(self.admitted(message,secure,&bound,permit,&registry,peer).boxed());}
                     }
@@ -281,7 +289,20 @@ impl Server {
                     }
                     responses=pending.next(),if !pending.is_empty()=>{
                         // An active Bind is the only outstanding operation.
-                        binding = false;
+                        if binding {
+                            binding = false;
+                            _session_release = None;
+                            let uid = bound.load(std::sync::atomic::Ordering::SeqCst);
+                            if uid > 0 {
+                                if let Some(reg) = &self.registry {
+                                    _session_release = Some(reg.register(
+                                        uid,
+                                        bind_started_at,
+                                        closer.clone(),
+                                    ));
+                                }
+                            }
+                        }
                         tx.send(responses.expect("nonempty operations")).await.map_err(|_|io::Error::new(io::ErrorKind::BrokenPipe,"LDAP writer closed"))?;
                     }
                 }

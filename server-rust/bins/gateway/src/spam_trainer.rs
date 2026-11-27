@@ -92,6 +92,53 @@ impl SpamTrainer {
         }
     }
 
+    /// Multiplex `spam_train` onto a shared [`setjoin_pg::ListenHub`] (#543).
+    pub async fn run_with_hub(
+        mut self,
+        hub: setjoin_pg::ListenHub,
+        stop: impl Future<Output = ()> + Send,
+    ) {
+        let (send, mut receive) = tokio::sync::mpsc::channel::<SpamTrain>(MAX_QUEUE);
+        let listen = async move {
+            let Ok(mut sub) = hub.subscribe(CHANNEL).await else {
+                warn("listen hub unavailable", NAME);
+                return;
+            };
+            while let Some(event) = sub.recv().await {
+                if let setjoin_pg::ListenEvent::Notification(notification) = event {
+                    match serde_json::from_str::<SpamTrain>(&notification.payload) {
+                        Ok(event) => {
+                            if send.try_send(event).is_err() {
+                                warn("event queue full; dropping event", NAME);
+                            }
+                        }
+                        Err(e) => warn("invalid notification", e),
+                    }
+                }
+            }
+        };
+        let train = async move {
+            let mut ticker =
+                tokio::time::interval_at(tokio::time::Instant::now() + INTERVAL, INTERVAL);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    event = receive.recv() => match event {
+                        Some(event) => self.collect(event),
+                        None => return,
+                    },
+                    _ = ticker.tick() => self.tick().await,
+                }
+            }
+        };
+        tokio::pin!(stop);
+        tokio::select! {
+            biased;
+            _ = &mut stop => {},
+            _ = async { tokio::join!(listen, train); } => {},
+        }
+    }
+
     /// The production NOTIFY callback, also driven directly by the tick oracle.
     pub fn on_notification(&mut self, payload: &str) {
         match serde_json::from_str::<SpamTrain>(payload) {

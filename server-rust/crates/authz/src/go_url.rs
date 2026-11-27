@@ -94,6 +94,7 @@ pub struct GoUrl {
 
 /// `url.Parse(raw)`: `Err` where Go errors. Only the pieces whose failure or value matters here
 /// (scheme, authority, escape validity of path and fragment) are modelled.
+#[allow(clippy::result_unit_err)]
 pub fn go_url_parse(raw: &str) -> Result<GoUrl, ()> {
     if raw.bytes().any(|b| b < 0x20 || b == 0x7f) {
         return Err(());
@@ -226,6 +227,7 @@ fn parse_host(host: &str) -> Result<String, ()> {
 }
 
 /// `parseURLHost`: the lower-cased `Hostname()` of an authority-bearing URL.
+#[allow(clippy::result_unit_err)]
 pub fn parse_url_host(raw: &str) -> Result<String, ()> {
     if raw.is_empty() {
         return Err(());

@@ -300,3 +300,7 @@ The Go copy `mailserver/internal/smime/cacert.pem` must stay byte-identical whil
 Refresh both together: `curl -fsS https://curl.se/ca/cacert.pem -o server-rust/crates/protocols/smtp/src/inbound/cacert.pem && cp server-rust/crates/protocols/smtp/src/inbound/cacert.pem mailserver/internal/smime/cacert.pem`.
 Refresh at least every release. The `smime::tests` in `src/inbound/smime.rs` enforce the parse (root count
 equals PEM blocks and exceeds 100), a 30-day notAfter window per root, and a 183-day age limit from the header date.
+
+## Wave 1.4 PolicyGate submission alignment (`#542`)
+
+SMTP submission (`src/submission.rs`) uses `setjoin_authz::basic::PasswordCache` for constant-time dummy-hash verification (`dummy_verifications()`), fixes the re-AUTH `ConnTracker` slot leak by releasing any prior slot before `try_acquire`, refuses guest app passwords and TOTP account passwords, and enforces durable `session_revocations`, `feature.device_lockdown`, `check_user_app_entitlement('mail')`, and `mailbox_lifecycle_access_allowed`. Recorded in `oracle/divergences.json`.

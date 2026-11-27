@@ -5,6 +5,18 @@ use hyper::{Request, Response};
 use setjoin_authz::token::KeySource;
 use setjoin_pg::ScopedExecutor;
 use std::sync::Arc;
+
+/// Scoped approval email-link HMAC secret (`APPROVAL_LINK_SECRET`), falling
+/// back to `JWT_SECRET` in co-located / legacy deployments.
+pub fn link_secret_from_env() -> Vec<u8> {
+    std::env::var("APPROVAL_LINK_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("JWT_SECRET").ok().filter(|s| !s.is_empty()))
+        .unwrap_or_default()
+        .into_bytes()
+}
+
 pub struct ApprovalsRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
     pub worker_exec: ScopedExecutor,

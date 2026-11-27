@@ -6159,7 +6159,6 @@ dependencies = [
  "hmac 0.12.1",
  "http-body-util",
  "hyper",
- "hyper-util",
  "icu_casemap",
  "ipnet",
  "libc",
@@ -6167,6 +6166,7 @@ dependencies = [
  "maxminddb",
  "p256",
  "pbkdf2 0.12.2",
+ "reqwest",
  "ring",
  "serde_json",
  "setjoin-config-secret",
@@ -6763,6 +6763,7 @@ dependencies = [
  "setjoin-sql-catalog",
  "tokio",
  "tokio-postgres",
+ "tokio-util",
 ]
 
 [[package]]
@@ -7027,6 +7028,35 @@ dependencies = [
  "setjoin-pg",
  "setjoin-sql-catalog",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "setjoind"
+version = "0.0.0"
+dependencies = [
+ "bcrypt",
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "libc",
+ "reqwest",
+ "serde_json",
+ "setjoin-auth",
+ "setjoin-authz",
+ "setjoin-boot",
+ "setjoin-config-secret",
+ "setjoin-conformance",
+ "setjoin-gateway",
+ "setjoin-identity",
+ "setjoin-pg",
+ "setjoin-schema",
+ "setjoin-threat",
+ "tempfile",
+ "tokio",
+ "tokio-postgres",
+ "tokio-rustls",
+ "tokio-util",
 ]
 
 [[package]]

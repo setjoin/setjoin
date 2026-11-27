@@ -6,25 +6,141 @@
 set -euo pipefail
 source "$(dirname "$0")/_base.sh"
 
-if [[ $# -ne 8 ]]; then
-  echo "usage: $0 <amd64|arm64|loong64> <setjoin-server> <rust-auth> <rust-mailctl> <rust-asrbotd> <rust-updater> <webmail-build> <output.tar.gz>" >&2
+usage() {
+  echo "usage: $0 [--setjoind <path>] [--cohort <split|expand|unified>] <amd64|arm64|loong64> <setjoin-server> <rust-auth> <rust-mailctl> <rust-asrbotd> <rust-updater> <webmail-build> <output.tar.gz>" >&2
+  echo "   or: $0 --cohort=unified --setjoind <path> <amd64|arm64|loong64> <rust-mailctl> <rust-asrbotd> <rust-updater> <webmail-build> <output.tar.gz>" >&2
   echo 'Stages committed HEAD and supplied inputs; verify build provenance, executability and glibc floor separately.' >&2
   exit 1
+}
+
+setjoind=""
+cohort=""
+positional=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --setjoind)
+      [[ $# -ge 2 ]] || usage
+      setjoind=$2
+      shift 2
+      ;;
+    --setjoind=*)
+      setjoind=${1#--setjoind=}
+      shift
+      ;;
+    --cohort)
+      [[ $# -ge 2 ]] || usage
+      cohort=$2
+      shift 2
+      ;;
+    --cohort=*)
+      cohort=${1#--cohort=}
+      shift
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        positional+=("$1")
+        shift
+      done
+      ;;
+    -*)
+      echo "unknown option: $1" >&2
+      usage
+      ;;
+    *)
+      positional+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$cohort" ]]; then
+  if [[ -n "$setjoind" ]]; then
+    cohort=expand
+  else
+    cohort=split
+  fi
 fi
-arch=$1 server=$2 rustauth=$3 mailctl=$4 asrbotd=$5 updater=$6 webmail=$7 output=$8
-case "$arch" in amd64 | arm64 | loong64) ;; *)
-  echo "unsupported architecture: $arch" >&2
-  exit 1
-  ;;
+
+case "$cohort" in
+  split | expand | unified) ;;
+  *)
+    echo "unsupported cohort: $cohort (expected split, expand, or unified)" >&2
+    exit 1
+    ;;
 esac
-[[ -s "$server" && -f "$server" ]] || {
-  echo 'missing Rust setjoin-server' >&2
-  exit 1
-}
-[[ -s "$rustauth" && -f "$rustauth" ]] || {
-  echo 'missing Rust setjoin-auth' >&2
-  exit 1
-}
+
+server=""
+rustauth=""
+if [[ "$cohort" == "unified" ]]; then
+  if [[ ${#positional[@]} -eq 6 ]]; then
+    arch=${positional[0]}
+    mailctl=${positional[1]}
+    asrbotd=${positional[2]}
+    updater=${positional[3]}
+    webmail=${positional[4]}
+    output=${positional[5]}
+  elif [[ ${#positional[@]} -eq 8 && -z "${positional[1]}" && -z "${positional[2]}" ]]; then
+    arch=${positional[0]}
+    mailctl=${positional[3]}
+    asrbotd=${positional[4]}
+    updater=${positional[5]}
+    webmail=${positional[6]}
+    output=${positional[7]}
+  else
+    usage
+  fi
+  if [[ -z "$setjoind" ]]; then
+    echo 'cohort=unified requires --setjoind <path>' >&2
+    exit 1
+  fi
+else
+  [[ ${#positional[@]} -eq 8 ]] || usage
+  arch=${positional[0]}
+  server=${positional[1]}
+  rustauth=${positional[2]}
+  mailctl=${positional[3]}
+  asrbotd=${positional[4]}
+  updater=${positional[5]}
+  webmail=${positional[6]}
+  output=${positional[7]}
+  if [[ "$cohort" == "split" && -n "$setjoind" ]]; then
+    echo 'cohort=split forbids --setjoind' >&2
+    exit 1
+  fi
+  if [[ "$cohort" == "expand" && -z "$setjoind" ]]; then
+    echo 'cohort=expand requires --setjoind <path>' >&2
+    exit 1
+  fi
+fi
+
+case "$arch" in
+  amd64 | arm64 | loong64) ;;
+  *)
+    echo "unsupported architecture: $arch" >&2
+    exit 1
+    ;;
+esac
+
+elf_inputs=()
+if [[ -n "$setjoind" ]]; then
+  [[ -s "$setjoind" && -f "$setjoind" ]] || {
+    echo 'missing Rust setjoind' >&2
+    exit 1
+  }
+  elf_inputs+=("$setjoind")
+fi
+if [[ "$cohort" != "unified" ]]; then
+  [[ -s "$server" && -f "$server" ]] || {
+    echo 'missing Rust setjoin-server' >&2
+    exit 1
+  }
+  [[ -s "$rustauth" && -f "$rustauth" ]] || {
+    echo 'missing Rust setjoin-auth' >&2
+    exit 1
+  }
+  elf_inputs+=("$server" "$rustauth")
+fi
 [[ -s "$mailctl" && -f "$mailctl" ]] || {
   echo 'missing Rust mailctl' >&2
   exit 1
@@ -41,7 +157,9 @@ esac
   echo 'missing webmail build' >&2
   exit 1
 }
-python3 - "$arch" "$server" "$rustauth" "$mailctl" "$asrbotd" "$updater" <<'PY'
+elf_inputs+=("$mailctl" "$asrbotd" "$updater")
+
+python3 - "$arch" "${elf_inputs[@]}" <<'PY'
 import struct
 import sys
 
@@ -61,8 +179,13 @@ outtmp=''
 trap 'rm -rf "$tmp"; if [[ -n "$outtmp" ]]; then rm -f -- "$outtmp"; fi' EXIT
 git -C "$ROOT" archive HEAD | tar -x -C "$tmp"
 install -d -m 0755 "$tmp/server-rust"
-install -m 0755 "$server" "$tmp/server-rust/setjoin-server"
-install -m 0755 "$rustauth" "$tmp/server-rust/setjoin-auth"
+if [[ -n "$setjoind" ]]; then
+  install -m 0755 "$setjoind" "$tmp/server-rust/setjoind"
+fi
+if [[ "$cohort" != "unified" ]]; then
+  install -m 0755 "$server" "$tmp/server-rust/setjoin-server"
+  install -m 0755 "$rustauth" "$tmp/server-rust/setjoin-auth"
+fi
 install -m 0755 "$mailctl" "$tmp/server-rust/mailctl"
 install -m 0755 "$updater" "$tmp/server-rust/setjoin-updater"
 install -m 0755 "$asrbotd" "$tmp/server-rust/asrbotd"
@@ -70,7 +193,10 @@ install -m 0755 "$asrbotd" "$tmp/server-rust/asrbotd"
 # places them at /etc/setjoin/release-roots.json before adopting a managed release.
 roots=${SETJOIN_RELEASE_TRUST_ROOTS:-}
 if [[ -n "$roots" ]]; then
-  [[ -s "$roots" && -f "$roots" ]] || { echo "SETJOIN_RELEASE_TRUST_ROOTS is not a non-empty file: $roots" >&2; exit 1; }
+  [[ -s "$roots" && -f "$roots" ]] || {
+    echo "SETJOIN_RELEASE_TRUST_ROOTS is not a non-empty file: $roots" >&2
+    exit 1
+  }
   python3 - "$roots" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))

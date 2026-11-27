@@ -8,8 +8,7 @@ use sm2::dsa::{signature::hazmat::PrehashVerifier, Signature, VerifyingKey};
 use sm3::{Digest, Sm3};
 
 pub struct LegacyKeys {
-    hmac: hmac::Key,
-    hmac_kids: Vec<String>,
+    hmac_by_kid: Vec<(String, hmac::Key)>,
     sm2: Option<VerifyingKey>,
     configured: bool,
 }
@@ -20,23 +19,59 @@ impl LegacyKeys {
         Self::new(secret, kids, point.as_deref())
     }
 
+    /// Construct legacy verification material from an optional SPKI public SM2
+    /// PEM (never a private key) and optional HMAC secret. Passing an empty
+    /// `secret` with a valid SM2 public PEM enables public-only SM2
+    /// verification without ever verifying HS256 tokens.
+    pub fn from_sm2_public_pem(
+        secret: &[u8],
+        kids: &[&str],
+        public_pem: Option<&str>,
+    ) -> Result<Self, &'static str> {
+        let point = public_pem.map(sm2_public_point).transpose()?;
+        Self::new(secret, kids, point.as_deref())
+    }
+
     pub fn new(
         secret: &[u8],
         kids: &[&str],
         sm2_point: Option<&[u8]>,
     ) -> Result<Self, &'static str> {
+        let hmac_by_kid = if secret.is_empty() {
+            Vec::new()
+        } else {
+            kids.iter()
+                .filter(|k| !k.is_empty())
+                .map(|k| ((*k).to_owned(), hmac::Key::new(hmac::HMAC_SHA256, secret)))
+                .collect()
+        };
+        // The distinguishing id is unused by verify_prehash: Go signs
+        // SM3(JWS signing input) directly, with no ZA prefix.
+        let sm2 = sm2_point
+            .map(|p| VerifyingKey::from_sec1_bytes("1234567812345678", p))
+            .transpose()
+            .map_err(|_| "invalid SM2 point")?;
+        let configured = !hmac_by_kid.is_empty() || sm2.is_some();
         Ok(Self {
-            hmac: hmac::Key::new(hmac::HMAC_SHA256, secret),
-            hmac_kids: kids.iter().map(|s| (*s).to_owned()).collect(),
-            // The distinguishing id is unused by verify_prehash: Go signs
-            // SM3(JWS signing input) directly, with no ZA prefix.
-            sm2: sm2_point
-                .map(|p| VerifyingKey::from_sec1_bytes("1234567812345678", p))
-                .transpose()
-                .map_err(|_| "invalid SM2 point")?,
-            configured: !secret.is_empty(),
+            hmac_by_kid,
+            sm2,
+            configured,
         })
     }
+
+    /// Bind an explicit HMAC secret to a single `kid` (replacing any prior
+    /// binding for that `kid`). Empty `kid` or empty `secret` is ignored so an
+    /// empty secret can never verify HS256.
+    pub fn with_hmac_kid(mut self, kid: &str, secret: &[u8]) -> Self {
+        if !kid.is_empty() && !secret.is_empty() {
+            self.hmac_by_kid.retain(|(k, _)| k != kid);
+            self.hmac_by_kid
+                .push((kid.to_owned(), hmac::Key::new(hmac::HMAC_SHA256, secret)));
+            self.configured = true;
+        }
+        self
+    }
+
     pub fn verify_signature(&self, token: &str) -> Option<Map<String, Value>> {
         if !self.configured {
             return None;
@@ -51,8 +86,9 @@ impl LegacyKeys {
         let sig = decode(s)?;
         let signed = &token[..h.len() + 1 + p.len()];
         match header["alg"].as_str()? {
-            "HS256" if self.hmac_kids.iter().any(|k| k == kid) => {
-                hmac::verify(&self.hmac, signed.as_bytes(), &sig).ok()?
+            "HS256" => {
+                let (_, hmac_key) = self.hmac_by_kid.iter().find(|(k, _)| k == kid)?;
+                hmac::verify(hmac_key, signed.as_bytes(), &sig).ok()?
             }
             "SM2" if kid == "authserver-sm2-1" => {
                 let sig = Signature::from_der(&sig).ok()?;
@@ -133,6 +169,17 @@ pub fn sign_hs256(secret: &[u8], claims_json: &str) -> String {
         "{signed}.{}",
         URL_SAFE_NO_PAD.encode(hmac::sign(&key, signed.as_bytes()).as_ref())
     )
+}
+
+fn sm2_public_point(pem: &str) -> Result<Box<[u8]>, &'static str> {
+    use sm2::elliptic_curve::sec1::ToSec1Point;
+    use sm2::pkcs8::DecodePublicKey;
+    if pem.contains("PRIVATE KEY") {
+        return Err("SM2 public key PEM must not contain a private key");
+    }
+    let public =
+        sm2::PublicKey::from_public_key_pem(pem).map_err(|_| "invalid SM2 SPKI public key PEM")?;
+    Ok(public.to_sec1_point(false).as_bytes().into())
 }
 
 fn sm2_signer(pem: &str) -> Result<sm2::dsa::SigningKey, &'static str> {

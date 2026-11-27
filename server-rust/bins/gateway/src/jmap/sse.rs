@@ -150,15 +150,23 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
             let mailbox = if auth.is_guest() {
                 None
             } else {
-                commands
-                    .exec
-                    .read(
-                        "SELECT id FROM mailboxes WHERE user_id=$1 AND is_primary LIMIT 1",
-                        &[(&user, Type::INT8)],
-                    )
-                    .await
-                    .ok()
-                    .and_then(|r| r.first().map(|r| r.get::<_, i64>(0)))
+                match setjoin_authz::policy_gate::lookup_primary_mailbox_lifecycle(
+                    &commands.exec,
+                    user,
+                )
+                .await
+                {
+                    Ok(Some((mb, true))) => Some(mb),
+                    Ok(Some((_, false))) => {
+                        return super::push::plain(
+                            &r,
+                            &c,
+                            StatusCode::FORBIDDEN,
+                            "mailbox access suspended\n",
+                        );
+                    }
+                    _ => None,
+                }
             };
             if !auth.is_guest() && mailbox.is_none() {
                 return super::push::plain(&r, &c, StatusCode::FORBIDDEN, "no primary mailbox\n");
@@ -280,6 +288,9 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
                         _=revalidate.tick()=>{
                             if auth.expires_at().is_none_or(|exp|chrono::Utc::now().timestamp()>=exp){break}
                             let mut allowed=true;
+                            if let Some(mb) = mailbox {
+                                allowed &= setjoin_authz::policy_gate::check_mailbox_lifecycle(&commands.exec, mb).await.unwrap_or(false);
+                            }
                             for channel in &channels {
                                 let app=if channel.starts_with("chat:"){Some("chat")}else if channel.starts_with("meet:"){Some("meet")}else if channel.starts_with("drive-"){Some("drive")}else{None};
                                 if let Some(app)=app {allowed &=super::push::app_allowed(&commands.exec,&auth,app).await;}

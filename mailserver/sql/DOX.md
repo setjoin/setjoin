@@ -2483,3 +2483,14 @@ deployment leaves a remote command's termination unconfirmed. Frozen Go never re
 and its `deployment_steps` statements are unchanged. An operator resolves the fence with
 `DELETE FROM deploy_remote_fence` as the table owner (`setjoin_owner`): `setjoin_app` and
 `setjoin_worker` hold only SELECT, INSERT and UPDATE.
+
+## Group membership invalidation notifications (`V285__group_membership_notify.sql`, #542)
+
+`V285__group_membership_notify.sql` adds `AFTER INSERT OR UPDATE OR DELETE` triggers
+emitting `app_notify('group_membership_changed', ...)` on `user_group_members`,
+`directory_group_invalidations` (`{"user_id": ...}` or `{"all": true}` when
+`user_id IS NULL`), `distribution_group_members` (`{"user_id": ...}`), and
+`AFTER UPDATE OF is_dynamic, scim_external_id, usable_as_admin_scope` on
+`distribution_groups` (`{"all": true}`). `setjoin_authz::groups::GroupResolver`
+subscribes via `DB_DIRECT_DSN` (`listen` / `listen_watch`) with subscribe-before-refresh
+invalidation. Proof: `tests/group_membership_notify.pg`.

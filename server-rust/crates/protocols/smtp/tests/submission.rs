@@ -322,5 +322,126 @@ async fn unknown_and_disabled_accounts_spend_a_password_hash() {
         .unwrap();
 }
 
+/// Wave 1.4 (#542): re-AUTH on the same connection must release the prior
+/// `ConnTracker` slot rather than leaking it via `std::mem::forget`.
+#[tokio::test]
+async fn reauth_releases_previous_conn_tracker_slot() {
+    let _serial = SERIAL.lock().await;
+    let Some(db) = setjoin_conformance::harness::Db::for_case("smtp5-reauth-slot") else {
+        return;
+    };
+    let owner = db.connect().await.unwrap();
+    owner
+        .batch_execute(include_str!("../oracle/submission-cleanup.sql"))
+        .await
+        .unwrap();
+    owner
+        .batch_execute(include_str!("../oracle/submission-seed.sql"))
+        .await
+        .unwrap();
+    let server = Arc::new(
+        setjoin_smtp::Submission::new(setjoin_pg::workers::WorkerDatabase::new(&db.dsn).unwrap())
+            .with_starttls_files(fixture("server.pem"), fixture("server.p8"))
+            .unwrap()
+            .with_per_user_max(1),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (stop, rx) = watch::channel(false);
+    let task = tokio::spawn(server.clone().serve(listener, rx));
+    async fn line(socket: &mut BoxStream) -> String {
+        let mut got = Vec::new();
+        loop {
+            let mut byte = [0];
+            socket.read_exact(&mut byte).await.unwrap();
+            got.push(byte[0]);
+            if byte[0] == b'\n' {
+                return String::from_utf8(got).unwrap();
+            }
+        }
+    }
+    let connect_tls = || async {
+        let mut s: BoxStream = Box::new(TcpStream::connect(addr).await.unwrap());
+        line(&mut s).await;
+        s.write_all(b"EHLO c\r\n").await.unwrap();
+        for _ in 0..6 {
+            line(&mut s).await;
+        }
+        s.write_all(b"STARTTLS\r\n").await.unwrap();
+        line(&mut s).await;
+        let mut s = upgrade(s).await;
+        s.write_all(b"EHLO c\r\n").await.unwrap();
+        for _ in 0..6 {
+            line(&mut s).await;
+        }
+        s
+    };
+    use base64::Engine;
+    let auth_cmd = |user: &str, pw: &str| {
+        let b = base64::engine::general_purpose::STANDARD.encode(format!("\0{user}\0{pw}"));
+        format!("AUTH PLAIN {b}\r\n")
+    };
+    let mut s1 = connect_tls().await;
+    s1.write_all(auth_cmd("alice@smtp5.test", "IMAP1-correct-password!").as_bytes())
+        .await
+        .unwrap();
+    let r1 = line(&mut s1).await;
+    assert!(r1.starts_with("235 "), "first AUTH must succeed: {r1}");
+    // Re-AUTH on the same connection as alice with per_user_max=1 must release
+    // the previous slot instead of leaking it and returning 550!
+    s1.write_all(auth_cmd("alice@smtp5.test", "IMAP1-correct-password!").as_bytes())
+        .await
+        .unwrap();
+    let r2 = line(&mut s1).await;
+    assert!(
+        r2.starts_with("235 "),
+        "re-AUTH must release prior ConnTracker slot: {r2}"
+    );
+    // A FAILED re-AUTH (e.g. post-auth session revocation) must ALSO release
+    // the prior ConnTracker slot & registry handle immediately while s1 stays open!
+    owner
+        .execute(
+            "INSERT INTO session_revocations(user_id, scope, not_before, expires_at, reason) \
+             VALUES(9501011, 'all', now() + interval '1 minute', now() + interval '1 hour', 'reauth-slot-test')",
+            &[],
+        )
+        .await
+        .unwrap();
+    s1.write_all(auth_cmd("alice@smtp5.test", "IMAP1-correct-password!").as_bytes())
+        .await
+        .unwrap();
+    let r_fail = line(&mut s1).await;
+    assert!(
+        r_fail.starts_with("535 "),
+        "revoked re-AUTH must fail closed with 535: {r_fail}"
+    );
+    owner
+        .execute(
+            "DELETE FROM session_revocations WHERE user_id = 9501011",
+            &[],
+        )
+        .await
+        .unwrap();
+    // While s1 is STILL OPEN, alice must be able to authenticate on s2 (per_user_max=1),
+    // proving s1 released its slot on the failed re-AUTH rather than leaking it.
+    let mut s2 = connect_tls().await;
+    s2.write_all(auth_cmd("alice@smtp5.test", "IMAP1-correct-password!").as_bytes())
+        .await
+        .unwrap();
+    let r3 = line(&mut s2).await;
+    assert!(
+        r3.starts_with("235 "),
+        "fresh connection while s1 is still open must not hit leaked slot after failed re-AUTH: {r3}"
+    );
+    drop(s1);
+    drop(s2);
+    let _ = stop.send(true);
+    task.await.unwrap().unwrap();
+    owner
+        .batch_execute(include_str!("../oracle/submission-cleanup.sql"))
+        .await
+        .unwrap();
+}
+
 /// The cases share one database and fixed fixtures: libtest's threads must take turns.
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

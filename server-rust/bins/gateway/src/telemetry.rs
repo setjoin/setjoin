@@ -94,6 +94,17 @@ fn admitted(device: i64) -> bool {
     true
 }
 
+/// Scoped device-HMAC envelope key (`DEVICE_HMAC_KEY`), falling back to
+/// `JWT_SECRET` in co-located / legacy deployments.
+pub fn device_hmac_key_from_env() -> Vec<u8> {
+    std::env::var("DEVICE_HMAC_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("JWT_SECRET").ok().filter(|s| !s.is_empty()))
+        .unwrap_or_default()
+        .into_bytes()
+}
+
 pub async fn serve(
     exec: &ScopedExecutor,
     mut r: Request<Body>,
@@ -114,7 +125,7 @@ pub async fn serve(
     }
     let resolver = DeviceResolver::new(
         exec.clone(),
-        std::env::var("JWT_SECRET").unwrap_or_default().into_bytes(),
+        device_hmac_key_from_env(),
         setjoin_config_secret::CryptoProfile::parse(
             &std::env::var("CRYPTO_ALGORITHM_PROFILE").unwrap_or_default(),
         ),

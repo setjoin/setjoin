@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/_base.sh"
 
-echo "==> Building Rust server binaries (setjoin-server, setjoin-auth, mailctl, asrbotd, setjoin-updater)"
-(cd "$ROOT/server-rust" && cargo build --release --locked -p setjoin-gateway -p setjoin-auth -p setjoin-mailctl -p setjoin-asrbot -p setjoin-updater)
+echo "==> Building Rust server binaries (setjoind, setjoin-server-shim, setjoin-auth-shim, mailctl, asrbotd, setjoin-updater)"
+(cd "$ROOT/server-rust" && cargo build --release --locked -p setjoind -p setjoin-mailctl -p setjoin-asrbot -p setjoin-updater)
 rust_target="${CARGO_TARGET_DIR:-$ROOT/server-rust/target}"
-install -m 0755 "$rust_target/release/setjoin-server" "$ROOT/server-rust/setjoin-server"
-install -m 0755 "$rust_target/release/setjoin-auth" "$ROOT/server-rust/setjoin-auth"
+install -m 0755 "$rust_target/release/setjoind" "$ROOT/server-rust/setjoind"
+install -m 0755 "$rust_target/release/setjoin-server-shim" "$ROOT/server-rust/setjoin-server"
+install -m 0755 "$rust_target/release/setjoin-auth-shim" "$ROOT/server-rust/setjoin-auth"
 install -m 0755 "$rust_target/release/mailctl" "$ROOT/server-rust/mailctl"
 install -m 0755 "$rust_target/release/asrbotd" "$ROOT/server-rust/asrbotd"
 install -m 0755 "$rust_target/release/setjoin-updater" "$ROOT/server-rust/setjoin-updater"

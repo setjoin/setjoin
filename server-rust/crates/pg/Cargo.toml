@@ -24,6 +24,7 @@ deadpool-postgres = "0.14.2"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # Client-side read deadlines (review item 1); already in the lock via the driver.
 tokio = { version = "1.54", features = ["rt", "sync", "time", "macros"] }
+tokio-util = { version = "=0.7.20", default-features = false }
 
 [dev-dependencies]
 setjoin-pg = { path = ".", features = ["mint", "worker-pool"] }

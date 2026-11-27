@@ -32,6 +32,11 @@ use std::{
 pub const CACHE_TTL: Duration = Duration::from_secs(60);
 /// Upper bound on live entries; Go's `sync.Map` is unbounded.
 pub const CACHE_CAPACITY: usize = 4096;
+/// Default bcrypt cost-10 dummy hash used for constant-time unknown/disabled/hash-less
+/// account verification (SECFIX3 / #542). Callers using a non-default crypto profile
+/// may override it via [`PasswordCache::with_dummy_hash`].
+pub const DEFAULT_DUMMY_HASH: &str =
+    "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
 
 /// Which password kinds a protocol accepts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,12 +106,29 @@ pub enum Verdict {
 /// only Go's app-password bookkeeping/audit rows and the best-effort
 /// self-heal; account-password audit rows belong to the caller
 /// ([`record_event`], provider `bcrypt` for IMAP, `basic` for DAV).
+///
+/// Unknown, disabled, and hash-less accounts spend one constant-time dummy
+/// password verification (SECFIX3 / #542) to prevent account-enumeration timing
+/// side channels.
 pub async fn verify(
     exec: &ScopedExecutor,
     cache: &PasswordCache,
     email: &str,
     secret: &str,
     policy: Policy,
+) -> Verdict {
+    verify_with_dummy(exec, cache, email, secret, policy, true).await
+}
+
+/// Same as [`verify`] with an explicit switch for test-only security-mutant
+/// harnesses (`smtp-no-dummy-hash`). Production callers always use [`verify`].
+pub async fn verify_with_dummy(
+    exec: &ScopedExecutor,
+    cache: &PasswordCache,
+    email: &str,
+    secret: &str,
+    policy: Policy,
+    run_dummy_hash: bool,
 ) -> Verdict {
     if matches!(
         policy.accept,
@@ -119,7 +141,16 @@ pub async fn verify(
             return Verdict::Refused;
         }
     }
-    match account_password(exec, cache, email, secret, policy.totp_account_password).await {
+    match account_password(
+        exec,
+        cache,
+        email,
+        secret,
+        policy.totp_account_password,
+        run_dummy_hash,
+    )
+    .await
+    {
         Some(user) => Verdict::AccountPassword(user),
         None => Verdict::Refused,
     }
@@ -198,6 +229,7 @@ async fn app_password(
 }
 
 /// `auth.CheckPassword`: per-call lookup (enabled filter and TOTP flag),
+/// constant-time dummy-hash verification on unknown/disabled/hash-less accounts,
 /// cached bcrypt/SM3 verification, best-effort below-floor self-heal guarded
 /// on the verified hash, then the fail-closed guest refusal.
 async fn account_password(
@@ -206,6 +238,7 @@ async fn account_password(
     email: &str,
     password: &str,
     totp: TotpAccountPassword,
+    run_dummy_hash: bool,
 ) -> Option<Verified> {
     let rows = exec
         .read(
@@ -214,15 +247,20 @@ async fn account_password(
             &[(&email, Type::TEXT)],
         )
         .await
-        .ok()?;
-    let row = rows.first()?;
-    let id: i64 = row.try_get(0).ok()?;
-    let stored_email: String = row.try_get(1).ok()?;
-    let hash: String = row.try_get(2).ok()?;
-    let totp_enabled: bool = row.try_get(3).ok()?;
-    if hash.is_empty() {
+        .ok();
+    let known = rows.as_ref().and_then(|rows| rows.first()).and_then(|row| {
+        let id: i64 = row.try_get(0).ok()?;
+        let stored_email: String = row.try_get(1).ok()?;
+        let hash: String = row.try_get::<_, String>(2).ok().filter(|h| !h.is_empty())?;
+        let totp_enabled: bool = row.try_get(3).ok()?;
+        Some((id, stored_email, hash, totp_enabled))
+    });
+    let Some((id, stored_email, hash, totp_enabled)) = known else {
+        if run_dummy_hash {
+            cache.spend_dummy_hash(password).await;
+        }
         return None;
-    }
+    };
     // Owner ruling (#355-0 F1): checked on every call, before the cache and
     // before any hash work, so neither a warm cache nor a password oracle
     // remains for TOTP users.
@@ -283,6 +321,8 @@ pub struct PasswordCache {
     capacity: usize,
     entries: Mutex<HashMap<[u8; 32], Instant>>,
     hits: AtomicUsize,
+    dummy_hash: &'static str,
+    dummy_verifications: AtomicUsize,
 }
 
 impl Default for PasswordCache {
@@ -303,7 +343,29 @@ impl PasswordCache {
             capacity,
             entries: Mutex::new(HashMap::new()),
             hits: AtomicUsize::new(0),
+            dummy_hash: DEFAULT_DUMMY_HASH,
+            dummy_verifications: AtomicUsize::new(0),
         }
+    }
+
+    /// Override the constant-time dummy hash (e.g. SM3 profile hash).
+    pub fn with_dummy_hash(mut self, hash: &'static str) -> Self {
+        self.dummy_hash = hash;
+        self
+    }
+
+    /// Number of dummy password verifications performed for unknown, disabled,
+    /// or hash-less accounts (SECFIX3 test observation; never a security input).
+    pub fn dummy_verifications(&self) -> usize {
+        self.dummy_verifications.load(Ordering::SeqCst)
+    }
+
+    /// Execute one constant-time dummy hash verification on the blocking pool.
+    pub async fn spend_dummy_hash(&self, password: &str) {
+        self.dummy_verifications.fetch_add(1, Ordering::SeqCst);
+        let dummy = self.dummy_hash;
+        let pw = password.to_owned();
+        let _ = tokio::task::spawn_blocking(move || crate::password::verify(dummy, &pw)).await;
     }
 
     pub fn len(&self) -> usize {

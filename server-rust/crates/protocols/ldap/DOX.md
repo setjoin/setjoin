@@ -135,3 +135,5 @@ operations and completes before dispatching later operations. The reader remains
 active for disconnect/Unbind cancellation. This also clears identity
 when global admission returns Busy. The pipelined valid/failed Bind socket test
 and concurrent-dispatch mutant cover delayed credential completion.
+
+Wave 1.4 (`#542`): LDAP Bind routes credentials through `setjoin_authz::basic::verify` with `ProtocolSurface::Ldap.basic_policy()` (`Accept::AccountPassword`, `GuestAppPasswords::Refuse`, `TotpAccountPassword::Refuse`, constant-time dummy hash), runs `setjoin_authz::policy_gate::check_protocol_post_auth` (durable `session_revocations`, `feature.device_lockdown`, mailbox lifecycle), supports live eviction via `with_session_registry`, and preserves `LdapResultCode::InvalidCredentials` and `oracle-mutants`. Recorded in `oracle/divergences.json`.

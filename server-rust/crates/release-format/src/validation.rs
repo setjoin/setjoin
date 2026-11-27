@@ -201,6 +201,7 @@ impl Manifest {
                 "setjoin-gateway" => "core_setjoin_gateway",
                 "setjoin-server" => "core_setjoin_server",
                 "setjoin-auth" => "core_setjoin_auth",
+                "setjoind" => "core_setjoind",
                 _ => "",
             };
             // Go's missing map key is the empty string, including for unknown classes.
@@ -231,11 +232,36 @@ impl Manifest {
                 && (classes.contains("mailserverd") || classes.contains("authserverd"))),
             "release mixes setjoin-server with legacy Go binaries"
         );
+        ensure!(
+            !(classes.contains("setjoind")
+                && (classes.contains("mailserverd")
+                    || classes.contains("authserverd")
+                    || classes.contains("setjoin-gateway"))),
+            "release mixes setjoind with legacy Go binaries"
+        );
+        if classes.contains("setjoind") {
+            ensure!(
+                classes.contains("setjoin-server") == classes.contains("setjoin-auth"),
+                "release with setjoind must include both shims or neither"
+            );
+        }
         if !core.is_empty() {
-            let required: [&str; 4] = if core.contains("setjoin-server") {
-                ["setjoin-server", "setjoin-auth", "mailctl", "webmail"]
+            let required: &[&str] = if core.contains("setjoind") {
+                if core.contains("setjoin-server") || core.contains("setjoin-auth") {
+                    &[
+                        "setjoind",
+                        "setjoin-server",
+                        "setjoin-auth",
+                        "mailctl",
+                        "webmail",
+                    ]
+                } else {
+                    &["setjoind", "mailctl", "webmail"]
+                }
+            } else if core.contains("setjoin-server") {
+                &["setjoin-server", "setjoin-auth", "mailctl", "webmail"]
             } else {
-                ["mailserverd", "authserverd", "mailctl", "webmail"]
+                &["mailserverd", "authserverd", "mailctl", "webmail"]
             };
             for c in required {
                 ensure!(core.contains(c), "core cohort is missing {c}");
@@ -350,5 +376,106 @@ impl Manifest {
             ensure!(seen.insert(&s.key_id), "duplicate signature key_id");
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    fn base_manifest() -> Value {
+        let doc: Value =
+            serde_json::from_str(include_str!("../tests/goldens/updater-fixtures.json")).unwrap();
+        doc["samples"][0]["manifest"].clone()
+    }
+
+    fn make_artifact(template: &Value, id: &str, class: &str, target: &str) -> Value {
+        let mut a = template.clone();
+        a["id"] = id.into();
+        a["class"] = class.into();
+        a["target"] = target.into();
+        a["cohort"] = "core".into();
+        a["media_type"] = "application/octet-stream".into();
+        a
+    }
+
+    fn build_rust_manifest(extra: &[(&str, &str, &str)]) -> Manifest {
+        let mut mv = base_manifest();
+        let template = mv["artifacts"][0].clone();
+        let mut arts: Vec<Value> = mv["artifacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|a| {
+                !matches!(
+                    a["class"].as_str(),
+                    Some("mailserverd" | "authserverd" | "setjoin-gateway")
+                )
+            })
+            .cloned()
+            .collect();
+        for (id, class, target) in extra {
+            arts.push(make_artifact(&template, id, class, target));
+        }
+        arts.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+        mv["artifacts"] = Value::Array(arts);
+        Manifest::parse(&serde_json::to_vec(&mv).unwrap()).unwrap_or_else(|e| {
+            // Return invalid manifest by parsing draft so validate() can be asserted directly.
+            let m: Manifest = serde_json::from_value(mv).unwrap();
+            let _ = e;
+            m
+        })
+    }
+
+    #[test]
+    fn four_cohorts_validate_and_invalid_mixes_or_half_shims_fail_closed() {
+        // 1. Release N-1 split
+        let split = build_rust_manifest(&[
+            ("setjoin-auth", "setjoin-auth", "core_setjoin_auth"),
+            ("setjoin-server", "setjoin-server", "core_setjoin_server"),
+        ]);
+        split.validate().expect("Release N-1 split valid");
+
+        // 2. Release N expand (setjoind + both shims)
+        let expand = build_rust_manifest(&[
+            ("setjoind", "setjoind", "core_setjoind"),
+            ("setjoin-auth", "setjoin-auth", "core_setjoin_auth"),
+            ("setjoin-server", "setjoin-server", "core_setjoin_server"),
+        ]);
+        expand.validate().expect("Release N expand valid");
+
+        // 3. Release N+1 contract (setjoind-only)
+        let unified = build_rust_manifest(&[("setjoind", "setjoind", "core_setjoind")]);
+        unified.validate().expect("Release N+1 unified valid");
+
+        // 4. Half-shim cohorts MUST fail closed
+        let half_server = build_rust_manifest(&[
+            ("setjoind", "setjoind", "core_setjoind"),
+            ("setjoin-server", "setjoin-server", "core_setjoin_server"),
+        ]);
+        let err = half_server.validate().unwrap_err().to_string();
+        assert!(err.contains("both shims or neither"), "{err}");
+
+        let half_auth = build_rust_manifest(&[
+            ("setjoind", "setjoind", "core_setjoind"),
+            ("setjoin-auth", "setjoin-auth", "core_setjoin_auth"),
+        ]);
+        let err = half_auth.validate().unwrap_err().to_string();
+        assert!(err.contains("both shims or neither"), "{err}");
+
+        // 5. Mixing setjoind with ANY legacy Go binary MUST fail closed
+        for (id, class, target) in [
+            ("mailserverd", "mailserverd", "core_mailserverd"),
+            ("authserverd", "authserverd", "core_authserverd"),
+            ("setjoin-gateway", "setjoin-gateway", "core_setjoin_gateway"),
+        ] {
+            let mixed = build_rust_manifest(&[
+                ("setjoind", "setjoind", "core_setjoind"),
+                (id, class, target),
+            ]);
+            let err = mixed.validate().unwrap_err().to_string();
+            assert!(err.contains("mixes setjoind with legacy Go"), "{err}");
+        }
     }
 }

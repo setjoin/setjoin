@@ -148,4 +148,32 @@ impl DriveWatch {
             tokio::select! {_=&mut stop=>return,_=tokio::time::sleep(Duration::from_secs(1))=>{}}
         }
     }
+
+    /// Multiplex `drive` onto a shared [`setjoin_pg::ListenHub`] (#543).
+    pub async fn run_with_hub(self, hub: setjoin_pg::ListenHub, stop: impl Future<Output = ()>) {
+        tokio::pin!(stop);
+        let Ok(mut sub) = hub.subscribe("drive").await else {
+            stop.await;
+            return;
+        };
+        loop {
+            let event = tokio::select! {
+                _ = &mut stop => return,
+                event = sub.recv() => event,
+            };
+            let Some(event) = event else {
+                return;
+            };
+            if let setjoin_pg::ListenEvent::Notification(notification) = event {
+                tokio::select! {
+                    _ = &mut stop => return,
+                    result = self.tick(&notification.payload) => {
+                        if result.is_err() {
+                            eprintln!("drive watch: event failed");
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

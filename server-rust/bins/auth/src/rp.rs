@@ -587,6 +587,17 @@ impl AuthServer {
             None => None,
         }
     }
+
+    /// Start OIDC RP cache invalidation multiplexed onto a shared [`setjoin_pg::ListenHub`] (#543).
+    pub async fn start_rp_listener_with_hub(
+        &self,
+        hub: &setjoin_pg::ListenHub,
+    ) -> Option<setjoin_identity::rp::Listener> {
+        match &self.rp {
+            Some(registry) => Some(registry.listen_with_hub(hub).await),
+            None => None,
+        }
+    }
 }
 
 impl AuthServer {

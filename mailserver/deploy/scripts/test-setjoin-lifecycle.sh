@@ -104,4 +104,61 @@ if run_lifecycle start >/dev/null 2>&1; then
   exit 1
 fi
 
+# Unified setjoind topology (#544): start/stop/restart/uninstall + mixed refusal.
+uni_base=(setjoin-valkey setjoin-sfu setjoin-egress setjoind setjoin-updater)
+for unit in "${uni_base[@]}"; do
+  : >"$tmp/systemd/$unit.service"
+done
+for sock in setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket \
+  setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket \
+  setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+  : >"$tmp/systemd/$sock"
+done
+
+# Mixed topology (setjoind.service + setjoin-gateway.service) MUST fail closed.
+: >"$tmp/systemd/setjoin-gateway.service"
+if run_lifecycle start >/dev/null 2>&1; then
+  echo "mixed topology was accepted by setjoinctl start" >&2
+  exit 1
+fi
+rm -f "$tmp/systemd/setjoin-gateway.service"
+
+: >"$log"
+run_lifecycle start
+expected_uni_start=$'start setjoin-valkey\nstart setjoin-sfu\nstart setjoin-egress\nstart setjoind\nstart setjoin-updater'
+[ "$(cat "$log")" = "$expected_uni_start" ] || {
+  echo "unexpected unified start order" >&2
+  cat "$log" >&2
+  exit 1
+}
+
+: >"$log"
+run_lifecycle stop --allow-updater-stop >/dev/null
+for sock in setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket \
+  setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket \
+  setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+  grep -qx "stop $sock" "$log" || {
+    echo "unified stop retained $sock" >&2
+    exit 1
+  }
+  [ "$(grep -n "^stop $sock$" "$log" | cut -d: -f1)" -lt "$(grep -n '^stop setjoind$' "$log" | cut -d: -f1)" ] || {
+    echo "unified stop closed $sock after setjoind" >&2
+    exit 1
+  }
+done
+
+run_lifecycle uninstall --allow-updater-stop --confirm-preserve-data >/dev/null
+for sock in setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket \
+  setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket \
+  setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+  [ ! -e "$tmp/systemd/$sock" ] || {
+    echo "unified uninstall retained $sock" >&2
+    exit 1
+  }
+done
+[ ! -e "$tmp/systemd/setjoind.service" ] || {
+  echo "unified uninstall retained setjoind.service" >&2
+  exit 1
+}
+
 echo "setjoin lifecycle: PASS"

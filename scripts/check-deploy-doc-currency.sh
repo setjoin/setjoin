@@ -78,9 +78,13 @@ CONFIG_ENV_SAMPLE="${CONFIG_ENV_SAMPLE:-$ROOT/mailserver/deploy/config.env.sampl
 SERVICE_FILE="${SERVICE_FILE:-$ROOT/mailserver/deploy/setjoin-gateway.service.template}"
 CONFIG_RUST_FILES=(
   "$ROOT/server-rust/bins/gateway/src/main.rs"
+  "$ROOT/server-rust/bins/gateway/src/runtime/mod.rs"
+  "$ROOT/server-rust/bins/gateway/src/runtime/routes.rs"
+  "$ROOT/server-rust/bins/gateway/src/runtime/workers.rs"
   "$ROOT/server-rust/bins/gateway/src/acme.rs"
   "$ROOT/server-rust/bins/gateway/src/configuration/mod.rs"
   "$ROOT/server-rust/bins/auth/src/config.rs"
+  "$ROOT/server-rust/bins/setjoind/src/lib.rs"
   "$ROOT/server-rust/crates/domains/platform/src/config.rs"
 )
 
@@ -174,6 +178,10 @@ declare -A OUR_UNIT_ALLOW=()
 for unit in "${SETJOIN_ALL_UNITS[@]}"; do
   OUR_UNIT_ALLOW["$unit"]=1
 done
+if [ -f "$ROOT/mailserver/deploy/setjoind.service.template" ]; then
+  OUR_UNIT_ALLOW["setjoind"]=1
+  OUR_UNIT_ALLOW["setjoind.service"]=1
+fi
 for socket_tmpl in "$ROOT"/mailserver/deploy/*.socket.template; do
   [ -e "$socket_tmpl" ] || continue
   OUR_UNIT_ALLOW["$(basename "$socket_tmpl" .template)"]=1

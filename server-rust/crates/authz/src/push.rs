@@ -223,8 +223,9 @@ impl PushIdentity {
     /// account ID or HTTP-only admission gate enters this authorization.
     pub async fn command_authorization(&self, exec: &ScopedExecutor) -> Option<crate::Authorized> {
         let user = self.user_id();
-        let rows=exec.read("SELECT m.id,m.jmap_email_state::int8,m.jmap_mailbox_state::int8,m.jmap_thread_state::int8,m.jmap_tag_state::int8,coalesce((SELECT max(jmap_state) FROM calendars WHERE mailbox_id=m.id),0)::int8,coalesce((SELECT max(jmap_state) FROM addressbooks WHERE mailbox_id=m.id),0)::int8,coalesce((SELECT max(jmap_state) FROM tasks WHERE mailbox_id=m.id),0)::int8,floor(extract(epoch FROM u.updated_at))::int8 FROM mailboxes m JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND m.is_primary",&[(&user,Type::INT8)]).await.ok()?;
+        let rows=exec.read("SELECT m.id,m.jmap_email_state::int8,m.jmap_mailbox_state::int8,m.jmap_thread_state::int8,m.jmap_tag_state::int8,coalesce((SELECT max(jmap_state) FROM calendars WHERE mailbox_id=m.id),0)::int8,coalesce((SELECT max(jmap_state) FROM addressbooks WHERE mailbox_id=m.id),0)::int8,coalesce((SELECT max(jmap_state) FROM tasks WHERE mailbox_id=m.id),0)::int8,floor(extract(epoch FROM u.updated_at))::int8,mailbox_lifecycle_access_allowed(m.id) FROM mailboxes m JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND m.is_primary",&[(&user,Type::INT8)]).await.ok()?;
         let row = rows.first()?;
+        let mailbox_blocked = row.try_get::<_, Option<bool>>(9).ok().flatten() != Some(true);
         let admin = self
             .claims
             .get("admin")
@@ -259,7 +260,7 @@ impl PushIdentity {
                 roles,
                 auth_time: self.claims.get("auth_time").and_then(Value::as_i64),
                 actor_id: self.act().filter(|&id| id > 0),
-                mailbox_blocked: false,
+                mailbox_blocked,
             },
             state: crate::gates::SessionState {
                 email: row.get(1),

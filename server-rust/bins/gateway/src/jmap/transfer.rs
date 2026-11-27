@@ -1,18 +1,19 @@
 //! Five-minute, one-blob credentials. ring owns HKDF and HMAC; the verified
 //! parent supplies identity/origin. No refresh, authority or signing-key API.
 use super::{
-    JmapCommands, reply,
+    reply,
     token::{self, KeySource},
+    JmapCommands,
 };
 use crate::{Body, RequestContext};
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use http_body_util::BodyExt;
 use hyper::{Request, Response};
 use serde::{
-    Deserialize, Serialize,
     de::{self, MapAccess, Visitor},
+    Deserialize, Serialize,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use setjoin_pg::MailboxAuthContext;
 use sha2::{Digest, Sha256};
 
@@ -39,14 +40,12 @@ impl Signer {
         })
     }
     pub(super) fn from_env() -> Option<Self> {
-        let master = zeroize::Zeroizing::new(
-            std::env::var("MAIL_ATTACHMENT_TOKEN_SECRET")
-                .ok()
-                .filter(|s| !s.is_empty())
-                .or_else(|| std::env::var("JWT_SECRET").ok())
-                .filter(|s| !s.is_empty())?,
-        );
-        Self::from_master(master.as_bytes()).ok()
+        let (secret, _) = crate::f16::attachment_secrets_from_env();
+        let master = zeroize::Zeroizing::new(secret);
+        if master.is_empty() {
+            return None;
+        }
+        Self::from_master(&master).ok()
     }
     fn sign(&self, claims: &Claims<'_>) -> Option<String> {
         let header = URL_SAFE_NO_PAD
