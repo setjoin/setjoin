@@ -80,6 +80,7 @@ async fn replay(corpus_name: &str, mutant: bool) {
             ThreatPolicy::Enforced(gate),
             WebhookPolicy::Unwired,
         )
+        .with_auth_db(worker_executor(&db))
         .with_tls(tls_server());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

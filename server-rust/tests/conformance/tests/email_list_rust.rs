@@ -38,14 +38,22 @@ impl ListEmails for RustRead {
         q: ListQuery,
     ) -> Result<Page, BoxError> {
         // Plays the authentication boundary: the session's actor is the
-        // mailbox's bound user.
-        let user: i64 = client
+        // mailbox's bound user. Under V288 FORCE RLS on `mailboxes`, scope the
+        // lookup transaction to `mailbox` so `setjoin_app` can read the row.
+        let tx = client.transaction().await?;
+        tx.query_typed(
+            "SELECT set_config('app.current_mailbox_id', $1, true)",
+            &[(&mailbox.to_string(), Type::TEXT)],
+        )
+        .await?;
+        let user: i64 = tx
             .query_typed(
                 "SELECT user_id FROM mailboxes WHERE id = $1",
                 &[(&mailbox, Type::INT8)],
             )
             .await?[0]
             .get(0);
+        tx.commit().await?;
         let principal = self
             .tx
             .mint_capability_primary_mailbox(

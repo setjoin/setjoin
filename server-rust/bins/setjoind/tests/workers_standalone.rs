@@ -9,7 +9,9 @@ use std::time::Duration;
 
 #[test]
 fn workers_standalone_binds_no_listeners_and_drains_cleanly() {
-    let dsn = common::test_db_dsn();
+    let owner_dsn = common::test_db_dsn();
+    let app_dsn = common::app_db_dsn();
+    let worker_dsn = common::worker_db_dsn();
     let tmp = tempfile::tempdir().expect("tempdir");
     let (notify_path, notify_sock) = common::bind_notify_socket(tmp.path());
 
@@ -19,8 +21,10 @@ fn workers_standalone_binds_no_listeners_and_drains_cleanly() {
     let mut cmd = Command::new(common::setjoind_bin());
     cmd.env_clear()
         .arg("--subsystems=workers")
-        .env("DB_DSN", &dsn)
-        .env("DB_DIRECT_DSN", &dsn)
+        .env("DB_DSN", &app_dsn)
+        .env("DB_WORKER_DSN", &worker_dsn)
+        .env("DB_OWNER_DSN", &owner_dsn)
+        .env("DB_DIRECT_DSN", &app_dsn)
         .env("NOTIFY_SOCKET", &notify_path)
         .env("DB_ENCRYPTION_KEY", "setjoind-test-db-enc-key-32-bytes!!")
         .env("GATEWAY_LISTEN", unused_http.to_string())

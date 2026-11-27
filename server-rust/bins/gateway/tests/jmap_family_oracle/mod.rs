@@ -114,6 +114,11 @@ pub struct Case {
     /// `(JSON pointer into a response, placeholder)`.
     pub scrub: &'static [(&'static str, &'static str)],
     pub restore_continuity: bool,
+    /// When true, frozen Go swallowed `V097` journal/entity_state trigger bumps
+    /// under `FORCE RLS`, whereas Rust's `SECURITY DEFINER` reducer properly
+    /// advances them: assert advancement on `entity_state`/`changes_journal`
+    /// and omit those two keys from the immutable Go golden diff.
+    pub rust_advances_journal: bool,
 }
 
 impl Case {
@@ -144,6 +149,7 @@ impl Case {
             notify: &[],
             scrub: &[],
             restore_continuity: false,
+            rust_advances_journal: false,
         }
     }
 }
@@ -854,10 +860,15 @@ async fn observe(
             ring::signature::Ed25519KeyPair::from_seed_unchecked(&CONTINUITY_SEED)
                 .map_err(|_| "continuity key")?,
         )));
+        let exec_dsn = if matches!(mutation, Mutation::NoTenantFilter { .. }) {
+            &db.dsn
+        } else {
+            db.app.as_deref().unwrap_or(&db.dsn)
+        };
         let commands = Arc::new(JmapCommands {
             services: Some(Arc::new(services)),
             worker: Some(common::patient_exec(&db.dsn, 1)?),
-            exec: common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?,
+            exec: common::patient_exec(exec_dsn, 4)?,
             keys: common::recovery_keys(),
             issuer: "mailserver".into(),
             denylist: None,
@@ -1119,21 +1130,50 @@ async fn observe_on(
         println!("GOLDEN-RECORDED: {route} :: {}", case.name);
         return Ok(());
     }
-    let expected: Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+    let mut expected: Value = serde_json::from_slice(&std::fs::read(&path)?)?;
     if expected["kind"] != case.kind {
         return Err(format!("{}: golden kind differs from the case kind", case.name).into());
+    }
+    let mut cmp_observation = observation.clone();
+    if case.rust_advances_journal {
+        for key in ["entity_state", "changes_journal"] {
+            let eff = &cmp_observation["effects"][key];
+            if eff["before"] == eff["after"] {
+                return Err(format!(
+                    "{}: expected Rust to advance {key}, but before == after",
+                    case.name
+                )
+                .into());
+            }
+            if let Some(obj) = expected["observation"]["effects"].as_object_mut() {
+                obj.remove(key);
+            }
+            if let Some(obj) = cmp_observation["effects"].as_object_mut() {
+                obj.remove(key);
+            }
+        }
     }
     golden::compare_reviewed(
         &route,
         case.name,
         &expected["observation"],
-        &observation,
+        &cmp_observation,
         &divergences,
     )
     .map_err(|diff| format!("{DIFF_PREFIX}{diff}"))?;
     if case.mutator {
-        let rows: Value = serde_json::from_slice(&std::fs::read(&row_path)?)?;
-        golden::compare(&rows["effects"], &json!(effect_rows))
+        let mut rows: Value = serde_json::from_slice(&std::fs::read(&row_path)?)?;
+        let mut cmp_rows = json!(effect_rows);
+        if case.rust_advances_journal {
+            for doc in [&mut rows["effects"], &mut cmp_rows] {
+                if let Some(arr) = doc.as_array_mut() {
+                    arr.retain(|e| {
+                        !matches!(e["name"].as_str(), Some("entity_state" | "changes_journal"))
+                    });
+                }
+            }
+        }
+        golden::compare(&rows["effects"], &cmp_rows)
             .map_err(|diff| format!("{DIFF_PREFIX}row effects: {diff}"))?;
     }
     println!("GOLDEN-REPLAY: {route} :: {}", case.name);

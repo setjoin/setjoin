@@ -320,15 +320,20 @@ impl Service {
             let me = self.clone();
             let ctx2 = ctx.clone();
             let on_stream: Arc<dyn Fn(PeerStream) + Send + Sync> = Arc::new(move |stream| {
-                me.log.info(format!(
-                    "federation: accepted inbound stream peer={}",
-                    stream.domain
-                ));
+                let stream = Arc::new(stream);
+                let peer = stream.domain.clone();
+                me.log
+                    .info(format!("federation: accepted inbound stream peer={peer}"));
+                // Register synchronously before spawning wire_and_run AND wake
+                // reconcile so an allow-list disable/delete NOTIFY that raced
+                // with accept_stream's hello write can never miss this stream
+                // and leave it live until the 20 s fallback ticker.
+                me.register_stream(&peer, &stream);
+                me.wake();
                 let me = me.clone();
                 let ctx = ctx2.clone();
                 tokio::spawn(async move {
-                    let peer = stream.domain.clone();
-                    if let Err(e) = me.wire_and_run(&ctx, stream).await {
+                    if let Err(e) = me.wire_and_run_registered(&ctx, stream).await {
                         if !ctx.is_cancelled() {
                             me.log.warn(format!(
                                 "federation: accepted stream ended peer={peer} error={e}"
@@ -603,6 +608,17 @@ impl Service {
         }
     }
 
+    fn register_stream(&self, peer: &str, stream: &Arc<PeerStream>) {
+        let mut m = self.streams.lock().unwrap();
+        // Supersede-and-close: a peer may open a new stream while the old
+        // one is live; the old reader unwinds and cannot evict this one.
+        if let Some(old) = m.insert(peer.to_string(), stream.clone()) {
+            if !same(&old, stream) {
+                old.close();
+            }
+        }
+    }
+
     /// Pair a Receiver and Sender with a fresh stream, register both, and block
     /// in the sender until the stream breaks or `ctx` ends. A new Sender per
     /// (re)connect resets the cursors to the durable ack point.
@@ -612,6 +628,15 @@ impl Service {
         stream: PeerStream,
     ) -> Result<(), FedError> {
         let stream = Arc::new(stream);
+        self.register_stream(&stream.domain, &stream);
+        self.wire_and_run_registered(ctx, stream).await
+    }
+
+    async fn wire_and_run_registered(
+        self: &Arc<Self>,
+        ctx: &CancellationToken,
+        stream: Arc<PeerStream>,
+    ) -> Result<(), FedError> {
         let peer = stream.domain.clone();
         let receiver = Receiver::new(self.db.clone(), self.flags.clone(), &peer, self.log.clone());
         let sender = Sender::new(
@@ -635,17 +660,11 @@ impl Service {
             .lock()
             .unwrap()
             .insert(peer.clone(), sender.clone());
-        {
-            let mut m = self.streams.lock().unwrap();
-            // Supersede-and-close: a peer may open a new stream while the old
-            // one is live; the old reader unwinds and cannot evict this one.
-            if let Some(old) = m.insert(peer.clone(), stream.clone()) {
-                if !same(&old, &stream) {
-                    old.close();
-                }
-            }
-        }
-        let r = sender.clone().run(ctx.clone()).await;
+        let r = if stream.is_closed() {
+            Err(FedError::other("federation: stream closed before run"))
+        } else {
+            sender.clone().run(ctx.clone()).await
+        };
         {
             let mut s = self.senders.lock().unwrap();
             if s.get(&peer).is_some_and(|x| same(x, &sender)) {

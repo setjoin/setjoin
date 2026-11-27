@@ -14,10 +14,12 @@ use common::{TEST_DB_ENC_KEY, TEST_INTERNAL_KEY as INTERNAL_KEY, TEST_JWT_SECRET
 
 #[tokio::test]
 async fn split_edge_boots_without_private_keys_and_uses_remote_auth_authority() {
-    let dsn = common::test_db_dsn();
+    let owner_dsn = common::test_db_dsn();
+    let app_dsn = common::app_db_dsn();
+    let worker_dsn = common::worker_db_dsn();
     let email = "setjoind-split@example.test";
     let password = "SplitPassword123!";
-    common::seed_test_user(&dsn, email, password).await;
+    common::seed_test_user(&owner_dsn, email, password).await;
 
     let tmp = tempfile::tempdir().expect("tempdir");
     let auth_cfg = common::temp_config_file(tmp.path());
@@ -34,8 +36,10 @@ async fn split_edge_boots_without_private_keys_and_uses_remote_auth_authority() 
     auth_cmd
         .env_clear()
         .arg("--subsystems=auth")
-        .env("DB_DSN", &dsn)
-        .env("DB_DIRECT_DSN", &dsn)
+        .env("DB_DSN", &app_dsn)
+        .env("DB_WORKER_DSN", &worker_dsn)
+        .env("DB_OWNER_DSN", &owner_dsn)
+        .env("DB_DIRECT_DSN", &app_dsn)
         .env("CONFIG_PATH", &auth_cfg)
         .env("NOTIFY_SOCKET", &auth_notify_path)
         .env("LISTEN_ADDR", auth_addr.to_string())
@@ -57,8 +61,10 @@ async fn split_edge_boots_without_private_keys_and_uses_remote_auth_authority() 
     edge_cmd
         .env_clear()
         .arg("--subsystems=http,protocols,workers")
-        .env("DB_DSN", &dsn)
-        .env("DB_DIRECT_DSN", &dsn)
+        .env("DB_DSN", &app_dsn)
+        .env("DB_WORKER_DSN", &worker_dsn)
+        .env("DB_OWNER_DSN", &owner_dsn)
+        .env("DB_DIRECT_DSN", &app_dsn)
         .env("NOTIFY_SOCKET", &edge_notify_path)
         .env("GATEWAY_LISTEN", edge_addr.to_string())
         .env("GATEWAY_RUST_AUTH_UPSTREAM", format!("http://{auth_addr}"))

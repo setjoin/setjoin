@@ -14,7 +14,40 @@ use setjoin_authz::{
 };
 use setjoin_pg::ScopedExecutor;
 use setjoin_threat::{ConnectionMeta, ThreatAction, ThreatGate};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex, OnceLock},
+    time::Duration,
+};
+
+/// Resolve the pre-auth credential-lookup executor (`DB_WORKER_DSN` /
+/// `setjoin_worker`, `BYPASSRLS`) for `users`/`app_passwords` verification
+/// under `V288` `FORCE RLS`. Cached per distinct DSN string so production
+/// reuses one bounded pool while tests changing `DB_WORKER_DSN` never read a
+/// stale handle. Falls back to `fallback` when `DB_WORKER_DSN` is unset.
+fn pre_auth_executor(fallback: &ScopedExecutor) -> ScopedExecutor {
+    static CACHE: OnceLock<Mutex<Option<(String, ScopedExecutor)>>> = OnceLock::new();
+    let Ok(raw) = std::env::var("DB_WORKER_DSN") else {
+        return fallback.clone();
+    };
+    let dsn = raw.trim();
+    if dsn.is_empty() {
+        return fallback.clone();
+    }
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((cached_dsn, exec)) = guard.as_ref() {
+        if cached_dsn == dsn {
+            return exec.clone();
+        }
+    }
+    match ScopedExecutor::from_dsn(dsn, 4) {
+        Ok(exec) => {
+            *guard = Some((dsn.to_owned(), exec.clone()));
+            exec
+        }
+        Err(_) => fallback.clone(),
+    }
+}
 
 struct ThreatBridge(Arc<dyn ThreatGate>);
 
@@ -144,8 +177,9 @@ impl DavBasicAuth {
             .unwrap_or("");
         let bridge = ThreatBridge(threat.clone());
         let client_ip = c.identity.client_ip.to_string();
+        let pre_auth = pre_auth_executor(exec);
         let user = policy_gate::verify_basic_with_threat(
-            exec,
+            &pre_auth,
             &self.password_cache,
             self.chain.as_deref(),
             &bridge,
@@ -199,8 +233,9 @@ impl DavBasicAuth {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
         let bridge = ThreatBridge(threat.clone());
+        let pre_auth = pre_auth_executor(exec);
         let user = policy_gate::verify_negotiate_two_phase(
-            exec,
+            &pre_auth,
             self.chain.as_deref(),
             self.kerberos.as_deref(),
             &bridge,

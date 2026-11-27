@@ -544,15 +544,26 @@ pub const CHAT_POLICY_MUTATE: SqlContract = SqlContract {
     audit: SqlAuditPosture::Standard,
 };
 
+pub const CHAT_HOLDS_AUDIT: SqlContract = SqlContract {
+    id: "compliance.chat_holds_audit",
+    domain: "compliance",
+    sql: "SELECT audit_write($1,'chat_case_hold_list','ediscovery_case',$2,NULL,NULL,NULLIF($3,'')::inet,'','core')",
+    params: &[Type::INT8, Type::INT8, Type::TEXT],
+    columns: &[ColumnSpec::unnamed(Type::VOID)],
+    scope: SqlScope::UserScoped,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
+};
+
 pub const CHAT_COMMAND: SqlContract = SqlContract {
     id: "compliance.chat_command",
     domain: "compliance",
     sql: "SELECT rust_compliance_chat_command($1,$2,$3,$4::text::jsonb,$5)::text",
     params: &[Type::INT8, Type::BOOL, Type::TEXT, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
-    scope: SqlScope::AdminWrite,
+    scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
-    audit: SqlAuditPosture::ReducerWritesCoreAudit,
+    audit: SqlAuditPosture::Standard,
 };
 
 // ---- Content search & purge ----
@@ -738,6 +749,7 @@ pub const SQL_CONTRACTS: &[SqlContract] = &[
     CHAT_POLICIES_LIST,
     CHAT_CASES_LIST,
     CHAT_HOLDS_LIST,
+    CHAT_HOLDS_AUDIT,
     CHAT_PURGE_PREVIEW,
     CHAT_OVERVIEW,
     CHAT_OVERVIEW_LAST_PURGE,

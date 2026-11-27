@@ -28,7 +28,9 @@ async fn recorded_unbound_sessions() {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (stop, rx) = watch::channel(false);
-    let task = tokio::spawn(Arc::new(Server::default().with_threat_gate(Arc::new(FixtureGate))).serve(l, rx));
+    let task = tokio::spawn(
+        Arc::new(Server::default().with_threat_gate(Arc::new(FixtureGate))).serve(l, rx),
+    );
     for session in corpus
         .as_array()
         .unwrap()
@@ -61,7 +63,9 @@ async fn plaintext_bind_is_rejected() {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (stop, rx) = watch::channel(false);
-    let task = tokio::spawn(Arc::new(Server::default().with_threat_gate(Arc::new(FixtureGate))).serve(l, rx));
+    let task = tokio::spawn(
+        Arc::new(Server::default().with_threat_gate(Arc::new(FixtureGate))).serve(l, rx),
+    );
     let mut socket = TcpStream::connect(addr).await.unwrap();
     // Frozen-Go anonymous bind rejection (LDAP inappropriateAuthentication).
     socket
@@ -128,7 +132,14 @@ async fn recorded_tls_auth_failures() {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (stop, rx) = watch::channel(false);
-    let task = tokio::spawn(Arc::new(Server::default().with_threat_gate(Arc::new(FixtureGate)).with_tls(tls_server())).serve(l, rx));
+    let task = tokio::spawn(
+        Arc::new(
+            Server::default()
+                .with_threat_gate(Arc::new(FixtureGate))
+                .with_tls(tls_server()),
+        )
+        .serve(l, rx),
+    );
     for session in corpus
         .as_array()
         .unwrap()
@@ -186,6 +197,7 @@ async fn recorded_successful_bind() {
         setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap(),
         "ldap1.test",
     )
+    .with_auth_db(worker_exec(&db))
     .with_tls(tls_server());
     let task = tokio::spawn(Arc::new(server).serve(l, rx));
     let corpus: serde_json::Value =
@@ -258,6 +270,7 @@ async fn replay_cases(names: &[&str]) {
         setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap(),
         "ldap1.test",
     )
+    .with_auth_db(worker_exec(&db))
     .with_tls(tls_server());
     let task = tokio::spawn(Arc::new(server).serve(l, rx));
     let outcome = std::panic::AssertUnwindSafe(async {
@@ -359,7 +372,9 @@ async fn oversized_declared_frame_is_closed_without_waiting_for_payload() {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (stop, rx) = watch::channel(false);
-    let task = tokio::spawn(Arc::new(Server::default().with_threat_gate(Arc::new(FixtureGate))).serve(l, rx));
+    let task = tokio::spawn(
+        Arc::new(Server::default().with_threat_gate(Arc::new(FixtureGate))).serve(l, rx),
+    );
     let mut socket = TcpStream::connect(addr).await.unwrap();
     socket
         .write_all(&[0x30, 0x84, 0, 0x20, 0, 0])
@@ -424,7 +439,14 @@ async fn recorded_configured_starttls() {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (stop, rx) = watch::channel(false);
-    let task = tokio::spawn(Arc::new(Server::default().with_threat_gate(Arc::new(FixtureGate)).with_starttls(tls_server())).serve(l, rx));
+    let task = tokio::spawn(
+        Arc::new(
+            Server::default()
+                .with_threat_gate(Arc::new(FixtureGate))
+                .with_starttls(tls_server()),
+        )
+        .serve(l, rx),
+    );
     let mut socket = TcpStream::connect(addr).await.unwrap();
     let result = async {
         for step in session["steps"].as_array().unwrap() {
@@ -489,7 +511,14 @@ async fn connection_limit_backpressures_until_a_slot_is_released() {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (stop, rx) = watch::channel(false);
-    let task = tokio::spawn(Arc::new(Server::default().with_threat_gate(Arc::new(FixtureGate)).with_max_connections(1)).serve(l, rx));
+    let task = tokio::spawn(
+        Arc::new(
+            Server::default()
+                .with_threat_gate(Arc::new(FixtureGate))
+                .with_max_connections(1),
+        )
+        .serve(l, rx),
+    );
     let first = TcpStream::connect(addr).await.unwrap();
     // Give the first connection a complete operation, establishing its slot.
     let mut first = first;
@@ -555,6 +584,7 @@ async fn disconnect_cancels_a_blocked_directory_query() {
         setjoin_pg::ScopedExecutor::from_dsn(&dsn, 4).unwrap(),
         "ldap1.test",
     )
+    .with_auth_db(worker_exec(&db))
     .with_tls(tls_server());
     let task = tokio::spawn(Arc::new(server).serve(l, rx));
     let corpus: serde_json::Value =
@@ -619,7 +649,9 @@ async fn recorded_abandon_admission_remains_responsive() {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (stop, rx) = watch::channel(false);
-    let task = tokio::spawn(Arc::new(Server::default().with_threat_gate(Arc::new(FixtureGate))).serve(l, rx));
+    let task = tokio::spawn(
+        Arc::new(Server::default().with_threat_gate(Arc::new(FixtureGate))).serve(l, rx),
+    );
     let mut socket = TcpStream::connect(addr).await.unwrap();
     for request in observation["requests"].as_array().unwrap() {
         socket
@@ -631,13 +663,22 @@ async fn recorded_abandon_admission_remains_responsive() {
         .write_all(&unhex(observation["final_request"].as_str().unwrap()))
         .await
         .unwrap();
-    let divergences:serde_json::Value=serde_json::from_str(include_str!("../oracle/divergences.json")).unwrap();
-    let expected=unhex(divergences["abandon-admission"]["responses"][0].as_str().unwrap());
-    let mut actual=vec![0;expected.len()];
-    let result=tokio::time::timeout(Duration::from_secs(2),socket.read_exact(&mut actual)).await;
-    stop.send(true).unwrap();task.await.unwrap().unwrap();
-    assert!(result.is_ok_and(|r|r.is_ok()),"Abandon exhausted connection admission (restored Go bug)");
-    assert_eq!(actual,expected);
+    let divergences: serde_json::Value =
+        serde_json::from_str(include_str!("../oracle/divergences.json")).unwrap();
+    let expected = unhex(
+        divergences["abandon-admission"]["responses"][0]
+            .as_str()
+            .unwrap(),
+    );
+    let mut actual = vec![0; expected.len()];
+    let result = tokio::time::timeout(Duration::from_secs(2), socket.read_exact(&mut actual)).await;
+    stop.send(true).unwrap();
+    task.await.unwrap().unwrap();
+    assert!(
+        result.is_ok_and(|r| r.is_ok()),
+        "Abandon exhausted connection admission (restored Go bug)"
+    );
+    assert_eq!(actual, expected);
 }
 #[tokio::test]
 async fn global_operation_budget_sheds_before_authentication() {
@@ -678,6 +719,7 @@ async fn global_operation_budget_sheds_before_authentication() {
         setjoin_pg::ScopedExecutor::from_dsn(&dsn, 4).unwrap(),
         "ldap1.test",
     )
+    .with_auth_db(worker_exec(&db))
     .with_tls(tls_server())
     .with_max_inflight(1);
     let task = tokio::spawn(Arc::new(server).serve(l, rx));
@@ -739,7 +781,9 @@ async fn recorded_cancel_fallback() {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = l.local_addr().unwrap();
     let (stop, rx) = watch::channel(false);
-    let task = tokio::spawn(Arc::new(Server::default().with_threat_gate(Arc::new(FixtureGate))).serve(l, rx));
+    let task = tokio::spawn(
+        Arc::new(Server::default().with_threat_gate(Arc::new(FixtureGate))).serve(l, rx),
+    );
     for session in corpus.as_array().unwrap() {
         let mut socket = TcpStream::connect(address).await.unwrap();
         for step in session["steps"].as_array().unwrap() {
@@ -801,6 +845,7 @@ async fn cancel_stops_an_active_directory_query() {
         setjoin_pg::ScopedExecutor::from_dsn(&dsn, 4).unwrap(),
         "ldap1.test",
     )
+    .with_auth_db(worker_exec(&db))
     .with_tls(tls_server());
     let task = tokio::spawn(Arc::new(server).serve(l, rx));
     let corpus: serde_json::Value =
@@ -899,23 +944,103 @@ async fn recorded_failed_authentication_with_database() {
 }
 
 #[tokio::test]
-async fn recorded_shared_threat_policy_at_ldap_bind_socket(){
- use setjoin_conformance::harness::Db;
- use setjoin_threat::{Config,Gate};
- let _serial=SERIAL.lock().await;let db=Db::for_case("AUTHRT-LDAP").unwrap();let owner=db.connect().await.unwrap();
- owner.batch_execute(include_str!("../oracle/cleanup.sql")).await.unwrap();owner.batch_execute(include_str!("../oracle/seed.sql")).await.unwrap();owner.execute("UPDATE users SET password_hash=$1 WHERE email LIKE '%@ldap1.test'",&[&include_str!("../oracle/password-hash.txt")]).await.unwrap();
- let corpus:serde_json::Value=serde_json::from_str(include_str!("../oracle/threat-policy-go-sessions.json")).unwrap();
- for case in corpus.as_array().unwrap(){
-  owner.batch_execute(include_str!("../oracle/threat/reset.sql")).await.unwrap();
-  let sql=match case["name"].as_str().unwrap(){"feed"=>"INSERT INTO threat_feed_blocks(cidr,source) VALUES('127.0.0.1/32','authrt-ldap')","ip"=>"INSERT INTO ip_rules(cidr,action,description) VALUES('127.0.0.1/32','block','authrt-ldap')","lockout"=>"INSERT INTO auth_lockouts(lockout_key,locked_until) VALUES('user:alice@ldap1.test',now()+interval '800 milliseconds')","policy"=>r#"INSERT INTO conditional_access_policies(id,name,priority,state,scope_type,scope_target,conditions,actions) VALUES(9420422,'authrt-ldap',9422,'on','user','9342011','{}','{"action":"block"}')"#,_=>"SELECT 1"};owner.batch_execute(sql).await.unwrap();
-  let exec=setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),4).unwrap();let mut config=Config::default();for key in ["geo_block","spray_detect","captcha","tarpit","rate_limit","conditional_access"]{config.overrides.insert(format!("feature.{key}"),false);}config.overrides.insert("feature.threat_feed".into(),true);config.overrides.insert("feature.conditional_access".into(),case["name"]=="policy");
-  let gate=Gate::load(exec.clone(),setjoin_threat::WorkerPools::from_dsn(&db.dsn).unwrap(),config,None).await.unwrap();
-  let listener=TcpListener::bind("127.0.0.1:0").await.unwrap();let addr=listener.local_addr().unwrap();let(stop,rx)=watch::channel(false);
-  let server=fixture_server(exec,"ldap1.test").with_tls(tls_server()).with_threat_gate(gate);let task=tokio::spawn(Arc::new(server).serve(listener,rx));
-  let mut socket=tls_client(addr).await;let step=&case["steps"][0];socket.write_all(&unhex(step["request"].as_str().unwrap())).await.unwrap();let divergence:serde_json::Value=serde_json::from_str(include_str!("../oracle/divergences.json")).unwrap();
-  let expected=unhex(if case["name"]=="policy"{divergence["ldap-user-policy"]["responses"][0].as_str().unwrap()}else{step["responses"][0].as_str().unwrap()});let mut actual=vec![0;expected.len()];tokio::time::timeout(Duration::from_secs(3),socket.read_exact(&mut actual)).await.unwrap().unwrap();drop(socket);stop.send(true).unwrap();task.await.unwrap().unwrap();assert_eq!(actual,expected,"{}",case["name"]);
- }
- owner.batch_execute(include_str!("../oracle/threat/reset.sql")).await.unwrap();owner.batch_execute(include_str!("../oracle/cleanup.sql")).await.unwrap();
+async fn recorded_shared_threat_policy_at_ldap_bind_socket() {
+    use setjoin_conformance::harness::Db;
+    use setjoin_threat::{Config, Gate};
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("AUTHRT-LDAP").unwrap();
+    let owner = db.connect().await.unwrap();
+    owner
+        .batch_execute(include_str!("../oracle/cleanup.sql"))
+        .await
+        .unwrap();
+    owner
+        .batch_execute(include_str!("../oracle/seed.sql"))
+        .await
+        .unwrap();
+    owner
+        .execute(
+            "UPDATE users SET password_hash=$1 WHERE email LIKE '%@ldap1.test'",
+            &[&include_str!("../oracle/password-hash.txt")],
+        )
+        .await
+        .unwrap();
+    let corpus: serde_json::Value =
+        serde_json::from_str(include_str!("../oracle/threat-policy-go-sessions.json")).unwrap();
+    for case in corpus.as_array().unwrap() {
+        owner
+            .batch_execute(include_str!("../oracle/threat/reset.sql"))
+            .await
+            .unwrap();
+        let sql=match case["name"].as_str().unwrap(){"feed"=>"INSERT INTO threat_feed_blocks(cidr,source) VALUES('127.0.0.1/32','authrt-ldap')","ip"=>"INSERT INTO ip_rules(cidr,action,description) VALUES('127.0.0.1/32','block','authrt-ldap')","lockout"=>"INSERT INTO auth_lockouts(lockout_key,locked_until) VALUES('user:alice@ldap1.test',now()+interval '800 milliseconds')","policy"=>r#"INSERT INTO conditional_access_policies(id,name,priority,state,scope_type,scope_target,conditions,actions) VALUES(9420422,'authrt-ldap',9422,'on','user','9342011','{}','{"action":"block"}')"#,_=>"SELECT 1"};
+        owner.batch_execute(sql).await.unwrap();
+        let exec =
+            setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap();
+        let mut config = Config::default();
+        for key in [
+            "geo_block",
+            "spray_detect",
+            "captcha",
+            "tarpit",
+            "rate_limit",
+            "conditional_access",
+        ] {
+            config.overrides.insert(format!("feature.{key}"), false);
+        }
+        config.overrides.insert("feature.threat_feed".into(), true);
+        config.overrides.insert(
+            "feature.conditional_access".into(),
+            case["name"] == "policy",
+        );
+        let gate = Gate::load(
+            exec.clone(),
+            setjoin_threat::WorkerPools::from_dsn(&db.dsn).unwrap(),
+            config,
+            None,
+        )
+        .await
+        .unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop, rx) = watch::channel(false);
+        let server = fixture_server(exec, "ldap1.test")
+            .with_auth_db(worker_exec(&db))
+            .with_tls(tls_server())
+            .with_threat_gate(gate);
+        let task = tokio::spawn(Arc::new(server).serve(listener, rx));
+        let mut socket = tls_client(addr).await;
+        let step = &case["steps"][0];
+        socket
+            .write_all(&unhex(step["request"].as_str().unwrap()))
+            .await
+            .unwrap();
+        let divergence: serde_json::Value =
+            serde_json::from_str(include_str!("../oracle/divergences.json")).unwrap();
+        let expected = unhex(if case["name"] == "policy" {
+            divergence["ldap-user-policy"]["responses"][0]
+                .as_str()
+                .unwrap()
+        } else {
+            step["responses"][0].as_str().unwrap()
+        });
+        let mut actual = vec![0; expected.len()];
+        tokio::time::timeout(Duration::from_secs(3), socket.read_exact(&mut actual))
+            .await
+            .unwrap()
+            .unwrap();
+        drop(socket);
+        stop.send(true).unwrap();
+        task.await.unwrap().unwrap();
+        assert_eq!(actual, expected, "{}", case["name"]);
+    }
+    owner
+        .batch_execute(include_str!("../oracle/threat/reset.sql"))
+        .await
+        .unwrap();
+    owner
+        .batch_execute(include_str!("../oracle/cleanup.sql"))
+        .await
+        .unwrap();
 }
 
 /// Hold the first credential exchange while a pipelined failing Bind arrives.
@@ -990,6 +1115,7 @@ async fn interleaved_valid_then_failed_binds_leave_connection_anonymous() {
         setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap(),
         "ldap1.test",
     )
+    .with_auth_db(worker_exec(&db))
     .with_tls(tls_server())
     .with_threat_gate(gate.clone());
     let task = tokio::spawn(Arc::new(server).serve(listener, rx));
@@ -1144,6 +1270,10 @@ impl setjoin_threat::ThreatGate for FixtureGate {
         Box::pin(async { (setjoin_threat::ThreatAction::Allow, String::new()) })
     }
 }
+fn worker_exec(db: &setjoin_conformance::harness::Db) -> setjoin_pg::ScopedExecutor {
+    setjoin_pg::ScopedExecutor::from_dsn(db.worker_dsn(), 4).unwrap()
+}
+
 fn fixture_server(db: setjoin_pg::ScopedExecutor, domain: impl Into<String>) -> Server {
     Server::new(db, domain).with_threat_gate(Arc::new(FixtureGate))
 }

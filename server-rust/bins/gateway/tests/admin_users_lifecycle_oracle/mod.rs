@@ -385,13 +385,18 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
         trigger = Some("admin_audit_log");
     }
     // The notification fault shadows `app_notify` through a private schema first on the
-    // request pool's search path, so `secure_account` publishes nothing.
+    // request and worker pools' search paths, so `secure_account` publishes nothing.
     let mut exec_dsn = db.app.clone().unwrap_or_else(|| db.dsn.clone());
+    let mut worker_dsn = db.dsn.clone();
     if fault == Some("no-notify") {
         owner.batch_execute(&format!("CREATE SCHEMA {schema}; GRANT USAGE ON SCHEMA {schema} TO PUBLIC; CREATE FUNCTION {schema}.app_notify(text,text) RETURNS void LANGUAGE sql AS 'SELECT NULL::void';")).await?;
         exec_dsn = format!(
             "{exec_dsn}{}options=-csearch_path%3D{schema}%2Cpublic",
             if exec_dsn.contains('?') { '&' } else { '?' }
+        );
+        worker_dsn = format!(
+            "{worker_dsn}{}options=-csearch_path%3D{schema}%2Cpublic",
+            if worker_dsn.contains('?') { '&' } else { '?' }
         );
     }
     let mut users: Vec<(i64, String)> = vec![
@@ -447,7 +452,7 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
         let adapter = Probe {
             inner: AdminUsersLifecycleRoute {
                 exec: mk(&exec_dsn)?,
-                worker: mk(&db.dsn)?,
+                worker: mk(&worker_dsn)?,
                 keys: Arc::new(common::recovery_keys()),
                 issuer: "mailserver".into(),
                 authserver_url: format!("http://{authserver}"),

@@ -39,10 +39,14 @@ async fn lost(kind: &str, cut: wire::CommitCut) -> Result<(), Err> {
     }
    }
   }
-  let db=Db::for_case("IDFED1-commit").unwrap();let (dsn,task)=wire::multiplex_commit_cut_proxy(db.app.as_deref().unwrap_or(&db.dsn),cut,marker).await;let mut proxy=Proxy(task);
+  let db=Db::for_case("IDFED1-commit").unwrap();
+  let work=matches!(kind,"authorize"|"complete");
+  let worker_base=std::env::var("DB_WORKER_DSN").ok().filter(|s|!s.trim().is_empty()).unwrap_or_else(||db.dsn.clone());
+  let app_base=db.app.as_deref().unwrap_or(&db.dsn);
+  let (dsn,task)=wire::multiplex_commit_cut_proxy(if work{&worker_base}else{app_base},cut,marker).await;let mut proxy=Proxy(task);
   let fixture:Value=serde_json::from_str(include_str!("../../../tests/conformance/identity-login/keys.json"))?;
-  let mut cfg=Config::for_secret(fixture["secret"].as_str().unwrap().into());cfg.dsn=db.dsn.clone();cfg.oidc_enabled=true;cfg.oidc_hostname="auth.idfed1.test".into();cfg.oidc_private_key=corpus().join("op-private.pem").to_str().unwrap().into();cfg.oidc_public_key=corpus().join("op-public.pem").to_str().unwrap().into();
-  let duration=std::time::Duration::from_secs(3);let exec=setjoin_pg::ScopedExecutor::from_dsn_with(&dsn,4,setjoin_pg::Timeouts{pool_wait:duration,create:duration,statement:duration}).map_err(|e|e.0)?;
+  let mut cfg=Config::for_secret(fixture["secret"].as_str().unwrap().into());cfg.dsn=db.dsn.clone();if work{cfg.worker_dsn=Some(dsn.clone());}cfg.oidc_enabled=true;cfg.oidc_hostname="auth.idfed1.test".into();cfg.oidc_private_key=corpus().join("op-private.pem").to_str().unwrap().into();cfg.oidc_public_key=corpus().join("op-public.pem").to_str().unwrap().into();
+  let duration=std::time::Duration::from_secs(3);let exec=setjoin_pg::ScopedExecutor::from_dsn_with(if work{app_base}else{&dsn},4,setjoin_pg::Timeouts{pool_wait:duration,create:duration,statement:duration}).map_err(|e|e.0)?;
   let auth=auth_server(Arc::new(AuthServer::load(exec,cfg).await?.with_threat_gate(&db.dsn).await?),false).await;let gw=gateway(auth.addr,None).await;
   let response=request(gw.addr,method,&path,payload,&headers).await;
   gw.close().await;auth.close().await;let response=response?;

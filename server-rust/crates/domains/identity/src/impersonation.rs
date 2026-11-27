@@ -182,7 +182,7 @@ pub async fn authorize(
         ));
     }
     let guest = exec
-        .read_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&target, Type::INT8)])
+        .protocol_query_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&target, Type::INT8)])
         .await
         .map_err(|_| target_error())?
         .first()

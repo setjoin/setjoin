@@ -82,7 +82,7 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                 return response;
             }
             if acl::matches(&r) {
-                let mut response = acl::handle(r, c, exec, keys, issuer).await;
+                let mut response = acl::handle(r, c, exec, worker, keys, issuer).await;
                 if response.headers().contains_key("content-language") {
                     response.headers_mut().insert(
                         "content-language",

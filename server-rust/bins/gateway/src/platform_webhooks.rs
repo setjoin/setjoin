@@ -11,8 +11,9 @@ use serde::de::{MapAccess, Visitor};
 use setjoin_authz::token::KeySource;
 use setjoin_pg::{CommandOutcome, ScopedExecutor};
 use setjoin_platform::{
+    sql as platform_sql,
     webhook_secret::SecretCodec,
-    webhooks::{self as db, Failure, Outcome},
+    webhooks::{self as db, Failure},
 };
 use std::sync::Arc;
 
@@ -253,26 +254,60 @@ impl<K: KeySource + 'static> Intercept for PlatformWebhooksRoute<K> {
                     {
                         return bare(400, detail, &c, &id);
                     }
-                    match db::create(
-                        &factory,
-                        &user_principal,
+                    let prepared = match db::prepare_create(&codec, &body.event_types) {
+                        Ok(p) => p,
+                        Err(other) => return failed(other),
+                    };
+                    let owner = user_principal.user().get();
+                    match crate::mailboxes::worker_write_contract_family(
+                        worker_exec,
                         &admin,
-                        &codec,
-                        &body.url,
-                        &body.event_types,
-                        &body.scope,
+                        setjoin_platform::FAMILY,
+                        "webhook_create",
+                        &platform_sql::WEBHOOKS_CREATE,
+                        &[
+                            &owner,
+                            &body.url,
+                            &prepared.sealed,
+                            &prepared.key_id,
+                            &prepared.types_json,
+                            &body.scope,
+                        ],
                         operation,
+                        db::parse_created_id,
                     )
                     .await
                     {
-                        Outcome::Done(text) => reply(text, 201),
-                        Outcome::Failed(Failure::Database) => bare(500, "create failed", &c, &id),
-                        Outcome::Failed(other) => failed(other),
-                        Outcome::Unknown(operation) => unknown_outcome(operation, &c, &id),
+                        CommandOutcome::Committed(created_id) => reply(
+                            db::format_created(
+                                created_id,
+                                &body.scope,
+                                &prepared.secret,
+                                &body.url,
+                            ),
+                            201,
+                        ),
+                        CommandOutcome::RolledBack(_) => bare(500, "create failed", &c, &id),
+                        CommandOutcome::Unknown { operation } => {
+                            unknown_outcome(operation, &c, &id)
+                        }
                     }
                 }
                 Action::Delete => {
-                    match db::delete(&factory, &user_principal, &admin, target(), operation).await {
+                    let owner = user_principal.user().get();
+                    let sub_id = target();
+                    match crate::mailboxes::worker_write_contract_family(
+                        worker_exec,
+                        &admin,
+                        setjoin_platform::FAMILY,
+                        "webhook_delete",
+                        &platform_sql::WEBHOOKS_DELETE,
+                        &[&sub_id, &owner],
+                        operation,
+                        |rows| Ok(!rows.is_empty()),
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(true) => {
                             let mut response = reply(String::new(), 204);
                             response.headers_mut().remove("content-type");
@@ -285,20 +320,59 @@ impl<K: KeySource + 'static> Intercept for PlatformWebhooksRoute<K> {
                         }
                     }
                 }
-                Action::Rotate => match db::rotate(
-                    &factory,
-                    &user_principal,
-                    &admin,
-                    &codec,
-                    target(),
-                    operation,
-                )
-                .await
-                {
-                    Outcome::Done(text) => reply(text, 200),
-                    Outcome::Failed(failure) => failed(failure),
-                    Outcome::Unknown(operation) => unknown_outcome(operation, &c, &id),
-                },
+                Action::Rotate => {
+                    let (secret, sealed_new) = match db::prepare_rotate_new(&codec) {
+                        Ok(pair) => pair,
+                        Err(failure) => return failed(failure),
+                    };
+                    let owner = user_principal.user().get();
+                    let sub_id = target();
+                    let key_id = codec.active_key_id().to_owned();
+                    for attempt in 0u16..5 {
+                        let current = match db::rotate_read(&factory, &admin, sub_id, owner).await {
+                            Ok(Some(row)) => row,
+                            Ok(None) => return failed(Failure::NotFound),
+                            Err(failure) => return failed(failure),
+                        };
+                        let sealed_prev = match db::prepare_rotate_prev(&codec, &current) {
+                            Ok(prev) => prev,
+                            Err(failure) => return failed(failure),
+                        };
+                        let mut op = operation;
+                        op[14..16].copy_from_slice(&attempt.to_be_bytes());
+                        match crate::mailboxes::worker_write_contract_family(
+                            worker_exec,
+                            &admin,
+                            setjoin_platform::FAMILY,
+                            "webhook_rotate_secret",
+                            &platform_sql::WEBHOOKS_ROTATE_UPDATE,
+                            &[
+                                &sub_id,
+                                &owner,
+                                &sealed_prev,
+                                &key_id,
+                                &sealed_new,
+                                &current.legacy,
+                                &current.stored,
+                                &current.key,
+                            ],
+                            op,
+                            |rows| Ok(!rows.is_empty()),
+                        )
+                        .await
+                        {
+                            CommandOutcome::Committed(true) => {
+                                return reply(db::format_rotated(&secret), 200);
+                            }
+                            CommandOutcome::Committed(false) => continue,
+                            CommandOutcome::RolledBack(_) => return failed(Failure::Database),
+                            CommandOutcome::Unknown { operation } => {
+                                return unknown_outcome(operation, &c, &id);
+                            }
+                        }
+                    }
+                    failed(Failure::Database)
+                }
             }
         })
     }

@@ -5,7 +5,7 @@
 //! call reducers that reproduce Go's multi-statement handler
 //! (`rust_admin_mailbox_delete`, `rust_admin_folder_*`).
 use super::{done, invalid, s, sql};
-use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
 use setjoin_pg::{Row, StatementFailure};
 
 /// One mailbox as Go's `adminMailboxResponse`; `None` when Go's `Scan` fails.
@@ -39,7 +39,7 @@ pub enum Filter<'a> {
 /// `GET /admin/mailboxes`: rows Go fails to scan are skipped.
 pub async fn list(
     factory: &TxFactory,
-    user: &UserPrincipal,
+    proof: &AdminPermissionProof,
     domain_scope: i64,
     filter: Filter<'_>,
     limit: i64,
@@ -51,8 +51,8 @@ pub async fn list(
         Filter::Search(q) => (None, Some(format!("%{q}%"))),
     };
     let rows = factory
-        .run_user_read_contract(
-            user,
+        .run_admin_read_contract(
+            proof,
             &sql::MAILBOXES_LIST,
             &[
                 &domain_scope,

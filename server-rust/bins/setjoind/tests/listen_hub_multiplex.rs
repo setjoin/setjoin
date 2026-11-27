@@ -18,9 +18,11 @@ fn dsn_with_app_name(base_dsn: &str, app_name: &str) -> String {
 
 #[tokio::test]
 async fn unified_all_uses_single_shared_db_direct_connection() {
-    let dsn = common::test_db_dsn();
+    let owner_dsn = common::test_db_dsn();
+    let app_dsn = common::app_db_dsn();
+    let worker_dsn = common::worker_db_dsn();
     let app_name = format!("setjoind_hub_543b_{}", std::process::id());
-    let direct_dsn = dsn_with_app_name(&dsn, &app_name);
+    let direct_dsn = dsn_with_app_name(&app_dsn, &app_name);
 
     let tmp = tempfile::tempdir().expect("tempdir");
     let cfg_path = common::temp_config_file(tmp.path());
@@ -30,7 +32,9 @@ async fn unified_all_uses_single_shared_db_direct_connection() {
     let mut cmd = Command::new(common::setjoind_bin());
     cmd.env_clear()
         .arg("--subsystems=all")
-        .env("DB_DSN", &dsn)
+        .env("DB_DSN", &app_dsn)
+        .env("DB_WORKER_DSN", &worker_dsn)
+        .env("DB_OWNER_DSN", &owner_dsn)
         .env("DB_DIRECT_DSN", &direct_dsn)
         .env("CONFIG_PATH", &cfg_path)
         .env("NOTIFY_SOCKET", &notify_path)
@@ -49,7 +53,7 @@ async fn unified_all_uses_single_shared_db_direct_connection() {
     common::wait_http_ready(http_addr, "/_gateway/healthz", Duration::from_secs(5)).await;
     tokio::time::sleep(Duration::from_millis(250)).await;
 
-    let (client, conn) = tokio_postgres::connect(&dsn, NoTls)
+    let (client, conn) = tokio_postgres::connect(&owner_dsn, NoTls)
         .await
         .expect("connect observer PG");
     tokio::spawn(async move {

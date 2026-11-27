@@ -167,9 +167,9 @@ async fn credentials(s: &mut Session, tag: &str, email: &str, password: &str, st
             ThreatAction::Allow => {}
         }
     }
+    let auth_exec = s.server.auth_db.as_ref().unwrap_or(&s.server.db);
     let verdict =
-        setjoin_authz::basic::verify(&s.server.db, &s.server.passwords, email, password, POLICY)
-            .await;
+        setjoin_authz::basic::verify(auth_exec, &s.server.passwords, email, password, POLICY).await;
     match verdict {
         Verdict::AppPassword(user) => {
             meta.app_password = true;

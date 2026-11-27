@@ -269,8 +269,12 @@ async fn run_inner(
         let exec = ScopedExecutor::from_dsn_with(db.app.as_deref().unwrap_or(&db.dsn), 4, timeouts())
             .map_err(|e| e.0)?
             .with_audit_keys("22".repeat(32), String::new());
+        let worker = ScopedExecutor::from_dsn_with(&db.dsn, 4, timeouts())
+            .map_err(|e| e.0)?
+            .with_audit_keys("22".repeat(32), String::new());
         let adapter = Probe {
-            inner: UserSettingsRoute::new(exec, Arc::new(common::recovery_keys()), "mailserver".into()),
+            inner: UserSettingsRoute::new(exec, Arc::new(common::recovery_keys()), "mailserver".into())
+                .with_worker(worker),
             changed_status: mutant,
         };
         let mut inventory: Value = serde_json::from_str(include_str!("../../route-inventory.json"))?;

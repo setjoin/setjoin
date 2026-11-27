@@ -21,10 +21,12 @@ const INTERNAL_KEY: &str = "setjoind-internal-api-key-32-bytes-long!!";
 
 #[tokio::test]
 async fn unified_all_serves_in_process_auth_jmap_jwks_and_blocks_internal_routes() {
-    let dsn = common::test_db_dsn();
+    let owner_dsn = common::test_db_dsn();
+    let app_dsn = common::app_db_dsn();
+    let worker_dsn = common::worker_db_dsn();
     let email = "setjoind-unified@example.test";
     let password = "UnifiedPassword123!";
-    common::seed_test_user(&dsn, email, password).await;
+    common::seed_test_user(&owner_dsn, email, password).await;
 
     let tmp = tempfile::tempdir().expect("tempdir");
     let cfg_path = common::temp_config_file(tmp.path());
@@ -34,8 +36,10 @@ async fn unified_all_serves_in_process_auth_jmap_jwks_and_blocks_internal_routes
     let mut cmd = Command::new(common::setjoind_bin());
     cmd.env_clear()
         .arg("--subsystems=all")
-        .env("DB_DSN", &dsn)
-        .env("DB_DIRECT_DSN", &dsn)
+        .env("DB_DSN", &app_dsn)
+        .env("DB_WORKER_DSN", &worker_dsn)
+        .env("DB_OWNER_DSN", &owner_dsn)
+        .env("DB_DIRECT_DSN", &app_dsn)
         .env("CONFIG_PATH", &cfg_path)
         .env("NOTIFY_SOCKET", &notify_path)
         .env("GATEWAY_LISTEN", http_addr.to_string())

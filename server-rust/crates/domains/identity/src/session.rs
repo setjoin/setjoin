@@ -251,7 +251,7 @@ impl Session {
             })
             .collect::<Result<Vec<_>, &'static str>>()?;
         let guest = exec
-            .read_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&user, Type::INT8)])
+            .protocol_query_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&user, Type::INT8)])
             .await
             .map_err(|_| "account type lookup failed")?
             .first()

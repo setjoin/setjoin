@@ -5,6 +5,7 @@ use hyper::{Request, Response};
 use serde_json::Value;
 use setjoin_authz::principals::{TxFactory, UserPrincipal};
 use setjoin_contracts::ids::MailboxId;
+use setjoin_pg::ScopedExecutor;
 
 pub(super) const TOKEN: &str = "https://setjoin.invalid/ns/sync/";
 fn valid_token(value: &str) -> Option<String> {
@@ -61,6 +62,7 @@ pub(super) fn sync_response(changes: &Value, book: i64) -> String {
 }
 pub(super) async fn handle(
     tx: &TxFactory,
+    worker: &ScopedExecutor,
     auth: &setjoin_authz::Authorized,
     user: &UserPrincipal,
     r: &mut Request<Body>,
@@ -73,7 +75,7 @@ pub(super) async fn handle(
         Err(status) => return body_error(status, r, c, id),
     };
     if path(r).1.first().is_some_and(|p| p == "gal") {
-        return super::gal::report(tx, user, &bytes, c, id).await;
+        return super::gal::report(tx, worker, user, &bytes, c, id).await;
     }
     let body = String::from_utf8_lossy(&bytes);
     let kind = if body.contains("sync-collection") {

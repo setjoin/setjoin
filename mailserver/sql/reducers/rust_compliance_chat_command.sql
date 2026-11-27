@@ -1,6 +1,5 @@
--- Frozen-Go case-bound chat oversight: canonical business reducer plus atomic
--- core audit (failures abort the transaction rather than swallowing), exposed
--- as one Rust statement.
+-- Frozen-Go case-bound chat oversight: canonical business reducer plus the
+-- handler's independent best-effort core audit, exposed as one Rust statement.
 CREATE OR REPLACE FUNCTION rust_compliance_chat_command(
  p_actor bigint,p_signed boolean,p_action text,p_data jsonb,p_ip text
 ) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER
@@ -23,8 +22,11 @@ BEGIN
     AND (ra.expires_at IS NULL OR ra.expires_at>now())
     AND admin_assignment_active(ra.eligible,ra.activated_until)));
   IF NOT FOUND THEN RETURN '{"status":403}'::jsonb; END IF;
-  PERFORM audit_write(p_actor,'chat_case_hold_set','chat_case_hold',v_hold,
-   NULL,NULL,NULLIF(p_ip,'')::inet,'','core');
+  BEGIN
+   PERFORM audit_write(p_actor,'chat_case_hold_set','chat_case_hold',v_hold,
+    NULL,NULL,NULLIF(p_ip,'')::inet,'','core');
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
   RETURN jsonb_build_object('status',201,'body',jsonb_build_object('holdId',v_hold));
  END IF;
  IF p_action='release' THEN
@@ -32,8 +34,11 @@ BEGIN
   PERFORM chat_case_hold_release(p_actor,v_hold,p_data->>'reason')
    WHERE p_actor>0 AND (p_signed OR EXISTS (SELECT 1 FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=p_actor AND 'chat.compliance_manage'=ANY(rg.permissions) AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND admin_assignment_active(ra.eligible,ra.activated_until)));
   IF NOT FOUND THEN RETURN '{"status":403}'::jsonb; END IF;
-  PERFORM audit_write(p_actor,'chat_case_hold_release','chat_case_hold',v_hold,
-   NULL,NULL,NULLIF(p_ip,'')::inet,'','core');
+  BEGIN
+   PERFORM audit_write(p_actor,'chat_case_hold_release','chat_case_hold',v_hold,
+    NULL,NULL,NULLIF(p_ip,'')::inet,'','core');
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
   RETURN '{"status":204}'::jsonb;
  END IF;
  IF p_action='search' THEN
@@ -41,8 +46,11 @@ BEGIN
    (p_data->>'beforeId')::bigint,(p_data->>'han')::boolean,(p_data->>'limit')::int)
   INTO v_result WHERE p_actor>0 AND (p_signed OR EXISTS (SELECT 1 FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=p_actor AND 'chat.ediscovery'=ANY(rg.permissions) AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND admin_assignment_active(ra.eligible,ra.activated_until)));
   IF NOT FOUND THEN RETURN '{"status":403}'::jsonb; END IF;
-  PERFORM audit_write(p_actor,'chat_ediscovery_search','ediscovery_case',(p_data->>'caseId')::bigint,
-   NULL,NULL,NULLIF(p_ip,'')::inet,'','core');
+  BEGIN
+   PERFORM audit_write(p_actor,'chat_ediscovery_search','ediscovery_case',(p_data->>'caseId')::bigint,
+    NULL,NULL,NULLIF(p_ip,'')::inet,'','core');
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
   RETURN jsonb_build_object('status',200,'raw',v_result::text);
  END IF;
  IF p_action='read' THEN
@@ -50,8 +58,11 @@ BEGIN
    (p_data->>'beforeId')::bigint,(p_data->>'limit')::int)
   INTO v_result WHERE p_actor>0 AND (p_signed OR EXISTS (SELECT 1 FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=p_actor AND 'chat.ediscovery'=ANY(rg.permissions) AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND admin_assignment_active(ra.eligible,ra.activated_until)));
   IF NOT FOUND THEN RETURN '{"status":403}'::jsonb; END IF;
-  PERFORM audit_write(p_actor,'chat_ediscovery_read','channel',(p_data->>'channelId')::bigint,
-   NULL,NULL,NULLIF(p_ip,'')::inet,'','core');
+  BEGIN
+   PERFORM audit_write(p_actor,'chat_ediscovery_read','channel',(p_data->>'channelId')::bigint,
+    NULL,NULL,NULLIF(p_ip,'')::inet,'','core');
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
   RETURN jsonb_build_object('status',200,'raw',v_result::text);
  END IF;
  IF p_action='export' THEN
@@ -59,8 +70,11 @@ BEGIN
    ARRAY(SELECT value::bigint FROM jsonb_array_elements_text(p_data->'query'->'channels')),p_data->'query')
   INTO v_result WHERE p_actor>0 AND (p_signed OR EXISTS (SELECT 1 FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=p_actor AND 'chat.ediscovery'=ANY(rg.permissions) AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND admin_assignment_active(ra.eligible,ra.activated_until)));
   IF NOT FOUND THEN RETURN '{"status":403}'::jsonb; END IF;
-  PERFORM audit_write(p_actor,'chat_ediscovery_export','ediscovery_case',(p_data->>'caseId')::bigint,
-   NULL,NULL,NULLIF(p_ip,'')::inet,'','core');
+  BEGIN
+   PERFORM audit_write(p_actor,'chat_ediscovery_export','ediscovery_case',(p_data->>'caseId')::bigint,
+    NULL,NULL,NULLIF(p_ip,'')::inet,'','core');
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
   RETURN jsonb_build_object('status',200,'raw',v_result::text);
  END IF;
  RAISE EXCEPTION 'unsupported chat oversight operation' USING ERRCODE='22023';

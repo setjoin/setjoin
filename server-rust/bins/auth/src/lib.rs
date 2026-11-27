@@ -77,6 +77,11 @@ pub struct AuthServer {
     internal_key: std::sync::RwLock<String>,
     pub exec: setjoin_pg::ScopedExecutor,
     auth_db: setjoin_pg::AuthDb,
+    /// Strictly request-role (`setjoin_app`, `NOBYPASSRLS`) database handle for
+    /// paths that require zero `BYPASSRLS` authority (org-global feature flags,
+    /// `SECURITY DEFINER` credential lookup reducers, and invoker-rights
+    /// device check-in parity).
+    app_db: setjoin_pg::AuthDb,
     pre_auth_pool: Option<setjoin_pg::AdminWorkerPool>,
     device_resolver: setjoin_authz::device::DeviceResolver,
     keys: Option<Arc<setjoin_authz::signing_keys::KeySet>>,
@@ -190,6 +195,7 @@ impl AuthServer {
     }
     pub fn new(exec: setjoin_pg::ScopedExecutor) -> Self {
         let auth_db = setjoin_pg::AuthDb::from_executors(exec.clone(), exec.clone());
+        let app_db = auth_db.clone();
         let pre_auth_pool = exec.try_worker_pool().map(|w| w.admin_pool());
         let device_resolver = setjoin_authz::device::DeviceResolver::new(
             exec.clone(),
@@ -206,6 +212,7 @@ impl AuthServer {
             internal_key: std::sync::RwLock::new(String::new()),
             exec,
             auth_db,
+            app_db,
             pre_auth_pool,
             device_resolver,
             keys: None,
@@ -332,6 +339,7 @@ impl AuthServer {
         )
         .with_worker(auth_worker.clone());
         let auth_db = setjoin_pg::AuthDb::from_executors(exec.clone(), auth_worker);
+        let app_db = setjoin_pg::AuthDb::from_executors(exec.clone(), exec.clone());
         let forgot_password = login::enabled(&auth_db, "feature.forgot_password")
             .await
             .unwrap_or(false);
@@ -480,6 +488,7 @@ impl AuthServer {
             boot_posture: None,
             exec,
             auth_db,
+            app_db,
             pre_auth_pool,
             device_resolver,
             keys: Some(Arc::new(keys)),
@@ -527,19 +536,10 @@ impl AuthServer {
     }
     /// [`Self::with_threat_gate`] with separate request and worker DSNs.
     pub async fn with_threat_gate_dsns(
-        mut self,
+        self,
         request_dsn: &str,
         worker_dsn: &str,
     ) -> Result<Self, Error> {
-        let mut worker_exec =
-            setjoin_pg::ScopedExecutor::from_dsn(worker_dsn, 8).map_err(|e| e.0)?;
-        if !self.config.db_encryption_key.is_empty() || !self.config.audit_hmac_key.is_empty() {
-            worker_exec = worker_exec.with_audit_keys(
-                self.config.db_encryption_key.clone(),
-                self.config.audit_hmac_key.clone(),
-            );
-        }
-        self.auth_db = setjoin_pg::AuthDb::from_executors(self.exec.clone(), worker_exec);
         let request = setjoin_pg::ScopedExecutor::from_dsn(request_dsn, 4).map_err(|e| e.0)?;
         let worker = setjoin_threat::WorkerPools::from_dsn(worker_dsn)?;
         let geo = if self.config.geoip_path.is_empty() {
@@ -701,29 +701,29 @@ impl AuthServer {
         if req.uri().path() == "/auth/identity-links"
             && matches!(req.method(), &Method::GET | &Method::HEAD)
         {
-            return self.saml_links(req).await;
+            return Box::pin(self.saml_links(req)).await;
         }
         if req.uri().path().starts_with("/auth/identity-links/") && req.method() == Method::DELETE {
-            return self.identity_unlink(req).await;
+            return Box::pin(self.identity_unlink(req)).await;
         }
         if req.uri().path().starts_with("/auth/saml/") {
-            return self.saml_request(req).await;
+            return Box::pin(self.saml_request(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/oidc/link" {
-            return self.rp_link(req).await;
+            return Box::pin(self.rp_link(req)).await;
         }
         if req.method() == Method::GET && req.uri().path() == "/auth/oidc/link/complete" {
-            return self.rp_link_complete(req).await;
+            return Box::pin(self.rp_link_complete(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/oidc/login"
         {
-            return self.rp_login(req).await;
+            return Box::pin(self.rp_login(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/oidc/callback"
         {
-            return self.rp_callback(req).await;
+            return Box::pin(self.rp_callback(req)).await;
         }
         if req.uri().path() == "/oauth" && self.config.oidc_enabled {
             return self.oidc_bare_oauth(&req);
@@ -735,19 +735,19 @@ impl AuthServer {
         if req.uri().path().starts_with("/oauth/")
             || matches!(req.uri().path(), "/userinfo" | "/revoke" | "/end_session")
         {
-            return self.oidc_oauth(req).await;
+            return Box::pin(self.oidc_oauth(req)).await;
         }
         if req.uri().path() == "/authorize/callback" {
-            return self.oidc_callback(req).await;
+            return Box::pin(self.oidc_callback(req)).await;
         }
         if req.uri().path() == "/auth/oidc/op/complete" {
-            return self.oidc_complete(req).await;
+            return Box::pin(self.oidc_complete(req)).await;
         }
         if req.uri().path().starts_with("/auth/oidc/") {
             return Self::rp_namespace(req);
         }
         if req.uri().path() == "/authorize" {
-            return self.oidc_authorize(req).await;
+            return Box::pin(self.oidc_authorize(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/.well-known/oauth-authorization-server"
@@ -819,41 +819,41 @@ impl AuthServer {
         if req.method() == Method::POST
             && req.uri().path() == "/auth/mfa/possession/webauthn/finish"
         {
-            return self.possession_webauthn_finish(req).await;
+            return Box::pin(self.possession_webauthn_finish(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/mfa/possession/webauthn/begin"
         {
-            return self.possession_webauthn_begin(req).await;
+            return Box::pin(self.possession_webauthn_begin(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/forgot-password/verify" {
-            return self.recovery_verify(req).await;
+            return Box::pin(self.recovery_verify(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/forgot-password/begin" {
-            return self.recovery_begin(req).await;
+            return Box::pin(self.recovery_begin(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/mfa/push/send" {
-            return self.push_send(req).await;
+            return Box::pin(self.push_send(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/mfa/approve" {
-            return self.push_approve(req).await;
+            return Box::pin(self.push_approve(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/push/status" {
-            return self.push_status(req).await;
+            return Box::pin(self.push_status(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/push/verify" {
-            return self.push_verify(req).await;
+            return Box::pin(self.push_verify(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/backup-codes/verify" {
-            return self.backup_verify(req).await;
+            return Box::pin(self.backup_verify(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/backup-codes/generate" {
-            return self.generate_backups(req).await;
+            return Box::pin(self.generate_backups(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/mfa/possession/totp" {
-            return self.possession_totp(req).await;
+            return Box::pin(self.possession_totp(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/mfa/reauth" {
-            return self.password_grant(req).await;
+            return Box::pin(self.password_grant(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/push/vapid-key"
@@ -891,13 +891,13 @@ impl AuthServer {
             return Self::mfa_namespace(req);
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/device/register" {
-            return self.webpush(req).await;
+            return Box::pin(self.webpush(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/device/register" {
-            return self.bootstrap(req).await;
+            return Box::pin(self.bootstrap(req)).await;
         }
         if matches!(req.uri().path(), "/device/policy" | "/device/checkin") {
-            return self.device_trust(req).await;
+            return Box::pin(self.device_trust(req)).await;
         }
         if req.method() == Method::POST {
             if let Some(target) = req
@@ -908,28 +908,28 @@ impl AuthServer {
                 .filter(|s| !s.contains('/'))
             {
                 let target = target.to_owned();
-                return self.impersonate(req, target).await;
+                return Box::pin(self.impersonate(req, target)).await;
             }
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/introspect" {
-            return self.introspect(req).await;
+            return Box::pin(self.introspect(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/revoke" {
-            return self.revoke(req).await;
+            return Box::pin(self.revoke(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/terms/pending"
         {
-            return self.pending(req).await;
+            return Box::pin(self.pending(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/terms/accept" {
-            return self.accept(req).await;
+            return Box::pin(self.accept(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/scim/disable" {
-            return self.scim_disable(req).await;
+            return Box::pin(self.scim_disable(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/admin/reload" {
-            return self.reload_http(req).await;
+            return Box::pin(self.reload_http(req)).await;
         }
         if req.method() == Method::DELETE {
             if let Some(id) = req
@@ -939,28 +939,28 @@ impl AuthServer {
                 .filter(|s| !s.is_empty() && !s.contains('/'))
             {
                 let id = id.to_owned();
-                return self.webauthn_revoke(req, id).await;
+                return Box::pin(self.webauthn_revoke(req, id)).await;
             }
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/webauthn/register/finish" {
-            let req = match self.webauthn_ingress(req).await {
+            let req = match Box::pin(self.webauthn_ingress(req)).await {
                 Ok(r) => r,
                 Err(r) => return r,
             };
-            return self.webauthn_register_finish(req).await;
+            return Box::pin(self.webauthn_register_finish(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/webauthn/register/begin"
         {
-            return self.webauthn_register_begin(req).await;
+            return Box::pin(self.webauthn_register_begin(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/webauthn/login/finish" {
-            return self.webauthn_login_finish(req).await;
+            return Box::pin(self.webauthn_login_finish(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/webauthn/login/begin"
         {
-            return self.webauthn_login_begin(req).await;
+            return Box::pin(self.webauthn_login_begin(req)).await;
         }
         if req.method() == Method::PUT {
             if let Some(id) = req
@@ -971,39 +971,39 @@ impl AuthServer {
                 .filter(|s| !s.is_empty() && !s.contains('/'))
             {
                 let id = id.to_owned();
-                return self.webauthn_name(req, id).await;
+                return Box::pin(self.webauthn_name(req, id)).await;
             }
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/webauthn/credentials"
         {
-            return self.webauthn_list(req).await;
+            return Box::pin(self.webauthn_list(req)).await;
         }
         if req.uri().path().starts_with("/auth/webauthn/") {
             return Self::webauthn_mux(req);
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/totp/enroll/confirm" {
-            return self.totp_bootstrap_confirm(req).await;
+            return Box::pin(self.totp_bootstrap_confirm(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/totp/verify" {
-            return self.totp_verify(req).await;
+            return Box::pin(self.totp_verify(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/totp/enroll/setup" {
-            return self.totp_bootstrap_setup(req).await;
+            return Box::pin(self.totp_bootstrap_setup(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/totp/confirm" {
-            return self.totp_confirm(req).await;
+            return Box::pin(self.totp_confirm(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/totp/setup"
         {
-            return self.totp_setup(req).await;
+            return Box::pin(self.totp_setup(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/totp/remove/begin" {
-            return self.totp_begin(req).await;
+            return Box::pin(self.totp_begin(req)).await;
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/totp/remove" {
-            return self.totp_remove(req).await;
+            return Box::pin(self.totp_remove(req)).await;
         }
         if req.uri().path().starts_with("/auth/totp/") {
             let allow = match req.uri().path() {
@@ -1019,33 +1019,33 @@ impl AuthServer {
             return Self::mux_reply(&req, allow);
         }
         if req.uri().path() == "/auth/guest-invite/accept" {
-            return self.guest_invite(req).await;
+            return Box::pin(self.guest_invite(req)).await;
         }
         let head = req.method() == Method::HEAD;
         let path = req.uri().path().to_owned();
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && matches!(path.as_str(), "/auth/me" | "/auth/session/token")
         {
-            return self.session_route(req).await;
+            return Box::pin(self.session_route(req)).await;
         }
         // Frozen gateway alias is forwarded unchanged to an unregistered Go path.
         if req.method() == Method::POST && path == "/auth/change-password" {
             return Self::not_found();
         }
         if req.method() == Method::POST && path == "/auth/forgot-password/reset" {
-            return self.reset_password(req).await;
+            return Box::pin(self.reset_password(req)).await;
         }
         if req.method() == Method::POST && path == "/auth/refresh" {
-            return self.refresh(req).await;
+            return Box::pin(self.refresh(req)).await;
         }
         if req.method() == Method::PUT && path == "/auth/password" {
-            return self.session_route(req).await;
+            return Box::pin(self.session_route(req)).await;
         }
         if req.method() == Method::POST && path == "/auth/logout" {
-            return self.session_route(req).await;
+            return Box::pin(self.session_route(req)).await;
         }
         if req.method() == Method::POST && path == "/auth/login" {
-            return self.login(req).await;
+            return Box::pin(self.login(req)).await;
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD) {
             let mut response = match path.as_str() {

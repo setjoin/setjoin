@@ -98,12 +98,19 @@ pub fn start(
     let pair = certificate_pair(get)?;
     let executor = setjoin_pg::ScopedExecutor::from_dsn(&dsn, pool)
         .map_err(|e| format!("IMAP DB_DSN: {e:?}"))?;
+    let auth_db = match get("DB_WORKER_DSN").filter(|v| !v.is_empty()) {
+        Some(worker_dsn) => Some(
+            setjoin_pg::ScopedExecutor::from_dsn(&worker_dsn, pool.clamp(2, 4))
+                .map_err(|e| format!("IMAP DB_WORKER_DSN: {e:?}"))?,
+        ),
+        None => None,
+    };
     let app_pool = executor
         .try_app_pool()
         .ok_or_else(|| "IMAP DB_DSN: AppPool unavailable".to_owned())?;
     let tx_factory = setjoin_authz::principals::TxFactory::new(app_pool);
     let build = |tls: Option<&(PathBuf, PathBuf)>, implicit: bool| -> Result<Server, String> {
-        let server = Server::new(
+        let mut server = Server::new(
             executor.clone(),
             ThreatPolicy::Enforced(gate.clone()),
             WebhookPolicy::Wired(Arc::new(AuthEvents(webhooks.clone()))),
@@ -112,6 +119,9 @@ pub fn start(
         .with_session_registry(registry.clone())
         .with_max_connections(max_conns)
         .with_per_user_max(per_user);
+        if let Some(auth_db) = auth_db.clone() {
+            server = server.with_auth_db(auth_db);
+        }
         let server = match (tls, implicit) {
             (Some((cert, key)), true) => server.with_tls_files(cert.clone(), key.clone())?,
             (Some((cert, key)), false) => server.with_starttls_files(cert.clone(), key.clone())?,

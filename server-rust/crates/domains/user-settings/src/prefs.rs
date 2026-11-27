@@ -305,14 +305,7 @@ pub async fn vacation_put(
 
 pub const DELEGATION_DEFAULT: &str = "{\"enabled\":false,\"delegate_user_id\":0,\"delegate_name\":\"\",\"delegate_email\":\"\",\"starts_at\":null,\"ends_at\":null}";
 
-pub async fn delegation_get(
-    factory: &TxFactory,
-    user: &UserPrincipal,
-) -> Result<String, StatementFailure> {
-    let uid = user.user().get();
-    let rows = factory
-        .run_user_read_contract(user, &crate::sql::DELEGATION_GET, &[&uid])
-        .await?;
+pub fn parse_delegation_get(rows: &[Row]) -> Result<String, StatementFailure> {
     let Some(r) = rows.first() else {
         return Ok(done(DELEGATION_DEFAULT.into()));
     };
@@ -329,6 +322,17 @@ pub async fn delegation_get(
         opt_text(starts),
         opt_text(ends)
     )))
+}
+
+pub async fn delegation_get(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+) -> Result<String, StatementFailure> {
+    let uid = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &crate::sql::DELEGATION_GET, &[&uid])
+        .await?;
+    parse_delegation_get(&rows)
 }
 
 pub async fn delegation_put(

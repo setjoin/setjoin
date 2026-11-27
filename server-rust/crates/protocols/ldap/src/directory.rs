@@ -537,11 +537,29 @@ impl Server {
    "contacts"=>"SELECT LOWER(c.display_name),'',COALESCE(LOWER(c.last_name),''),COALESCE(LOWER(c.first_name),''),COALESCE(LOWER(c.company),''),COALESCE(LOWER(c.job_title),'') FROM contacts c JOIN addressbooks ab ON ab.id=c.addressbook_id WHERE c.display_name ILIKE $1 AND ab.is_shared=TRUE LIMIT 1",
    _=>return LdapResultCode::NoSuchObject,
   };
-        let Ok(rows) = tx_factory
-            .run_user_read_pipelined(&principal.user, query, &[(&cn, Type::TEXT)])
-            .await
-        else {
-            return LdapResultCode::NoSuchAttribute;
+        let rows = if matches!(kind, "groups" | "resources") {
+            if let Some(auth_db) = &self.auth_db {
+                let Ok(rows) = auth_db.read(query, &[(&cn, Type::TEXT)]).await else {
+                    return LdapResultCode::NoSuchAttribute;
+                };
+                rows
+            } else {
+                let Ok(rows) = tx_factory
+                    .run_user_read_pipelined(&principal.user, query, &[(&cn, Type::TEXT)])
+                    .await
+                else {
+                    return LdapResultCode::NoSuchAttribute;
+                };
+                rows
+            }
+        } else {
+            let Ok(rows) = tx_factory
+                .run_user_read_pipelined(&principal.user, query, &[(&cn, Type::TEXT)])
+                .await
+            else {
+                return LdapResultCode::NoSuchAttribute;
+            };
+            rows
         };
         let Some(row) = rows.first() else {
             return LdapResultCode::NoSuchAttribute;
@@ -618,12 +636,27 @@ impl Server {
             params.push((&fetch, Type::INT8));
             params.push((&offset, Type::INT8));
         }
-        let mut tx = tx_factory
-            .begin_user_read(&principal.user)
-            .await
-            .map_err(|_| ())?;
-        let rows = tx.query(&query, &params).await.map_err(|_| ())?;
-        tx.finish().await.map_err(|_| ())?;
+        let rows = if matches!(kind, "groups" | "resources") {
+            if let Some(auth_db) = &self.auth_db {
+                auth_db.read(&query, &params).await.map_err(|_| ())?
+            } else {
+                let mut tx = tx_factory
+                    .begin_user_read(&principal.user)
+                    .await
+                    .map_err(|_| ())?;
+                let rows = tx.query(&query, &params).await.map_err(|_| ())?;
+                tx.finish().await.map_err(|_| ())?;
+                rows
+            }
+        } else {
+            let mut tx = tx_factory
+                .begin_user_read(&principal.user)
+                .await
+                .map_err(|_| ())?;
+            let rows = tx.query(&query, &params).await.map_err(|_| ())?;
+            tx.finish().await.map_err(|_| ())?;
+            rows
+        };
         Ok((rows, cap))
     }
 }

@@ -141,18 +141,8 @@ pub async fn acl_rate(
     .await
 }
 
-/// Subject candidates for the ACL picker (Go's inline read, one statement).
-pub async fn subjects(
-    factory: &TxFactory,
-    user: &UserPrincipal,
-    node: i64,
-    q: &str,
-    groups: bool,
-) -> Result<Vec<[String; 4]>, StatementFailure> {
-    let actor = user.user().get();
-    let rows = factory
-        .run_user_read_contract(user, &sql::ACL_SUBJECTS, &[&actor, &node, &q, &groups])
-        .await?;
+/// Parse rows returned by [`sql::ACL_SUBJECTS`].
+pub fn parse_subjects(rows: &[Row]) -> Result<Vec<[String; 4]>, StatementFailure> {
     rows.iter()
         .map(|r| {
             Ok([
@@ -167,17 +157,10 @@ pub async fn subjects(
         .collect()
 }
 
-/// Folder-admin roster as Go's `[{userId,displayName,grantedBy,grantedAt}]`
-/// array text, or `None` when the caller lacks `manage_acl` on the node.
-pub async fn folder_admins(
-    factory: &TxFactory,
-    user: &UserPrincipal,
-    node: i64,
+/// Parse rows returned by [`sql::FOLDER_ADMINS`].
+pub fn parse_folder_admins(
+    rows: &[Row],
 ) -> Result<Option<Vec<(i64, String, i64, String)>>, StatementFailure> {
-    let actor = user.user().get();
-    let rows = factory
-        .run_user_read_contract(user, &sql::FOLDER_ADMINS, &[&actor, &node])
-        .await?;
     let can: bool = rows
         .first()
         .map(|r| r.try_get(0).map_err(|_| invalid()))
@@ -187,7 +170,7 @@ pub async fn folder_admins(
         return Ok(None);
     }
     let mut out = Vec::new();
-    for r in &rows {
+    for r in rows {
         let Some(user_id) = r.try_get::<_, Option<i64>>(1).map_err(|_| invalid())? else {
             continue;
         };
@@ -199,6 +182,35 @@ pub async fn folder_admins(
         ));
     }
     Ok(Some(out))
+}
+
+/// Subject candidates for the ACL picker (Go's inline read, one statement).
+pub async fn subjects(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    node: i64,
+    q: &str,
+    groups: bool,
+) -> Result<Vec<[String; 4]>, StatementFailure> {
+    let actor = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &sql::ACL_SUBJECTS, &[&actor, &node, &q, &groups])
+        .await?;
+    parse_subjects(&rows)
+}
+
+/// Folder-admin roster as Go's `[{userId,displayName,grantedBy,grantedAt}]`
+/// array text, or `None` when the caller lacks `manage_acl` on the node.
+pub async fn folder_admins(
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    node: i64,
+) -> Result<Option<Vec<(i64, String, i64, String)>>, StatementFailure> {
+    let actor = user.user().get();
+    let rows = factory
+        .run_user_read_contract(user, &sql::FOLDER_ADMINS, &[&actor, &node])
+        .await?;
+    parse_folder_admins(&rows)
 }
 
 /// The caller's own watches, newest first.

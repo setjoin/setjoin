@@ -476,6 +476,7 @@ async fn build_with_keys<K: KeySource + 'static>(
     {
         Some(
             crate::carddav::CardDavRoute::new(exec.clone(), keys.clone(), issuer.clone())
+                .with_worker(compliance.worker.clone())
                 .with_basic_auth(dav_basic.clone()),
         )
     } else {
@@ -758,7 +759,8 @@ async fn build_with_keys<K: KeySource + 'static>(
         webhook_resolver: std::sync::Arc::new(crate::identity_self_service::SystemResolver),
     };
     let user_settings =
-        crate::user_settings::UserSettingsRoute::new(exec.clone(), keys.clone(), issuer.clone());
+        crate::user_settings::UserSettingsRoute::new(exec.clone(), keys.clone(), issuer.clone())
+            .with_worker(compliance.worker.clone());
     let offline = crate::offline::OfflineRoute {
         exec: exec.clone(),
         worker: ScopedExecutor::from_dsn(

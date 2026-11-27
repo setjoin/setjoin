@@ -89,7 +89,7 @@ pub const MAILBOXES_LIST: SqlContract = SqlContract {
     ),
     params: &[Type::INT8, Type::INT8, Type::TEXT, Type::INT8, Type::INT8],
     columns: MAILBOX_COLUMNS,
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };

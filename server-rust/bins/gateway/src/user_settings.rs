@@ -16,13 +16,23 @@ use std::sync::Arc;
 
 pub struct UserSettingsRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
 }
 
 impl<K: KeySource + 'static> UserSettingsRoute<K> {
     pub fn new(exec: ScopedExecutor, keys: Arc<K>, issuer: String) -> Self {
-        Self { exec, keys, issuer }
+        Self {
+            exec,
+            worker: None,
+            keys,
+            issuer,
+        }
+    }
+    pub fn with_worker(mut self, worker: ScopedExecutor) -> Self {
+        self.worker = Some(worker);
+        self
     }
 }
 
@@ -411,7 +421,12 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        let (exec, worker, keys, issuer) = (
+            self.exec.clone(),
+            self.worker.clone(),
+            self.keys.clone(),
+            self.issuer.clone(),
+        );
         Box::pin(async move {
             let what = action(r.method(), r.uri().path()).expect("matched route");
             let verdict =
@@ -706,10 +721,34 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                         Some((&["BZ046", "BZ047"], "invalid automatic-reply settings")),
                     )
                 }
-                Action::DelegationGet => match prefs::delegation_get(&factory, &user).await {
-                    Ok(body) => json(body, 200),
-                    Err(_) => bare(500, "database error", &c, &id),
-                },
+                Action::DelegationGet => {
+                    let uid = user.user().get();
+                    let worker_exec = worker.as_ref().unwrap_or(&exec);
+                    let result = match worker_exec.try_worker_pool() {
+                        Some(wp) => match wp.begin_repeatable_read_only().await {
+                            Ok(mut tx) => {
+                                let rows = tx
+                                    .query_contract(
+                                        &setjoin_user_settings::sql::DELEGATION_GET,
+                                        &[&uid],
+                                    )
+                                    .await;
+                                let _ = tx.rollback().await;
+                                rows.and_then(|rows| prefs::parse_delegation_get(&rows))
+                            }
+                            Err(e) => Err(e),
+                        },
+                        None => Err(setjoin_pg::StatementFailure {
+                            sqlstate: None,
+                            hint: None,
+                            message: "worker pool unavailable".into(),
+                        }),
+                    };
+                    match result {
+                        Ok(body) => json(body, 200),
+                        Err(_) => bare(500, "database error", &c, &id),
+                    }
+                }
                 Action::DelegationPut => {
                     let Some(body) = decode_body::<DelegationBody>(&mut r, UNCAPPED).await else {
                         return bare(400, "invalid JSON", &c, &id);

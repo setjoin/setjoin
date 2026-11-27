@@ -34,7 +34,7 @@ impl AuthServer {
             .map(|s| s.into_owned())
             .unwrap_or_default();
         if parts.len() == 5 && parts[4] == "link" && req.method() == Method::POST {
-            return self.saml_link(req, &idp).await;
+            return Box::pin(self.saml_link(req, &idp)).await;
         }
         // Same-site completion of a link the ACS held (the IdP's cross-site POST carries
         // no SameSite=Strict cookie, this request does).
@@ -51,7 +51,7 @@ impl AuthServer {
             let Some(reg) = self.saml.as_ref().and_then(|r| r.registration(&idp)) else {
                 return Self::not_found();
             };
-            return self.saml_link_complete(req, reg).await;
+            return Box::pin(self.saml_link_complete(req, reg)).await;
         }
         let Some(reg) = self
             .saml
@@ -62,7 +62,7 @@ impl AuthServer {
             return Self::not_found();
         };
         if parts[4] == "acs" && req.method() == Method::POST {
-            return self.saml_acs(req, reg).await;
+            return Box::pin(self.saml_acs(req, reg)).await;
         }
         if parts[4] == "login" {
             self.saml_login_reply(&req, &reg, "login", None)

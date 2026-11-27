@@ -195,7 +195,7 @@ impl Assertion {
             } else {
                 &crate::sql::RP_ACCOUNT_L196
             };
-            let rows = exec
+            let rows = worker
                 .read_contract(
                     exact,
                     &[(&self.subject, Type::TEXT), (&self.issuer, Type::TEXT)],
@@ -213,7 +213,7 @@ impl Assertion {
             // SAML: the link is (registration, NameID), never an address (#546).
             if user.is_none() && (self.kind == "oidc" || crate::mutants::on("saml-link-by-email")) {
                 let address = setjoin_authz::address::canonical(&self.email);
-                let rows = exec
+                let rows = worker
                     .read_contract(
                         &crate::sql::RP_ACCOUNT_L218,
                         &[(&address.as_str(), Type::TEXT)],
@@ -253,8 +253,8 @@ impl Assertion {
                     .await;
             }
             if let Some(id) = user.filter(|_| address_hit) {
-                let guest = exec
-                    .read_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&id, Type::INT8)])
+                let guest = worker
+                    .protocol_query_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&id, Type::INT8)])
                     .await
                     .map_err(|_| failed("account type resolution failed"))?
                     .first()
@@ -274,14 +274,14 @@ impl Assertion {
                 feature,
             }));
         };
-        let rows = exec
+        let rows = worker
             .read_contract(&crate::sql::RP_ACCOUNT_L277, &[(&user, Type::INT8)])
             .await?;
         let r = rows
             .first()
             .ok_or_else(|| failed("normalized identity resolution unavailable"))?;
-        let guest = exec
-            .read_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&user, Type::INT8)])
+        let guest = worker
+            .protocol_query_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&user, Type::INT8)])
             .await
             .map_err(|_| failed("account type resolution failed"))?
             .first()
@@ -316,7 +316,7 @@ fn number(v: &Value, k: &str) -> Result<i64, StatementFailure> {
 impl Assertion {
     pub async fn settle(
         &self,
-        exec: &AuthDb,
+        _exec: &AuthDb,
         worker: &AuthDb,
         provider: &dyn Federated,
         resolution: &Resolution,
@@ -392,7 +392,7 @@ impl Assertion {
             }
             _ => return Err(failed("SSO entitlement transaction unavailable")),
         }
-        let rows = exec
+        let rows = worker
             .read_contract(&crate::sql::RP_ACCOUNT_L277, &[(&user, Type::INT8)])
             .await
             .map_err(|_| failed("SSO authorization state unavailable"))?;
@@ -490,7 +490,7 @@ impl Resolution {
 impl Missing<'_> {
     pub async fn create(
         self,
-        exec: &AuthDb,
+        _exec: &AuthDb,
         worker: &AuthDb,
     ) -> Result<Resolution, StatementFailure> {
         let a = self.assertion;
@@ -539,7 +539,7 @@ impl Missing<'_> {
             };
             (user, fence)
         } else {
-            let rows = exec
+            let rows = worker
                 .protocol_query_contract(
                     &crate::sql::RP_ACCOUNT_L515,
                     &[
@@ -559,7 +559,7 @@ impl Missing<'_> {
                 .try_get::<_, i64>(0)
                 .map_err(|_| failed("user creation failed"))?;
             // Go's separate best-effort legacy mailbox statement via owning mailboxes reducer.
-            let _ = exec
+            let _ = worker
                 .protocol_statement_contract(
                     &crate::sql::RP_MAILBOX_ENSURE_PRIMARY,
                     &[(&user, Type::INT8)],
@@ -567,7 +567,7 @@ impl Missing<'_> {
                 .await;
             (user, None)
         };
-        let rows = exec
+        let rows = worker
             .read_contract(&crate::sql::RP_ACCOUNT_L277, &[(&user, Type::INT8)])
             .await
             .map_err(|_| failed("user creation failed"))?;
@@ -654,7 +654,7 @@ impl Resolution {
 
 impl Resolution {
     pub async fn guest_scope(&self, exec: &AuthDb) -> Result<bool, StatementFailure> {
-        exec.read_contract(
+        exec.protocol_query_contract(
             &crate::sql::IS_GUEST_ACCOUNT,
             &[(&self.user.user, Type::INT8)],
         )
