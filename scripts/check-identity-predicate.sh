@@ -42,7 +42,7 @@
 source "$(dirname "$0")/_base.sh"
 
 REDUCER_FILE="${REDUCER_FILE:-$ROOT/mailserver/sql/reducers/resolve_identity.sql}"
-CONNECTOR_FILE="${CONNECTOR_FILE:-$ROOT/authserver/internal/connector/connector.go}"
+CONNECTOR_FILE="${CONNECTOR_FILE:-$ROOT/server-rust/crates/domains/identity/src/rp/account.rs}"
 
 echo "==> identity-predicate definition guard (resolve_identity twins, ADR-004)"
 
@@ -57,13 +57,33 @@ extract_reducer_predicate() {
   ' "$1"
 }
 
-# extract_connector_predicate <file> — the WHERE…) body of the ResolveIdentitySQL
-# Go const. Runs from `WHERE u.enabled` up to (not incl.) the `LIMIT` line.
+# extract_connector_predicate <file> — the WHERE…LIMIT 1 body of the Rust identity
+# resolution query (inline or multi-line).
 extract_connector_predicate() {
   awk '
-    /^[ \t]*WHERE[ \t]+u\.enabled/ { grab = 1 }
+    /WHERE[ \t]+u\.enabled/ {
+      line = $0
+      sub(/.*WHERE[ \t]+u\.enabled/, "WHERE u.enabled", line)
+      if (line ~ /[ \t]+LIMIT([ \t]|$)/) {
+        sub(/[ \t]+LIMIT([ \t].*|$)/, "", line)
+        print line
+        next
+      }
+      grab = 1
+      print line
+      next
+    }
     grab && /^[ \t]*LIMIT([ \t]|$)/ { grab = 0 }
-    grab { print }
+    grab {
+      if ($0 ~ /[ \t]+LIMIT([ \t]|$)/) {
+        line = $0
+        sub(/[ \t]+LIMIT([ \t].*|$)/, "", line)
+        print line
+        grab = 0
+      } else {
+        print
+      }
+    }
   ' "$1"
 }
 
@@ -120,10 +140,11 @@ normalize() {
       gsub(/[ \t\n]+/, " ", blob)
       sub(/^ +/, "", blob); sub(/ +$/, "", blob)
 
-      # 2. drop the leading WHERE keyword.
+      # 2. drop the leading WHERE keyword and normalize `u.enabled = TRUE` → `u.enabled`.
       sub(/^[Ww][Hh][Ee][Rr][Ee] +/, "", blob)
+      sub(/^u\.enabled *= *TRUE /, "u.enabled ", blob)
 
-      # 3. bound-address token. $1 (Go) and p_address (reducer) are one input.
+      # 3. bound-address token. $1 (Rust) and p_address (reducer) are one input.
       #    $1 has no identifier-char neighbours issue ("$" is not [A-Za-z0-9_]),
       #    so a plain gsub is safe; p_address goes through the boundary-safe path.
       gsub(/\$1/, ":ADDR", blob)
@@ -149,7 +170,11 @@ normalize() {
       # 5. drop the reducer-only null-guard `AND :ADDR IS NOT NULL`.
       gsub(/AND :ADDR IS NOT NULL */, "", blob)
 
-      # 6. collapse any whitespace introduced above, trim.
+      # 6. normalize cosmetic whitespace around `=` and parens, trim.
+      gsub(/ *= */, " = ", blob)
+      gsub(/\( +/, "(", blob)
+      gsub(/ +\)/, ")", blob)
+      gsub(/EXISTS *\(/, "EXISTS (", blob)
       gsub(/  +/, " ", blob)
       sub(/^ +/, "", blob); sub(/ +$/, "", blob)
       print blob

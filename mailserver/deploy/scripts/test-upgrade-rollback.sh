@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# Exercise the legacy upgrade command against an isolated, flat installation:
-# a failed migration restores the Go binaries and the Rust front door from
-# their *.prev copies (#264).
+# Exercise the flat upgrade command against isolated installations:
+#   A. post-#142 Rust-only flat host: a failed migration restores setjoin-server,
+#      setjoin-auth, mailctl, and webmail from their *.prev copies;
+#   B. pre-#142 cutover host (mailserverd + setjoin-gateway + setjoin.service):
+#      - failed cutover rolls back binaries AND unit files (including restoring
+#        setjoin.service and removing the newly installed setjoin-server),
+#      - successful cutover retires setjoin.service and installs setjoin-server
+#        + updated setjoin-gateway.service;
+#   C. upgraded-host auth.env migration + posture refusal + rollback (#359b).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -19,14 +25,14 @@ cat >"$tmp/bin/chown" <<'MOCK'
 exit 0
 MOCK
 chmod 755 "$tmp/bin/systemctl" "$tmp/bin/chown"
-printf 'old mailserver\n' >"$tmp/install/mailserverd"
-printf 'old authserver\n' >"$tmp/install/authserverd"
+
+# ── A. Post-#142 Rust-only flat upgrade rollback on failed migration ─────────
+printf 'old server\n' >"$tmp/install/setjoin-server"
+printf 'old setjoin-auth\n' >"$tmp/install/setjoin-auth"
 printf 'old mailctl\n' >"$tmp/install/mailctl"
-printf 'old gateway\n' >"$tmp/install/setjoin-gateway"
 printf 'old webmail\n' >"$tmp/install/webmail/index.html"
-printf 'new mailserver\n' >"$tmp/new/mailserverd"
-printf 'new authserver\n' >"$tmp/new/authserverd"
-printf 'new gateway\n' >"$tmp/new/setjoin-gateway"
+printf 'new server\n' >"$tmp/new/setjoin-server"
+printf 'new setjoin-auth\n' >"$tmp/new/setjoin-auth"
 printf 'new webmail\n' >"$tmp/new/webmail/index.html"
 cat >"$tmp/new/mailctl" <<'MOCK'
 #!/usr/bin/env bash
@@ -38,8 +44,8 @@ printf 'DB_DSN=postgres://fixture/only\n' >"$tmp/config/config.env"
 
 if PATH="$tmp/bin:$PATH" INSTALL_DIR="$tmp/install" SETJOIN_CONFIG_DIR="$tmp/config" \
   SYSTEMD_DIR="$tmp/units" UPGRADE_TEST_LOG="$tmp/systemctl.log" UPGRADE_TEST_MIGRATION="$tmp/migration.log" \
-  bash "$UPGRADE_SCRIPT" "$tmp/new/mailserverd" "$tmp/new/mailctl" \
-  "$tmp/new/webmail" "$tmp/new/authserverd" "$tmp/new/setjoin-gateway" >"$tmp/output" 2>&1; then
+  bash "$UPGRADE_SCRIPT" "$tmp/new/setjoin-server" "$tmp/new/mailctl" \
+  "$tmp/new/webmail" "$tmp/new/setjoin-auth" >"$tmp/output" 2>&1; then
   echo 'failed migration was reported as a successful upgrade' >&2
   exit 1
 fi
@@ -47,12 +53,11 @@ fi
   echo 'migration was not attempted' >&2
   exit 1
 }
-for artifact in mailserverd authserverd mailctl setjoin-gateway; do
+for artifact in setjoin-server setjoin-auth mailctl; do
   case "$artifact" in
-    mailserverd) expected='old mailserver' ;;
-    authserverd) expected='old authserver' ;;
+    setjoin-server) expected='old server' ;;
+    setjoin-auth) expected='old setjoin-auth' ;;
     mailctl) expected='old mailctl' ;;
-    setjoin-gateway) expected='old gateway' ;;
   esac
   [ "$(cat "$tmp/install/$artifact")" = "$expected" ] || {
     echo "$artifact was not restored" >&2
@@ -71,23 +76,134 @@ done
   echo 'webmail.prev does not contain previous content' >&2
   exit 1
 }
-# Note: `$tmp/units` has no installed unit files, so `restore_gateway_deployment`
-# guards its secondary `stop`/`disable` calls with `[ -e "$SYSTEMD_DIR/$unit" ]`
-# (avoiding false rollback errors on uninstalled sockets) and proceeds straight
-# to `daemon-reload` + service restart.
-expected=$'stop setjoin-gateway\nstop setjoin-federation.socket\nstop setjoin-https.socket\ndisable setjoin-https.socket\nstop setjoin-acme.socket\ndisable setjoin-acme.socket\nstop setjoin-imap.socket\ndisable setjoin-imap.socket\nstop setjoin-imaps.socket\ndisable setjoin-imaps.socket\nstop setjoin-smtp.socket\ndisable setjoin-smtp.socket\nstop setjoin-smtps.socket\ndisable setjoin-smtps.socket\nstop setjoin-submission.socket\ndisable setjoin-submission.socket\nstop setjoin\nis-active --quiet setjoin-auth\nstop setjoin-auth\ndaemon-reload\nstart setjoin-auth\nstart setjoin\nstart setjoin-gateway'
+expected=$'stop setjoin-gateway\nstop setjoin-federation.socket\nstop setjoin-https.socket\ndisable setjoin-https.socket\nstop setjoin-acme.socket\ndisable setjoin-acme.socket\nstop setjoin-imap.socket\ndisable setjoin-imap.socket\nstop setjoin-imaps.socket\ndisable setjoin-imaps.socket\nstop setjoin-smtp.socket\ndisable setjoin-smtp.socket\nstop setjoin-smtps.socket\ndisable setjoin-smtps.socket\nstop setjoin-submission.socket\ndisable setjoin-submission.socket\nis-active --quiet setjoin-auth\nstop setjoin-auth\ndaemon-reload\nstart setjoin-auth\nstart setjoin-gateway'
 [ "$(cat "$tmp/systemctl.log")" = "$expected" ] || {
   echo 'unexpected stop/restart actions' >&2
   cat "$tmp/systemctl.log" >&2
   exit 1
 }
-echo 'legacy upgrade rollback (Go + Rust *.prev): PASS'
+echo 'Rust-only flat upgrade rollback (*.prev): PASS'
 
-# ── Upgraded-host auth.env migration + posture refusal + rollback (#359b) ────
-mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
+# ── B. Pre-#142 cutover host (setjoin-gateway + setjoin.service) ─────────────
+real_tmp="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$tmp")"
 owner="$(id -un)"
 group="$(id -gn)"
-real_tmp="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$tmp")"
+for cutover_health in fail ok; do
+  pre="$real_tmp/pre142-$cutover_health"
+  mkdir -p "$pre/bin" "$pre/install/webmail" "$pre/new/webmail" "$pre/config/db-credentials.d" "$pre/units"
+  cp "$tmp/bin/systemctl" "$tmp/bin/chown" "$pre/bin/"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$pre/bin/sleep"
+  if [ "$cutover_health" = ok ]; then
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$pre/bin/curl"
+  else
+    printf '#!/usr/bin/env bash\nexit 1\n' >"$pre/bin/curl"
+  fi
+  chmod 755 "$pre/bin/curl" "$pre/bin/sleep"
+  printf 'old mailserverd\n' >"$pre/install/mailserverd"
+  printf 'old authserverd\n' >"$pre/install/authserverd"
+  printf 'old setjoin-gateway\n' >"$pre/install/setjoin-gateway"
+  printf 'old mailctl\n' >"$pre/install/mailctl"
+  printf 'old webmail\n' >"$pre/install/webmail/index.html"
+  printf 'new setjoin-server\n' >"$pre/new/setjoin-server"
+  printf 'new setjoin-auth\n' >"$pre/new/setjoin-auth"
+  printf 'new webmail\n' >"$pre/new/webmail/index.html"
+  chmod 755 "$pre/new/setjoin-server" "$pre/new/setjoin-auth"
+  printf '#!/bin/sh\nexit 0\n' >"$pre/new/mailctl"
+  chmod 755 "$pre/new/mailctl"
+  cat >"$pre/config/config.env" <<'ENV'
+DB_DSN=postgres://setjoin_app:apppw@127.0.0.1:5432/mailserver
+DB_DIRECT_DSN=postgres://setjoin_app:apppw@127.0.0.1:5432/mailserver
+AUTHSERVER_URL=http://127.0.0.1:8443
+ENV
+  cat >"$pre/config/db-credentials.d/db-credentials.env" <<'ENV'
+DB_WORKER_DSN=postgres://setjoin_worker:workerpw@127.0.0.1:5432/mailserver
+DB_OWNER_DSN=postgres://mail:ownerpw@127.0.0.1:5432/mailserver
+DB_DIRECT_OWNER_DSN=postgres://mail:ownerpw@127.0.0.1:5432/mailserver
+ENV
+  printf 'GATEWAY_LISTEN=127.0.0.1:18090\n' >"$pre/config/gateway.env"
+  printf '[Unit]\nDescription=Legacy Go mailserverd\n[Service]\nExecStart=%s/install/mailserverd\n' "$pre" >"$pre/units/setjoin.service"
+  printf '[Unit]\nAfter=setjoin.service\n[Service]\nExecStart=%s/install/setjoin-gateway\n' "$pre" >"$pre/units/setjoin-gateway.service"
+  printf '[Socket]\nListenStream=127.0.0.1:18090\n' >"$pre/units/setjoin-gateway.socket"
+  printf '[Service]\nExecStart=%s/install/authserverd\n' "$pre" >"$pre/units/setjoin-auth.service"
+  chgrp "$group" "$pre/config" "$pre/config/db-credentials.d" "$pre/config/db-credentials.d/db-credentials.env"
+  chmod 755 "$pre/config"
+  chmod 750 "$pre/config/db-credentials.d"
+  chmod 600 "$pre/config/db-credentials.d/db-credentials.env" "$pre/config/config.env"
+  cp "$pre/units/setjoin.service" "$pre/setjoin.service.before"
+  cp "$pre/units/setjoin-gateway.service" "$pre/setjoin-gateway.service.before"
+
+  rc=0
+  PATH="$pre/bin:$PATH" TMPDIR="$real_tmp" INSTALL_DIR="$pre/install" SETJOIN_CONFIG_DIR="$pre/config" \
+    SYSTEMD_DIR="$pre/units" TLS_AUTOCERT_CACHE_DIR="$pre/autocert" UPGRADE_TEST_LOG="$pre/systemctl.log" \
+    DB_CRED_WANT_OWNER="$owner" DB_CRED_WANT_GROUP="$group" DB_CRED_RUNTIME_GROUP="$group" \
+    bash "$UPGRADE_SCRIPT" "$pre/new/setjoin-server" "$pre/new/mailctl" \
+    "$pre/new/webmail" "$pre/new/setjoin-auth" >"$pre/out" 2>&1 || rc=$?
+  if [ "$cutover_health" = ok ]; then
+    [ "$rc" = 0 ] || {
+      cat "$pre/out" >&2
+      echo 'pre-#142 cutover failed unexpectedly' >&2
+      exit 1
+    }
+    [ ! -e "$pre/units/setjoin.service" ] || {
+      echo 'pre-#142 cutover did not remove setjoin.service' >&2
+      exit 1
+    }
+    [ "$(cat "$pre/install/setjoin-server")" = 'new setjoin-server' ] || {
+      echo 'setjoin-server not installed' >&2
+      exit 1
+    }
+    [ "$(cat "$pre/install/setjoin-gateway.prev")" = 'old setjoin-gateway' ] || {
+      echo 'setjoin-gateway.prev missing' >&2
+      exit 1
+    }
+    [ "$(cat "$pre/install/mailserverd.prev")" = 'old mailserverd' ] || {
+      echo 'mailserverd.prev missing' >&2
+      exit 1
+    }
+    grep -qx "ExecStart=$pre/install/setjoin-server" "$pre/units/setjoin-gateway.service"
+    grep -qx 'stop setjoin' "$pre/systemctl.log"
+    grep -qx 'disable setjoin' "$pre/systemctl.log"
+    ! grep -qx 'start setjoin' "$pre/systemctl.log" || {
+      echo 'cutover started retired setjoin.service' >&2
+      exit 1
+    }
+  else
+    [ "$rc" != 0 ] || {
+      echo 'failed pre-#142 cutover reported success' >&2
+      exit 1
+    }
+    [ ! -e "$pre/install/setjoin-server" ] || {
+      echo 'failed cutover left setjoin-server behind' >&2
+      exit 1
+    }
+    [ "$(cat "$pre/install/setjoin-gateway")" = 'old setjoin-gateway' ] || {
+      echo 'setjoin-gateway not restored' >&2
+      exit 1
+    }
+    [ "$(cat "$pre/install/mailserverd")" = 'old mailserverd' ] || {
+      echo 'mailserverd not restored' >&2
+      exit 1
+    }
+    [ "$(cat "$pre/install/authserverd")" = 'old authserverd' ] || {
+      echo 'authserverd not restored' >&2
+      exit 1
+    }
+    cmp -s "$pre/setjoin.service.before" "$pre/units/setjoin.service" || {
+      echo 'setjoin.service not restored on rollback' >&2
+      exit 1
+    }
+    cmp -s "$pre/setjoin-gateway.service.before" "$pre/units/setjoin-gateway.service" || {
+      echo 'setjoin-gateway.service not restored on rollback' >&2
+      exit 1
+    }
+    grep -qx 'start setjoin' "$pre/systemctl.log"
+    grep -qx 'start setjoin-gateway' "$pre/systemctl.log"
+  fi
+done
+echo 'pre-#142 cutover (retire setjoin.service + rollback): PASS'
+
+# ── C. Upgraded-host auth.env migration + posture refusal + rollback (#359b) ─
+mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 
 # 1. Immutable host refresh-gateway-env migrates auth.env (with DB_WORKER_DSN +
 #    TRUSTED_PROXY_IP=127.0.0.1) and setjoin-auth.service (Rust setjoin-auth,
@@ -176,14 +292,11 @@ cp "$tmp/bin/systemctl" "$tmp/bin/chown" "$fl/bin/"
 printf '#!/usr/bin/env bash\nexit 1\n' >"$fl/bin/curl"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$fl/bin/sleep"
 chmod 755 "$fl/bin/curl" "$fl/bin/sleep"
-printf 'old mailserver\n' >"$fl/install/mailserverd"
-printf 'old authserver\n' >"$fl/install/authserverd"
 printf 'old setjoin-auth\n' >"$fl/install/setjoin-auth"
-printf 'old gateway\n' >"$fl/install/setjoin-gateway"
-printf 'new mailserver\n' >"$fl/new/mailserverd"
+printf 'old server\n' >"$fl/install/setjoin-server"
 printf 'new setjoin-auth\n' >"$fl/new/setjoin-auth"
-printf 'new gateway\n' >"$fl/new/setjoin-gateway"
-chmod 755 "$fl/install/setjoin-auth" "$fl/new/setjoin-auth"
+printf 'new server\n' >"$fl/new/setjoin-server"
+chmod 755 "$fl/install/setjoin-auth" "$fl/new/setjoin-auth" "$fl/install/setjoin-server" "$fl/new/setjoin-server"
 printf '#!/bin/sh\nexit 0\n' >"$fl/new/mailctl"
 chmod 755 "$fl/new/mailctl"
 cat >"$fl/config/config.env" <<'ENV'
@@ -198,7 +311,7 @@ DB_DIRECT_OWNER_DSN=postgres://mail:ownerpw@127.0.0.1:5432/mailserver
 ENV
 printf '# old auth env\nLISTEN_ADDR=127.0.0.1:8443\n' >"$fl/config/auth.env"
 printf 'GATEWAY_LISTEN=127.0.0.1:18090\n' >"$fl/config/gateway.env"
-printf '# old auth unit\n[Service]\nExecStart=%s/install/authserverd\n' "$fl" >"$fl/units/setjoin-auth.service"
+printf '# old auth unit\n[Service]\nExecStart=%s/install/setjoin-auth\n' "$fl" >"$fl/units/setjoin-auth.service"
 chgrp "$group" "$fl/config" "$fl/config/db-credentials.d" "$fl/config/db-credentials.d/db-credentials.env"
 chmod 755 "$fl/config"
 chmod 750 "$fl/config/db-credentials.d"
@@ -209,7 +322,7 @@ cp "$fl/units/setjoin-auth.service" "$fl/setjoin-auth.service.before"
 if PATH="$fl/bin:$PATH" TMPDIR="$real_tmp" INSTALL_DIR="$fl/install" SETJOIN_CONFIG_DIR="$fl/config" \
   SYSTEMD_DIR="$fl/units" TLS_AUTOCERT_CACHE_DIR="$fl/autocert" UPGRADE_TEST_LOG="$fl/systemctl.log" \
   DB_CRED_WANT_OWNER="$owner" DB_CRED_WANT_GROUP="$group" DB_CRED_RUNTIME_GROUP="$group" \
-  bash "$UPGRADE_SCRIPT" "$fl/new/mailserverd" "$fl/new/mailctl" '' "$fl/new/setjoin-auth" "$fl/new/setjoin-gateway" >"$fl/out" 2>&1; then
+  bash "$UPGRADE_SCRIPT" "$fl/new/setjoin-server" "$fl/new/mailctl" '' "$fl/new/setjoin-auth" >"$fl/out" 2>&1; then
   echo 'failed readiness flat upgrade reported success' >&2
   exit 1
 fi
@@ -228,6 +341,10 @@ cmp -s "$fl/setjoin-auth.service.before" "$fl/units/setjoin-auth.service" || {
 }
 [ "$(cat "$fl/install/setjoin-auth")" = 'old setjoin-auth' ] || {
   echo 'setjoin-auth binary was not rolled back' >&2
+  exit 1
+}
+[ "$(cat "$fl/install/setjoin-server")" = 'old server' ] || {
+  echo 'setjoin-server binary was not rolled back' >&2
   exit 1
 }
 

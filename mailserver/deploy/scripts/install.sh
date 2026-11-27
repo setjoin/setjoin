@@ -13,8 +13,8 @@
 #
 # What it does (the 10 steps mirrored in SINGLE_NODE_SETUP.md):
 #   1. Preconditions: root, required tools, a reachable Postgres.
-#   2. Build mailserverd + authserverd + the gated setjoin-updater observer if
-#      the binaries are missing; download +
+#   2. Build setjoin-server + setjoin-auth + mailctl + the gated setjoin-updater
+#      observer if the binaries are missing; download +
 #      checksum-verify the pinned livekit-server v1.13.5 SFU binary (Meet B1
 #      Task 14 — mailserver/deploy/scripts/lib-livekit.sh); verify valkey-server
 #      is installed, detect the container runtime (podman/docker), and pull the
@@ -654,23 +654,14 @@ fi
 
 # ── 2. Build binaries if missing ─────────────────────────────────────────────
 say "Binaries"
-if [ ! -x "$ROOT/mailserver/mailserverd" ] ||
-   [ ! -x "$ROOT/mailserver/setjoin-updater" ] ||
-   [ ! -x "$ROOT/authserver/authserverd" ]; then
-  command -v go >/dev/null 2>&1 || die "binaries missing and 'go' not found — install Go or pre-build with: bash scripts/build.sh"
-  info "Building (bash scripts/build.sh)…"
-  ( cd "$ROOT" && bash scripts/build.sh )
-else
-  info "Reusing existing build artifacts."
-fi
-# Use the Rust artifact's canonical path: an old Go mailctl in a source tree
-# cannot satisfy this check. Release archives provide this executable directly.
+# Use the Rust artifact's canonical path. Release archives provide these
+# executables directly under server-rust/.
 if [ ! -x "$ROOT/server-rust/mailctl" ]; then
   command -v cargo >/dev/null 2>&1 || die "Rust mailctl missing and 'cargo' not found — use a release archive or install the Rust toolchain."
   ( cd "$ROOT/server-rust" && cargo build --release --locked -p setjoin-mailctl )
   install -m 0755 "${CARGO_TARGET_DIR:-$ROOT/server-rust/target}/release/mailctl" "$ROOT/server-rust/mailctl"
 fi
-# One native updater/recovery process; frozen Go is only the Office companion (#300).
+# One native updater/recovery process.
 UPDATER_SOURCE="$ROOT/server-rust/setjoin-updater"
 if [ ! -x "$UPDATER_SOURCE" ]; then
   command -v cargo >/dev/null 2>&1 || die "Rust updater/recovery missing — use a release archive or install cargo."
@@ -680,23 +671,23 @@ fi
 # Refuse before schema/runtime changes. Final install repeats this under both locks.
 "$UPDATER_SOURCE" check-swap --state-dir "$UPDATER_DATA_DIR/journal" --dsn-file "$UPDATER_DSN_FILE" \
   || die "updater swap refused: finish or recover the in-progress update with the installed updater first."
-# The Rust front door (#264, ARCH-027) ships beside the Go binaries: a release
-# archive stages it at server-rust/setjoin-gateway; a source checkout builds it.
-GATEWAY_SOURCE="$ROOT/server-rust/setjoin-gateway"
-if [ ! -x "$GATEWAY_SOURCE" ]; then
-  command -v cargo >/dev/null 2>&1 || die "setjoin-gateway missing ($GATEWAY_SOURCE) and 'cargo' not found — use a release archive or install the Rust toolchain."
-  info "Building setjoin-gateway (cargo build --release)…"
-  ( cd "$ROOT/server-rust" && CARGO_TARGET_DIR="$ROOT/server-rust/target" cargo build --release --locked -p setjoin-gateway )
-  install -m 0755 "$ROOT/server-rust/target/release/setjoin-gateway" "$GATEWAY_SOURCE"
+# The Rust server (setjoin-server, unit setjoin-gateway.service, ARCH-031): a
+# release archive stages it at server-rust/setjoin-server; a source checkout builds it.
+SERVER_SOURCE="$ROOT/server-rust/setjoin-server"
+if [ ! -x "$SERVER_SOURCE" ]; then
+  command -v cargo >/dev/null 2>&1 || die "setjoin-server missing ($SERVER_SOURCE) and 'cargo' not found — use a release archive or install the Rust toolchain."
+  info "Building setjoin-server (cargo build --release)…"
+  ( cd "$ROOT/server-rust" && CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/server-rust/target}" cargo build --release --locked -p setjoin-gateway )
+  install -m 0755 "${CARGO_TARGET_DIR:-$ROOT/server-rust/target}/release/setjoin-server" "$SERVER_SOURCE"
 fi
-# setjoin-auth (Rust identity process, #359b) ships beside the gateway: a release
-# archive stages it at server-rust/setjoin-auth; a source checkout builds it.
+# setjoin-auth (Rust identity process, #359b): a release archive stages it at
+# server-rust/setjoin-auth; a source checkout builds it.
 AUTH_SOURCE="$ROOT/server-rust/setjoin-auth"
 if [ ! -x "$AUTH_SOURCE" ]; then
   command -v cargo >/dev/null 2>&1 || die "setjoin-auth missing ($AUTH_SOURCE) and 'cargo' not found — use a release archive or install the Rust toolchain."
   info "Building setjoin-auth (cargo build --release)…"
-  ( cd "$ROOT/server-rust" && CARGO_TARGET_DIR="$ROOT/server-rust/target" cargo build --release --locked -p setjoin-auth )
-  install -m 0755 "$ROOT/server-rust/target/release/setjoin-auth" "$AUTH_SOURCE"
+  ( cd "$ROOT/server-rust" && CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/server-rust/target}" cargo build --release --locked -p setjoin-auth )
+  install -m 0755 "${CARGO_TARGET_DIR:-$ROOT/server-rust/target}/release/setjoin-auth" "$AUTH_SOURCE"
 fi
 
 # setjoin-sfu (LiveKit) — pinned v1.13.5 release binary, sha256-verified
@@ -1390,7 +1381,6 @@ install_rust_updater() {
   staged_unit="$(mktemp "$UPDATER_DATA_DIR/.updater-unit.XXXXXXXX")"
   if ! render_updater_unit "$ROOT/mailserver/deploy/setjoin-updater.service.template" "$staged_unit" ||
      ! "$UPDATER_SOURCE" install --binary "$UPDATER_SOURCE" \
-       --office-runner "$ROOT/mailserver/setjoin-updater" \
        --state-dir "$UPDATER_DATA_DIR/journal" --dsn-file "$UPDATER_DSN_FILE" \
        --unit-source "$staged_unit"; then
     rm -f -- "$staged_unit"
@@ -1399,16 +1389,14 @@ install_rust_updater() {
   rm -f -- "$staged_unit"
 }
 install_rust_updater || die "Rust updater installation refused; existing update/journal must be inactive and reconciled."
-install -m 0755 "$ROOT/mailserver/mailserverd"  "$INSTALL_DIR/mailserverd"
 install -o root -g root -m 0644 "$ROOT/config/office-managed-app-v1.json" "$OFFICE_APP_MANIFEST"
 install -d -o root -g root -m 0755 /usr/local/sbin /usr/local/lib/setjoin
 install -o root -g root -m 0755 \
   "$ROOT/mailserver/deploy/scripts/setjoin-lifecycle.sh" /usr/local/sbin/setjoinctl
 install -o root -g root -m 0644 \
   "$ROOT/mailserver/deploy/generated/unit-catalog.sh" /usr/local/lib/setjoin/unit-catalog.sh
-install -m 0755 "$ROOT/authserver/authserverd"  "$INSTALL_DIR/authserverd"
-install -m 0755 "$ROOT/server-rust/mailctl"          "$INSTALL_DIR/mailctl"
-install -m 0755 "$GATEWAY_SOURCE" "$INSTALL_DIR/setjoin-gateway"
+install -m 0755 "$ROOT/server-rust/mailctl" "$INSTALL_DIR/mailctl"
+install -m 0755 "$SERVER_SOURCE" "$INSTALL_DIR/setjoin-server"
 install -m 0755 "$AUTH_SOURCE" "$INSTALL_DIR/setjoin-auth"
 if [ "$MEET_CAPTIONS_ENABLED" = "true" ]; then
   mkdir -p "$INSTALL_DIR/bin"
@@ -1707,7 +1695,7 @@ chown root:root "$INSTALL_DIR"
 chown setjoin:setjoin "$DATA_DIR"
 chown -R setjoin:setjoin "$DATA_DIR"
 install -d -o setjoin -g setjoin -m 0750 /run/setjoin
-for managed_path in mailserverd authserverd mailctl setjoin-auth setjoin-gateway webmail bin; do
+for managed_path in mailctl setjoin-auth setjoin-server webmail bin; do
   [ ! -e "$INSTALL_DIR/$managed_path" ] || chown -R setjoin:setjoin "$INSTALL_DIR/$managed_path"
 done
 # CONFIG_DIR itself is the root-controlled ANCESTOR of the privileged DB
@@ -1780,7 +1768,8 @@ install_release_roots "$ROOT/server-rust/release-roots.json" "$CONFIG_DIR/releas
   --install-root "$INSTALL_DIR" \
   --config-file "$CONFIG_ENV" \
   --quarantine-dir "$UPDATER_DATA_DIR/legacy-prev" >/dev/null \
-  || die "could not adopt the immutable release layout; a complete mailserverd/authserverd/mailctl/setjoin-auth/setjoin-gateway/webmail cohort is required."
+  || die "could not adopt the immutable release layout; a complete setjoin-server/setjoin-auth/mailctl/webmail cohort is required."
+[ -x "$RUNTIME_DIR/setjoin-server" ] || die "the active release ($RUNTIME_DIR) has no setjoin-server; stage a release with setjoin-server before starting setjoin-gateway.service."
 [ -x "$RUNTIME_DIR/setjoin-auth" ] || die "the active release ($RUNTIME_DIR) has no setjoin-auth; stage a release with setjoin-auth before switching setjoin-auth.service."
 # Repair installations created by the short-lived U2 preview whose restrictive
 # config umask made this root 0700. Release cohorts remain immutable 0555; only
@@ -1831,7 +1820,7 @@ if command -v systemctl >/dev/null 2>&1; then
   done
   systemctl enable "${SETJOIN_DEFAULT_ENABLE[@]}" >/dev/null 2>&1 || true
   /usr/local/sbin/setjoinctl restart
-  info "Services 'setjoin-valkey', 'setjoin-sfu', 'setjoin-egress', 'setjoin-auth', 'setjoin', the 'setjoin-gateway' front door, and the gated 'setjoin-updater' observer enabled and (re)started."
+  info "Services 'setjoin-valkey', 'setjoin-sfu', 'setjoin-egress', 'setjoin-auth', 'setjoin-gateway' (setjoin-server), and the gated 'setjoin-updater' observer enabled and (re)started."
   if [ "$MEET_CAPTIONS_ENABLED" = "true" ]; then
     systemctl enable "${SETJOIN_OPTIONAL_START_ORDER[@]}" >/dev/null 2>&1 || true
     info "Services 'setjoin-funasr' and 'setjoin-asr-bot' enabled and (re)started."
@@ -1948,8 +1937,7 @@ else
   # `set -a` passes the values through the environment, which the kernel scopes
   # to the process owner (same as a systemd EnvironmentFile).
   info "  sudo bash -c 'set -a; . $CONFIG_ENV; . $AUTH_ENV; exec setpriv --reuid=setjoin --regid=setjoin --init-groups $INSTALL_DIR/setjoin-auth'"
-  info "  sudo -u setjoin bash -c 'set -a; . $CONFIG_ENV; . $DB_CRED_FILE; exec $INSTALL_DIR/mailserverd'"
-  info "  sudo -u setjoin bash -c 'set -a; . $GATEWAY_ENV; exec $INSTALL_DIR/setjoin-gateway'"
+  info "  sudo -u setjoin bash -c 'set -a; . $GATEWAY_ENV; exec $INSTALL_DIR/setjoin-server'"
 fi
 
 # ── Firewall + TURN guidance (Meet B1 Task 14, spike §6.5-§6.7) ─────────────
@@ -1993,35 +1981,33 @@ say "Health check"
 LOCAL_BASE="https://127.0.0.1${LISTEN_ADDR}"
 health_body="$(curl -sk --max-time 5 "$LOCAL_BASE/health" || true)"
 if printf '%s' "$health_body" | grep -q .; then
-  info "Gateway healthy at $LOCAL_BASE/health"
+  info "Server healthy at $LOCAL_BASE/health"
 else
-  info "WARN: health check did not respond yet — check: journalctl -u setjoin -f"
+  info "WARN: health check did not respond yet — check: journalctl -u setjoin-gateway -f"
 fi
-# Confirm the gateway actually picked up the LIVEKIT_* env (a wiring check,
+# Confirm the server actually picked up the LIVEKIT_* env (a wiring check,
 # not a feature-toggle check — feature.meet ships seeded OFF, so this only
 # proves the sidecar config took, not that it's in active use). Meet B1 Task
 # 14, spike §6.8: a mis-keyed/dead SFU must be loud at install time.
 if printf '%s' "$health_body" | grep -q '"sfu"'; then
-  info "Gateway /health reports the sfu component — LIVEKIT_* config was picked up."
+  info "Server /health reports the sfu component — LIVEKIT_* config was picked up."
 else
-  info "WARN: gateway /health has no 'sfu' component — restart if this persists: systemctl restart setjoin"
+  info "WARN: server /health has no 'sfu' component — restart if this persists: systemctl restart setjoin-gateway"
 fi
-# Meet B2: same wiring check for the egress component (registered only when
-# meetCfg.Configured() && meetCfg.EgressEnabled — main.go).
+# Meet B2: same wiring check for the egress component.
 if printf '%s' "$health_body" | grep -q '"egress"'; then
-  info "Gateway /health reports the egress component — MEET_EGRESS_ENABLED config was picked up."
+  info "Server /health reports the egress component — MEET_EGRESS_ENABLED config was picked up."
 else
-  info "WARN: gateway /health has no 'egress' component — restart if this persists: systemctl restart setjoin"
+  info "WARN: server /health has no 'egress' component — restart if this persists: systemctl restart setjoin-gateway"
 fi
-# Meet B3 (Task 16): same wiring check for the asr component (registered
-# only when meetCfg.ASRURL != "" — main.go), and ONLY when this OPTIONAL
-# leg was actually enabled — an unconditional check here would WARN on
-# every install that correctly never wired ASR_URL at all.
+# Meet B3 (Task 16): same wiring check for the asr component, and ONLY when
+# this OPTIONAL leg was actually enabled — an unconditional check here would
+# WARN on every install that correctly never wired ASR_URL at all.
 if [ "$MEET_CAPTIONS_ENABLED" = "true" ]; then
   if printf '%s' "$health_body" | grep -q '"asr"'; then
-    info "Gateway /health reports the asr component — ASR_URL config was picked up."
+    info "Server /health reports the asr component — ASR_URL config was picked up."
   else
-    info "WARN: gateway /health has no 'asr' component — restart if this persists: systemctl restart setjoin"
+    info "WARN: server /health has no 'asr' component — restart if this persists: systemctl restart setjoin-gateway"
   fi
 fi
 
@@ -2037,7 +2023,7 @@ if [ "$MEET_CAPTIONS_ENABLED" = "true" ]; then
 fi
 
 # Pillar C1 Task 9: same one-line summary genre, no unit/log line — federation
-# runs inside the 'setjoin' gateway process itself (journalctl -u setjoin
+# runs inside the setjoin-gateway server process itself (journalctl -u setjoin-gateway
 # already covers it).
 FEDERATION_SUMMARY_LINE="  Federation:  not enabled (re-run and answer yes to the FEDERATION_ENABLED prompt to add it)"
 if [ "$FEDERATION_ENABLED" = "true" ]; then
@@ -2067,8 +2053,8 @@ cat <<DONE
               curl --unix-socket /run/setjoin/control.sock \\
                 -H "X-Setup-Token: <token>" http://setjoin-control/setup/preflight …)
   Health:    https://$HOSTNAME/health
-  Front door: setjoin-gateway terminates HTTPS on :443; loopback HTTP is $GATEWAY_LISTEN.
-             Unported shapes use the existing Go upstream http://127.0.0.1:80.
+  Front door: setjoin-server (unit setjoin-gateway.service) terminates HTTPS on :443;
+             loopback HTTP is $GATEWAY_LISTEN.
              Settings: $GATEWAY_ENV and $TLS_ENV. Recovery restores a complete release.
   Config:    $CONFIG_ENV   (mode 0600 — back this up; it holds your app-tier secrets)
   DB creds:  $DB_CRED_FILE (mode 0600 root:root — privileged DB tiers; back this up too)
@@ -2079,8 +2065,7 @@ cat <<DONE
 $CAPTIONS_SUMMARY_LINE
 $FEDERATION_SUMMARY_LINE
 $PGPOOL_SUMMARY_LINE
-  Logs:      journalctl -u setjoin -f          (gateway)
-             journalctl -u setjoin-gateway -f  (Rust front door)
+  Logs:      journalctl -u setjoin-gateway -f  (Rust server — setjoin-server)
              journalctl -u setjoin-auth -f     (auth server — login/MFA/SSO)
              journalctl -u setjoin-sfu -f      (Meet SFU — LiveKit)
              journalctl -u setjoin-valkey -f   (Meet bus — SFU<->Egress)

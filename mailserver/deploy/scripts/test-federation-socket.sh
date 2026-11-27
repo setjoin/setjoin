@@ -48,7 +48,8 @@ GO_WORKERS_OFF=federation-service,federation-residue-reap
 RUST_WORKERS_ON=federation-residue-reap
 ENV
 diff -u "$tmp/expected.env" "$tmp/federation.env"
-test "$(stat -c '%a' "$tmp/federation.env")" = 640
+mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
+test "$(mode_of "$tmp/federation.env")" = 640
 # Production installation pins root ownership and the runtime read group.
 grep -Fq 'render_federation_env "$FEDERATION_ENV" "$CONFIG_ENV" "$DB_CRED_FILE"' "$ROOT/mailserver/deploy/scripts/install.sh"
 grep -Fq 'chown root:setjoin "$FEDERATION_ENV"' "$ROOT/mailserver/deploy/scripts/install.sh"

@@ -330,7 +330,7 @@ setjoinctl status                       # every installed Setjoin unit
 setjoinctl restart                      # dependency-safe stop/start order
 setjoinctl stop                         # updater first, then public/core services
 setjoinctl start                        # dependencies before auth/gateway/updater
-journalctl -u setjoin -f                # gateway logs
+journalctl -u setjoin-gateway -f        # server/gateway logs
 journalctl -u setjoin-auth -f           # auth server logs (login/MFA/SSO)
 journalctl -u setjoin-sfu -f            # Meet SFU logs (LiveKit)
 journalctl -u setjoin-valkey -f         # Meet bus logs (Valkey — SFU<->Egress)
@@ -367,7 +367,7 @@ is a separate OFF-gated workflow; see
   it with the recovery set: every backup manifest is signed with this key and a
   backup-enabled service refuses startup when the key is missing, linked, or has
   unsafe permissions.
-- **User management:** `mailctl` (see `mailctl/AGENTS.md`) — `mailctl user
+- **User management:** `mailctl` (see `server-rust/AGENTS.md`) — `mailctl user
   create|list|delete`, `mailctl domain add`, etc.
 - **Re-running the installer** is safe: it preserves config, secrets, TLS, and
   the database. Use `--force` only to deliberately re-prompt / rotate (it asks

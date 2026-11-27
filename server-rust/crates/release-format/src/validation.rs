@@ -165,6 +165,7 @@ impl Manifest {
         );
         let mut seen = HashSet::new();
         let mut fixed = HashSet::new();
+        let mut classes = HashSet::new();
         let mut core = HashSet::new();
         let mut previous = "";
         for a in artifacts {
@@ -198,11 +199,13 @@ impl Manifest {
                 "provenance" => "release_provenance",
                 "sidecar" => "compatible_sidecar",
                 "setjoin-gateway" => "core_setjoin_gateway",
+                "setjoin-server" => "core_setjoin_server",
                 "setjoin-auth" => "core_setjoin_auth",
                 _ => "",
             };
             // Go's missing map key is the empty string, including for unknown classes.
             ensure!(a.target == target, "artifact has invalid class/target pair");
+            classes.insert(a.class.as_str());
             if a.target != "core_migrations" && a.target != "compatible_sidecar" {
                 ensure!(fixed.insert(&a.target), "artifacts share fixed target");
             }
@@ -219,8 +222,22 @@ impl Manifest {
                 "sidecar artifact must declare core compatibility"
             );
         }
+        ensure!(
+            !(classes.contains("setjoin-server") && classes.contains("setjoin-gateway")),
+            "release mixes setjoin-gateway and setjoin-server"
+        );
+        ensure!(
+            !(classes.contains("setjoin-server")
+                && (classes.contains("mailserverd") || classes.contains("authserverd"))),
+            "release mixes setjoin-server with legacy Go binaries"
+        );
         if !core.is_empty() {
-            for c in ["mailserverd", "authserverd", "mailctl", "webmail"] {
+            let required: [&str; 4] = if core.contains("setjoin-server") {
+                ["setjoin-server", "setjoin-auth", "mailctl", "webmail"]
+            } else {
+                ["mailserverd", "authserverd", "mailctl", "webmail"]
+            };
+            for c in required {
                 ensure!(core.contains(c), "core cohort is missing {c}");
             }
         }

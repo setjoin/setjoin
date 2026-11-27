@@ -11,7 +11,7 @@ use std::{
 };
 
 fn base() -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
     c.env_clear().env("GATEWAY_LISTEN", "127.0.0.1:0");
     c
 }
@@ -65,7 +65,7 @@ fn activated(mut command: Command, extra: &[&std::net::TcpListener]) -> Child {
             extra.len()
         ))
         .arg("launcher")
-        .arg(env!("CARGO_BIN_EXE_setjoin-gateway"));
+        .arg(env!("CARGO_BIN_EXE_setjoin-server"));
     unsafe {
         command.pre_exec(move || {
             unsafe extern "C" {

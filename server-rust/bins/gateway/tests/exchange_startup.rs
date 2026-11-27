@@ -168,7 +168,7 @@ async fn bundled_exchange_routes_and_both_kill_switches() -> Result<(), BoxError
                 )?;
             }
             let mut process = Process(
-                Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+                Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
                     .arg0(format!("gofree-mbox3-gateway-{mode}"))
                     .env_clear()
                     .env("GATEWAY_LISTEN", address.to_string())

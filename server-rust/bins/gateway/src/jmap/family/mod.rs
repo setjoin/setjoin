@@ -481,8 +481,7 @@ mod tests {
 
     use super::*;
 
-    const GOLDEN: &str =
-        include_str!("../../../../../../mailserver/internal/jmap/testdata/methods.golden");
+    const GOLDEN: &str = include_str!("../../../data/jmap_methods.golden");
     const INVENTORY: &str = include_str!("../../../route-inventory.json");
 
     fn run_answer<'a>(_: &'a Cx<'a>) -> Reply<'a> {

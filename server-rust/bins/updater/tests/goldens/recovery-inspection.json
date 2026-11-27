@@ -19,8 +19,8 @@
         "database_reconciliation_required": false
       },
       "units": {
-        "setjoin": "active",
         "setjoin-auth": "active",
+        "setjoin-gateway": "active",
         "setjoin-updater": "active"
       }
     }

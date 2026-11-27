@@ -50,7 +50,7 @@ async fn start_configured(
     let file = dir.join("config.yaml");
     // Fixture paths are selected by this operator-owned configuration only.
     std::fs::write(&file, yaml)?;
-    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
     command
         .arg0("gofree-gwconfig-gateway")
         .env_clear()

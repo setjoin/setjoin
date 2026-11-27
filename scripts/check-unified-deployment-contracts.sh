@@ -122,11 +122,13 @@ fi
 if [ -f "$UPGRADE_SCRIPT" ]; then
   bash -n "$UPGRADE_SCRIPT" || report "upgrade.sh is not valid Bash"
   grep -Fq 'NEW_AUTH="${4:-}"' "$UPGRADE_SCRIPT" ||
-    report "upgrade.sh does not accept a matching authserverd"
+    report "upgrade.sh does not accept a matching setjoin-auth"
   grep -Fq 'systemctl stop setjoin-auth' "$UPGRADE_SCRIPT" ||
-    report "upgrade.sh does not stop authserverd for a supplied binary"
-  grep -Fq 'authserverd.prev' "$UPGRADE_SCRIPT" ||
-    report "upgrade.sh does not retain an authserver rollback binary"
+    report "upgrade.sh does not stop setjoin-auth for a supplied binary"
+  grep -Fq 'setjoin-auth.prev' "$UPGRADE_SCRIPT" ||
+    report "upgrade.sh does not retain a setjoin-auth rollback binary"
+  grep -Fq 'setjoin-server.prev' "$UPGRADE_SCRIPT" ||
+    report "upgrade.sh does not retain a setjoin-server rollback binary"
   grep -Fq 'AUTH_HEALTHY=0' "$UPGRADE_SCRIPT" ||
     report "upgrade.sh does not fail closed on authserver health"
   grep -Fq 'for attempt in $(seq 1 30)' "$UPGRADE_SCRIPT" ||

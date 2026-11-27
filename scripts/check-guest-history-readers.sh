@@ -47,30 +47,8 @@ chat_poll_close mailserver/sql/reducers/chat_poll.sql
 chat_poll_results mailserver/sql/reducers/chat_poll.sql
 MANIFEST
 
-while read -r marker gofunc path; do
-  count=$((count + 1))
-  file="$ROOT/$path"
-  if [ ! -f "$file" ]; then
-    echo "GUEST-HISTORY: $marker owner file is missing: $path"
-    fail=1
-    continue
-  fi
-  if ! grep -qE "^func (\\([^)]*\\) )?${gofunc}\\(" "$file"; then
-    echo "GUEST-HISTORY: $gofunc is absent from its manifested owner $path"
-    fail=1
-  fi
-  if ! grep -q "GUEST_HISTORY_FLOOR: $marker" "$file"; then
-    echo "GUEST-HISTORY: $marker lost its history-floor marker in $path"
-    fail=1
-  fi
-done <<'GO_MANIFEST'
-drive_attachment_content chatAttachmentLiveSQL mailserver/internal/drive/memberscope.go
-drive_attachment_metadata chatAttachmentNodeVisibleSQL mailserver/internal/drive/memberscope.go
-drive_chunk_head headChunk mailserver/internal/drive/chunks.go
-GO_MANIFEST
-
-if [ "$count" -ne 21 ]; then
-  echo "GUEST-HISTORY: manifest cardinality drifted (got $count, want 21)"
+if [ "$count" -ne 18 ]; then
+  echo "GUEST-HISTORY: manifest cardinality drifted (got $count, want 18)"
   fail=1
 fi
 

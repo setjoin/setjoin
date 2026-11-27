@@ -118,7 +118,7 @@ async fn bundled_migration_is_native_where_ported_and_both_kill_switches_forward
                 )?;
             }
             let mut process = Process(
-                Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+                Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
                     .arg0(format!("gofree-mbox7-gateway-{mode}"))
                     .env_clear()
                     .env("GATEWAY_LISTEN", address.to_string())

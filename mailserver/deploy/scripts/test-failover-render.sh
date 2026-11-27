@@ -14,14 +14,11 @@ set -euo pipefail
 #      StrictHostKeyChecking=yes with BOTH known-hosts stores pinned to the
 #      pre-provisioned /etc/pgpool2/known_hosts, BatchMode=yes so no prompt
 #      can hang the unattended failover, ConnectTimeout retained, and both
-#      promote branches log failure and exit nonzero;
-#   4. the wizard-embedded pgpool config delegates failover to the same strict
-#      /etc/pgpool2/failover.sh and never inlines its own ssh command.
+#      promote branches log failure and exit nonzero.
 # See D-MAILSERVER-DEPLOY-002 (med-deploy-ssh-host-identity-b1r2-002).
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 TEMPLATE="$ROOT/mailserver/deploy/failover.sh.template"
-WIZARD="$ROOT/mailserver/internal/deploy/wizard.go"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -89,28 +86,6 @@ require 'local failure logged' 'Promote FAILED'
 require 'remote failure logged' 'Remote promote FAILED'
 if [ "$(grep -c 'exit 1' "$executable")" -lt 2 ]; then
   echo "failover template render: both promote branches must exit nonzero" >&2
-  exit 1
-fi
-
-# 4. Wizard-embedded pgpool config stays on the identical policy: it delegates
-#    failover to the strict script and inlines no ssh command of its own. The
-#    check is scoped to the pgpoolConfigTemplate variable: the wizard also
-#    embeds the failover script itself (wizardFailoverScript — the strict
-#    policy owner it installs, pinned byte-identical to this template by
-#    TestWizardFailoverScript_MatchesShippedTemplate), which legitimately
-#    contains the ssh invocation.
-if ! grep -Fq "failover_command = '/etc/pgpool2/failover.sh %d %P %H %R'" "$WIZARD"; then
-  echo "failover template render: wizard.go failover_command no longer delegates to /etc/pgpool2/failover.sh" >&2
-  exit 1
-fi
-sed -n '/^var pgpoolConfigTemplate = /,/^`$/p' "$WIZARD" >"$tmp/wizard-pgpool-template.txt"
-if ! grep -q '^var pgpoolConfigTemplate' "$tmp/wizard-pgpool-template.txt"; then
-  echo "failover template render: could not extract pgpoolConfigTemplate from $WIZARD" >&2
-  exit 1
-fi
-if grep -Eq 'ssh |StrictHostKeyChecking' "$tmp/wizard-pgpool-template.txt"; then
-  echo "failover template render: pgpoolConfigTemplate embeds an ssh command or host-key override; policy must live in /etc/pgpool2/failover.sh" >&2
-  grep -nE 'ssh |StrictHostKeyChecking' "$tmp/wizard-pgpool-template.txt" >&2 || true
   exit 1
 fi
 

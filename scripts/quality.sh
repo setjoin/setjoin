@@ -12,7 +12,7 @@ Usage: bash scripts/quality.sh <list|doctor|fast|full|security>
 
   list      Print the fixed language/tool catalog.
   doctor    Report required tool availability; no scans.
-  fast      Blocking local checks: Go/Web/Electron/Rust/Shell/Python/PowerShell syntax.
+  fast      Blocking local checks: Web/Electron/Rust/Shell/Python/PowerShell syntax.
   full      fast plus Rust Clippy and platform-owned checks when on that platform.
   security  Existing dependency, secret and workflow authorities.
 EOF
@@ -133,11 +133,9 @@ run_database_static_guards() {
   local name guard companion
   local -a names=(
     check-account-scope
-    check-gateway-ownership
     check-reducer-error-codes
     check-rls-coverage
     check-rls-scope-wrap
-    check-sql-injection
   )
   for name in "${names[@]}"; do
     guard="$ROOT/scripts/$name.sh"
@@ -153,7 +151,6 @@ run_database_static_guards() {
 
 run_fast() {
   bash "$ROOT/scripts/lint.sh"
-  bash "$ROOT/scripts/check-errcheck-ratchet.sh"
   echo "==> Rust formatting"
   (cd "$ROOT/clients" && cargo fmt --all -- --check)
   cargo fmt --manifest-path "$ROOT/clients/desktop/src-tauri/Cargo.toml" --all -- --check
@@ -198,7 +195,7 @@ run_security() {
 doctor() {
   local tool
   echo "Blocking tools"
-  for tool in go golangci-lint node npm cargo shellcheck python3 jq; do
+  for tool in node npm cargo shellcheck python3 jq; do
     report_tool "$tool"
   done
   bash "$ROOT/scripts/check-quality-tool-versions.sh"

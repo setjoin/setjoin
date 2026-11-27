@@ -53,10 +53,10 @@ def verify_unbindable_socket(binary):
         name = directory.name
         units = (f"{name}.service", f"{name}.socket", f"{name}-federation.socket")
         print(f"Owned optional-socket resources: {directory}, {units}; removed on exit", flush=True)
-        executable = directory / "setjoin-gateway"
+        executable = directory / "setjoin-server"
         shutil.copyfile(binary, executable)
         executable.chmod(0o755)
-        (directory / "gateway.env").write_text("GATEWAY_AUTH_UPSTREAM=http://127.0.0.1:9\n")
+        (directory / "gateway.env").write_text("GATEWAY_RUST_AUTH_UPSTREAM=http://127.0.0.1:9\n")
         (directory / "federation.env").write_text(
             "FEDERATION_LOCAL_DOMAIN=zulu.test\n"
             f"FEDERATION_CERT={ORACLE}/certs/zulu.crt\nFEDERATION_KEY={ORACLE}/certs/zulu.key\n"
@@ -84,8 +84,8 @@ def verify_unbindable_socket(binary):
                     text = (directory / original).read_text()
                     text = text.replace("setjoin-gateway.service", units[0]).replace("setjoin-gateway.socket", units[1])
                     text = text.replace("setjoin-federation.socket", units[2])
-                    text = text.replace(" setjoin.service setjoin-auth.service", "")
-                    text = text.replace("Wants=setjoin.service setjoin-auth.service\n", "")
+                    text = text.replace(" setjoin-auth.service", "")
+                    text = text.replace("Wants=setjoin-auth.service\n", "")
                     text = text.replace("User=setjoin", "User=nobody").replace("Group=setjoin", "Group=nogroup")
                     destination = Path("/run/systemd/system") / target
                     assert not destination.exists(), destination
@@ -142,7 +142,7 @@ def verify(binary):
         environment = directory / "runtime.env"
         environment.write_text(
             f"DB_DSN={dsn}\nDB_DIRECT_DSN={dsn}\n"
-            "GATEWAY_AUTH_UPSTREAM=http://127.0.0.1:9\nGATEWAY_LISTEN=127.0.0.1:0\n"
+            "GATEWAY_RUST_AUTH_UPSTREAM=http://127.0.0.1:9\nGATEWAY_LISTEN=127.0.0.1:0\n"
             "WORM_MODE=\nGO_WORKERS_OFF=federation-service\nFEDERATION_LOCAL_DOMAIN=zulu.test\n"
             f"FEDERATION_CERT={directory}/zulu.crt\nFEDERATION_KEY={directory}/zulu.key\n"
         )

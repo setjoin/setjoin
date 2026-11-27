@@ -250,40 +250,6 @@ render_egress_unit() {
 # {{GROUP|setjoin}} tokens exist in the templates so a future override is a
 # one-line sed change, not a template rewrite.
 
-# render_mailserver_unit TEMPLATE OUTFILE — substitute placeholders in
-# mailserver.service.template. Reads INSTALL_DIR / DATA_DIR / CONFIG_ENV /
-# DB_CREDENTIALS_FILE (the privileged-DB-tier EnvironmentFile, DEPLOY-004);
-# RUNTIME_DIR defaults to INSTALL_DIR/current.
-# (all required — fail loud if unset, same posture as every other render_*
-# function here).
-render_mailserver_unit() {
-  local template="$1" outfile="$2"
-  [ -n "${INSTALL_DIR:-}" ] || { echo "render_mailserver_unit: INSTALL_DIR is required" >&2; return 1; }
-  [ -n "${DATA_DIR:-}" ] || { echo "render_mailserver_unit: DATA_DIR is required" >&2; return 1; }
-  [ -n "${CONFIG_ENV:-}" ] || { echo "render_mailserver_unit: CONFIG_ENV is required" >&2; return 1; }
-  # Privileged DB credential file (DEPLOY-004 split) — required: an empty
-  # substitution would render "EnvironmentFile=" (a systemd parse error at
-  # boot) instead of failing the render loud.
-  [ -n "${DB_CREDENTIALS_FILE:-}" ] || { echo "render_mailserver_unit: DB_CREDENTIALS_FILE is required" >&2; return 1; }
-
-  local runtime_dir="${RUNTIME_DIR:-${INSTALL_DIR}/current}"
-
-  sed \
-    -e "s#{{RUNTIME_DIR}}#${runtime_dir}#g" \
-    -e "s#{{DATA_DIR}}#${DATA_DIR}#g" \
-    -e "s#{{CONFIG_ENV}}#${CONFIG_ENV}#g" \
-    -e "s#{{DB_CREDENTIALS_FILE}}#${DB_CREDENTIALS_FILE}#g" \
-    -e "s#{{USER|setjoin}}#setjoin#" \
-    -e "s#{{GROUP|setjoin}}#setjoin#" \
-    "$template" > "$outfile"
-
-  if grep -q '{{' "$outfile"; then
-    rm -f "$outfile"
-    echo "render_mailserver_unit: unresolved {{...}} placeholder(s) remain in $outfile — template/render drift, refusing to write a broken config" >&2
-    return 1
-  fi
-}
-
 strip_env_quotes() {
   local v="${1:-}"
   case "$v" in

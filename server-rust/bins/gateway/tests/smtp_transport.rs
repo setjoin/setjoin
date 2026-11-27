@@ -140,7 +140,7 @@ async fn production_worker_rejects_a_missing_authoritative_feature_registry() {
         .unwrap();
     let result = std::panic::AssertUnwindSafe(async {
         let mut child = Owned(
-            Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+            Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
                 .arg0("gofree-smtp4-missing-feature-registry")
                 .env_clear()
                 .env("GATEWAY_LISTEN", "127.0.0.1:0")

@@ -142,3 +142,84 @@ fn canonical_timestamps_reject_leap_seconds_like_go() {
     m["published_at"] = "2026-07-31T23:59:60Z".into();
     assert!(Manifest::parse(&serde_json::to_vec(&m).unwrap()).is_err());
 }
+
+#[test]
+fn rust_only_core_cohort_is_accepted_and_mixed_cohorts_are_rejected() {
+    let (bytes, _, _) = fixture();
+    let original: Value = serde_json::from_slice(&bytes).unwrap();
+    let sample_artifact = original["artifacts"][0].clone();
+    let make_core = |id: &str, class: &str, target: &str| {
+        let mut a = sample_artifact.clone();
+        a["id"] = id.into();
+        a["class"] = class.into();
+        a["target"] = target.into();
+        a["cohort"] = "core".into();
+        a["media_type"] = "application/octet-stream".into();
+        a
+    };
+    let rebuild = |extra: Vec<Value>, drop_classes: &[&str]| {
+        let mut m = original.clone();
+        let mut artifacts: Vec<Value> = m["artifacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|a| !drop_classes.contains(&a["class"].as_str().unwrap()))
+            .cloned()
+            .collect();
+        artifacts.extend(extra);
+        artifacts.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+        m["artifacts"] = Value::Array(artifacts);
+        m
+    };
+
+    // Valid post-#142 Rust-only cohort: setjoin-server + setjoin-auth + mailctl + webmail.
+    let rust_only = rebuild(
+        vec![
+            make_core("setjoin-auth", "setjoin-auth", "core_setjoin_auth"),
+            make_core("setjoin-server", "setjoin-server", "core_setjoin_server"),
+        ],
+        &["mailserverd", "authserverd", "setjoin-gateway"],
+    );
+    Manifest::parse(&serde_json::to_vec(&rust_only).unwrap()).expect("rust-only cohort valid");
+
+    // Missing setjoin-auth in Rust-only cohort is rejected.
+    let missing_auth = rebuild(
+        vec![make_core(
+            "setjoin-server",
+            "setjoin-server",
+            "core_setjoin_server",
+        )],
+        &["mailserverd", "authserverd", "setjoin-gateway"],
+    );
+    let err = Manifest::parse(&serde_json::to_vec(&missing_auth).unwrap())
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("core cohort is missing setjoin-auth"), "{err}");
+
+    // Mixed setjoin-gateway + setjoin-server is rejected.
+    let mixed_gateway = rebuild(
+        vec![
+            make_core("setjoin-auth", "setjoin-auth", "core_setjoin_auth"),
+            make_core("setjoin-gateway", "setjoin-gateway", "core_setjoin_gateway"),
+            make_core("setjoin-server", "setjoin-server", "core_setjoin_server"),
+        ],
+        &["mailserverd", "authserverd"],
+    );
+    let err = Manifest::parse(&serde_json::to_vec(&mixed_gateway).unwrap())
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("mixes setjoin-gateway and setjoin-server"), "{err}");
+
+    // Mixed setjoin-server + legacy Go mailserverd / authserverd is rejected.
+    let mixed_go = rebuild(
+        vec![
+            make_core("setjoin-auth", "setjoin-auth", "core_setjoin_auth"),
+            make_core("setjoin-server", "setjoin-server", "core_setjoin_server"),
+        ],
+        &["authserverd"],
+    );
+    let err = Manifest::parse(&serde_json::to_vec(&mixed_go).unwrap())
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("mixes setjoin-server with legacy Go"), "{err}");
+}

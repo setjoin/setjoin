@@ -31,7 +31,7 @@ fn executable_rejects_unqualified_routes_in_a_custom_inventory() {
     let data = r#"{"version":1,"routes":[{"listener":"gateway","method":"GET","path":"/unqualified","family":"F16","slice":"routes","upstream":"local-rust","state":"ON"}]}"#;
     std::fs::write(&path.0, data).unwrap();
     let mut process = Process(
-        Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
             .env_clear()
             .env("GATEWAY_LISTEN", "127.0.0.1:0")
             .env("GATEWAY_ROUTE_INVENTORY", &path.0)
@@ -86,7 +86,7 @@ async fn executable_accepts_qualified_custom_inventory_and_rejects_go_rollback()
         let addr = reserved.local_addr().unwrap();
         drop(reserved);
         let mut process = Process(
-            Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+            Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
                 .env_clear()
                 .env("GATEWAY_LISTEN", addr.to_string())
                 .env("GATEWAY_ROUTE_INVENTORY", &path.0)
@@ -138,7 +138,7 @@ async fn executable_accepts_qualified_custom_inventory_and_rejects_go_rollback()
 
 #[test]
 fn executable_prints_version_without_configuration() {
-    let output = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+    let output = Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
         .env_clear()
         .arg("--version")
         .output()
@@ -146,7 +146,7 @@ fn executable_prints_version_without_configuration() {
     assert!(output.status.success(), "{:?}", output);
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        format!("setjoin-gateway {}\n", env!("CARGO_PKG_VERSION"))
+        format!("setjoin-server {}\n", env!("CARGO_PKG_VERSION"))
     );
 }
 
@@ -155,7 +155,7 @@ async fn executable_defaults_on_rejects_kill_switch_and_upgrades_legacy_auth_env
     let legacy = fake_upstream(|_| async { Response::new(full("legacy auth")) }).await;
     let native = fake_upstream(|_| async { Response::new(full("rust auth")) }).await;
     // GATEWAY_ENABLED=false is rejected with a clear error.
-    let output = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+    let output = Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
         .env_clear()
         .env("GATEWAY_LISTEN", "127.0.0.1:0")
         .env("GATEWAY_ENABLED", "false")
@@ -176,7 +176,7 @@ async fn executable_defaults_on_rejects_kill_switch_and_upgrades_legacy_auth_env
         let reserved = setjoin_conformance::ports::listener().await;
         let addr = reserved.local_addr().unwrap();
         drop(reserved);
-        let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
         command
             .env_clear()
             .env("GATEWAY_LISTEN", addr.to_string())
@@ -227,7 +227,7 @@ async fn executable_enforces_core_budget_without_go_upstreams() {
     let addr = reserved.local_addr().unwrap();
     drop(reserved);
     let mut process = Process(
-        Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
             .env_clear()
             .env("GATEWAY_LISTEN", addr.to_string())
             .env("CORE_RATE_LIMIT", "0")
@@ -264,7 +264,7 @@ async fn executable_honors_route_budget_overrides_on_the_served_paths() {
     let reserved = setjoin_conformance::ports::listener().await;
     let addr = reserved.local_addr().unwrap();
     drop(reserved);
-    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
     command
         .env_clear()
         .env("GATEWAY_LISTEN", addr.to_string())
@@ -334,7 +334,7 @@ async fn scim_rate_budget_only_applies_when_scim_is_enabled() {
         let addr = reserved.local_addr().unwrap();
         drop(reserved);
         let mut process = Process(
-            Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+            Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
                 .env_clear()
                 .env("GATEWAY_LISTEN", addr.to_string())
                 .env("SCIM_ENABLED", enabled.to_string())
@@ -383,7 +383,7 @@ async fn executable_starts_the_transferred_worker_using_its_direct_connection() 
     let reserved = setjoin_conformance::ports::listener().await;
     let addr = reserved.local_addr().unwrap();
     drop(reserved);
-    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
     command
         .arg0(format!("{prefix}-gateway"))
         .env_clear()
@@ -437,7 +437,7 @@ async fn activated_listener_keeps_connections_queued_across_restart() {
             .arg("-c")
             .arg("export LISTEN_PID=$$ LISTEN_FDS=1; exec -a gofree-t13-gateway \"$1\"")
             .arg("gofree-t13-launcher")
-            .arg(env!("CARGO_BIN_EXE_setjoin-gateway"))
+            .arg(env!("CARGO_BIN_EXE_setjoin-server"))
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         // The child inherits the listener as descriptor 3, as systemd specifies.
@@ -495,7 +495,7 @@ fn activation_rejects_missing_listener_and_multiple_descriptors() {
             .arg("-c")
             .arg("export LISTEN_PID=$$; exec -a gofree-t13-gateway \"$1\"")
             .arg("gofree-t13-launcher")
-            .arg(env!("CARGO_BIN_EXE_setjoin-gateway"))
+            .arg(env!("CARGO_BIN_EXE_setjoin-server"))
             .output()
             .unwrap();
         assert!(!output.status.success(), "LISTEN_FDS={count}");
@@ -529,7 +529,7 @@ async fn sigterm_drains_an_in_flight_http_response() {
     let addr = reserved.local_addr().unwrap();
     drop(reserved);
     let mut process = Process(
-        Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
             .arg0("gofree-t13-gateway")
             .env_clear()
             .env("GATEWAY_LISTEN", addr.to_string())
@@ -592,7 +592,7 @@ async fn activation_for_another_pid_does_not_replace_configured_listener() {
     let addr = reserved.local_addr().unwrap();
     drop(reserved);
     let mut process = Process(
-        Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
             .arg0("gofree-t13-gateway")
             .env_clear()
             .env("LISTEN_PID", "0")

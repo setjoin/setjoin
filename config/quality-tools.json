@@ -1,7 +1,6 @@
 {
   "schemaVersion": 1,
   "languages": [
-    {"id":"go","authored":true,"extensions":["go"],"owner":"go-modules","runner":"ubuntu+macos","fast":["gofmt","golangci-lint"],"security":["gosec-mailserver","govulncheck"]},
     {"id":"postgresql","authored":true,"extensions":["sql","pg"],"owner":"database","runner":"ubuntu-postgresql","full":["project-structural-guards","schema-load","pgtap"]},
     {"id":"web","authored":true,"extensions":["ts","js","mjs","mts","svelte","css"],"owner":"webmail+electron","runner":"macos+ubuntu","fast":["typescript","svelte-check","eslint","stylelint","biome-electron"],"security":["npm-audit"]},
     {"id":"rust","authored":true,"extensions":["rs"],"owner":"clients","runner":"macos+ubuntu","fast":["rustfmt"],"full":["clippy"],"security":["cargo-audit"]},
@@ -13,8 +12,6 @@
     {"id":"generated-mobile","authored":false,"extensions":["swift","kt","java"],"owner":"tauri-generators","runner":"macos+ubuntu-android","full":["xcode-build","android-lint"],"note":"No tracked authored Swift/Kotlin/Java; lint generated products only in their platform lane."}
   ],
   "tools": [
-    {"id":"golangci-lint","license":"GPL-3.0","status":"blocking","offline":true},
-    {"id":"govulncheck","license":"BSD-3-Clause","status":"blocking","offline":"mirror-vulndb"},
     {"id":"eslint","license":"MIT","status":"blocking","offline":"npm-lock"},
     {"id":"stylelint","license":"MIT","status":"blocking","offline":"npm-lock"},
     {"id":"biome-electron","license":"MIT OR Apache-2.0","status":"blocking","offline":"npm-lock"},

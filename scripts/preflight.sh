@@ -60,13 +60,10 @@ echo "==> Preflight: toolchain + services for the setjoin test suite"
 echo ""
 echo "  Toolchain:"
 
-# Required Go (read the floor from go.mod so the hint never drifts).
-GO_REQ="$(grep -m1 '^go ' "$ROOT/mailserver/go.mod" 2>/dev/null | awk '{print $2}')"
-GO_REQ="${GO_REQ:-1.26}"
-if command -v go >/dev/null 2>&1; then
-  ok "go ($(go version | awk '{print $3}')) — go.mod requires go${GO_REQ}"
+if command -v cargo >/dev/null 2>&1; then
+  ok "cargo ($(cargo --version | awk '{print $2}'))"
 else
-  err "go not found — install Go ${GO_REQ}+ from https://go.dev/dl/"
+  err "cargo not found — install Rust via https://rustup.rs"
 fi
 
 if command -v node >/dev/null 2>&1; then
@@ -99,17 +96,6 @@ if command -v weed >/dev/null 2>&1; then
   ok "weed (SeaweedFS) — present (needed only for the live dev server)"
 else
   warn "weed (SeaweedFS) not found — fine for tests; needed for scripts/setup-test-env.sh (https://github.com/seaweedfs/seaweedfs/releases)"
-fi
-
-# libopus is asrbot's (B3 Task 12) ONE native dependency (delta 5/9's cgo
-# containment — no other module needs it). Informational only: build.sh/
-# test.sh/lint.sh's own `pkg-config --exists opus` guard already skips
-# asrbot LOUDLY when it's missing, so a missing libopus here is a WARN, not
-# a FAIL — the rest of the suite runs fine without it.
-if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists opus 2>/dev/null; then
-  ok "libopus (pkg-config opus) — present, asrbot will build"
-else
-  warn "libopus not found — asrbot (the Meet captions bot) will be SKIPPED by build.sh/test.sh/lint.sh. Install: brew install pkg-config opus / apt install pkg-config libopus-dev"
 fi
 
 if $TOOLS_ONLY; then

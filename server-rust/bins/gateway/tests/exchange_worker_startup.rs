@@ -17,7 +17,7 @@ fn gateway(
     go_off: &str,
     extra: &[(&str, &str)],
 ) -> std::io::Result<crate::common::boot::Child> {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
     command
         .arg0("gofree-mbox3-worker-startup")
         .env_clear()

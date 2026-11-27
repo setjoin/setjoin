@@ -468,7 +468,7 @@ fn protected(r: &Request<Body>) -> bool {
         .strip_prefix("/api/")
         .map(|s| format!("/{s}"))
         .unwrap_or_else(|| r.uri().path().to_owned());
-    include_str!("../../../../mailserver/cmd/mailserverd/testdata/route_inventory.golden")
+    include_str!("../data/route_inventory.golden")
         .lines()
         .filter_map(|line| line.split_once('\t'))
         .any(|(pattern, chain)| {

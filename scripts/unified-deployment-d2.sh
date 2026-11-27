@@ -95,12 +95,12 @@ BACKUP_SECRET_KEY=$SECRET_KEY
 EOF
 chmod 0600 "\$tmp"
 mv "\$tmp" "\$cfg"
-systemctl restart setjoin
+systemctl restart setjoin-gateway
 for _ in \$(seq 1 30); do
   curl -skf --max-time 3 https://127.0.0.1/ready >/dev/null && exit 0
   sleep 1
 done
-journalctl -u setjoin --no-pager -n 120 >&2
+journalctl -u setjoin-gateway --no-pager -n 120 >&2
 exit 1
 INNER
 }
@@ -307,7 +307,7 @@ source /etc/setjoin/config.env
 set +a
 printf 'resolved_operator_user='
 psql "\$DB_DIRECT_OWNER_DSN" -Atc 'SELECT current_user'
-/root/setjoin/mailctl/mailctl backup-db \
+/root/setjoin/server-rust/mailctl backup-db \
   --provider s3 \
   --endpoint http://127.0.0.1:9000 \
   --region us-east-1 \
@@ -326,7 +326,7 @@ cd /root/setjoin
 set -a
 source /etc/setjoin/config.env
 set +a
-/root/setjoin/mailctl/mailctl backup-db \
+/root/setjoin/server-rust/mailctl backup-db \
   --dsn "\$DB_DSN" \
   --provider s3 \
   --endpoint http://127.0.0.1:9000 \
@@ -390,7 +390,7 @@ reset_b_to_setup_mode() {
 set -Eeuo pipefail
 cd /root/setjoin
 source /etc/setjoin/config.env
-systemctl stop setjoin setjoin-auth
+systemctl stop setjoin-gateway setjoin-auth
 su postgres -c 'dropdb --if-exists --force mailserver'
 su postgres -c 'createdb -O mail mailserver'
 
@@ -421,7 +421,7 @@ cp /etc/setjoin/tls/server.pem /usr/local/share/ca-certificates/setjoin-d2-b.crt
 update-ca-certificates >/dev/null
 grep -qE '(^|[[:space:]])mail[.]example[.]com([[:space:]]|$)' /etc/hosts ||
   printf '127.0.0.1 mail.example.com\n' >>/etc/hosts
-systemctl start setjoin-auth setjoin
+systemctl start setjoin-auth setjoin-gateway
 for _ in $(seq 1 30); do
   curl -sf --max-time 3 https://mail.example.com/ready >/dev/null && break
   sleep 1
@@ -450,8 +450,8 @@ common=(
   --secret-key '$SECRET_KEY'
   --type full
 )
-/root/setjoin/mailctl/mailctl restore "\${common[@]}" --dry-run
-/root/setjoin/mailctl/mailctl restore "\${common[@]}" --yes
+/root/setjoin/server-rust/mailctl restore "\${common[@]}" --dry-run
+/root/setjoin/server-rust/mailctl restore "\${common[@]}" --yes
 INNER
 }
 
@@ -521,7 +521,7 @@ INNER
   docker exec -i "$B" bash -s >"$EVIDENCE_DIR/restored-runtime.txt" <<'INNER'
 set -Eeuo pipefail
 started_at="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-systemctl restart setjoin-auth setjoin
+systemctl restart setjoin-auth setjoin-gateway
 for _ in $(seq 1 30); do
   curl -skf --max-time 3 https://127.0.0.1/ready >/dev/null && break
   sleep 1
@@ -533,7 +533,7 @@ login_resp="$(curl -sk --max-time 10 -X POST https://127.0.0.1/auth/login \
 printf '%s' "$login_resp" |
   grep -Eq '"access_token":"|"status":"mfa_enrollment_required"|"mfa_required":true'
 sleep 6
-if journalctl -u setjoin -u setjoin-auth --since "$started_at" --no-pager |
+if journalctl -u setjoin-gateway -u setjoin-auth --since "$started_at" --no-pager |
    grep -Eq 'permission denied for (function|materialized view)|decryption failed'; then
   echo "restored runtime emitted a worker-ownership or secret-decryption error" >&2
   exit 1
@@ -552,7 +552,7 @@ orig=/etc/setjoin/config.env.pre-d2-rls-rollback
 cp -a "$cfg" "$orig"
 restore() {
   cp -a "$orig" "$cfg"
-  systemctl restart setjoin
+  systemctl restart setjoin-gateway
   for _ in $(seq 1 30); do
     curl -skf --max-time 3 https://127.0.0.1/ready >/dev/null && return 0
     sleep 1
@@ -571,7 +571,7 @@ awk -v owner="$owner" '
 ' "$cfg" >"$tmp"
 chmod 0600 "$tmp"
 mv "$tmp" "$cfg"
-systemctl restart setjoin
+systemctl restart setjoin-gateway
 for _ in $(seq 1 30); do
   curl -skf --max-time 3 https://127.0.0.1/ready >/dev/null && break
   sleep 1

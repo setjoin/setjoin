@@ -365,7 +365,7 @@ async fn executable_installs_native_push_and_the_same_presence_registry() -> Res
             use std::io::Write;
             writeln!(std::fs::OpenOptions::new().create(true).append(true).open(path)?,"Planned owned gofree-jmap4-gateway-test process, address {address}, assigned DB only; Drop kills/reaps")?;
         }
-        let mut command=std::process::Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+        let mut command=std::process::Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
         command.arg0("gofree-jmap4-gateway-test").env_clear()
             .env("GATEWAY_LISTEN",address.to_string()).env("GATEWAY_AUTH_UPSTREAM",format!("http://{keys}"))
             .env("AUTHSERVER_JWKS_URL",format!("http://{keys}/jwks")).env("DB_DSN",db.app.as_deref().unwrap_or(&db.dsn))

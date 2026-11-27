@@ -1,15 +1,14 @@
 #!/bin/bash
 set -euo pipefail
-# Setjoin gateway/auth upgrade.
-# Usage: ./upgrade.sh /path/to/new/mailserverd [/path/to/new/mailctl] [/path/to/webmail-build] [/path/to/new/authserverd]
+# Setjoin server/auth upgrade (Rust-only post-#142; also supports one-time
+# cutover from a pre-#142 host with setjoin-gateway and optional setjoin.service).
+# Usage: ./upgrade.sh /path/to/new/setjoin-server [/path/to/new/mailctl] [/path/to/webmail-build] [/path/to/new/setjoin-auth]
 #
-# The new gateway REFUSES TO START if the database schema is behind the version
-# it ships (mailserverd embeds the V<NNN>__*.sql forward migrations). So this
-# script applies any pending DB schema migrations BEFORE starting the new binary.
-# It applies them with a MATCHING mailctl (same build) — pass the new mailctl as
-# arg 2, or have a matching `mailctl` on PATH — so the applied set equals what the
-# new gateway expects (a stale mailctl would apply the wrong set). If no matching
-# mailctl is available it only CHECKS and warns; the gateway's refuse-to-start +
+# The new server REFUSES TO START if the database schema is behind the version
+# it expects. So this script applies any pending DB schema migrations BEFORE
+# starting the new binary, using a MATCHING Rust mailctl (same build) — pass the
+# new mailctl as arg 2, or have a matching `mailctl` on PATH. If no matching
+# mailctl is available it only CHECKS and warns; the server's refuse-to-start +
 # the health-check rollback below are the backstop.
 
 INSTALL_DIR="${INSTALL_DIR:-/opt/setjoin}"
@@ -31,26 +30,20 @@ if [ -L "$INSTALL_DIR/current" ]; then
     esac
 fi
 
-NEW_BIN=""
+NEW_SERVER=""
 NEW_MAILCTL=""
 NEW_WEBMAIL=""
 NEW_AUTH=""
-# The Rust front door (#264): replaced, backed up as setjoin-gateway.prev and
-# restored on rollback exactly like the Go binaries.
-NEW_GATEWAY=""
 if [ "$REFRESH_GATEWAY_ENV" = 0 ]; then
-    NEW_BIN="${1:-}"
+    NEW_SERVER="${1:-}"
     NEW_MAILCTL="${2:-}"
     NEW_WEBMAIL="${3:-}"
     NEW_AUTH="${4:-}"
-    NEW_GATEWAY="${5:-}"
-    if [ ! -f "$NEW_BIN" ]; then
-        echo "Usage: $0 /path/to/new/mailserverd [/path/to/new/mailctl] [/path/to/webmail-build] [/path/to/new/authserverd] [/path/to/new/setjoin-gateway]"
-        echo "  1. Build: cd mailserver && go build -o mailserverd ./cmd/mailserverd"
-        echo "           cd authserver && go build -o authserverd ./cmd/authserverd"
-        echo "           cd server-rust && cargo build --release --locked -p setjoin-mailctl   — Rust schema CLI"
-        echo "  2. Deploy: scp mailserverd authserverd mailctl user@host:/tmp/ && \\"
-        echo "             ssh user@host 'sudo /opt/setjoin/deploy/scripts/upgrade.sh /tmp/mailserverd /tmp/mailctl /tmp/webmail-build /tmp/authserverd'"
+    if [ ! -f "$NEW_SERVER" ]; then
+        echo "Usage: $0 /path/to/new/setjoin-server [/path/to/new/mailctl] [/path/to/webmail-build] [/path/to/new/setjoin-auth]"
+        echo "  1. Build: cd server-rust && cargo build --release --locked -p setjoin-gateway -p setjoin-auth -p setjoin-mailctl"
+        echo "  2. Deploy: scp setjoin-server setjoin-auth mailctl user@host:/tmp/ && \\"
+        echo "             ssh user@host 'sudo /opt/setjoin/deploy/scripts/upgrade.sh /tmp/setjoin-server /tmp/mailctl /tmp/webmail-build /tmp/setjoin-auth'"
         exit 1
     fi
     if [ -n "$NEW_WEBMAIL" ] && [ ! -f "$NEW_WEBMAIL/index.html" ]; then
@@ -58,11 +51,7 @@ if [ "$REFRESH_GATEWAY_ENV" = 0 ]; then
         exit 1
     fi
     if [ -n "$NEW_AUTH" ] && [ ! -f "$NEW_AUTH" ]; then
-        echo "Authserver binary does not exist: $NEW_AUTH"
-        exit 1
-    fi
-    if [ -n "$NEW_GATEWAY" ] && [ ! -f "$NEW_GATEWAY" ]; then
-        echo "Gateway binary does not exist: $NEW_GATEWAY"
+        echo "Auth binary does not exist: $NEW_AUTH"
         exit 1
     fi
 fi
@@ -90,11 +79,21 @@ backup_gateway_deployment() {
     [ ! -L "$DEPLOYMENT_PREV" ] || return 1
     rm -rf "$DEPLOYMENT_PREV"
     ( umask 077; mkdir -p "$DEPLOYMENT_PREV/units" "$DEPLOYMENT_PREV/config" )
-    for file in setjoin-auth.service setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+    for file in setjoin.service setjoin-auth.service setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         if [ -e "$SYSTEMD_DIR/$file" ] || [ -L "$SYSTEMD_DIR/$file" ]; then
             cp -a "$SYSTEMD_DIR/$file" "$DEPLOYMENT_PREV/units/"
         fi
     done
+    local legacy_go_unit="setjoin"
+    if [ -e "$SYSTEMD_DIR/${legacy_go_unit}.service" ] || [ -L "$SYSTEMD_DIR/${legacy_go_unit}.service" ]; then
+        systemctl is-active --quiet "${legacy_go_unit}.service" && touch "$DEPLOYMENT_PREV/setjoin.service-active" || true
+        if state="$(systemctl is-enabled "${legacy_go_unit}.service" 2>/dev/null)"; then
+            case "$state" in
+                enabled-runtime) printf 'enabled-runtime\n' > "$DEPLOYMENT_PREV/setjoin.service-enabled" ;;
+                enabled|'') printf 'enabled\n' > "$DEPLOYMENT_PREV/setjoin.service-enabled" ;;
+            esac
+        fi
+    fi
     for file in config.env auth.env gateway.env federation.env tls.env smtp.env storage.env; do
         if [ -e "${CONFIG_ENV%/*}/$file" ]; then
             cp -a "${CONFIG_ENV%/*}/$file" "$DEPLOYMENT_PREV/config/"
@@ -261,7 +260,7 @@ PY
 }
 restore_gateway_files_only() {
     local file rc=0
-    for file in setjoin-auth.service setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+    for file in setjoin.service setjoin-auth.service setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         rm -f "$SYSTEMD_DIR/$file" || rc=1
         if [ -e "$DEPLOYMENT_PREV/units/$file" ] || [ -L "$DEPLOYMENT_PREV/units/$file" ]; then
             cp -a "$DEPLOYMENT_PREV/units/$file" "$SYSTEMD_DIR/" || rc=1
@@ -332,6 +331,7 @@ restore_gateway_deployment() {
     done
     restore_socket_enabled_state setjoin-federation.socket "$DEPLOYMENT_PREV/socket-enabled" || rc=1
     if [ -f "$DEPLOYMENT_PREV/socket-active" ]; then systemctl start setjoin-federation.socket || rc=1; fi
+    restore_socket_enabled_state setjoin.service "$DEPLOYMENT_PREV/setjoin.service-enabled" || rc=1
     return "$rc"
 }
 
@@ -515,22 +515,33 @@ if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
     exit 0
 fi
 
-if [ -n "$NEW_GATEWAY" ] || [ -n "$NEW_AUTH" ]; then
-    backup_gateway_deployment
-fi
+backup_gateway_deployment
 
-echo "=== Mailserver Upgrade ==="
-echo "1. Stopping gateway..."
-if [ -n "$NEW_GATEWAY" ]; then
-    # Stop the front door before changing its upstreams or descriptor set.
-    systemctl stop setjoin-gateway
-    systemctl stop setjoin-federation.socket || true
-    for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
-        systemctl stop "$file" || true
-        systemctl disable "$file" || true
-    done
+LEGACY_SETJOIN_PRESENT=0
+HAD_SERVER=0
+HAD_LEGACY_GATEWAY=0
+HAD_LEGACY_MAILSERVER=0
+HAD_MAILCTL=0
+HAD_AUTH=0
+HAD_LEGACY_AUTHSERVER=0
+
+echo "=== Setjoin Server Upgrade ==="
+echo "1. Stopping services..."
+# Stop the front door before changing its upstreams or descriptor set.
+systemctl stop setjoin-gateway
+systemctl stop setjoin-federation.socket || true
+for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+    systemctl stop "$file" || true
+    systemctl disable "$file" || true
+done
+LEGACY_GO_UNIT="setjoin"
+if [ -e "$SYSTEMD_DIR/${LEGACY_GO_UNIT}.service" ] || [ -L "$SYSTEMD_DIR/${LEGACY_GO_UNIT}.service" ]; then
+    # Pre-#142 cutover: retire legacy Go unit (backed up in $DEPLOYMENT_PREV/units/).
+    LEGACY_SETJOIN_PRESENT=1
+    systemctl stop "$LEGACY_GO_UNIT" || true
+    systemctl disable "$LEGACY_GO_UNIT" || true
+    rm -f "$SYSTEMD_DIR/${LEGACY_GO_UNIT}.service"
 fi
-systemctl stop setjoin
 if [ -n "$NEW_AUTH" ]; then
     if systemctl is-active --quiet setjoin-auth; then
         AUTH_WAS_ACTIVE=1
@@ -539,16 +550,29 @@ if [ -n "$NEW_AUTH" ]; then
 fi
 
 echo "2. Backing up current binaries..."
-cp "$INSTALL_DIR/mailserverd" "$INSTALL_DIR/mailserverd.prev"
-[ -f "$INSTALL_DIR/mailctl" ] && cp "$INSTALL_DIR/mailctl" "$INSTALL_DIR/mailctl.prev" || true
-if [ -n "$NEW_AUTH" ] && [ -f "$INSTALL_DIR/authserverd" ]; then
-    cp "$INSTALL_DIR/authserverd" "$INSTALL_DIR/authserverd.prev"
+if [ -f "$INSTALL_DIR/setjoin-server" ]; then
+    HAD_SERVER=1
+    cp "$INSTALL_DIR/setjoin-server" "$INSTALL_DIR/setjoin-server.prev"
+fi
+if [ -f "$INSTALL_DIR/setjoin-gateway" ]; then
+    HAD_LEGACY_GATEWAY=1
+    cp "$INSTALL_DIR/setjoin-gateway" "$INSTALL_DIR/setjoin-gateway.prev"
+fi
+if [ -f "$INSTALL_DIR/mailserverd" ]; then
+    HAD_LEGACY_MAILSERVER=1
+    cp "$INSTALL_DIR/mailserverd" "$INSTALL_DIR/mailserverd.prev"
+fi
+if [ -f "$INSTALL_DIR/mailctl" ]; then
+    HAD_MAILCTL=1
+    cp "$INSTALL_DIR/mailctl" "$INSTALL_DIR/mailctl.prev"
 fi
 if [ -n "$NEW_AUTH" ] && [ -f "$INSTALL_DIR/setjoin-auth" ]; then
+    HAD_AUTH=1
     cp "$INSTALL_DIR/setjoin-auth" "$INSTALL_DIR/setjoin-auth.prev"
 fi
-if [ -n "$NEW_GATEWAY" ] && [ -f "$INSTALL_DIR/setjoin-gateway" ]; then
-    cp "$INSTALL_DIR/setjoin-gateway" "$INSTALL_DIR/setjoin-gateway.prev"
+if [ -n "$NEW_AUTH" ] && [ -f "$INSTALL_DIR/authserverd" ]; then
+    HAD_LEGACY_AUTHSERVER=1
+    cp "$INSTALL_DIR/authserverd" "$INSTALL_DIR/authserverd.prev"
 fi
 if [ -n "$NEW_WEBMAIL" ] && [ -d "$INSTALL_DIR/webmail" ]; then
     HAD_WEBMAIL=1
@@ -557,26 +581,27 @@ if [ -n "$NEW_WEBMAIL" ] && [ -d "$INSTALL_DIR/webmail" ]; then
 fi
 
 echo "3. Installing new binary..."
-cp "$NEW_BIN" "$INSTALL_DIR/mailserverd"
-chmod 755 "$INSTALL_DIR/mailserverd"
-chown setjoin:setjoin "$INSTALL_DIR/mailserverd"
+cp "$NEW_SERVER" "$INSTALL_DIR/setjoin-server"
+chmod 755 "$INSTALL_DIR/setjoin-server"
+chown setjoin:setjoin "$INSTALL_DIR/setjoin-server"
+if [ "$HAD_LEGACY_GATEWAY" = "1" ]; then
+    rm -f "$INSTALL_DIR/setjoin-gateway"
+fi
+if [ "$HAD_LEGACY_MAILSERVER" = "1" ]; then
+    rm -f "$INSTALL_DIR/mailserverd"
+fi
 if [ -n "$NEW_MAILCTL" ] && [ -f "$NEW_MAILCTL" ]; then
     cp "$NEW_MAILCTL" "$INSTALL_DIR/mailctl"
     chmod 755 "$INSTALL_DIR/mailctl"
     chown setjoin:setjoin "$INSTALL_DIR/mailctl"
 fi
 if [ -n "$NEW_AUTH" ]; then
-    cp "$NEW_AUTH" "$INSTALL_DIR/authserverd"
-    chmod 755 "$INSTALL_DIR/authserverd"
-    chown setjoin:setjoin "$INSTALL_DIR/authserverd"
     cp "$NEW_AUTH" "$INSTALL_DIR/setjoin-auth"
     chmod 755 "$INSTALL_DIR/setjoin-auth"
     chown setjoin:setjoin "$INSTALL_DIR/setjoin-auth"
-fi
-if [ -n "$NEW_GATEWAY" ]; then
-    cp "$NEW_GATEWAY" "$INSTALL_DIR/setjoin-gateway"
-    chmod 755 "$INSTALL_DIR/setjoin-gateway"
-    chown setjoin:setjoin "$INSTALL_DIR/setjoin-gateway"
+    if [ "$HAD_LEGACY_AUTHSERVER" = "1" ]; then
+        rm -f "$INSTALL_DIR/authserverd"
+    fi
 fi
 if [ -n "$NEW_WEBMAIL" ]; then
     rm -rf "$INSTALL_DIR/webmail.new"
@@ -587,25 +612,34 @@ if [ -n "$NEW_WEBMAIL" ]; then
     mv "$INSTALL_DIR/webmail.new" "$INSTALL_DIR/webmail"
 fi
 
-# roll_back_and_exit — restore the previous binaries, restart, and exit non-zero.
-# Used when a pre-start step fails so the service is never left DOWN (it was
-# stopped at step 1). The previous binary works against the un-migrated schema.
+# roll_back_and_exit — restore the previous binaries, units, and config, restart,
+# and exit non-zero. Used when a pre-start step or readiness check fails so the
+# service is never left DOWN (it was stopped at step 1).
 roll_back_and_exit() {
     echo "   Rolling back to the previous version and restarting..."
-    cp "$INSTALL_DIR/mailserverd.prev" "$INSTALL_DIR/mailserverd"
-    [ -f "$INSTALL_DIR/mailctl.prev" ] && cp "$INSTALL_DIR/mailctl.prev" "$INSTALL_DIR/mailctl" || true
-    if [ -n "$NEW_AUTH" ] && [ -f "$INSTALL_DIR/authserverd.prev" ]; then
-        cp "$INSTALL_DIR/authserverd.prev" "$INSTALL_DIR/authserverd"
+    if [ "$HAD_SERVER" = "1" ] && [ -f "$INSTALL_DIR/setjoin-server.prev" ]; then
+        cp "$INSTALL_DIR/setjoin-server.prev" "$INSTALL_DIR/setjoin-server"
+    else
+        rm -f "$INSTALL_DIR/setjoin-server"
+    fi
+    if [ "$HAD_LEGACY_GATEWAY" = "1" ] && [ -f "$INSTALL_DIR/setjoin-gateway.prev" ]; then
+        cp "$INSTALL_DIR/setjoin-gateway.prev" "$INSTALL_DIR/setjoin-gateway"
+    fi
+    if [ "$HAD_LEGACY_MAILSERVER" = "1" ] && [ -f "$INSTALL_DIR/mailserverd.prev" ]; then
+        cp "$INSTALL_DIR/mailserverd.prev" "$INSTALL_DIR/mailserverd"
+    fi
+    if [ "$HAD_MAILCTL" = "1" ] && [ -f "$INSTALL_DIR/mailctl.prev" ]; then
+        cp "$INSTALL_DIR/mailctl.prev" "$INSTALL_DIR/mailctl"
     fi
     if [ -n "$NEW_AUTH" ]; then
-        if [ -f "$INSTALL_DIR/setjoin-auth.prev" ]; then
+        if [ "$HAD_AUTH" = "1" ] && [ -f "$INSTALL_DIR/setjoin-auth.prev" ]; then
             cp "$INSTALL_DIR/setjoin-auth.prev" "$INSTALL_DIR/setjoin-auth"
         else
             rm -f "$INSTALL_DIR/setjoin-auth"
         fi
-    fi
-    if [ -n "$NEW_GATEWAY" ] && [ -f "$INSTALL_DIR/setjoin-gateway.prev" ]; then
-        cp "$INSTALL_DIR/setjoin-gateway.prev" "$INSTALL_DIR/setjoin-gateway"
+        if [ "$HAD_LEGACY_AUTHSERVER" = "1" ] && [ -f "$INSTALL_DIR/authserverd.prev" ]; then
+            cp "$INSTALL_DIR/authserverd.prev" "$INSTALL_DIR/authserverd"
+        fi
     fi
     if [ -n "$NEW_WEBMAIL" ]; then
         rm -rf "$INSTALL_DIR/webmail"
@@ -614,18 +648,14 @@ roll_back_and_exit() {
         fi
     fi
     local restore_rc=0
-    if [ -n "$NEW_GATEWAY" ]; then
-        restore_gateway_deployment || restore_rc=$?
-    elif [ -n "$NEW_AUTH" ]; then
-        restore_gateway_files_only || restore_rc=$?
-    fi
+    restore_gateway_deployment || restore_rc=$?
     if [ "$AUTH_WAS_ACTIVE" = "1" ]; then
         systemctl start setjoin-auth || restore_rc=1
     fi
-    systemctl start setjoin || restore_rc=1
-    if [ -n "$NEW_GATEWAY" ]; then
-        systemctl start setjoin-gateway || restore_rc=1
+    if [ "$LEGACY_SETJOIN_PRESENT" = "1" ] && [ -f "$DEPLOYMENT_PREV/setjoin.service-active" ]; then
+        systemctl start "$LEGACY_GO_UNIT" || restore_rc=1
     fi
+    systemctl start setjoin-gateway || restore_rc=1
     if [ "$restore_rc" != 0 ]; then
         echo "   ✗ Incomplete rollback: failed to restore one or more deployment files, sockets, or services; inspect systemd units before retrying." >&2
     else
@@ -741,34 +771,19 @@ else
     echo "     gateway will refuse to start; apply with: mailctl schema apply"
 fi
 
-# Render only with the new gateway: an old binary cannot consume the new FD.
-if [ -n "$NEW_GATEWAY" ]; then
-    if ! render_gateway_deployment; then
-        echo "   ✗ gateway unit/config render failed."
-        roll_back_and_exit
-    fi
-elif [ -n "$NEW_AUTH" ]; then
-    if ! render_auth_deployment; then
-        echo "   ✗ auth unit/config render failed."
-        roll_back_and_exit
-    fi
+# Render only with the new server: an old binary cannot consume the new FD.
+if ! render_gateway_deployment; then
+    echo "   ✗ gateway unit/config render failed."
+    roll_back_and_exit
 fi
 
 echo "4. Starting services..."
 if [ "$AUTH_WAS_ACTIVE" = "1" ]; then
     systemctl start setjoin-auth || roll_back_and_exit
 fi
-systemctl start setjoin || roll_back_and_exit
-if [ -n "$NEW_GATEWAY" ]; then
-    systemctl start setjoin-gateway || roll_back_and_exit
-fi
+systemctl start setjoin-gateway || roll_back_and_exit
 
 echo "5. Waiting for service readiness (up to 60 seconds)..."
-# Probe the real HTTPS listener (self-signed OK): in the default single-node
-# install :80 only serves a 301 redirect, which `curl -f` counts as success —
-# the old http://localhost:80/ready check passed even with a dead gateway
-# (found by the G1 upgrade smoke, 2026-07-04). Fall back to :80 for
-# http.mode=serve/proxy installs with no TLS listener.
 LISTEN_ADDR_CFG="$(grep -E '^LISTEN_ADDR=' "$CONFIG_ENV" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
 LISTEN_ADDR_CFG="${LISTEN_ADDR_CFG:-:443}"
 AUTH_LISTEN_ADDR="$(grep -E '^LISTEN_ADDR=' "$AUTH_ENV" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
@@ -777,9 +792,9 @@ GATEWAY_ADDR="$(config_value "$GATEWAY_ENV" GATEWAY_LISTEN)"
 GATEWAY_ADDR="${GATEWAY_ADDR:-127.0.0.1:8090}"
 TLS_PROBE_URL=""
 PRIMARY_READY_URL="https://127.0.0.1${LISTEN_ADDR_CFG}/ready"
-if [ -n "$NEW_GATEWAY" ] && tls_front_enabled "$CONFIG_ENV"; then
+if tls_front_enabled "$CONFIG_ENV"; then
     TLS_PROBE_URL=$(tls_front_probe_url "$CONFIG_ENV")
-    PRIMARY_READY_URL=http://127.0.0.1:80/ready
+    PRIMARY_READY_URL="http://${GATEWAY_ADDR}/ready"
 fi
 READY=0
 for attempt in $(seq 1 30); do
@@ -789,15 +804,13 @@ for attempt in $(seq 1 30); do
             AUTH_HEALTHY=0
     fi
     GATEWAY_HEALTHY=1
-    if [ -n "$NEW_GATEWAY" ]; then
-        curl -sf --max-time 3 "http://${GATEWAY_ADDR}/_gateway/healthz" >/dev/null ||
-            GATEWAY_HEALTHY=0
-    fi
+    curl -sf --max-time 3 "http://${GATEWAY_ADDR}/_gateway/healthz" >/dev/null ||
+        GATEWAY_HEALTHY=0
     if [ -n "$TLS_PROBE_URL" ]; then
         curl -skf --max-time 3 "$TLS_PROBE_URL" >/dev/null || GATEWAY_HEALTHY=0
     fi
     if { curl -skf --max-time 3 "$PRIMARY_READY_URL" >/dev/null ||
-         curl -sf --max-time 3 http://localhost:80/ready >/dev/null; } &&
+         curl -sf --max-time 3 "http://${GATEWAY_ADDR}/ready" >/dev/null; } &&
        [ "$AUTH_HEALTHY" = "1" ] && [ "$GATEWAY_HEALTHY" = "1" ]; then
         READY=1
         echo "   Services ready after ${attempt} attempt(s)."

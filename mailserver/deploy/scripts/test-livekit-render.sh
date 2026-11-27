@@ -49,7 +49,7 @@ FUNASR_UNIT_TMPL="$SCRIPT_DIR/../setjoin-funasr.service.template"
 ASRBOT_ENV_TMPL="$SCRIPT_DIR/../asrbot.env.template"
 # Arch review #A11: the 4 units that used to be bespoke-sed-rewritten by
 # install.sh, now on the same render seam as everything else above.
-MAILSERVER_UNIT_TMPL="$SCRIPT_DIR/../mailserver.service.template"
+GATEWAY_UNIT_TMPL="$SCRIPT_DIR/../setjoin-gateway.service.template"
 AUTHSERVER_UNIT_TMPL="$SCRIPT_DIR/../authserver.service.template"
 SFU_UNIT_TMPL="$SCRIPT_DIR/../setjoin-sfu.service.template"
 VALKEY_UNIT_TMPL="$SCRIPT_DIR/../setjoin-valkey.service.template"
@@ -370,43 +370,36 @@ else
   printf 'ok   - %s\n' "setjoin-asr-bot.service: no dead StartLimitBurst under [Service]"
 fi
 
-# ── Case 13: render_mailserver_unit (arch review #A11 — converges the
-#    bespoke sed-rewritten mailserver.service onto this seam) ──────────────
+# ── Case 13: render_gateway_unit (Rust setjoin-server, unit setjoin-gateway.service) ──
 export INSTALL_DIR="/opt/setjoin"
 export DATA_DIR="/var/lib/setjoin"
 export CONFIG_ENV="/etc/setjoin/config.env"
-# Privileged DB credential file (DEPLOY-004 split) — required renderer input.
-export DB_CREDENTIALS_FILE="/etc/setjoin/db-credentials.d/db-credentials.env"
-render_mailserver_unit "$MAILSERVER_UNIT_TMPL" "$WORK/mailserver.service"
-assert_contains "$WORK/mailserver.service" "WorkingDirectory=/opt/setjoin/current" "mailserver unit points at immutable current (WorkingDirectory)"
-assert_contains "$WORK/mailserver.service" "ExecStart=/opt/setjoin/current/mailserverd" "mailserver unit points at immutable current (ExecStart)"
-assert_contains "$WORK/mailserver.service" "ReadWritePaths=/var/lib/setjoin /tmp" "mailserver unit exposes only mutable data paths"
-assert_contains "$WORK/mailserver.service" "EnvironmentFile=/etc/setjoin/config.env" "mailserver unit substitutes CONFIG_ENV (EnvironmentFile)"
-assert_contains "$WORK/mailserver.service" "EnvironmentFile=/etc/setjoin/db-credentials.d/db-credentials.env" "mailserver unit substitutes DB_CREDENTIALS_FILE (privileged-DSN split)"
-assert_contains "$WORK/mailserver.service" "Environment=CONFIG_PATH=/etc/setjoin/config.env" "mailserver unit substitutes CONFIG_ENV (CONFIG_PATH)"
-assert_contains "$WORK/mailserver.service" "Environment=WEBSITE_DIR=/opt/setjoin/current/webmail" "mailserver unit points webmail at immutable current"
-assert_contains "$WORK/mailserver.service" "User=setjoin" "mailserver unit defaults USER to setjoin"
-assert_contains "$WORK/mailserver.service" "Group=setjoin" "mailserver unit defaults GROUP to setjoin"
-assert_not_contains "$WORK/mailserver.service" "{{" "no leftover {{...}} placeholders (mailserver.service)"
-assert_unit_section_has_startlimit "$WORK/mailserver.service" "mailserver.service: StartLimit* lives in [Unit] (rendered)"
-# Order-sensitivity (DEPLOY-004): the credential file is read AFTER config.env.
-_ms_cfg_line="$(grep -n '^EnvironmentFile=/etc/setjoin/config.env$' "$WORK/mailserver.service" | cut -d: -f1)"
-_ms_cred_line="$(grep -n '^EnvironmentFile=/etc/setjoin/db-credentials.d/db-credentials.env$' "$WORK/mailserver.service" | cut -d: -f1)"
-if [ -n "$_ms_cfg_line" ] && [ -n "$_ms_cred_line" ] && [ "$_ms_cfg_line" -lt "$_ms_cred_line" ]; then
-  printf 'ok   - %s\n' "mailserver unit: credential file's EnvironmentFile follows config.env's (later wins)"
-else
-  printf 'FAIL - %s (cfg_line=%s cred_line=%s)\n' "mailserver unit: credential file's EnvironmentFile follows config.env's" "$_ms_cfg_line" "$_ms_cred_line"
+export GATEWAY_ENV="/etc/setjoin/gateway.env"
+render_gateway_unit "$GATEWAY_UNIT_TMPL" "$WORK/setjoin-gateway.service"
+assert_contains "$WORK/setjoin-gateway.service" "ExecStart=/opt/setjoin/current/setjoin-server" "gateway unit runs Rust setjoin-server from immutable current"
+assert_contains "$WORK/setjoin-gateway.service" "ConditionPathExists=/opt/setjoin/current/setjoin-server" "gateway unit guards on setjoin-server"
+assert_contains "$WORK/setjoin-gateway.socket" "ConditionPathExists=/opt/setjoin/current/setjoin-server" "gateway socket guards on setjoin-server"
+assert_contains "$WORK/setjoin-gateway.service" "EnvironmentFile=/etc/setjoin/gateway.env" "gateway unit substitutes GATEWAY_ENV"
+if grep -Eq '^EnvironmentFile=.*(config\.env|db-credentials\.env)$' "$WORK/setjoin-gateway.service"; then
+  printf 'FAIL - %s\n' "gateway unit must never load broad config.env or db-credentials.env"
   fail=1
+else
+  printf 'ok   - %s\n' "gateway unit never loads broad config.env or db-credentials.env"
 fi
+assert_not_contains "$WORK/setjoin-gateway.service" "setjoin.service" "gateway unit does not depend on retired Go setjoin.service"
+assert_contains "$WORK/setjoin-gateway.service" "User=setjoin" "gateway unit defaults USER to setjoin"
+assert_contains "$WORK/setjoin-gateway.service" "Group=setjoin" "gateway unit defaults GROUP to setjoin"
+assert_not_contains "$WORK/setjoin-gateway.service" "{{" "no leftover {{...}} placeholders (setjoin-gateway.service)"
+assert_unit_section_has_startlimit "$WORK/setjoin-gateway.service" "setjoin-gateway.service: StartLimit* lives in [Unit] (rendered)"
 
-for _var in INSTALL_DIR DATA_DIR CONFIG_ENV DB_CREDENTIALS_FILE; do
+for _var in INSTALL_DIR GATEWAY_ENV; do
   _saved="$(eval "echo \${$_var}")"
   unset "$_var"
-  if render_mailserver_unit "$MAILSERVER_UNIT_TMPL" "$WORK/should-not-exist-11-$_var.service" 2>"$WORK/err11-$_var.txt"; then
-    printf 'FAIL - %s\n' "render_mailserver_unit must fail when $_var is unset"
+  if render_gateway_unit "$GATEWAY_UNIT_TMPL" "$WORK/should-not-exist-11-$_var.service" 2>"$WORK/err11-$_var.txt"; then
+    printf 'FAIL - %s\n' "render_gateway_unit must fail when $_var is unset"
     fail=1
   else
-    printf 'ok   - %s\n' "render_mailserver_unit fails loud on missing $_var"
+    printf 'ok   - %s\n' "render_gateway_unit fails loud on missing $_var"
   fi
   export "$_var=$_saved"
 done

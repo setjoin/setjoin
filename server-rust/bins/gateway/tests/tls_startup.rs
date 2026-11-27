@@ -2,7 +2,7 @@
 use std::process::{Command, Stdio};
 
 fn base() -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
     c.env_clear().env("GATEWAY_LISTEN", "127.0.0.1:0");
     c
 }
@@ -89,7 +89,7 @@ async fn check_https(settings: &[(&str, &str)], warning: Option<&str>) {
     )
     .unwrap();
     let executable = files.0.join(format!("{prefix}-gateway"));
-    std::fs::hard_link(env!("CARGO_BIN_EXE_setjoin-gateway"), &executable).unwrap();
+    std::fs::hard_link(env!("CARGO_BIN_EXE_setjoin-server"), &executable).unwrap();
     let http = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let https = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = https.local_addr().unwrap();
@@ -229,7 +229,7 @@ async fn check_https(settings: &[(&str, &str)], warning: Option<&str>) {
 #[tokio::test]
 async fn invalid_connection_capacity_refuses_startup() {
     for value in ["0", "-1", "many", "18446744073709551615"] {
-        let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+        let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
         command
             .env_clear()
             .env("GATEWAY_LISTEN", "127.0.0.1:0")

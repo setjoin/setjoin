@@ -8,7 +8,7 @@ it either attributes every client to the proxy IP (breaking rate limits, spray
 detection, geo/conditional access and audit attribution) or lets clients spoof
 their identity. Read the semantics section before deploying.
 
-Package contract: `shared/clientip/clientip.go` (registered in `shared/DOX.md`).
+Package contract: Rust `setjoin-server` / `setjoin-auth` client-IP extraction (see `server-rust/AGENTS.md`).
 
 ## What it controls
 

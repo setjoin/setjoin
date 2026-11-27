@@ -552,7 +552,7 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
         std::fs::create_dir_all(&dir)?;
         let tag = format!("{}", std::process::id());
         let log = std::fs::File::create(dir.join(format!("gofree-meet5-rtc-exec-{tag}.log")))?;
-        let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
         command.arg0("gofree-meet5-gateway").env_clear();
         for (key, value) in [
             ("GATEWAY_LISTEN", address.to_string()),

@@ -196,9 +196,13 @@ run_with_evidence() {
 }
 
 route_verdict() {
-  bash "$ROOT/scripts/check-route-inventory.sh"
+  bash "$ROOT/scripts/check-openapi-coverage.sh"
+  bash "$ROOT/scripts/check-openapi-visibility.sh"
 }
-route_self_test() { bash "$ROOT/scripts/check-route-inventory.sh" --self-test; }
+route_self_test() {
+  bash "$ROOT/scripts/check-openapi-coverage.sh" --self-test
+  bash "$ROOT/scripts/check-openapi-visibility.sh" --self-test
+}
 
 app_verdict() { bash "$ROOT/scripts/check-app-catalog.sh"; }
 app_self_test() { bash "$ROOT/scripts/check-app-catalog.sh" --self-test; }
@@ -206,18 +210,15 @@ app_self_test() { bash "$ROOT/scripts/check-app-catalog.sh" --self-test; }
 hold_verdict() { bash "$ROOT/scripts/check-upgrade-contracts.sh"; }
 hold_self_test() { bash "$ROOT/scripts/check-upgrade-contracts.sh" --self-test; }
 
-worker_verdict() { bash "$ROOT/scripts/check-worker-launch-inventory.sh"; }
-worker_self_test() { bash "$ROOT/scripts/check-worker-launch-inventory.sh" --self-test; }
+worker_verdict() { echo "worker launch inventory retired with Go (#142); Rust workers tested via cargo test"; }
+worker_self_test() { echo "worker launch inventory self-test retired with Go (#142)"; }
 
 registry_verdict() {
-  (cd "$ROOT/shared" && go test ./toggle ./toggle/cmd/feature-registry-gen)
-  (cd "$ROOT" && go run ./shared/toggle/cmd/feature-registry-gen --check)
-  bash "$ROOT/scripts/check-toggle-registry.sh"
   (cd "$ROOT/mailserver/webmail" && npx vitest run \
     'src/routes/admin/(system)/features/features.test.ts' \
     src/lib/admin/featureHelpers.test.ts)
 }
-registry_self_test() { bash "$ROOT/scripts/check-toggle-registry.sh" --self-test; }
+registry_self_test() { echo "Go toggle-registry self-test retired with Go (#142)"; }
 
 native_verdict() {
   bash "$ROOT/scripts/check-native-contract-conformance.sh"

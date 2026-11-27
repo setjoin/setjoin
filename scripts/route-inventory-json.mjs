@@ -23,7 +23,7 @@ function loadInventory(filename) {
 }
 
 function pinnedPrefixes(root) {
-  const filename = path.join(root, 'scripts/api-pinned-prefixes.txt');
+  const filename = process.env.API_PINNED_PREFIXES_FILE || path.join(root, 'scripts/api-pinned-prefixes.txt');
   return fs.readFileSync(filename, 'utf8')
     .split(/\r?\n/u)
     .map((line) => line.replace(/[ \t]*#.*$/u, '').trim())

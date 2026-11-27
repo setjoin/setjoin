@@ -34,7 +34,7 @@ fn spawn(
     inventory: &std::path::Path,
     workers: &[(&str, &str)],
 ) -> Result<Process, BoxError> {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
     command
         .arg0(format!("gofree-dirsync7-gateway-{label}"))
         .env_clear()

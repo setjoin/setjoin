@@ -105,7 +105,7 @@ fn launch_configured(
         .arg("-c")
         .arg("export LISTEN_PID=$$; exec -a \"$2-gateway\" \"$1\"")
         .arg("gofree-fed2-launcher")
-        .arg(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        .arg(env!("CARGO_BIN_EXE_setjoin-server"))
         .arg(resource_prefix())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
@@ -476,7 +476,7 @@ async fn residue_worker_runs_without_peering_configuration_and_matches_go_effect
         .arg("-c")
         .arg("exec -a \"$2-reaper\" \"$1\"")
         .arg("gofree-fed2-launcher")
-        .arg(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        .arg(env!("CARGO_BIN_EXE_setjoin-server"))
         .arg(resource_prefix())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
@@ -766,7 +766,7 @@ async fn activated_db_gateway_refuses_unrefreshed_worm_environment() {
             .arg("-c")
             .arg("export LISTEN_PID=$$; exec -a \"$2-gateway\" \"$1\"")
             .arg("gofree-fed2-worm-guard")
-            .arg(env!("CARGO_BIN_EXE_setjoin-gateway"))
+            .arg(env!("CARGO_BIN_EXE_setjoin-server"))
             .arg(resource_prefix())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());

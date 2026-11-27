@@ -136,7 +136,7 @@ impl Process {
         .await;
         let log =
             std::env::temp_dir().join(format!("gofree-delete-gate-gateway-{}.log", address.port()));
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
         cmd.arg0("gofree-delete-gate-gateway").env_clear();
         for (key, value) in [
             ("GATEWAY_LISTEN", address.to_string()),

@@ -28,7 +28,7 @@ impl Process {
         off: &str,
         extra: &[(&str, &str)],
     ) -> Result<Self, BoxError> {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
         command
             .arg0("gofree-mbox4-gateway")
             .env_clear()

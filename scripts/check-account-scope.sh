@@ -101,12 +101,6 @@ source "$(dirname "$0")/_base.sh"
 # self-test); they default to the repo's reducer + pgTAP trees.
 REDUCERS="${REDUCERS_DIR:-$ROOT/mailserver/sql/reducers}"
 TESTS="${TESTS_DIR:-$ROOT/mailserver/sql/tests}"
-# WS_HANDLER may be overridden by the self-test; defaults to the ws push-channel
-# topology (arch review #A2: WS Upgrade + SSE EventSource single-home their
-# session NOTIFY-channel construction in ws/topology.go's sessionChannels(),
-# so that — not ws/handler.go — is the one place "tag:%d"/mailboxID now
-# literally appears).
-WS_HANDLER="${WS_HANDLER:-$ROOT/mailserver/internal/ws/topology.go}"
 
 # Files allowed to keep the legacy `p_account_id` param (frozen V061; ADR-003 §B).
 ACCOUNT_ID_ALLOWLIST="calendar_freebusy.sql calendar_freebusy_multi.sql"
@@ -368,20 +362,6 @@ for f in "$REDUCERS"/*.sql; do
     report "      → key the channel on the MAILBOX id (e.g. 'tag:' || p_mailbox_id), the value subscribers listen on."
   done <<< "$out"
 done
-
-# ── Check F (Go side): ws/handler.go must subscribe by a mailbox id ───────────
-# The push producer emits on tag:{mailbox_id}; the consumer must subscribe there,
-# never on claims.UserID (the historic bug — silently matched zero notifications).
-if [ -f "$WS_HANDLER" ]; then
-  if ! grep -qE 'fmt\.Sprintf\("tag:%d", *mailboxID\)' "$WS_HANDLER"; then
-    report "[F] $(basename "$WS_HANDLER")  WS handler does not subscribe to tag:{mailboxID}:"
-    report "      → it must subscribe on the resolved primary mailbox id (fmt.Sprintf(\"tag:%d\", mailboxID))."
-  fi
-  if grep -qE 'fmt\.Sprintf\("(tag|calendar):%d", *claims\.UserID\)' "$WS_HANDLER"; then
-    report "[F] $(basename "$WS_HANDLER")  WS handler subscribes by claims.UserID (the user id), not a mailbox id:"
-    report "      → resolve the primary mailbox id (GetAccountID) and subscribe on tag:{mailboxID}."
-  fi
-fi
 
 # ── Check G: calendar person-lookup by a single address (use resolve_identity) ─
 # A `<alias>.email = …` for ANY alias bound to the users table (or a bare

@@ -49,7 +49,9 @@ fn target(a: &Artifact) -> Result<PathBuf> {
         "core_authserverd" => "authserverd".into(),
         "core_mailctl" => "mailctl".into(),
         "core_setjoin_gateway" => "setjoin-gateway".into(),
-        // #359b: optional in manifest; required wherever a core unit runs it (host::require_unit_binaries).
+        "core_setjoin_server" => "setjoin-server".into(),
+        // #359b: optional in legacy manifests; required in post-#142 Rust-only cohorts
+        // and wherever a core unit runs it (host::require_unit_binaries).
         "core_setjoin_auth" => "setjoin-auth".into(),
         "core_migrations" => {
             ensure!(
@@ -86,18 +88,41 @@ pub fn stage(store: &Path, root: &Path, id: &str, digest_value: &str) -> Result<
         .flatten()
         .filter(|a| a.platform == platform && a.architecture == arch)
         .collect();
-    for required in [
-        "core_mailserverd",
-        "core_authserverd",
-        "core_mailctl",
-        "core_webmail",
-        "recovery_guide",
-        "release_sbom",
-        "release_provenance",
-        "core_setjoin_gateway",
-    ] {
+    let rust_only = selected.iter().any(|a| a.target == "core_setjoin_server");
+    if rust_only {
         ensure!(
-            selected.iter().filter(|a| a.target == required).count() == 1,
+            !selected.iter().any(|a| matches!(
+                a.target.as_str(),
+                "core_setjoin_gateway" | "core_mailserverd" | "core_authserverd"
+            )),
+            "release mixes post-#142 setjoin-server with legacy artifacts"
+        );
+    }
+    let required_targets: &[&str] = if rust_only {
+        &[
+            "core_setjoin_server",
+            "core_setjoin_auth",
+            "core_mailctl",
+            "core_webmail",
+            "recovery_guide",
+            "release_sbom",
+            "release_provenance",
+        ]
+    } else {
+        &[
+            "core_mailserverd",
+            "core_authserverd",
+            "core_mailctl",
+            "core_webmail",
+            "recovery_guide",
+            "release_sbom",
+            "release_provenance",
+            "core_setjoin_gateway",
+        ]
+    };
+    for required in required_targets {
+        ensure!(
+            selected.iter().filter(|a| a.target == *required).count() == 1,
             "target {required} must have exactly one artifact"
         );
     }
@@ -144,7 +169,8 @@ pub fn stage(store: &Path, root: &Path, id: &str, digest_value: &str) -> Result<
             "statvfs failed"
         );
         let s = stat.assume_init();
-        s.f_bavail.saturating_mul(s.f_frsize)
+        #[allow(clippy::useless_conversion)]
+        u64::from(s.f_bavail).saturating_mul(u64::from(s.f_frsize))
     };
     ensure!(free >= required, "insufficient release staging space");
     let staging = releases.join(format!(".staging-{id}"));
@@ -168,6 +194,7 @@ pub fn stage(store: &Path, root: &Path, id: &str, digest_value: &str) -> Result<
                         | "core_authserverd"
                         | "core_mailctl"
                         | "core_setjoin_gateway"
+                        | "core_setjoin_server"
                         | "core_setjoin_auth"
                         | "compatible_sidecar"
                 );
@@ -266,20 +293,36 @@ pub fn verify_installed(dir: &Path, id: &str, digest_value: &str) -> Result<()> 
         String::from_utf8(read(&dir.join("manifest.digest"), 1024, false)?)?.trim() == digest_value,
         "installed digest differs"
     );
-    for name in [
-        "mailserverd",
-        "authserverd",
-        "mailctl",
-        "webmail/index.html",
-        "share/docs/UPGRADE_RECOVERY.md",
-    ] {
-        open(&dir.join(name), false)?;
-    }
     let m = Manifest::parse(&read(&dir.join("manifest.json"), 1 << 20, false)?)?;
     ensure!(
         m.release_id == id && sha256(&m.canonical()?) == digest_value,
         "installed manifest identity differs"
     );
+    let rust_only = m
+        .artifacts
+        .iter()
+        .flatten()
+        .any(|a| a.target == "core_setjoin_server");
+    let required_files: &[&str] = if rust_only {
+        &[
+            "setjoin-server",
+            "setjoin-auth",
+            "mailctl",
+            "webmail/index.html",
+            "share/docs/UPGRADE_RECOVERY.md",
+        ]
+    } else {
+        &[
+            "mailserverd",
+            "authserverd",
+            "mailctl",
+            "webmail/index.html",
+            "share/docs/UPGRADE_RECOVERY.md",
+        ]
+    };
+    for name in required_files {
+        open(&dir.join(name), false)?;
+    }
     let e: serde_json::Value =
         serde_json::from_slice(&read(&dir.join("installed.evidence.json"), 1 << 20, false)?)?;
     ensure!(
@@ -350,7 +393,21 @@ fn validate_cohort(root: &Path, id: &str, require_index: bool) -> Result<()> {
             fs::read_dir(&dir)?.count() == map.len() + 1,
             "adoption inventory differs"
         );
-        for name in ["mailserverd", "authserverd", "mailctl", "webmail"] {
+        let rust_only = map.contains_key("setjoin-server");
+        if rust_only {
+            ensure!(
+                !map.contains_key("setjoin-gateway")
+                    && !map.contains_key("mailserverd")
+                    && !map.contains_key("authserverd"),
+                "adoption mixes post-#142 setjoin-server with legacy artifacts"
+            );
+        }
+        let required: [&str; 4] = if rust_only {
+            ["setjoin-server", "setjoin-auth", "mailctl", "webmail"]
+        } else {
+            ["mailserverd", "authserverd", "mailctl", "webmail"]
+        };
+        for name in required {
             ensure!(map.contains_key(name), "adoption missing {name}");
         }
         for (name, hash) in map {
@@ -362,6 +419,7 @@ fn validate_cohort(root: &Path, id: &str, require_index: bool) -> Result<()> {
                         | "mailctl"
                         | "setjoin-auth"
                         | "setjoin-gateway"
+                        | "setjoin-server"
                         | "webmail"
                 ),
                 "unknown adoption artifact"
@@ -452,4 +510,183 @@ pub fn previous(root: &Path, failed: &str) -> Result<()> {
     validate_managed(root, &old)?;
     switch(root, "current", &old)?;
     switch(root, "previous", failed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn write_file(path: &Path, data: &[u8], mode: u32) {
+        if let Some(p) = path.parent() {
+            fs::create_dir_all(p).unwrap();
+            fs::set_permissions(p, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        fs::write(path, data).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    #[test]
+    fn post_142_rust_only_target_verify_installed_and_adopted_cohort() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::set_permissions(tmp.path(), fs::Permissions::from_mode(0o755)).unwrap();
+
+        // 1. target() maps core_setjoin_server -> setjoin-server
+        let dummy = Artifact {
+            id: "setjoin-server".into(),
+            class: "setjoin-server".into(),
+            platform: "linux".into(),
+            architecture: "amd64".into(),
+            size: 3,
+            sha256: "a".repeat(64),
+            media_type: "application/octet-stream".into(),
+            cohort: "core".into(),
+            target: "core_setjoin_server".into(),
+            compatible_with_core: String::new(),
+            organization_repack: false,
+        };
+        assert_eq!(target(&dummy).unwrap(), PathBuf::from("setjoin-server"));
+
+        // 2. validate_adopted accepts post-#142 Rust-only cohort and rejects mixed cohort
+        let root = tmp.path().join("install");
+        let id = "post142-adopted";
+        let rel = root.join("releases").join(id);
+        let mut artifacts = serde_json::Map::new();
+        for (name, body) in [
+            ("mailctl", b"mailctl".as_slice()),
+            ("setjoin-auth", b"auth".as_slice()),
+            ("setjoin-server", b"server".as_slice()),
+        ] {
+            write_file(&rel.join(name), body, 0o500);
+            artifacts.insert(
+                name.into(),
+                setjoin_release_format::hash_artifact(open(&rel.join(name), false).unwrap())
+                    .unwrap()
+                    .1
+                    .into(),
+            );
+        }
+        write_file(&rel.join("webmail/index.html"), b"<html></html>", 0o400);
+        artifacts.insert(
+            "webmail".into(),
+            tree_digest(&rel.join("webmail"), "").unwrap().into(),
+        );
+        let adoption = json!({
+            "schema_version": 1,
+            "release_id": id,
+            "database_schema": 275,
+            "config_sha256": "a".repeat(64),
+            "artifacts": artifacts,
+        });
+        write_file(
+            &rel.join("adoption.json"),
+            serde_json::to_vec(&adoption).unwrap().as_slice(),
+            0o400,
+        );
+        validate_adopted(&root, id).expect("post-#142 adopted cohort valid");
+        validate_managed(&root, id).expect("post-#142 managed check valid");
+
+        // Mixed adoption (adding setjoin-gateway alongside setjoin-server) is rejected
+        let mixed_id = "mixed-adopted";
+        let mixed_rel = root.join("releases").join(mixed_id);
+        let mut mixed_artifacts = artifacts.clone();
+        for (name, body) in [
+            ("mailctl", b"mailctl".as_slice()),
+            ("setjoin-auth", b"auth".as_slice()),
+            ("setjoin-server", b"server".as_slice()),
+            ("setjoin-gateway", b"gateway".as_slice()),
+        ] {
+            write_file(&mixed_rel.join(name), body, 0o500);
+        }
+        write_file(&mixed_rel.join("webmail/index.html"), b"<html></html>", 0o400);
+        mixed_artifacts.insert(
+            "setjoin-gateway".into(),
+            setjoin_release_format::hash_artifact(
+                open(&mixed_rel.join("setjoin-gateway"), false).unwrap(),
+            )
+            .unwrap()
+            .1
+            .into(),
+        );
+        let mixed_doc = json!({
+            "schema_version": 1,
+            "release_id": mixed_id,
+            "database_schema": 275,
+            "config_sha256": "a".repeat(64),
+            "artifacts": mixed_artifacts,
+        });
+        write_file(
+            &mixed_rel.join("adoption.json"),
+            serde_json::to_vec(&mixed_doc).unwrap().as_slice(),
+            0o400,
+        );
+        let err = validate_adopted(&root, mixed_id).unwrap_err().to_string();
+        assert!(err.contains("mixes post-#142"), "{err}");
+
+        // 3. verify_installed accepts post-#142 Rust-only managed release
+        let managed_id = "post142-managed";
+        let mdir = root.join("releases").join(managed_id);
+        write_file(&mdir.join("setjoin-server"), b"server", 0o500);
+        write_file(&mdir.join("setjoin-auth"), b"auth", 0o500);
+        write_file(&mdir.join("mailctl"), b"mailctl", 0o500);
+        write_file(&mdir.join("webmail/index.html"), b"webmail", 0o400);
+        write_file(&mdir.join("share/docs/UPGRADE_RECOVERY.md"), b"guide", 0o400);
+        let doc: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../crates/release-format/tests/goldens/updater-fixtures.json"
+        ))
+        .unwrap();
+        let mut mv = doc["samples"][0]["manifest"].clone();
+        mv["release_id"] = managed_id.into();
+        let template = mv["artifacts"][0].clone();
+        let make_art = |id: &str, class: &str, target: &str| {
+            let mut a = template.clone();
+            a["id"] = id.into();
+            a["class"] = class.into();
+            a["target"] = target.into();
+            a["cohort"] = "core".into();
+            a["media_type"] = "application/octet-stream".into();
+            a
+        };
+        let mut arts: Vec<serde_json::Value> = mv["artifacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|a| {
+                !matches!(
+                    a["class"].as_str(),
+                    Some("mailserverd" | "authserverd" | "setjoin-gateway")
+                )
+            })
+            .cloned()
+            .collect();
+        arts.push(make_art("setjoin-auth", "setjoin-auth", "core_setjoin_auth"));
+        arts.push(make_art(
+            "setjoin-server",
+            "setjoin-server",
+            "core_setjoin_server",
+        ));
+        arts.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+        mv["artifacts"] = serde_json::Value::Array(arts);
+        let raw_manifest = serde_json::to_vec(&mv).unwrap();
+        let parsed = Manifest::parse(&raw_manifest).unwrap();
+        let dig = sha256(&parsed.canonical().unwrap());
+        write_file(&mdir.join("manifest.json"), &raw_manifest, 0o444);
+        write_file(
+            &mdir.join("manifest.digest"),
+            format!("{dig}\n").as_bytes(),
+            0o400,
+        );
+        let evidence = json!({
+            "schema_version": 1,
+            "release_id": managed_id,
+            "manifest_sha256": dig,
+            "content_sha256": tree_digest(&mdir, "installed.evidence.json").unwrap(),
+        });
+        write_file(
+            &mdir.join("installed.evidence.json"),
+            &serde_json::to_vec(&evidence).unwrap(),
+            0o400,
+        );
+        verify_installed(&mdir, managed_id, &dig).expect("post-#142 verify_installed passes");
+    }
 }

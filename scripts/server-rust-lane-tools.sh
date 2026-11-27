@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Install the pinned tools the server-rust parallel lane needs into a job-owned
 # directory (default $HOME/.cache/setjoin-server-rust-lane/bin, override LANE_BIN_DIR):
-# cargo-nextest, cargo-deny and pebble (go install). Idempotent; prints the bin dir.
-# Nothing outside LANE_BIN_DIR (and the Go module cache) is touched.
+# cargo-nextest, cargo-deny, and pebble (all sha256-verified prebuilt binaries,
+# zero Go toolchain required). Idempotent; prints the bin dir.
 set -euo pipefail
 
 NEXTEST_VERSION=0.9.150
@@ -10,6 +10,8 @@ NEXTEST_SHA256=b0959bc64232974224cf9fb22c915845398c0e8668fa7831eb5b43fb1eef781f
 DENY_VERSION=0.19.0
 DENY_SHA256=0e8c2aa59128612c90d9e09c02204e912f29a5b8d9a64671b94608cbe09e064f
 PEBBLE_VERSION=v2.10.1
+PEBBLE_SHA256_AMD64=4f2fcb5bca8c85c9cf73ad140fccfc0d2be40bd81ab99879c79b7b8a0b4f70ed
+PEBBLE_SHA256_ARM64=b53fd072a69eb7692451de4e8b0667e0bdf5cccd7e36fc51b8eaf2fcc135ed9f
 
 BIN="${LANE_BIN_DIR:-$HOME/.cache/setjoin-server-rust-lane/bin}"
 mkdir -p "$BIN"
@@ -38,7 +40,16 @@ if ! "$BIN/cargo-deny" --version 2>/dev/null | grep -q "cargo-deny $DENY_VERSION
 fi
 
 if [ ! -x "$BIN/pebble" ]; then
-  GOWORK=off GOBIN="$BIN" go install "github.com/letsencrypt/pebble/v2/cmd/pebble@$PEBBLE_VERSION"
+  case "$(uname -m)" in
+    x86_64|amd64) pebble_arch=amd64; pebble_sha="$PEBBLE_SHA256_AMD64" ;;
+    aarch64|arm64) pebble_arch=arm64; pebble_sha="$PEBBLE_SHA256_ARM64" ;;
+    *) echo "unsupported architecture for pebble: $(uname -m)" >&2; exit 1 ;;
+  esac
+  tmpd="$(mktemp -d)"
+  fetch_tar "https://github.com/letsencrypt/pebble/releases/download/$PEBBLE_VERSION/pebble-linux-$pebble_arch.tar.gz" \
+    "$pebble_sha" "$tmpd"
+  install -m 0755 "$tmpd/pebble-linux-$pebble_arch/linux/$pebble_arch/pebble" "$BIN/pebble"
+  rm -rf "$tmpd"
 fi
 
 echo "$BIN"

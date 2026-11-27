@@ -141,7 +141,7 @@ Do not proceed unless every one of these is true:
    # Pre-split layout (older installer): all DSNs live in config.env itself.
    DB_DSN=<the owner DSN from db-credentials.env — or your pre-flip DSN>
    DB_DIRECT_DSN=<the direct owner DSN from the same file>
-   systemctl restart setjoin
+   systemctl restart setjoin-gateway
    ```
    Confirm the gateway comes back up and behaves exactly as it did
    pre-flip. Once you've seen this work, you know the rollback path is real
@@ -183,7 +183,7 @@ Do not proceed unless every one of these is true:
   that one org. A cross-organization recall/audit scenario is explicitly out
   of scope for this program.
 - Not a replacement for the application-layer checks and CI guards
-  (`scripts/check-account-scope.sh`, `scripts/check-gateway-ownership.sh`,
+  (`scripts/check-account-scope.sh`,
   `scripts/check-rls-coverage.sh`). Those stay load-bearing — RLS is a second,
   independent layer, not a reason to relax the first one.
 - Not something you do as part of a routine code deploy. This is a

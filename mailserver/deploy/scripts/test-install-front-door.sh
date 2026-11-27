@@ -52,19 +52,20 @@ require_text() { # require_text <desc> <pattern> <file>
 # ── 1. Unchanged unit names ──────────────────────────────────────────────────
 # shellcheck source=../generated/unit-catalog.sh
 source "$ROOT/mailserver/deploy/generated/unit-catalog.sh"
-for unit in setjoin-valkey setjoin-sfu setjoin-egress setjoin-funasr setjoin-asr-bot setjoin-auth setjoin setjoin-updater; do
+for unit in setjoin-valkey setjoin-sfu setjoin-egress setjoin-funasr setjoin-asr-bot setjoin-auth setjoin-gateway setjoin-updater; do
   [ "${SETJOIN_UNIT_DESTINATION[$unit]:-}" = "/etc/systemd/system/$unit.service" ] ||
-    fail "pre-#264 unit $unit lost its name or destination"
+    fail "unit $unit lost its name or destination"
 done
-[ "${#SETJOIN_ALL_UNITS[@]}" = 9 ] || fail "unit inventory is ${#SETJOIN_ALL_UNITS[@]} units, want the 8 unchanged + setjoin-gateway"
+[ "${#SETJOIN_ALL_UNITS[@]}" = 8 ] || fail "unit inventory is ${#SETJOIN_ALL_UNITS[@]} units, want the 8 Rust-only units"
+[ -z "${SETJOIN_UNIT_DESTINATION["setjoin"]:-}" ] || fail "retired Go unit setjoin.service is still in the compiled catalog"
 [ "${SETJOIN_UNIT_DESTINATION["setjoin-gateway"]:-}" = /etc/systemd/system/setjoin-gateway.service ] ||
   fail "setjoin-gateway is not in the compiled catalog"
 [ "${SETJOIN_UNIT_REQUIRED["setjoin-gateway"]}" = true ] || fail "front door is not a required (default ON) unit"
 case " ${SETJOIN_DEFAULT_ENABLE[*]} " in *" setjoin-gateway "*) ;; *) fail "front door is not enabled by default" ;; esac
 order=" ${SETJOIN_REQUIRED_START_ORDER[*]} "
-case "$order" in *" setjoin setjoin-gateway "*) ;; *) fail "front door must start right after the Go gateway it proxies: $order" ;; esac
+case "$order" in *" setjoin-auth setjoin-gateway "*) ;; *) fail "server must start right after setjoin-auth: $order" ;; esac
 stop=" ${SETJOIN_STOP_ORDER[*]} "
-case "$stop" in *" setjoin-gateway setjoin "*) ;; *) fail "front door must stop before the Go gateway: $stop" ;; esac
+case "$stop" in *" setjoin-gateway setjoin-auth "*) ;; *) fail "server must stop before setjoin-auth: $stop" ;; esac
 
 # ── 2. Rendered through the real installer path ──────────────────────────────
 FX="$tmp/fx"
@@ -114,7 +115,7 @@ done
 svc="$FX/units/setjoin-gateway.service"
 sock="$FX/units/setjoin-gateway.socket"
 [ -s "$sock" ] || fail "the front-door socket was not rendered beside its service"
-require_text 'runs the active release' "ExecStart=$FX/opt/current/setjoin-gateway" "$svc"
+require_text 'runs the active release' "ExecStart=$FX/opt/current/setjoin-server" "$svc"
 require_text 'reads its own env overrides' "EnvironmentFile=$FX/etc/gateway.env" "$svc"
 ! grep -Eq '^EnvironmentFile=.*(config.env|db-credentials.env)$' "$svc" || fail "gateway received the broad secret files"
 require_text 'dedicated federation credentials' "EnvironmentFile=-$FX/etc/federation.env" "$svc"
@@ -125,11 +126,12 @@ require_text 'empty bounding set' 'CapabilityBoundingSet=' "$svc"
 grep -Eq '^CapabilityBoundingSet=$' "$svc" || fail "gateway bounding set is not empty"
 grep -Eq '^AmbientCapabilities=$' "$svc" || fail "gateway ambient set is not empty"
 ! grep -q 'CAP_' "$svc" || fail "gateway unit names a capability"
-require_text 'starts after Go' 'After=network.target setjoin-gateway.socket setjoin.service setjoin-auth.service' "$svc"
+require_text 'starts after setjoin-auth' 'After=network.target setjoin-gateway.socket setjoin-auth.service' "$svc"
+! grep -q 'setjoin\.service' "$svc" || fail "gateway unit still references retired Go setjoin.service"
 require_text 'loopback plaintext listener' 'ListenStream=127.0.0.1:8090' "$sock"
 require_text 'one shared listener' 'Accept=no' "$sock"
 for unit_file in "$svc" "$sock"; do
-  require_text 'inactive until a release carries the binary' "ConditionPathExists=$FX/opt/current/setjoin-gateway" "$unit_file"
+  require_text 'inactive until a release carries the binary' "ConditionPathExists=$FX/opt/current/setjoin-server" "$unit_file"
   ! grep -q '{{' "$unit_file" || fail "unresolved placeholder in $unit_file"
 done
 if command -v systemd-analyze >/dev/null 2>&1; then
@@ -170,7 +172,7 @@ require_text 'gateway env renders in the config step' 'render_gateway_env "$GATE
 require_text 'auth env renders via helper' 'render_auth_env "$AUTH_ENV" "$CONFIG_ENV" "$DB_CRED_FILE"' "$INSTALL"
 require_text 'auth env is root-owned' 'chown root:root "$AUTH_ENV"' "$INSTALL"
 require_text 'installer pins setjoin-auth to 127.0.0.1' '[[ "$AUTH_LISTEN" =~ ^127\.0\.0\.1:[0-9]{1,5}$ ]]' "$INSTALL"
-require_text 'gateway binary joins the flat cohort' 'install -m 0755 "$GATEWAY_SOURCE" "$INSTALL_DIR/setjoin-gateway"' "$INSTALL"
+require_text 'server binary joins the flat cohort' 'install -m 0755 "$SERVER_SOURCE" "$INSTALL_DIR/setjoin-server"' "$INSTALL"
 require_text 'setjoin-auth joins the flat cohort' 'install -m 0755 "$AUTH_SOURCE" "$INSTALL_DIR/setjoin-auth"' "$INSTALL"
 ! grep -Eq 'curl .*-X POST.*auth/login' "$INSTALL" || fail "installer probes with a credential request"
 require_text 'renderer input assigned before the entry migration' 'GATEWAY_ENV="$CONFIG_DIR/gateway.env"' "$INSTALL"
@@ -194,16 +196,16 @@ SETJOINCTL_ALLOW_NON_ROOT=1 FRONT_DOOR_LOG="$tmp/systemctl.log" SYSTEMCTL_BIN="$
   SYSTEMD_DIR="$FX/units" SETJOIN_UNIT_CATALOG="$ROOT/mailserver/deploy/generated/unit-catalog.sh" \
   UPDATER_EXECUTION_CONFIG="$tmp/execution.json" \
   bash "$ROOT/mailserver/deploy/scripts/setjoin-lifecycle.sh" restart >/dev/null
-grep -qx 'start setjoin-gateway' "$tmp/systemctl.log" || fail "setjoinctl restart did not start the front door"
-[ "$(grep -n '^start setjoin$' "$tmp/systemctl.log" | cut -d: -f1)" -lt \
-  "$(grep -n '^start setjoin-gateway$' "$tmp/systemctl.log" | cut -d: -f1)" ] || fail "front door started before Go"
+grep -qx 'start setjoin-gateway' "$tmp/systemctl.log" || fail "setjoinctl restart did not start the server"
+[ "$(grep -n '^start setjoin-auth$' "$tmp/systemctl.log" | cut -d: -f1)" -lt \
+  "$(grep -n '^start setjoin-gateway$' "$tmp/systemctl.log" | cut -d: -f1)" ] || fail "server started before setjoin-auth"
 
-# ── 4. *.prev rollback covers Go and Rust ────────────────────────────────────
+# ── 4. *.prev rollback covers Rust + pre-#142 cutover ────────────────────────
 bash "$ROOT/mailserver/deploy/scripts/test-upgrade-rollback.sh" >/dev/null ||
-  fail "flat *.prev rollback (Go + Rust) failed"
+  fail "flat *.prev rollback failed"
 bash "$ROOT/mailserver/deploy/scripts/test-federation-upgrade.sh" >/dev/null ||
   fail "native federation upgrade/whole-release rollback failed"
-require_text 'upgrade keeps the previous Rust binary' 'setjoin-gateway.prev' "$UPGRADE"
+require_text 'upgrade keeps the previous Rust binary' 'setjoin-server.prev' "$UPGRADE"
 
 # ── Executable front door with the rendered configuration ────────────────────
 if [ -z "$GATEWAY_BIN" ]; then
@@ -275,7 +277,7 @@ sd="/run/systemd/system"
 # Not below /tmp: the rendered unit has PrivateTmp=true.
 bin_dir="$(mktemp -d /run/gofree-t13-front-door-bin.XXXXXX)"
 chmod 0755 "$bin_dir"
-install -m 0755 "$GATEWAY_BIN" "$bin_dir/setjoin-gateway"
+install -m 0755 "$GATEWAY_BIN" "$bin_dir/setjoin-server"
 sd_port="$(port)"
 sed -e "s#^GATEWAY_UPSTREAM=.*#GATEWAY_UPSTREAM=http://127.0.0.1:$go_port#" "$gw_env" >"$bin_dir/gateway.env"
 chmod 0644 "$bin_dir/gateway.env"
@@ -290,14 +292,14 @@ systemd_cleanup() {
   cleanup
 }
 trap systemd_cleanup EXIT
-sed -e "s#$FX/opt/current/setjoin-gateway#$bin_dir/setjoin-gateway#g" \
+sed -e "s#$FX/opt/current/setjoin-server#$bin_dir/setjoin-server#g" \
   -e "s#$FX/etc/gateway.env#$bin_dir/gateway.env#g" \
   -e 's#^User=setjoin$#User=nobody#' -e 's#^Group=setjoin$#Group=nogroup#' \
   -e "s#setjoin-gateway.socket#$name.socket#g" \
-  -e '/^After=/s# setjoin.service setjoin-auth.service##' -e '/^Wants=/d' \
+  -e '/^After=/s# setjoin-auth.service##' -e '/^Wants=/d' \
   "$svc" >"$sd/$name.service"
 getent group nogroup >/dev/null || sed -i 's#^Group=nogroup$#Group=nobody#' "$sd/$name.service"
-sed -e "s#$FX/opt/current/setjoin-gateway#$bin_dir/setjoin-gateway#g" \
+sed -e "s#$FX/opt/current/setjoin-server#$bin_dir/setjoin-server#g" \
   -e "s#^ListenStream=.*#ListenStream=127.0.0.1:$sd_port#" \
   -e "/^\[Socket\]/a Service=$name.service" \
   "$sock" >"$sd/$name.socket"

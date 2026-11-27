@@ -2,6 +2,10 @@
 
 Active program authority index. Consult the owning plan and the GitHub issue queue (`setjoin/setjoin`) for task-specific changes; this directory is not implementation or rollout permission. Production flags remain OFF unless a separate rollout decision explicitly enables them.
 
+**Go-free Rust Rewrite (Spec `#25`) COMPLETED 2026-11-25 ([ARCH-031](../adr/ARCH-031-go-is-deleted.md)):** All server-side Go code (`mailserverd`, `authserverd`, `mailctl`, `asrbotd`, `shared/`, `tools/setjoin-release/`), Go oracle recorders, and pure-Go CI jobs/guards are deleted (`#142`), and the primary Rust server binary is renamed `setjoin-gateway` → `setjoin-server` (Cargo package `setjoin-gateway` and systemd unit `setjoin-gateway.service` unchanged until Wave 1 `#544`). PL/pgSQL reducers (`mailserver/sql/reducers/`, `authserver/sql/reducers/`) remain authoritative ([ARCH-028](../adr/ARCH-028-rust-replaces-go-reducers-stay.md)).
+- **Closure trail:** `#355b` (PR #567: native DAV/Drive Kerberos/SPNEGO), residual gateway forwards (PR #566), `#359` (PR #568: `REHEARSAL-FORWARD-SITES = 0`), Go-peer retirement (PR #569: `GO_PEER_REFERENCES = 0`), `#141` Go-deletion dress rehearsal (full `server-rust-lane.yml` green on `main` with zero Go processes/upstreams, `PENDING = 0`, `MATRIX_HOPS = 0/0`), Phase 4 pure-Rust E2E verification, and `#142` (`ARCH-031` Go deletion + `setjoin-server` rename).
+- **Next active program (unblocked):** **Wave 1 Post-Go Target Architecture (`#536`–`#547`)** — including `setjoind` consolidation (`#544`) and schema-first EdgeContract (`#561`), tracked via GitHub issues.
+
 ## Active programs
 
 - **Rust rewrite (`ARCH-028` / `ARCH-027`, committed 2026-10-11, revised 2026-10-29):**

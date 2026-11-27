@@ -10,7 +10,7 @@ name = "setjoin_gateway"
 path = "src/lib.rs"
 
 [[bin]]
-name = "setjoin-gateway"
+name = "setjoin-server"
 path = "src/main.rs"
 
 # Exact pins (#220): the front door is protocol plumbing only, so every direct

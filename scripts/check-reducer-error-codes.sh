@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 REDUCERS="${REDUCERS:-$ROOT/mailserver/sql/reducers}"
 REGISTRY="${REGISTRY:-$ROOT/docs/reducer-error-codes.md}"
-CONTRACT="${CONTRACT:-$ROOT/shared/reducererr/contract_test.go}"
+CONTRACT="${CONTRACT:-$ROOT/server-rust/bins/gateway/src/jmap/family/reducer_error.rs}"
 
 raised_codes() {
   perl -0ne 'while (/ERRCODE\s*=\s*\x27(BZ\d{3})\x27/g) { print "$1\n" }' "$REDUCERS"/*.sql | sort -u
@@ -17,8 +17,20 @@ registered_codes() {
   grep -oE 'BZ[0-9]{3}' "$REGISTRY" | sort -u
 }
 
+# Internal-invariant BZ codes that deliberately project to 500 (Class::Unknown
+# in server-rust/bins/gateway/src/jmap/family/reducer_error.rs, formerly
+# intentional500 in shared/reducererr/reducererr.go). Listed explicitly here
+# so "deliberately 500" stays distinct from "forgot to classify".
+INTENTIONAL_500=(
+  BZ010 BZ012 BZ013 BZ014 BZ016 BZ017 BZ018
+  BZ034 BZ035 BZ067 BZ073 BZ079 BZ083
+)
+
 classified_codes() {
-  grep -oE '\{"BZ[0-9]{3}"' "$CONTRACT" | tr -d '{"' | sort -u
+  {
+    grep -oE '\("BZ[0-9]{3}"' "$CONTRACT" | tr -d '("'
+    printf '%s\n' "${INTENTIONAL_500[@]}"
+  } | sort -u
 }
 
 missing_from() {
@@ -30,11 +42,11 @@ if [[ "${1:-}" == "--self-test" ]]; then
   trap 'rm -rf "$tmp"' EXIT
   REDUCERS="$tmp/reducers"
   REGISTRY="$tmp/registry.md"
-  CONTRACT="$tmp/contract.go"
+  CONTRACT="$tmp/reducer_error.rs"
   mkdir -p "$REDUCERS"
   printf "RAISE EXCEPTION 'x' USING ERRCODE = 'BZ234';\nRAISE EXCEPTION 'y' USING ERRCODE='BZ999';\n" >"$REDUCERS/x.sql"
   printf '| **BZ234** | registered |\n' >"$REGISTRY"
-  printf 'var rows=[]row{{"BZ234"}}\n' >"$CONTRACT"
+  printf 'const CODE_CLASS: &[(&str, Class)] = &[("BZ234", Conflict)];\n' >"$CONTRACT"
   [[ "$(missing_from registered_codes)" == "BZ999" ]]
   [[ "$(missing_from classified_codes)" == "BZ999" ]]
   echo "reducer error-code guard self-test passed"

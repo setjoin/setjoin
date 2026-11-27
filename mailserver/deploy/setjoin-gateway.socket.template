@@ -1,6 +1,6 @@
 [Unit]
 Description=Setjoin Rust front door listener (ARCH-027)
-ConditionPathExists={{RUNTIME_DIR}}/setjoin-gateway
+ConditionPathExists={{RUNTIME_DIR}}/setjoin-server
 
 [Socket]
 # Plaintext HTTP on loopback for the existing TLS terminator; one listener

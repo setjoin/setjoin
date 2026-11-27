@@ -48,7 +48,7 @@ async fn yaml_jwt_secret_verifies_clicks_natively_and_is_never_logged() -> Resul
     })
     .await;
     let address = setjoin_conformance::ports::address();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
     command.env_clear();
     for (key, value) in [
         ("GATEWAY_LISTEN", address.to_string()),

@@ -29,16 +29,13 @@ count_literal() {
 
 inventory() {
   local f rel member_role space_members recursive
-  {
-    find "$ROOT/mailserver/internal/drive" -maxdepth 1 -type f -name '*.go' ! -name '*_test.go' -print
-    [ ! -f "$ROOT/mailserver/internal/guestgate/allowlist.go" ] || printf '%s\n' "$ROOT/mailserver/internal/guestgate/allowlist.go"
-    find "$ROOT/mailserver/sql/reducers" -maxdepth 1 -type f -name '*.sql' -print
-  } | sort -u | while IFS= read -r f; do
+  find "$ROOT/mailserver/sql/reducers" -maxdepth 1 -type f -name '*.sql' -print \
+    | sort -u | while IFS= read -r f; do
     member_role=$(count_literal 'drive_member_role' "$f")
     space_members=$(count_literal 'drive_space_members' "$f")
     recursive=0
     case "$f" in
-      "$ROOT"/mailserver/internal/drive/*|"$ROOT"/mailserver/sql/reducers/drive_*)
+      "$ROOT"/mailserver/sql/reducers/drive_*)
         recursive=$(count_literal 'WITH RECURSIVE' "$f")
         ;;
     esac
@@ -74,6 +71,7 @@ ledger_inventory() {
       printf "ledger duplicate path at line %d: %s\n", NR, $1 > "/dev/stderr"
       bad=1
     }
+    $1 ~ /\.go$/ { next }
     { printf "%s\t%s\t%s\t%s\n", $1, $3, $4, $5 }
     END { if (bad) exit 1 }
   ' "$LEDGER" | sort
@@ -100,8 +98,7 @@ run_guard() {
 if [ "${1:-}" = "--self-test" ]; then
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
-  mkdir -p "$tmp/mailserver/internal/drive" "$tmp/mailserver/internal/guestgate" \
-    "$tmp/mailserver/sql/reducers" "$tmp/docs/verification"
+  mkdir -p "$tmp/mailserver/sql/reducers" "$tmp/docs/verification"
   printf '%s\n' 'SELECT drive_member_role(1, 2);' > "$tmp/mailserver/sql/reducers/drive_fixture.sql"
   printf '%s\n' '# path	class	member_role	space_members	recursive	phase' \
     > "$tmp/docs/verification/2026-08-03-drive-acl-authorization-sites.tsv"

@@ -29,7 +29,7 @@ check_guide() {
     "root-owned execution config all permit it"
     "installations seed those gates OFF"
     "retired System-page binary-path handler"
-    "sudo /opt/setjoin/deploy/scripts/upgrade.sh /tmp/mailserverd /tmp/mailctl"
+    "sudo /opt/setjoin/deploy/scripts/upgrade.sh"
   )
 
   for phrase in "${required[@]}"; do
@@ -224,9 +224,6 @@ routes=(
   "/recovery/uploads"
 )
 for route in "${routes[@]}"; do
-  grep -Fq "$route" "$ROOT/mailserver/cmd/mailserverd/main.go" || {
-    echo "[upgrade-contract] route registry missing $route" >&2; exit 1;
-  }
   grep -Fq "/api$route:" "$ROOT/mailserver/api/openapi.yaml" || {
     echo "[upgrade-contract] OpenAPI missing /api$route" >&2; exit 1;
   }
@@ -243,22 +240,6 @@ for client_route in \
   }
 done
 
-backup_help="$(cd "$ROOT/mailctl" && go run . backup -h)"
-upgrade_help="$(cd "$ROOT/mailctl" && go run . upgrade -h)"
-for token in "create --pre-upgrade" "verify --pre-upgrade"; do
-  grep -Fq "$token" <<<"$backup_help" || {
-    echo "[upgrade-contract] mailctl backup --help missing $token" >&2; exit 1;
-  }
-done
-for token in status watch cancel history diagnostics; do
-  grep -Eq "(^|[ |])$token([ |<]|$)" <<<"$upgrade_help" || {
-    echo "[upgrade-contract] mailctl upgrade --help missing $token" >&2; exit 1;
-  }
-done
-if grep -Eq 'upgrade (check|apply|rollback)|binary[_ -]?path' <<<"$upgrade_help"; then
-  echo "[upgrade-contract] retired caller-owned upgrade mutation returned to CLI help" >&2
-  exit 1
-fi
 grep -Fq 'DB_DIRECT_OWNER_DSN="$DB_DIRECT_DSN"' \
   "$ROOT/mailserver/deploy/scripts/install.sh" || {
   echo "[upgrade-contract] installer does not initialize the updater owner DSN before rendering its credential" >&2
@@ -367,8 +348,6 @@ for contract in \
   'backup verify --pre-upgrade' \
   'unified-deployment-d2.sh" restore-current' \
   'BACKUP_PROVIDER=s3' \
-  'systemctl restart setjoin' \
-  'go build -o "$source_runtime/mailserverd" ./cmd/mailserverd' \
   'feature.transactional_upgrades_execution' \
   'wait_for_state "$rollback_id" rolled_back' \
   'terminal_off'; do
@@ -421,8 +400,8 @@ if grep -Eq '^\| Physical (iOS|Android) device \| OPEN \|' "$continuity_verifica
     }
 fi
 check_rehearsal_u8_eligibility || true
-grep -Fq 'ExecStart={{RUNTIME_DIR}}/mailserverd' "$ROOT/mailserver/deploy/mailserver.service.template" || {
-  echo "[upgrade-contract] gateway unit does not execute immutable current" >&2; exit 1;
+grep -Fq 'ExecStart={{RUNTIME_DIR}}/setjoin-server' "$ROOT/mailserver/deploy/setjoin-gateway.service.template" || {
+  echo "[upgrade-contract] gateway unit does not execute setjoin-server in immutable current" >&2; exit 1;
 }
 grep -Fq 'ExecStart={{RUNTIME_DIR}}/setjoin-auth' "$ROOT/mailserver/deploy/authserver.service.template" || {
   echo "[upgrade-contract] auth unit does not execute the Rust setjoin-auth in immutable current" >&2; exit 1;
@@ -433,7 +412,8 @@ grep -Fq 'ExecStart={{RUNTIME_DIR}}/setjoin-auth' "$ROOT/mailserver/deploy/auths
 ! grep -Eq 'auth/login' "$ROOT/mailserver/deploy/authserver.service.template" || {
   echo "[upgrade-contract] auth readiness must not send credential requests (captcha/tarpit lockout)" >&2; exit 1;
 }
-grep -Fq 'release must contain exactly one recovery guide artifact' "$ROOT/shared/release/manifest.go" || {
+grep -Fq 'for c in ["sbom", "provenance", "recovery_guide"]' "$ROOT/server-rust/crates/release-format/src/validation.rs" && \
+grep -Fq 'release must contain exactly one {c} artifact' "$ROOT/server-rust/crates/release-format/src/validation.rs" || {
   echo "[upgrade-contract] release schema does not require the recovery guide" >&2; exit 1;
 }
 grep -Fq 'adopt-current-layout' "$ROOT/mailserver/deploy/scripts/install.sh" || {
@@ -445,15 +425,11 @@ grep -Fq 'install_release_roots' "$ROOT/mailserver/deploy/scripts/install.sh" ||
 grep -Fq 'positional artifact-copy upgrades are disabled' "$ROOT/mailserver/deploy/scripts/upgrade.sh" || {
   echo "[upgrade-contract] adopted layout can still enter legacy artifact copy" >&2; exit 1;
 }
-grep -Fq 'go-module-catalog.mjs" artifacts' "$ROOT/scripts/build.sh" || {
-  echo "[upgrade-contract] build front door does not consume the fixed module catalog" >&2; exit 1;
-}
-node "$ROOT/scripts/go-module-catalog.mjs" artifacts | awk -F '\t' \
-  '$1 == "mailserver" && $6 == "./cmd/setjoin-recovery" && $7 == "setjoin-recovery" { found=1 } END { exit !found }' || {
-  echo "[upgrade-contract] fixed recovery helper is absent from the build capability catalog" >&2; exit 1;
+grep -Fq 'setjoin-updater' "$ROOT/scripts/build.sh" || {
+  echo "[upgrade-contract] build front door does not build setjoin-updater" >&2; exit 1;
 }
 for unit_template in \
-  "$ROOT/mailserver/deploy/mailserver.service.template" \
+  "$ROOT/mailserver/deploy/setjoin-gateway.service.template" \
   "$ROOT/mailserver/deploy/authserver.service.template"; do
   # Exposure means an ACTIVE unit line carrying a privileged DSN (an
   # Environment= assignment or a rendered/interpolated credential) — not a

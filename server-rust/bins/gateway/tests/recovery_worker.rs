@@ -125,7 +125,7 @@ async fn run_case(executable: bool, protected: bool) {
                 }
             }
         }).await;
-        let mut process = Process(Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        let mut process = Process(Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
             .arg0("gofree-blobs1-recovery-worker")
             .env_clear()
             .env("GATEWAY_LISTEN", "127.0.0.1:0")

@@ -100,10 +100,10 @@ export function resetJmapAuthContext(): void {
 }
 
 // ── Capability table (c4) ─────────────────────────────────────────────────
-// One table, keyed by method-type prefix, mirroring the gateway's method
-// registry (mailserver/internal/jmap/handler.go registerMethods). The vitest
+// One table, keyed by method-type prefix, mirroring the server's JMAP method
+// registry (`server-rust/bins/gateway/src/jmap/`). The vitest
 // in client.test.ts reads the server's golden artifact
-// (internal/jmap/testdata/methods.golden) and pins every method row against
+// (`server-rust/bins/gateway/data/jmap_methods.golden`) and pins every method row against
 // this table, so the two sides cannot drift silently.
 const CORE = "urn:ietf:params:jmap:core";
 const MAIL = "urn:ietf:params:jmap:mail";

@@ -324,7 +324,10 @@ arm_dsn_split_posture() {
   fi
   # Consumer sync: templates + upgrade.sh + get_env re-run reads address the
   # new path (r3-2: ALL consumers follow the relocation).
-  require_in "$ROOT/mailserver/deploy/mailserver.service.template" 'gateway unit gains the credential EnvironmentFile' 'EnvironmentFile={{DB_CREDENTIALS_FILE}}'
+  if grep -q 'DB_CREDENTIALS_FILE' "$ROOT/mailserver/deploy/setjoin-gateway.service.template"; then
+    echo "install provision render: setjoin-gateway.service.template must not load the privileged credential file" >&2
+    exit 1
+  fi
   if grep -q 'DB_CREDENTIALS_FILE' "$ROOT/mailserver/deploy/authserver.service.template"; then
     echo "install provision render: the Rust auth unit must not load the privileged credential file (#359b)" >&2
     exit 1
@@ -335,15 +338,7 @@ arm_dsn_split_posture() {
   require_in "$UPGRADE" 'selection runtime group default pinned to setjoin' 'runtime_group="${5:-setjoin}"'
   require_in "$target" 're-run owner-DSN recovery reads the credential file' 'get_cred_env DB_OWNER_DSN'
   require_in "$target" 're-run worker-DSN recovery reads the credential file' 'get_cred_env DB_WORKER_DSN'
-  local tpl cfg cred auth
-  for tpl in "$ROOT/mailserver/deploy/mailserver.service.template"; do
-    cfg="$(grep -n '^EnvironmentFile={{CONFIG_ENV}}$' "$tpl" | cut -d: -f1)"
-    cred="$(grep -n '^EnvironmentFile={{DB_CREDENTIALS_FILE}}$' "$tpl" | cut -d: -f1)"
-    if [ -z "$cfg" ] || [ -z "$cred" ] || [ "$cfg" -ge "$cred" ]; then
-      echo "install provision render: $tpl — the credential EnvironmentFile must follow config.env's (EnvironmentFile order is precedence order)" >&2
-      exit 1
-    fi
-  done
+  local cfg auth
   cfg="$(grep -n '^EnvironmentFile={{CONFIG_ENV}}$' "$ROOT/mailserver/deploy/authserver.service.template" | cut -d: -f1)"
   auth="$(grep -n '^EnvironmentFile={{AUTH_ENV}}$' "$ROOT/mailserver/deploy/authserver.service.template" | cut -d: -f1)"
   if [ -z "$cfg" ] || [ -z "$auth" ] || [ "$cfg" -ge "$auth" ]; then
@@ -681,18 +676,13 @@ prepare_credential_migration "\$MG" "\$MG/cred.d" "\$DB_CREDENTIALS_FILE" "\$CON
   || { echo "migration returned non-zero on the old-layout fixture" >&2; exit 1; }
 cred="\$MG/cred.d/db-credentials.env"
 # The REAL renderer ran: every base unit exists at the sandboxed destination.
-for u in setjoin-valkey setjoin-sfu setjoin-egress setjoin-auth setjoin setjoin-updater; do
+for u in setjoin-valkey setjoin-sfu setjoin-egress setjoin-auth setjoin-gateway setjoin-updater; do
   fn_assert "real render_runtime_units produced \$u.service" test -f "\$FX/units/\$u.service"
 done
-# The rendered gateway unit addresses config.env FIRST, the credential file
-# second (EnvironmentFile order is precedence order).
-gw="\$FX/units/setjoin.service"
-cfg_line="\$(grep -n '^EnvironmentFile=' "\$gw" | grep -F "\$CONFIG_ENV" | cut -d: -f1)"
-cred_line="\$(grep -n '^EnvironmentFile=' "\$gw" | grep -F "\$DB_CREDENTIALS_FILE" | cut -d: -f1)"
-if [ -z "\$cfg_line" ] || [ -z "\$cred_line" ]; then
-  echo "rendered gateway unit does not reference both env files" >&2; exit 1
-fi
-fn_assert "rendered gateway unit keeps config.env before the credential file" test "\$cfg_line" -lt "\$cred_line"
+# The rendered server unit never loads broad config.env or db-credentials.env.
+gw="\$FX/units/setjoin-gateway.service"
+fn_assert "rendered server unit carries no privileged credential file" test -z "\$(grep -F "\$DB_CREDENTIALS_FILE" "\$gw" || true)"
+fn_assert "rendered server unit carries no broad config.env" test -z "\$(grep -F "\$CONFIG_ENV" "\$gw" || true)"
 au="\$FX/units/setjoin-auth.service"
 cfg_line="\$(grep -n '^EnvironmentFile=' "\$au" | grep -F "\$CONFIG_ENV" | cut -d: -f1)"
 auth_line="\$(grep -n '^EnvironmentFile=' "\$au" | grep -F "\$AUTH_ENV" | cut -d: -f1)"

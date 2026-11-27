@@ -17,8 +17,8 @@
           "database_reconciliation_required": false
         },
         "units": {
-          "setjoin": "active",
           "setjoin-auth": "active",
+          "setjoin-gateway": "active",
           "setjoin-updater": "active"
         }
       },
@@ -35,21 +35,21 @@
           "database_reconciliation_required": false
         },
         "units": {
-          "setjoin": "active",
           "setjoin-auth": "active",
+          "setjoin-gateway": "active",
           "setjoin-updater": "active"
         }
       }
     ],
     "host": [
       "is-active setjoin-auth",
-      "is-active setjoin",
+      "is-active setjoin-gateway",
       "is-active setjoin-updater",
       "stop setjoin-updater",
-      "stop setjoin-gateway setjoin setjoin-auth",
-      "start setjoin-auth setjoin setjoin-gateway",
+      "stop setjoin-gateway setjoin-auth",
+      "start setjoin-auth setjoin-gateway",
       "is-active setjoin-auth",
-      "is-active setjoin",
+      "is-active setjoin-gateway",
       "is-active setjoin-updater",
       "start setjoin-updater"
     ]

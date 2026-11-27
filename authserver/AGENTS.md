@@ -1,54 +1,37 @@
-# authserver — DOX child AGENTS.md
+# authserver — SQL-only DOX child (`authserver/sql/`)
 
-Owns authentication/signing/MFA/directory and threat contracts. Auth and mail share the combined schema; never execute authserver/sql/_archive. Schema mismatch refuses startup. Preserve request/worker/listener separation, subscribe-before-reload and fail-closed snapshots. shared/jwtutil owns claims/verification; preserve kid/algorithm, issuer/audience binding, encrypted custody and separate OIDC keys. Credential-accepting anonymous endpoints require threat interception; authenticated mutations require CSRF. Config changes update struct/defaults/loader/env contract; token changes include every accept/reject consumer. Read startup/signing and affected feature sections, DATABASE_SECURITY for queries and corresponding auth/protocol standards.
+The Go `authserverd` server (`authserver/{cmd,internal,go.mod,DOX.md}`) was deleted in `#142` ([ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md)). The live authentication and identity server is the canonical Rust binary `setjoin-auth` under `server-rust/bins/auth/` (see [server-rust/bins/auth/DOX.md](../server-rust/bins/auth/DOX.md) and [server-rust/crates/domains/identity/DOX.md](../server-rust/crates/domains/identity/DOX.md)).
 
-## DOX sections
+## Ownership
 
-- [1. Purpose](DOX.md#1-purpose)
-- [2. Ownership](DOX.md#2-ownership)
-- [3. Local Contracts](DOX.md#3-local-contracts)
-  - [Shared PostgreSQL cluster](DOX.md#shared-postgresql-cluster)
-  - [Three DB connections](DOX.md#three-db-connections)
-  - [Startup order (mandatory)](DOX.md#startup-order-mandatory)
-  - [Token signing](DOX.md#token-signing)
-  - [Auth priority chain (gateway-side, not this server)](DOX.md#auth-priority-chain-gateway-side-not-this-server)
-  - [Key files](DOX.md#key-files)
-  - [Environment variables](DOX.md#environment-variables)
-- [4. Features / Capabilities](DOX.md#4-features--capabilities)
-  - [Password authentication](DOX.md#password-authentication)
-  - [JWT lifecycle](DOX.md#jwt-lifecycle)
-  - [OAuth2 token introspection (RFC 7662)](DOX.md#oauth2-token-introspection-rfc-7662)
-  - [OAuth2 token revocation (RFC 7009)](DOX.md#oauth2-token-revocation-rfc-7009)
-  - [OAuth2 Authorization Server Metadata (RFC 8414)](DOX.md#oauth2-authorization-server-metadata-rfc-8414)
-  - [XOAUTH2 / app passwords (IMAP/SMTP SASL)](DOX.md#xoauth2--app-passwords-imapsmtp-sasl)
-  - [TOTP (RFC 6238)](DOX.md#totp-rfc-6238)
-  - [WebAuthn / passkeys (FIDO2)](DOX.md#webauthn--passkeys-fido2)
-  - [Push MFA (number matching)](DOX.md#push-mfa-number-matching)
-  - [Backup codes](DOX.md#backup-codes)
-  - [MFA first-factor possession gate (possession scheme v7; supersedes nightly-16 step-up)](DOX.md#mfa-first-factor-possession-gate-possession-scheme-v7-supersedes-nightly-16-step-up)
-  - [Forgot password (self-service reset via MFA)](DOX.md#forgot-password-self-service-reset-via-mfa)
-  - [SAML 2.0 SP](DOX.md#saml-20-sp)
-  - [OIDC Relying Party (RP)](DOX.md#oidc-relying-party-rp)
-  - [OIDC Identity Provider (OP / IdP mode)](DOX.md#oidc-identity-provider-op--idp-mode)
-  - [Identity resolution — resolve_identity seam (ADR-004 Half A)](DOX.md#identity-resolution--resolve_identity-seam-adr-004-half-a)
-  - [JIT (Just-In-Time) user provisioning](DOX.md#jit-just-in-time-user-provisioning)
-  - [Kerberos / SPNEGO](DOX.md#kerberos--spnego)
-  - [AD / LDAP identity sync](DOX.md#ad--ldap-identity-sync)
-  - [8-step pre-auth threat pipeline](DOX.md#8-step-pre-auth-threat-pipeline)
-  - [Conditional access](DOX.md#conditional-access)
-  - [Device trust](DOX.md#device-trust)
-  - [Admin impersonation](DOX.md#admin-impersonation)
-  - [SCIM session revocation](DOX.md#scim-session-revocation)
-  - [Login events](DOX.md#login-events)
-  - [Config hot reload](DOX.md#config-hot-reload)
-  - [Well-known / version](DOX.md#well-known--version)
-  - [API endpoint index](DOX.md#api-endpoint-index)
-- [5. Work Guidance](DOX.md#5-work-guidance)
-- [6. Verification](DOX.md#6-verification)
-- [7. Child DOX Index](DOX.md#7-child-dox-index)
+`authserver/` retains only PostgreSQL PL/pgSQL authority and pgTAP verification under `authserver/sql/`:
 
-Auth background task recording: [runtime oracle](DOX.md#auth-runtime-recording-202).
+- `authserver/sql/reducers/` — live PL/pgSQL reducers invoked by Rust (`setjoin-auth`, `setjoin-server`, and `setjoin-threat`):
+  - `detect_spray.sql` — password-spray detection
+  - `lockout_accessors.sql`, `lockout_escalate.sql`, `prune_lockouts.sql` — account/IP lockout state and escalation
+  - `push_lockout_accessors.sql` — push-MFA lockout accessors
+  - `recovery_budget_accessors.sql` — recovery-budget accessors
+  - `prune_used_password_reset_tokens.sql` — password-reset token pruning
+  - `rust_threat_device.sql`, `rust_threat_feed_replace.sql`, `rust_threat_signin.sql` — threat-pipeline state accessors
+- `authserver/sql/tests/` — pgTAP suites verifying auth lockouts, spray detection, audit immutability, auth-attempt isolation, backup codes, recovery budgets, SSO sweep, and TOTP step-up contracts.
+- `authserver/sql/_archive/` — historical pre-unification schema migrations. **Never execute `authserver/sql/_archive/`**; auth and mail share the combined schema in `mailserver/sql/dbschema/`.
 
-OIDC RP task transfer: [named listener gate](DOX.md#oidc-rp-listener-transfer-340).
+## Local contracts
 
-SAML SP task transfer: [named listener gate](DOX.md#saml-sp-listener-transfer-341).
+- Root `AGENTS.md` rules R1–R4 and `docs/standards/DATABASE_SECURITY.md` apply to every reducer and query.
+- Follow PL/pgSQL reducer conventions in [mailserver/sql/AGENTS.md](../mailserver/sql/AGENTS.md) (`p_`/`v_` prefixes, `ERRCODE='BZ0xx'`, pgTAP coverage for every reducer).
+- Auth and mail share one PostgreSQL cluster and schema migration chain (`mailserver/sql/dbschema/`); schema version mismatch refuses startup in both `setjoin-server` and `setjoin-auth`.
+
+## Verification
+
+```bash
+# Reload reducers into disposable test DB
+DB_NAME=mailserver_test bash scripts/reload-reducers.sh
+
+# Run authserver pgTAP tests
+pg_prove -d mailserver_test authserver/sql/tests/*.pg
+```
+
+## Child DOX Index
+
+None.

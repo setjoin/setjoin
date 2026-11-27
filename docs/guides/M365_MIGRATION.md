@@ -244,7 +244,7 @@ Verify the Directory (tenant) ID is correct. Ensure the cloud selector in the Pr
 Exchange Web Services (EWS) is the native protocol of on-premises Exchange
 2013/2016/2019 (Exchange Online also speaks EWS, but Microsoft Graph is the
 modern/recommended path for M365 — see above). setjoin's on-prem-Exchange
-connector (`mailserver/internal/migration/ews_client.go`) speaks EWS directly:
+connector (`server-rust/crates/domains/migration`) speaks EWS directly:
 no Graph, no cloud dependency, works fully air-gapped/on-prem.
 
 ## Prerequisites
@@ -279,7 +279,7 @@ Migration** for a single self-service user):
 `TestConnection` (the **Test Connection** button) issues a lightweight
 `GetFolder` SOAP call before any job starts, so a bad URL/credential/impersonation
 setup fails fast instead of mid-migration
-(`mailserver/internal/migration/admin_api.go`'s `"ews"` case →
+(`server-rust/crates/domains/migration`'s `"ews"` case →
 `validateEWSServerURL` + `EWSConnector.TestConnection`).
 
 ## What transfers
@@ -345,7 +345,7 @@ capture the output as that customer's go-live evidence.
 
 Any IMAP4-capable mail server (Gmail/Google Workspace, Zimbra, cPanel/Dovecot,
 legacy on-prem mail, etc.) can be migrated via the generic IMAP connector
-(`mailserver/internal/migration/imap_client.go`). This is the lossy fallback
+(`server-rust/crates/domains/migration`). This is the lossy fallback
 for any source without a dedicated connector: **mail only** natively; calendar
 and contacts travel via separate `.ics`/`.vcf` file upload
 (`ics_import.go`/`vcf_import.go`), not automatically pulled.

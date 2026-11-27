@@ -425,8 +425,7 @@ mod tests {
 
     #[test]
     fn registry_matches_newest_snapshot() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../../shared/toggle/testdata");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/toggle");
         let mut newest: Option<(u32, std::path::PathBuf)> = None;
         for entry in std::fs::read_dir(dir).unwrap().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();

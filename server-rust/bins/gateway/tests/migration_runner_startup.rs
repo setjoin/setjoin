@@ -45,7 +45,7 @@ fn gateway(
     s3: std::net::SocketAddr,
 ) -> Result<Process, BoxError> {
     Ok(Process(
-        Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
             .arg0("gofree-mbox7-gateway")
             .env_clear()
             .env("GATEWAY_LISTEN", listen.to_string())

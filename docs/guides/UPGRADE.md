@@ -204,11 +204,11 @@ closed before the symlink moves.
 On a legacy flat-layout install, if the health check at `/ready` fails after upgrade:
 
 ```bash
-sudo cp /opt/setjoin/mailserverd.prev /opt/setjoin/mailserverd
-sudo systemctl restart setjoin
+sudo cp /opt/setjoin/setjoin-server.prev /opt/setjoin/setjoin-server
+sudo systemctl restart setjoin-gateway
 ```
 
-Verify: `systemctl status setjoin && curl -skf https://127.0.0.1/ready` — probe
+Verify: `systemctl status setjoin-gateway && curl -skf https://127.0.0.1/ready` — probe
 the HTTPS listener (`-k` for the self-signed cert). In the default single-node
 install `:80` only serves a 301 redirect, which `curl -f` counts as success, so
 an `http://localhost:80/ready` probe proves nothing.
@@ -258,14 +258,14 @@ See [Single-node setup](SINGLE_NODE_SETUP.md) and
 
 ```bash
 # Watch logs for 5 minutes
-journalctl -u setjoin -f --since "1 min ago"
+journalctl -u setjoin-gateway -f --since "1 min ago"
 
 # Check key metrics (METRICS_TOKEN required — /metrics is 401 without it
 # unless METRICS_ALLOW_UNAUTHENTICATED=1 is set; see config.env.sample)
-curl -s -H "Authorization: Bearer $METRICS_TOKEN" http://localhost:80/metrics | grep -E "gateway_requests_total|gateway_active_connections|gateway_goroutines_total"
+curl -s -H "Authorization: Bearer $METRICS_TOKEN" http://localhost:80/metrics | grep -E "gateway_requests_total|gateway_active_connections"
 
 # Check health
-systemctl status setjoin
+systemctl status setjoin-gateway
 ```
 
 ## Version history

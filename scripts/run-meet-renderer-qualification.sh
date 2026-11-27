@@ -104,7 +104,7 @@ case "${1:-}" in
 esac
 RUN_DIR="${MEET_QUAL_RUN_DIR:-/tmp/setjoin-meet-renderer-qual-$(date -u +%Y%m%dT%H%M%SZ)}"
 
-CORPUS_DIR="$ROOT/mailserver/internal/meet/presentation/testdata/corpus"
+CORPUS_DIR="$ROOT/docs/verification/meet-m0-corpus"
 MANIFEST="$ROOT/docs/verification/meet-m0-corpus.json"
 GEN="$ROOT/scripts/gen-meet-m0-corpus.sh"
 TDF_BASE="https://download.documentfoundation.org/libreoffice/stable"

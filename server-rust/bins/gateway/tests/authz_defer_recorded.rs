@@ -109,7 +109,7 @@ impl Process {
                 log.display()
             )?;
         }
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
         cmd.arg0("gofree-authzdefer-gateway").env_clear();
         for (key, value) in [
             ("GATEWAY_LISTEN", address.to_string()),

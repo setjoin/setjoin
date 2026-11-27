@@ -19,8 +19,8 @@
         "database_reconciliation_required": false
       },
       "units": {
-        "setjoin": "unknown",
         "setjoin-auth": "unknown",
+        "setjoin-gateway": "unknown",
         "setjoin-updater": "unknown"
       }
     }

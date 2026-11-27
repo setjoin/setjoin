@@ -1,9 +1,10 @@
 # asrbotd (Rust) — the Meet captions room bot (#356)
 
-`setjoin-asrbot` replaces the Go `asrbot/` binary `asrbotd` behind the unchanged systemd unit
-`setjoin-asr-bot` (`ExecStart=<install>/bin/asrbotd`, env contract in
-[asrbot/DOX.md](../../../asrbot/DOX.md)). Go `asrbot/` is frozen: it stays only as the parity
-oracle (ARCH-029). Same routes, same FunASR and LiveKit interactions, same outputs.
+`setjoin-asrbot` is the canonical Rust `asrbotd` binary behind the unchanged systemd unit
+`setjoin-asr-bot` (`ExecStart=<install>/bin/asrbotd`, env file `/etc/setjoin/asrbot.env` rendered by
+`mailserver/deploy/`). The former Go `asrbot/` tree was deleted in `#142`
+([ARCH-031](../../../docs/adr/ARCH-031-go-is-deleted.md)); the recorded goldens stay as permanent
+regression tests. Same routes, same FunASR and LiveKit interactions, same outputs.
 
 ## Layout
 
@@ -52,13 +53,12 @@ oracle (ARCH-029). Same routes, same FunASR and LiveKit interactions, same outpu
   the frozen Go binary. `outbound_oracle` (+ `outbound-*.json`) drives the bot process through
   `/start` against `tests/support/fake_sfu.rs` (a webrtc-rs SFU speaking signalling 17, with an Opus
   speaker) and `fake_funasr.rs`, normalises what each peripheral saw, and compares with Go.
-- Record (exclusive-create; delete a golden to re-record it): build Go `asrbotd` in the CI image
-  (`GOWORK=off go build -tags nolibopusfile ./cmd/asrbotd` in `asrbot/`), then
-  `GOFREE_RECORD_ASRBOT_GO_BINARY=<path> cargo test -p setjoin-asrbot --test control_oracle --test outbound_oracle -- --test-threads=1`.
-  Go runs in `setjoin-ci-linux-tc:local-amd64` with `--network host`, container names `gofree-asrbot-*`.
+- Historical recording note (retired in `#142` / `ARCH-031` when Go `asrbot/` was deleted):
+  existing goldens under `tests/goldens/` continue running as permanent regression tests against
+  the Rust `asrbotd` binary.
 - The inventory rows of the `asrbot` listener are `ON`/`rust-asrbot` with `oracle_goldens`;
   `scripts/check-gofree-oracle-adequacy.py` checks the recorded statuses per route and, with
   `--execute`, runs one replay per golden and one `status_mutant_*` per route.
-- Not proven here: a join against a real `livekit-server` and a real FunASR container (the honesty
-  ledger in `asrbot/DOX.md` still applies: the live round-trip must be repeated for the Rust binary
-  before `feature.meet_captions` flips on anywhere); loong64/glibc-floor builds of this crate.
+- Not proven here: a join against a real `livekit-server` and a real FunASR container (the live
+  round-trip must be repeated for the Rust binary before `feature.meet_captions` flips on anywhere);
+  loong64/glibc-floor builds of this crate.

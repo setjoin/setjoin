@@ -1,20 +1,15 @@
-# server-rust — Rust server rewrite workspace (DOX child)
+# server-rust — canonical Rust server workspace (DOX child)
 
 ## Purpose
 
-Source for the Go-free Rust server rewrite (spec #25). ARCH-029 (decision
-on #231, superseding ARCH-026/027's rollout defaults) makes the front door ON
-by default and transfers routes after parity. Reducers remain business
-authority; each request has one writer. JMAP ignores its retired pilot flags;
-see the [family contract](crates/domains/jmap/DOX.md).
-[DOX.md](DOX.md) is the detailed provenance and qualification reference for the
-workspace.
+Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go server deleted in `#142`, [ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md), closing the migration phase of [ARCH-028](../docs/adr/ARCH-028-rust-replaces-go-reducers-stay.md)). PL/pgSQL reducers (`mailserver/sql/reducers/`, `authserver/sql/reducers/`) remain business authority; each request has one writer. The primary server binary was renamed from `setjoin-gateway` to `setjoin-server` in `#142` (Cargo package name `setjoin-gateway` and systemd unit name `setjoin-gateway.service` remain unchanged until Wave 1 `#544`). JMAP ignores its retired pilot flags; see the [family contract](crates/domains/jmap/DOX.md).
+[DOX.md](DOX.md) is the detailed provenance and qualification reference for the workspace.
 
 ## Layout and ownership
 
 - `Cargo.toml` — workspace (resolver 2, edition 2021, `rust-version` 1.97.1):
-  - `bins/gateway` (`setjoin-gateway`, #220, [ARCH-027](../docs/adr/ARCH-027-rust-front-door-gateway.md))
-    — Rust front door (#255): [contract](bins/gateway/DOX.md). Route inventory dispatch, proxy, workers (incl. notify/push drains, #408), auth upstream, first JMAP route.
+  - `bins/gateway` (Cargo package `setjoin-gateway`, binary `setjoin-server`, #220/#142, [ARCH-027](../docs/adr/ARCH-027-rust-front-door-gateway.md), [ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md))
+    — Canonical Rust server front door and protocol/HTTP host (systemd unit `setjoin-gateway.service` unchanged): [contract](bins/gateway/DOX.md). Route inventory dispatch, auth upstream (`setjoin-auth`), protocols (HTTP/h2c/HTTPS/ACME, JMAP, IMAP, SMTP, CalDAV, CardDAV, LDAP, Federation), and all 51 background workers.
   - `bins/asrbot` (`setjoin-asrbot`, #356) — Rust `asrbotd`, the Meet captions room bot: [contract](bins/asrbot/DOX.md).
   - `crates/authz` (`setjoin-authz`) — shared `authorize` chain; [contract](crates/authz/DOX.md#shared-authorize-chain-moved-verbatim-from-server-rustagentsmd-385).
   - `crates/contracts` (`setjoin-contracts`) — typed command/authority
@@ -38,7 +33,7 @@ workspace.
 
 ## Local contracts
 
-- A write is one Rust statement only when the entire Go transaction is that statement, with no other write, audit, state bump or notify; otherwise call a reducer reproducing the transaction. When in doubt use a reducer (ARCH-028, #243).
+- A write is one Rust statement only when the entire transaction is that single statement, with no other write, audit, state bump or notify; otherwise call a reducer owning the transaction. When in doubt use a reducer (ARCH-028, ARCH-031, #243).
 - Family isolation and licence policy: [dependency guards](DOX.md#family-dependency-guards).
 
 - Root rails apply unchanged: reducers own business authority until a command
@@ -60,19 +55,12 @@ workspace.
   measures per-handler line and region coverage for the selected exact golden
   replay tests. Repeat `--source` and `--test` as needed. Build the binary with
   `-C instrument-coverage`; Rust's `llvm-tools` component is required. Each
-  replay must run once with the database and no skip; recording mode is cleared.
-- `python3 scripts/check-gofree-route-inventory.py` — completeness/provenance
-  check against every non-test Go HTTP registration in the server modules
-  and the runtime-derived gateway golden. No Go runtime edits or DB needed.
-  `--write` preserves existing transfer decisions and adds/removes entries;
-  review family/slice assignments before committing. Non-literal registrations
-  fail closed. Narrow exclusions cover the recorder, DNS mux and two named
-  non-HTTP Handle methods. `--self-test` plants a missing auth route and a
-  dynamic registration. Both execute in the Rust lane via `inventory_guard.rs`.
-- Gateway `tests/proxy.rs` covers four-target inventory dispatch, direct auth,
-  the all-Go kill switch and per-family/total proxy metrics through HTTP.
-  `tests/startup.rs` checks default-ON and the environment kill switch through
-  the executable, reaping each owned child process on success or failure.
+  replay must run once with the database and no skip.
+- Route inventory goldens live in `bins/gateway/data/{route_inventory.golden,jmap_methods.golden,worker_launch_inventory.golden,route-inventory.json}` (relocated from deleted Go trees in `#142` and validated by `inventory_guard` and `scripts/check-openapi-{coverage,visibility}.sh`).
+- Gateway `tests/proxy.rs` covers inventory dispatch, direct `setjoin-auth` routing,
+  and proxy metrics through HTTP. `tests/startup.rs` checks `setjoin-server` startup
+  and graceful shutdown through the executable, reaping each owned child process on
+  success or failure.
 - `bash scripts/check-server-rust.sh` — `cargo test --locked` in the workspace,
   the pilot, schema-simulation and bench-mark-read; red on any failing test or a root with zero
   tests or ignored tests. Without cargo it prints `SERVER-RUST-SKIP (reason=cargo-not-found …)`.
@@ -80,9 +68,9 @@ workspace.
   `SERVER_RUST_NEXTEST=1` runs the workspace through nextest with a database per test;
   the CI full lane is [DOX.md](DOX.md#parallel-full-lane-550).
 - Oracle adequacy gate and coverage: [DOX.md](DOX.md#oracle-adequacy).
-- Go-deletion rehearsal guard (#141) and DELETE gate (#358): `python3 scripts/check-gofree-rehearsal.py static`,
-  self-test `python3 scripts/test-check-gofree-rehearsal.py`, and `scripts/test-samlacs-mutants.py`
-  (run in CI `roots` under `REQUIRE_DB=1`); contract in [DOX.md](DOX.md#go-deletion-rehearsal-141).
+- Historical Go-deletion rehearsal (#141) completed and retired in `#142` ([ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md));
+  `scripts/test-samlacs-mutants.py` continues running in CI `roots` under `REQUIRE_DB=1`.
+  Historical record in [DOX.md](DOX.md#go-deletion-rehearsal-141).
 - `setjoin-pg` DB tests (`crates/pg/tests/db_scope.rs`) need a schema from
   `scripts/load-test-schema.sh`, owner DSN in `TEST_DB_DSN`/`DB_DSN` and the
   `setjoin_app` credential in `DB_APP_DSN`; absent → `SETJOIN-PG-DB-SKIP

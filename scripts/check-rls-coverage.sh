@@ -404,38 +404,43 @@ trap 'rm -f "$TMP_HITS"' EXIT
 # word-bounded so message_trace / message_attachments / message_recalls, a bare
 # message_id column, and `mailboxes` do NOT match.
 # The sorted expansion deliberately supplies one awk input argument per source file.
-# shellcheck disable=SC2046
-awk -v rls_tbl="$RLS_TBL" '
-  BEGIN { mode=0; buf=""; startline=0 }
-  FNR==1 { fname=FILENAME; mode=0; buf="" }   # reset literal state per file
-  {
-    line=$0; i=1; n=length(line)
-    while (i<=n) {
-      c=substr(line,i,1)
-      if (mode==1) { if (c=="`") { mode=0; emit() } else { buf=buf c } ; i++ }
-      else if (mode==2) {
-        if (c=="\\") { buf=buf c substr(line,i+1,1); i+=2; continue }
-        if (c=="\"") { mode=0; emit() } else { buf=buf c }
-        i++
-      } else {
-        if (c=="/" && substr(line,i+1,1)=="/") break
-        if (c=="`") { mode=1; buf=""; startline=FNR; i++ }
-        else if (c=="\"") { mode=2; buf=""; startline=FNR; i++ }
-        else i++
+GO_SRC_FILES="$(find "$GATEWAY" -name '*.go' ! -name '*_test.go' -type f 2>/dev/null | LC_ALL=C sort || true)"
+if [ -n "$GO_SRC_FILES" ]; then
+  # shellcheck disable=SC2086
+  awk -v rls_tbl="$RLS_TBL" '
+    BEGIN { mode=0; buf=""; startline=0 }
+    FNR==1 { fname=FILENAME; mode=0; buf="" }   # reset literal state per file
+    {
+      line=$0; i=1; n=length(line)
+      while (i<=n) {
+        c=substr(line,i,1)
+        if (mode==1) { if (c=="`") { mode=0; emit() } else { buf=buf c } ; i++ }
+        else if (mode==2) {
+          if (c=="\\") { buf=buf c substr(line,i+1,1); i+=2; continue }
+          if (c=="\"") { mode=0; emit() } else { buf=buf c }
+          i++
+        } else {
+          if (c=="/" && substr(line,i+1,1)=="/") break
+          if (c=="`") { mode=1; buf=""; startline=FNR; i++ }
+          else if (c=="\"") { mode=2; buf=""; startline=FNR; i++ }
+          else i++
+        }
       }
+      if (mode==1) buf=buf " "
+      else if (mode==2) { mode=0; buf="" }
     }
-    if (mode==1) buf=buf " "
-    else if (mode==2) { mode=0; buf="" }
-  }
-  function emit(   s, l) {
-    s=buf; gsub(/[ \t\r\n]+/," ",s); sub(/^ /,"",s)
-    if (s=="") return
-    l=tolower(s)
-    # table-touch on the FORCE-flip table set (RLS_TBL), word-bounded both sides.
-    if (l ~ ("(^|[^a-z_])(from|join|into|update|delete +from) +" rls_tbl "([^a-z0-9_]|$)"))
-      print fname ":" startline "\t" l "\t" s
-  }
-' $(find "$GATEWAY" -name '*.go' ! -name '*_test.go' -type f 2>/dev/null | LC_ALL=C sort) > "$TMP_HITS"
+    function emit(   s, l) {
+      s=buf; gsub(/[ \t\r\n]+/," ",s); sub(/^ /,"",s)
+      if (s=="") return
+      l=tolower(s)
+      # table-touch on the FORCE-flip table set (RLS_TBL), word-bounded both sides.
+      if (l ~ ("(^|[^a-z_])(from|join|into|update|delete +from) +" rls_tbl "([^a-z0-9_]|$)"))
+        print fname ":" startline "\t" l "\t" s
+    }
+  ' $GO_SRC_FILES > "$TMP_HITS"
+else
+  : > "$TMP_HITS"
+fi
 
 # Walk only the FORCE'd-table hits; flag any not classified.
 while IFS=$'\t' read -r loc low sql; do

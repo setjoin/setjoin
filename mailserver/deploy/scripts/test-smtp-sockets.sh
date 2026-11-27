@@ -85,7 +85,8 @@ done
 printf 'SMTP_FRONT_ENABLED=false\n' >> "$CONFIG_ENV"
 configure_smtp_front "$CONFIG_ENV"
 grep -qx 'SMTP_FRONT_ENABLED=true' "$CONFIG_ENV"
-test "$(stat -c %a "$SMTP_ENV")" = 640
+mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
+test "$(mode_of "$SMTP_ENV")" = 640
 # The Go listener transfer reaches the gateway's own env too, merged with IMAP.
 render_gateway_env "$GATEWAY_ENV"
 grep -qx 'GO_LISTENERS_OFF=imap,smtp,submission' "$GATEWAY_ENV"
@@ -103,7 +104,7 @@ grep -qx 'SMTP_INBOUND_TLS_ADDR=' "$tmp/preserved.env"
 grep -qx 'SMTP_FRONT_ENABLED=true' "$tmp/preserved.env"
 # Inbound-only transfer must not claim submission.
 printf 'SMTP_SUBMISSION_ADDR=\n' >> "$CONFIG_ENV"
-sed -i '/^GO_LISTENERS_OFF=/d' "$CONFIG_ENV"
+grep -v '^GO_LISTENERS_OFF=' "$CONFIG_ENV" > "$CONFIG_ENV.tmp" && mv "$CONFIG_ENV.tmp" "$CONFIG_ENV"
 configure_smtp_front "$CONFIG_ENV"
 grep -qx 'GO_LISTENERS_OFF=smtp' "$CONFIG_ENV"
 for path in upgrade.sh setjoin-lifecycle.sh install.sh; do

@@ -192,7 +192,7 @@ doctor() {
   local failed=0 tool
   printf 'connectivity-aware-sync doctor (read-only)\n'
   printf 'host os=%s arch=%s\n' "$(uname -s 2>/dev/null || printf unknown)" "$(uname -m 2>/dev/null || printf unknown)"
-  for tool in bash node npm go cargo psql pg_isready git jq curl; do
+  for tool in bash node npm cargo psql pg_isready git jq curl; do
     if check_tool "$tool"; then :; else failed=1; fi
   done
   if browser_doctor; then :; else failed=1; fi
@@ -300,7 +300,7 @@ start_evidence() {
   } > "$RUN_DIR/run.txt"
   {
     local tool
-    for tool in bash node npm go cargo psql pg_isready git jq curl; do
+    for tool in bash node npm cargo psql pg_isready git jq curl; do
       if command -v "$tool" >/dev/null 2>&1; then
         printf '%s=%s\n' "$tool" "$(tool_version "$tool" || printf unavailable)"
       else
@@ -351,15 +351,15 @@ run_case_validator() {
 
 run_registry_guard() {
   local log="$RUN_DIR/toggle-registry.log" status
-  if bash "$ROOT/scripts/check-toggle-registry.sh" > "$log" 2>&1; then
-    printf 'PASS CAS-E0-REGISTRY: existing finite feature-toggle registry guard.\n'
+  if (cd "$ROOT/server-rust" && cargo test --locked --lib -p setjoin-platform features) > "$log" 2>&1; then
+    printf 'PASS CAS-E0-REGISTRY: finite feature-toggle registry test.\n'
     return 0
   else
     status=$?
   fi
-  printf 'FAIL CAS-E0-REGISTRY: existing finite feature-toggle registry guard failed.\n' >&2
+  printf 'FAIL CAS-E0-REGISTRY: finite feature-toggle registry test failed.\n' >&2
   printf 'Evidence: %s\n' "$(relative_path "$log")" >&2
-  printf 'Cause: check-toggle-registry.sh exited with status %s.\n' "$status" >&2
+  printf 'Cause: setjoin-platform features test exited with status %s.\n' "$status" >&2
   printf 'Fix: inspect the retained registry log; do not add a connectivity key outside the finite toggle rail.\n' >&2
   printf 'Next: bash scripts/verify-connectivity-aware-sync.sh quick\n' >&2
   return 1

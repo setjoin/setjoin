@@ -172,13 +172,15 @@ cp -a /mnt/repo-src/. /root/setjoin/
 rm -rf /root/setjoin/.git
 cd /root/setjoin/mailserver/webmail
 npm run build
-cd /root/setjoin/mailserver
-CGO_ENABLED=0 go build -o /tmp/mailserverd.d4 -ldflags="-s -w" ./cmd/mailserverd
-cd /root/setjoin/mailctl
-CGO_ENABLED=0 go build -o /tmp/mailctl.d4 .
+cd /root/setjoin/server-rust
+cargo build --release --locked -p setjoin-gateway -p setjoin-auth -p setjoin-mailctl
+target_dir="${CARGO_TARGET_DIR:-/root/setjoin/server-rust/target}"
+install -m 0755 "$target_dir/release/setjoin-server" /tmp/setjoin-server.d4
+install -m 0755 "$target_dir/release/setjoin-auth" /tmp/setjoin-auth.d4
+install -m 0755 "$target_dir/release/mailctl" /tmp/mailctl.d4
 cd /root/setjoin
-bash mailserver/deploy/scripts/upgrade.sh /tmp/mailserverd.d4 /tmp/mailctl.d4 \
-  /root/setjoin/mailserver/webmail/build
+bash mailserver/deploy/scripts/upgrade.sh /tmp/setjoin-server.d4 /tmp/mailctl.d4 \
+  /root/setjoin/mailserver/webmail/build /tmp/setjoin-auth.d4
 curl -skf --max-time 5 https://127.0.0.1/ready >/dev/null
 INNER
   printf 'current_build_upgrade=PASS\n' | tee "$EVIDENCE_DIR/build.txt"
@@ -188,10 +190,11 @@ refresh_mailctl_build() {
   say "Refresh mailctl before resumed orchestration"
   docker exec -i "$A" bash -s <<'INNER'
 set -Eeuo pipefail
-cp -a /mnt/repo-src/mailctl/. /root/setjoin/mailctl/
-cd /root/setjoin/mailctl
-CGO_ENABLED=0 go build -o /tmp/mailctl.d4-resume .
-install -m 0755 /tmp/mailctl.d4-resume /opt/setjoin/mailctl
+cp -a /mnt/repo-src/server-rust/. /root/setjoin/server-rust/
+cd /root/setjoin/server-rust
+cargo build --release --locked -p setjoin-mailctl
+target_dir="${CARGO_TARGET_DIR:-/root/setjoin/server-rust/target}"
+install -m 0755 "$target_dir/release/mailctl" /opt/setjoin/mailctl
 INNER
   docker exec "$A" /opt/setjoin/mailctl version \
     >"$EVIDENCE_DIR/mailctl-resume-version.txt"
@@ -507,7 +510,7 @@ enable_model_and_wait_for_syncs() {
     SELECT count(*) FROM identity_source_batches
      WHERE source_id=$source_id AND state='completed'
   ")" -ge 1 ] || die "first normalized LDAP batch did not complete"
-  docker exec "$A" systemctl restart setjoin
+  docker exec "$A" systemctl restart setjoin-gateway
   for _ in $(seq 1 90); do
     [ "$(psql_env "$A" "
       SELECT count(*) FROM identity_source_batches

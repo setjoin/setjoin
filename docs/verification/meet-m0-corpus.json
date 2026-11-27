@@ -8,7 +8,7 @@
   "revisedOnBranch": "codex/meet-renderer-qualification (base 9c12fd886) — revision 2 = D3 producer acquisition: the five producer-pinned entries are frozen with the captured engine's bytes, digests and observed counts, AND the pptx synthetic seed was amended (explicit shape geometry + master-first rels) because the pinned producer rendered the pre-amendment seed as blank/slide-shifted pages (receipt: docs/verification/2026-09-20-meet-renderer-qualification.md). All other synthetic-seed rows are byte-identical to revision 1.",
   "plan": "docs/superpowers/plans/2026-08-25-meet-document-presentation-semantic-recording.md — M0 'Freeze a producer/format corpus and bandwidth benchmark fixtures' and 'M0 freezes the 20-page reference deck and R2 measurement protocol.'",
   "authorization": "docs/verification/2026-09-19-owner-consolidated-decisions.md §D3 (renderer/font qualification authorized; the run consumes THIS corpus, so the freeze precedes the run) + the owner-directed 2026-09-20 qualification run (dev-side darwin/arm64 capture; linux-ci-host server re-qualification is the named production-pin follow-up)",
-  "corpusDir": "mailserver/internal/meet/presentation/testdata/corpus",
+  "corpusDir": "docs/verification/meet-m0-corpus",
   "verification": {
     "script": "scripts/gen-meet-m0-corpus.sh verify",
     "goTest": "go test ./internal/meet/presentation -run M0Corpus (mailserver module)",

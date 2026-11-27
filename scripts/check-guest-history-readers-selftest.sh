@@ -30,10 +30,7 @@ chat_pin_toggle mailserver/sql/reducers/chat_pin.sql
 chat_save_toggle mailserver/sql/reducers/chat_save.sql
 chat_poll_vote mailserver/sql/reducers/chat_poll.sql
 chat_poll_close mailserver/sql/reducers/chat_poll.sql
-chat_poll_results mailserver/sql/reducers/chat_poll.sql
-drive_attachment_content mailserver/internal/drive/memberscope.go
-drive_attachment_metadata mailserver/internal/drive/memberscope.go
-drive_chunk_head mailserver/internal/drive/chunks.go'
+chat_poll_results mailserver/sql/reducers/chat_poll.sql'
 
 mk_clean() {
   local d="$1" path
@@ -78,4 +75,4 @@ if [ "$fail" -ne 0 ]; then
   echo "check-guest-history-readers selftest: FAILED"
   exit 1
 fi
-echo "check-guest-history-readers selftest OK (21/21 mutations caught + clean copy passes)"
+echo "check-guest-history-readers selftest OK (18/18 mutations caught + clean copy passes)"

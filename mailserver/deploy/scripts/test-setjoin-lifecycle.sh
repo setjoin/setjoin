@@ -18,7 +18,7 @@ esac
 EOF
 chmod 0755 "$tmp/bin/systemctl"
 
-base=(setjoin-valkey setjoin-sfu setjoin-egress setjoin-auth setjoin setjoin-gateway setjoin-updater)
+base=(setjoin-valkey setjoin-sfu setjoin-egress setjoin-auth setjoin-gateway setjoin-updater)
 optional=(setjoin-funasr setjoin-asr-bot)
 for unit in "${base[@]}" "${optional[@]}"; do
   : > "$tmp/systemd/$unit.service"
@@ -42,18 +42,18 @@ run_lifecycle() {
 }
 
 run_lifecycle start
-expected_start=$'start setjoin-valkey\nstart setjoin-sfu\nstart setjoin-egress\nstart setjoin-funasr\nstart setjoin-asr-bot\nstart setjoin-auth\nstart setjoin\nstart setjoin-gateway\nstart setjoin-updater'
+expected_start=$'start setjoin-valkey\nstart setjoin-sfu\nstart setjoin-egress\nstart setjoin-funasr\nstart setjoin-asr-bot\nstart setjoin-auth\nstart setjoin-gateway\nstart setjoin-updater'
 [ "$(cat "$log")" = "$expected_start" ] || {
   echo "unexpected start order" >&2; cat "$log" >&2; exit 1;
 }
 
 : > "$log"
 run_lifecycle restart
-expected_stop=$'stop setjoin-updater\nstop setjoin-gateway\nstop setjoin\nstop setjoin-auth\nstop setjoin-asr-bot\nstop setjoin-funasr\nstop setjoin-egress\nstop setjoin-sfu\nstop setjoin-valkey'
-[ "$(sed -n '1,9p' "$log")" = "$expected_stop" ] || {
+expected_stop=$'stop setjoin-updater\nstop setjoin-gateway\nstop setjoin-auth\nstop setjoin-asr-bot\nstop setjoin-funasr\nstop setjoin-egress\nstop setjoin-sfu\nstop setjoin-valkey'
+[ "$(sed -n '1,8p' "$log")" = "$expected_stop" ] || {
   echo "unexpected stop order" >&2; cat "$log" >&2; exit 1;
 }
-[ "$(sed -n '10,18p' "$log")" = "$expected_start" ] || {
+[ "$(sed -n '9,16p' "$log")" = "$expected_start" ] || {
   echo "unexpected restart order" >&2; cat "$log" >&2; exit 1;
 }
 

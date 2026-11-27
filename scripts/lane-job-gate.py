@@ -20,7 +20,7 @@ import tempfile
 import time
 
 FULL_JOBS = {"plan", "build", "roots", "pgtap", "guards", "shard", "coverage-build", "coverage-shard"}
-CACHE_JOBS = {"plan", "build", "coverage-build", "gomod-cache"}
+CACHE_JOBS = {"plan", "build", "coverage-build"}
 
 # Merge-queue batching. Worst case for one entry: SETTLE + CAP + the lane. No git or API call starts at or after CAP,
 # so the loop returns by CAP + QUEUE_POLL_WORST_IO_S at the latest (one ls-remote, init, fetch, cat-file, for-each-ref,

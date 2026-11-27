@@ -47,7 +47,7 @@ its scoped Drive bearer, then launches an allowlisted executable with
 `shell:false`. No WOPI/Drive token or renderer-controlled filesystem path is
 passed to the editor. Plain web and mobile do not advertise offline editing.
 
-This doc owns everything under `clients/`. Protocol details, auth-server contract, JMAP method semantics, and gateway APIs are owned by `authserver/AGENTS.md`, `mailserver/AGENTS.md`, and `shared/AGENTS.md`. Rust crates (`guard-core`, `offline-core`, `capability-session`, `desktop-native`, `ohos-native`) are workspace-members of `clients/Cargo.toml` and are consumed by the shells as engine-agnostic native modules (N-API/sidecar on Electron + HarmonyOS, UniFFI on mobile); the desktop shell has its own build at `clients/desktop/`.
+This doc owns everything under `clients/`. Protocol details, auth-server contract, JMAP method semantics, and server APIs are owned by `server-rust/AGENTS.md`, `mailserver/AGENTS.md`, and `authserver/AGENTS.md`. Rust crates (`guard-core`, `offline-core`, `capability-session`, `desktop-native`, `ohos-native`) are workspace-members of `clients/Cargo.toml` and are consumed by the shells as engine-agnostic native modules (N-API/sidecar on Electron + HarmonyOS, UniFFI on mobile); the desktop shell has its own build at `clients/desktop/`.
 
 ## Local Contracts
 

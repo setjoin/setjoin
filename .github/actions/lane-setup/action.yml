@@ -21,14 +21,13 @@ runs:
         set -euo pipefail
         LANE_CACHE="$HOME/.cache/setjoin-server-rust-lane"
         LANE_BUILD="$HOME/lane-build"
-        mkdir -p "$LANE_CACHE"/{go-mod,cargo-home,tmp} "$LANE_BUILD/target/tmp" "$GITHUB_WORKSPACE/lane-artifacts"
+        mkdir -p "$LANE_CACHE"/{cargo-home,tmp} "$LANE_BUILD/target/tmp" "$GITHUB_WORKSPACE/lane-artifacts"
         {
           echo "LANE_CACHE=$LANE_CACHE"
           echo "LANE_BUILD=$LANE_BUILD"
           # identical absolute target dir in every job: CARGO_BIN_EXE_* paths are compiled in
           echo "CARGO_TARGET_DIR=$LANE_BUILD/target"
           echo "CARGO_HOME=$LANE_CACHE/cargo-home"
-          echo "GOFREE_GO_MOD_CACHE=$LANE_CACHE/go-mod"
           echo "LANE_OWNER=$(id -u):$(id -g)"
           echo "LANE_ARTIFACT_DIR=$GITHUB_WORKSPACE/lane-artifacts"
           echo "PEBBLE_BIN=/usr/local/bin/pebble"

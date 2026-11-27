@@ -1,18 +1,39 @@
-//! The inventory completeness check is an operator-facing CLI, run by the Rust lane.
+//! Route inventory and OpenAPI merged-inventory contract guards.
 #[test]
-fn inventory_check_rejects_missing_go_routes() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    for args in [vec![], vec!["--self-test"]] {
-        let output = std::process::Command::new("python3")
-            .arg(root.join("scripts/check-gofree-route-inventory.py"))
-            .args(args)
-            .output()
-            .expect("python3 is required for the route inventory check");
+fn openapi_route_inventory_matches_golden_patterns() {
+    use std::collections::BTreeSet;
+    let inventory: serde_json::Value =
+        serde_json::from_str(include_str!("../data/route-inventory.json")).unwrap();
+    assert_eq!(inventory["schema_version"], 1);
+    assert_eq!(inventory["owner"], "merged");
+    let ops = inventory["operations"]
+        .as_array()
+        .expect("operations must be an array");
+    assert!(!ops.is_empty(), "operations must be non-empty");
+    let patterns: BTreeSet<&str> = ops
+        .iter()
+        .map(|op| {
+            op["pattern"]
+                .as_str()
+                .expect("every operation must have a string pattern")
+        })
+        .collect();
+    // Sub-router mount prefixes in route_inventory.golden are expanded into
+    // individual sub-router operations in data/route-inventory.json.
+    const MOUNTS: &[&str] = &["/chat/", "/drive/", "/meet", "/meet/"];
+    for line in include_str!("../data/route_inventory.golden").lines() {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (pattern, _) = line
+            .split_once('\t')
+            .unwrap_or_else(|| panic!("malformed golden line: {line}"));
+        if MOUNTS.contains(&pattern) {
+            continue;
+        }
         assert!(
-            output.status.success(),
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
+            patterns.contains(pattern),
+            "route_inventory.golden pattern {pattern:?} missing from data/route-inventory.json"
         );
     }
 }
