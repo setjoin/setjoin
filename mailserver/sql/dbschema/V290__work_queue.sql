@@ -245,6 +245,11 @@ BEGIN
       VALUES (p_channel, p_payload, nextval('_test_notify_log_seq'));
   END IF;
 
+  IF p_channel = 'upgrade_intent_changed' THEN
+    PERFORM pg_notify(p_channel, COALESCE(p_payload, ''));
+    RETURN;
+  END IF;
+
   PERFORM public.app_notify_enqueue_intent(p_channel, p_payload);
 END;
 $$ LANGUAGE plpgsql;

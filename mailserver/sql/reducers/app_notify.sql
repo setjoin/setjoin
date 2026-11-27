@@ -107,6 +107,15 @@ BEGIN
       VALUES (p_channel, p_payload, nextval('_test_notify_log_seq'));
   END IF;
 
+  -- Transactional upgrade / recovery transitions run inside setjoin-updater
+  -- while setjoin-server (NotifyIntentDrain) is stopped, so emit
+  -- upgrade_intent_changed directly via pg_notify (rare control-plane event,
+  -- never on a hot user write path).
+  IF p_channel = 'upgrade_intent_changed' THEN
+    PERFORM pg_notify(p_channel, COALESCE(p_payload, ''));
+    RETURN;
+  END IF;
+
   PERFORM public.app_notify_enqueue_intent(p_channel, p_payload);
 END;
 $$ LANGUAGE plpgsql;
