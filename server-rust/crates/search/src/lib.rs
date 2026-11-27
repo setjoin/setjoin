@@ -1008,7 +1008,11 @@ mod tests {
             .candidates(&mail_query(42, survivor))
             .await
             .expect("survivor query");
-        assert_eq!(hits.keys, vec![kept_key.clone()]);
+        assert_eq!(
+            hits.keys,
+            vec![kept_key.clone()],
+            "unexpected survivor query result after purge compaction: {hits:?}"
+        );
 
         // Recursive byte-level scan across EVERY file in the epoch directory: 0 occurrences of purged canary!
         let after_count = count_needle_in_dir(&epoch_dir, canary.as_bytes());

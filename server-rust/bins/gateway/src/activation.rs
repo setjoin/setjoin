@@ -436,7 +436,6 @@ impl SdNotify {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::fd::IntoRawFd;
 
     #[test]
     fn an_unnamed_descriptor_is_http_and_unnamed_pairs_are_refused() {
@@ -552,18 +551,29 @@ mod tests {
 
     #[tokio::test]
     async fn failed_validation_atomically_closes_every_owned_fd() {
-        let s1 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let s2 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let raw1 = s1.into_raw_fd();
-        let raw2 = s2.into_raw_fd();
-        let owned1 = unsafe { OwnedFd::from_raw_fd(raw1) };
-        let owned2 = unsafe { OwnedFd::from_raw_fd(raw2) };
+        use std::io::Read;
+        use std::os::unix::net::UnixStream;
+
+        // Use socket pairs and verify EOF on the retained peers instead of probing
+        // raw integer FD numbers with fcntl(F_GETFD), which races with parallel
+        // test threads reusing the closed FD numbers in the same process.
+        let (a1, mut peer1) = UnixStream::pair().unwrap();
+        let (a2, mut peer2) = UnixStream::pair().unwrap();
+        peer1
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        peer2
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let owned1 = OwnedFd::from(a1);
+        let owned2 = OwnedFd::from(a2);
 
         // Typo name "authh" fails validation; BOTH FDs must be closed on return.
         let err = adopt_planned(vec![owned1, owned2], Some("http:authh")).unwrap_err();
         assert!(err.contains("unknown descriptor name"));
-        assert_eq!(unsafe { libc::fcntl(raw1, libc::F_GETFD) }, -1);
-        assert_eq!(unsafe { libc::fcntl(raw2, libc::F_GETFD) }, -1);
+        let mut buf = [0u8; 1];
+        assert_eq!(peer1.read(&mut buf).unwrap(), 0);
+        assert_eq!(peer2.read(&mut buf).unwrap(), 0);
     }
 
     #[test]
