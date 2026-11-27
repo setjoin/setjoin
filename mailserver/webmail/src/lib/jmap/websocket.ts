@@ -311,7 +311,7 @@ export function createWebSocketHub(options: WebSocketHubOptions = {}): WebSocket
 	}
 
 	function open(): void {
-		if (!browser) return;
+		if (!browser || typeof location === 'undefined' || typeof WebSocket === 'undefined') return;
 		if (ws) return;
 		if (reconnectTimer !== null) {
 			clearTimeout(reconnectTimer);
