@@ -85,10 +85,6 @@ pub use listen_hub::{
     ListenEvent, ListenHub, ListenHubError, ListenNotification, ListenSubscription,
     DEFAULT_SUBSCRIBER_CAPACITY,
 };
-pub use listen_hub::{
-    ListenEvent, ListenHub, ListenHubError, ListenNotification, ListenSubscription,
-    DEFAULT_SUBSCRIBER_CAPACITY,
-};
 pub use outcome::{
     commit_failure_observation, CommandOutcome, FailureCode, Rejection, StatementFailure,
 };
