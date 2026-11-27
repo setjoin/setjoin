@@ -30,7 +30,8 @@ DECLARE
     v_received_at TIMESTAMPTZ;
     v_quar_tag_id BIGINT;
 BEGIN
-    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+    -- Canonical #481 lock order (mailboxes -> messages -> message_tags/tags).
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
 
     v_quar_tag_id := get_tag_id('Quarantined', p_mailbox_id);
 
@@ -65,7 +66,7 @@ BEGIN
     -- Tag membership changed → push through the single owner so the client sees the
     -- message return to its folder immediately. Suppressible via p_notify = FALSE.
     IF p_notify AND v_quar_tag_id IS NOT NULL THEN
-        PERFORM notify_state_change(p_mailbox_id, v_quar_tag_id);
+        PERFORM notify_state_change(p_mailbox_id, v_quar_tag_id, p_message_id, 'updated');
     END IF;
 END;
 $$ LANGUAGE plpgsql;

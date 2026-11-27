@@ -279,10 +279,36 @@ BEGIN
       ELSE
         -- Legacy path: delete the draft on a normal (non-held) send. send() above
         -- already pushed the state change, so suppress the helper's bump (p_notify =>
-        -- FALSE) to preserve the no-double-bump invariant.
+        -- FALSE) to preserve the no-double-bump invariant, and record an exact
+        -- 'destroyed' journal entry for the deleted draft on that same state seq
+        -- so JMAP Email/changes & IMAP QRESYNC VANISHED observe the draft removal (#554).
         -- T7: skip deletion when held (v_sent_id IS NULL) — the draft must survive.
         IF v_sent_id IS NOT NULL THEN
-          PERFORM delete_draft_message(v_email_id, v_msg.received_at, p_mailbox_id, FALSE);
+          DECLARE
+            v_draft_tag_id BIGINT;
+            v_cur_state    BIGINT;
+          BEGIN
+            SELECT mt.tag_id INTO v_draft_tag_id
+            FROM message_tags mt
+            JOIN tags t ON t.id = mt.tag_id
+            WHERE mt.message_id = v_email_id
+              AND mt.received_at = v_msg.received_at
+              AND t.mailbox_id = p_mailbox_id
+              AND mt.is_primary = TRUE
+            LIMIT 1;
+            SELECT jmap_email_state INTO v_cur_state FROM mailboxes WHERE id = p_mailbox_id;
+            IF v_cur_state IS NOT NULL THEN
+              PERFORM set_config('app.imap_retire_modseq', (GREATEST(v_cur_state, 0) + 1)::TEXT, TRUE);
+            END IF;
+            PERFORM delete_draft_message(v_email_id, v_msg.received_at, p_mailbox_id, FALSE);
+            PERFORM set_config('app.imap_retire_modseq', '', TRUE);
+            IF v_cur_state IS NOT NULL THEN
+              PERFORM append_email_change(
+                p_mailbox_id, v_cur_state, v_email_id, 'destroyed',
+                COALESCE(v_draft_tag_id, v_msg.folder_id), v_msg.imap_uid
+              );
+            END IF;
+          END;
         END IF;
 
         v_created := v_created || jsonb_build_object(v_creation_id, jsonb_build_object(
@@ -350,7 +376,7 @@ BEGIN
     FROM scheduled_actions sa
     WHERE sa.mailbox_id = p_mailbox_id          -- R1: ownership
       AND sa.action_kind = 'send'
-      AND sa.status = 'pending'
+      AND sa.status IN ('pending', 'enqueued')
       AND (p_ids IS NULL OR (sa.payload->>'message_id')::BIGINT = ANY(p_ids))
     ORDER BY sa.fire_at ASC
   ) sub;
@@ -387,7 +413,7 @@ BEGIN
     FROM scheduled_actions sa
     WHERE sa.mailbox_id = p_mailbox_id           -- R1: ownership
       AND sa.action_kind = 'send'
-      AND sa.status = 'pending'
+      AND sa.status IN ('pending', 'enqueued')
     ORDER BY sa.fire_at ASC
     OFFSET GREATEST(p_position, 0)
     LIMIT LEAST(GREATEST(p_limit, 1), 256)

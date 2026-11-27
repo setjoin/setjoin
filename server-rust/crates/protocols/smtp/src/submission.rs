@@ -1055,6 +1055,21 @@ impl Submission {
             c.reply(554, "5.3.0 Internal error").await?;
             return Ok(false);
         }
+        // Lock-safe raw_ref publish protocol (#551): take a shared advisory lock so
+        // concurrent publishers of the same raw_ref do not serialize on each other
+        // while still mutually excluding the orphan cleaner's exclusive lock.
+        if conn
+            .query(
+                "SELECT pg_catalog.pg_advisory_xact_lock_shared(public.blob_gc_lock_key($1))",
+                &[(&raw_ref, Type::TEXT)],
+            )
+            .await
+            .is_err()
+        {
+            let _ = conn.batch("ROLLBACK").await;
+            c.reply(554, "5.3.0 Internal error").await?;
+            return Ok(false);
+        }
         for (key, guc) in [
             ("feature.rules_engine", "app.skip_rules"),
             ("feature.dlp", "app.skip_dlp"),
@@ -1127,6 +1142,19 @@ impl Submission {
         if conn.batch("COMMIT").await.is_err() {
             c.reply(554, "5.3.0 Internal error").await?;
             return Ok(false);
+        }
+        // Post-commit fence (#551): if an orphan cleaner raced between initial PUT and
+        // acquiring the commit advisory lock, re-PUT from memory now that the live row is committed.
+        // Never treat a failed HEAD as "object exists" and never acknowledge 250 OK if re-PUT fails.
+        if let Some(blobs) = &self.blobs {
+            let needs_reput = match blobs.exists(&raw_ref).await {
+                Ok(true) => false,
+                Ok(false) | Err(_) => true,
+            };
+            if needs_reput && blobs.put(&raw_ref, &msg).await.is_err() {
+                c.reply(451, "4.3.0 Temporary storage failure").await?;
+                return Ok(false);
+            }
         }
         let Some(row) = rows.first() else {
             return Ok(true);

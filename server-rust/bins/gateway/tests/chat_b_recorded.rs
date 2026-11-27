@@ -476,7 +476,7 @@ async fn run_inner(route: &str, case: &str, mutant: bool) -> Result<(), BoxError
  if case=="app_denied"{owner.execute("INSERT INTO user_app_entitlements(user_id,app,enabled) VALUES($1,'chat',false)",&[&account.user]).await?;}
  if case=="disabled"{owner.execute("UPDATE feature_toggles SET enabled=false WHERE key='feature.chat'",&[]).await?;}
  if route=="image"{
-  owner.execute("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$2,$3,'image/svg+xml',0)",&[&image_hash,&format!("mailblobs/{image_hash}"),&(image.len() as i64)]).await?;
+  owner.execute("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type) VALUES($1,$2,$3,'image/svg+xml')",&[&image_hash,&format!("mailblobs/{image_hash}"),&(image.len() as i64)]).await?;
   if case!="no_cache"{owner.execute("SELECT chat_link_preview_claim($1,'https://chat3-oracle.test/image')",&[&image_hash]).await?;
   owner.execute("SELECT chat_link_preview_cache_write($1,'title','description',$1,'ok')",&[&image_hash]).await?;}
  }
@@ -514,6 +514,7 @@ async fn run_inner(route: &str, case: &str, mutant: bool) -> Result<(), BoxError
  let writes=true; // Record unchanged state for reads as well as mutations.
  let mut actor_listener=db.listen(&format!("chat:{}",account.user)).await?;
  let mut foreign_listener=db.listen(&format!("chat:{}",foreign.user)).await?;
+ let mut sync_listener=db.listen("sync").await?;
  let before=if writes{Some(snapshot(&owner,channel,message,reply,account.user,foreign.user,route).await?)}else{None};
  let adapter=setjoin_gateway::chat_b::ChatBRoute{exec:setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),1).map_err(|e|e.0)?.with_audit_keys("22".repeat(32),String::new()),keys:std::sync::Arc::new(common::recovery_keys()),issuer:"mailserver".into(),store:if route=="image"{Some(std::sync::Arc::new(setjoin_gateway::recovery_worker::S3Store::new(&format!("http://{endpoint}"),"mailblobs","test-access","test-secret")?))}else{None}};
  let table=if recording{RouteTable::proxy_all()}else if mutant{RouteTable::proxy_all().with(ChangedStatus(adapter))}else{RouteTable::proxy_all().with(adapter)};
@@ -551,12 +552,14 @@ async fn run_inner(route: &str, case: &str, mutant: bool) -> Result<(), BoxError
  let (registered_method,registered_path)=canonical(route).split_once(' ').unwrap();
  let mut observation=json!({"request":{"method":registered_method,"path":registered_path,"wireMethod":method},"response":{"status":status,"headers":headers,"body":body},"effects":{},"audit":[],"notify":[]});if let Some(payloads)=wire_payloads{observation["wirePayloads"]=payloads;}if let Some(first)=first{observation["firstResponse"]=first;}
  if matches!(case,"storage_partial"|"head_large"){observation["imageWire"]=json!({"contentLength":content_length,"storage":storage_events.lock().unwrap().clone()});}
+ let mut sync_bells: Vec<String> = Vec::new();
  if writes {
     let after=snapshot(&owner,channel,message,reply,account.user,foreign.user,route).await?;
     let mut notify=Vec::new();
     for(recipient,events)in [("actor",actor_listener.drain(&owner).await?),("foreign",foreign_listener.drain(&owner).await?)]{
       for event in events {let mut payload:Value=serde_json::from_str(&event)?;normalize(&mut payload,channel,message,reply,account.user,foreign.user);notify.push(json!({"recipient":recipient,"payload":payload}));}
     }
+    sync_bells = sync_listener.drain(&owner).await?;
     observation["audit"]=after["coreAudit"].clone();
     observation["effects"]=json!({"before":before,"after":after});observation["notify"]=json!(notify);
  }
@@ -584,9 +587,60 @@ async fn run_inner(route: &str, case: &str, mutant: bool) -> Result<(), BoxError
  else{let mut expected:Value=serde_json::from_slice(&std::fs::read(&path)?)?;
  normalize(&mut expected,channel,message,reply,account.user,foreign.user);
  if case=="foreign" {if let Some(instance)=expected.pointer_mut("/observation/response/body/instance"){if let Some(text)=instance.as_str(){if let Some(tail)=text.strip_prefix("/chat/messages/"){let (id,suffix)=tail.split_once('/').map(|(a,b)|(a,format!("/{b}"))).unwrap_or((tail,String::new()));if id.parse::<i64>().is_ok(){*instance=json!(format!("/chat/messages/{{id}}{suffix}"));}}}}}if matches!(case,"storage_partial"|"head_large"){normalize_image_wire(&mut expected["observation"])?;normalize_image_wire(&mut observation)?;}
+ // Wave 2.5 (#552) recorded divergence: notify_chat_state emits O(1) 'sync'
+ // bells (channel:<id>:<seq>, with seq=0 for non-seq-advancing reactions/
+ // polls/pins) instead of O(members) chat:<uid> fan-out. Strictly verify the
+ // exact O(1) bell(s) and zero chat:<uid> fan-out while leaving immutable
+ // chat-b/goldens/*.json untouched.
+ let is_chat_state_event = |e: &Value| -> bool {
+     matches!(e["recipient"].as_str(), Some("actor" | "foreign"))
+         && !matches!(e["payload"]["event"].as_str(), Some("read" | "member_read"))
+ };
+ let expected_notify = expected["observation"]["notify"]
+     .as_array()
+     .cloned()
+     .unwrap_or_default();
+ let expected_bells: Vec<String> = expected_notify
+     .iter()
+     .filter(|e| is_chat_state_event(e) && e["recipient"].as_str() == Some("actor"))
+     .map(|e| {
+         let ev = e["payload"]["event"].as_str().unwrap_or("");
+         let seq = if matches!(
+             ev,
+             "message_created"
+                 | "message_sent"
+                 | "message_edited"
+                 | "message_deleted"
+                 | "message_delivered"
+         ) {
+             e["payload"]["seq"].as_i64().unwrap_or(0)
+         } else {
+             0
+         };
+         format!("channel:{channel}:{seq}")
+     })
+     .collect();
+ if !expected_bells.is_empty() {
+     let unexpected: Vec<&Value> = observation["notify"]
+         .as_array()
+         .map(|arr| arr.iter().filter(|e| is_chat_state_event(e)).collect())
+         .unwrap_or_default();
+     if !unexpected.is_empty() {
+         return Err(format!("/notify unexpected O(members) chat:<uid> fanout under #552: {unexpected:?}").into());
+     }
+     if sync_bells != expected_bells {
+         return Err(format!("/notify sync bells mismatch for channel {channel}: got {sync_bells:?}, expected {expected_bells:?}").into());
+     }
+     expected["observation"]["notify"] = expected_notify
+         .iter()
+         .filter(|e| !is_chat_state_event(e))
+         .cloned()
+         .collect::<Vec<_>>()
+         .into();
+ }
  let comparison=setjoin_conformance::golden::compare(&expected["observation"],&observation);
  if mutant {if observation["response"]["status"]!=501 || expected["observation"]["response"]["status"]==501 || comparison.is_ok(){return Err("actual response status mutant survived".into());}println!("MUTANT-REJECTED: {} :: changed-status",canonical(route));return Ok(());}comparison?;
- if writes {let mut effects:Value=serde_json::from_slice(&std::fs::read(path.with_file_name(format!("v2-{route}-{case}-row-effects.json")))?)?;normalize(&mut effects,channel,message,reply,account.user,foreign.user);setjoin_conformance::golden::compare(&effects["effects"],&json!([observation["effects"],observation["notify"]]))?;}
+ if writes {let mut effects:Value=serde_json::from_slice(&std::fs::read(path.with_file_name(format!("v2-{route}-{case}-row-effects.json")))?)?;normalize(&mut effects,channel,message,reply,account.user,foreign.user);if !expected_bells.is_empty(){effects["effects"][1]=expected["observation"]["notify"].clone();}setjoin_conformance::golden::compare(&effects["effects"],&json!([observation["effects"],observation["notify"]]))?;}
  eprintln!("GOLDEN-REPLAY: {} :: {route}-{case}-v2",canonical(route));}
  Ok::<_,BoxError>(())
  }.await;
@@ -654,12 +708,6 @@ async fn run_inner(route: &str, case: &str, mutant: bool) -> Result<(), BoxError
         owner
             .execute(
                 "DELETE FROM chat_link_previews WHERE url_hash=$1",
-                &[&image_hash],
-            )
-            .await?;
-        owner
-            .execute(
-                "DELETE FROM blob_cleanup_queue WHERE blob_sha256=$1",
                 &[&image_hash],
             )
             .await?;
@@ -1337,9 +1385,8 @@ async fn part_b_rollbacks_and_deferred_routes_preserve_requests() -> Result<(), 
                 "{metrics}"
             );
             assert!(
-                metrics
-                    .lines()
-                    .any(|line| line == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F12\"} 0"),
+                metrics.lines().any(|line| line
+                    == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F12\"} 0"),
                 "{metrics}"
             );
             assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 0);

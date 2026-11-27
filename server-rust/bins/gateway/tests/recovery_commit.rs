@@ -99,7 +99,14 @@ async fn run_case(case: &str, mutant: bool) -> Result<(), common::BoxError> {
                 use http_body_util::BodyExt;
                 let body=request.body_mut().collect().await.unwrap().to_bytes();
                 if request.uri().query()==Some("location=") {return Response::new(common::full("<LocationConstraint>us-east-1</LocationConstraint>"));}
+                if request.method()==hyper::Method::GET && request.uri().query().is_some_and(|q| q.contains("versions")) {
+                    return Response::builder().status(501).header("content-type","application/xml").body(common::full("<Error><Code>NotImplemented</Code></Error>")).unwrap();
+                }
                 let object=request.uri().path().strip_prefix("/mailblobs/").unwrap_or("");
+                if object.starts_with("tmp/blob-upload/") {
+                    let status = if request.method()==hyper::Method::DELETE { 204 } else { 200 };
+                    return Response::builder().status(status).header("etag","\"staging-etag\"").body(common::full("")).unwrap();
+                }
                 if object.is_empty() {return Response::new(common::full(""));}
                 let observed=common::s3::observe(&request,&body);
                 let Ok(observed)=observed else {events.lock().unwrap().push(serde_json::json!({"invalid_signature":observed.unwrap_err()}));return Response::builder().status(403).body(common::full("")).unwrap();};

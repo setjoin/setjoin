@@ -38,7 +38,7 @@ INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at
 UPDATE system_config SET value = '91108'::jsonb WHERE key = 'approval.default_approver_user_id';
 
 INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
-  VALUES ('deadbeef00000000000000000000000000000000000000000000000000aa', 'minio:hr-test-1', 1234, 'application/pdf');
+  VALUES ('deadbeef000000000000000000000000000000000000000000000000000000aa', 'minio:hr-test-1', 1234, 'application/pdf');
 
 -- ── no-policy-match path (hr.expense — no policy configured yet) ────────────
 SELECT is(
@@ -150,11 +150,11 @@ SELECT is(
   91108::bigint, '2-day leave does NOT match the long_leave policy (falls to default_admin)'
 );
 
--- ── happy expense + receipts + ref_count ────────────────────────────────────
+-- ── happy expense + receipts + Mark-and-Sweep live root ─────────────────────
 SELECT ok(
   (SELECT hr_request_create(91111, 'hr.expense',
      '{"currency":"CNY","total_cents":128000,"line_items":[
-        {"description":"Taxi to client","amount_cents":8000,"category":"travel","receipt_sha256":"deadbeef00000000000000000000000000000000000000000000000000aa"},
+        {"description":"Taxi to client","amount_cents":8000,"category":"travel","receipt_sha256":"deadbeef000000000000000000000000000000000000000000000000000000aa"},
         {"description":"Hotel","amount_cents":120000,"category":"lodging"}
       ]}'::jsonb)) > 0,
   'happy expense returns positive id'
@@ -165,8 +165,8 @@ SELECT is(
   1::bigint, 'exactly one receipt row inserted (the line item WITH a receipt)'
 );
 SELECT is(
-  (SELECT ref_count FROM blobs WHERE sha256='deadbeef00000000000000000000000000000000000000000000000000aa'),
-  2, 'blobs.ref_count bumped by the receipt insert trigger'
+  public.blob_has_live_reference('deadbeef000000000000000000000000000000000000000000000000000000aa'),
+  true, 'hr_expense_receipts row marks the receipt blob live for Mark-and-Sweep GC'
 );
 
 -- ── over-tier expense routes to the tier policy's named approver ───────────

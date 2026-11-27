@@ -25,7 +25,19 @@ BEGIN
         updated_at = now()
     WHERE id IN (
         SELECT sa.id FROM scheduled_actions sa
-        WHERE sa.status = 'pending' AND sa.fire_at <= now()
+        WHERE (
+            (sa.status = 'pending' AND sa.fire_at <= now())
+            OR (
+                sa.status = 'enqueued'
+                AND sa.fire_at <= now()
+                AND NOT EXISTS (
+                    SELECT 1
+                      FROM public.work_items wi
+                     WHERE wi.kind = 'scheduled_action.' || sa.action_kind
+                       AND wi.idempotency_key = 'scheduled_action:' || sa.id::TEXT
+                )
+            )
+        )
         ORDER BY sa.fire_at
         FOR UPDATE SKIP LOCKED
         LIMIT GREATEST(p_batch, 1)

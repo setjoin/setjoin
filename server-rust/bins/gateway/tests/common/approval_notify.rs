@@ -46,7 +46,7 @@ pub async fn run_case(kind: &str) -> Result<(), BoxError> {
     let result=async{
   let endpoint=super::fake_upstream(|_|async{hyper::Response::new(full(""))}).await;let oracle=super::go_oracle::start_named(&db,endpoint,None,if kind=="off"{"gofree-appr1-notify-off"}else{"gofree-appr1-notify"}).await?;let recording=oracle.is_some();
   let before=state(&owner,b.mailbox).await?;
-  let seq=owner.query_one("SELECT last_value,is_called FROM imap_modseq_seq",&[]).await?;let expected_modseq=seq.get::<_,i64>(0)+i64::from(seq.get::<_,bool>(1));
+  let expected_modseq=before["email"].as_i64().unwrap_or(0)+2;
   let payload=if kind=="folded-rbac"{json!({"request_id":id,"CONSUMER_TYPE":"rbac.jit_activation"}).to_string()}else if kind=="malformed"{"bad".into()}else{json!({"request_id":id,"consumer_type":if kind=="rbac"{"rbac.jit_activation"}else{"hr.leave"}}).to_string()};
   let skipped=matches!(kind,"off"|"rbac"|"malformed"|"folded-rbac");
   let mut task=None;

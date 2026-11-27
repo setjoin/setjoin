@@ -50,7 +50,7 @@ SELECT throws_ok(format($$ SELECT chat_poll_vote(932, %s, %s) $$, :poll1_id, :p2
 SELECT chat_poll_vote(932, :poll1_id, :opt1_id);
 SELECT is((SELECT count(*)::int FROM chat_poll_votes
             WHERE poll_id = :poll1_id AND user_id = 932), 1, 'first vote recorded');
-SELECT is(last_notify_event('chat:933'), 'poll_voted', 'vote fans out poll_voted to other members');
+SELECT ok(last_notify_payload('sync') LIKE format('channel:%s:%%', :ch_id), 'vote emits O(1) sync bell for channel');
 SELECT chat_poll_vote(932, :poll1_id, :opt2_id);
 SELECT is((SELECT count(*)::int FROM chat_poll_votes
             WHERE poll_id = :poll1_id AND user_id = 932), 1,

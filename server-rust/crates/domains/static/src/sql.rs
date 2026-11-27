@@ -100,6 +100,22 @@ pub const METRICS_IDENTITY: SqlContract = SqlContract {
     audit: SqlAuditPosture::Standard,
 };
 
+pub const METRICS_WORK_QUEUE: SqlContract = SqlContract {
+    id: "static.metrics_work_queue",
+    domain: "static",
+    sql: "SELECT pending, leased, dead_letters, oldest_due_age_secs FROM public.work_queue_stats()",
+    params: &[],
+    columns: &[
+        ColumnSpec::named("pending", Type::INT8),
+        ColumnSpec::named("leased", Type::INT8),
+        ColumnSpec::named("dead_letters", Type::INT8),
+        ColumnSpec::named("oldest_due_age_secs", Type::FLOAT8),
+    ],
+    scope: SqlScope::WorkerBypass,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
+};
+
 pub const WELLKNOWN_LOCAL_DOMAIN: SqlContract = SqlContract {
     id: "static.wellknown_local_domain",
     domain: "static",
@@ -128,6 +144,7 @@ pub const SQL_CONTRACTS: &[SqlContract] = &[
     HEALTH_HISTORY,
     READY_PING,
     METRICS_IDENTITY,
+    METRICS_WORK_QUEUE,
     WELLKNOWN_LOCAL_DOMAIN,
     WEBSITE_NEEDS_SETUP,
 ];

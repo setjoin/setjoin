@@ -49,7 +49,7 @@ state. No reducer or business audit metadata changes.
 
 | HTTP operation | Reducer and external effects |
 | --- | --- |
-| Blob PUT | Upload random `tmp/upload/<32 hex>` object, verify measured SHA-256, call `blob_upload_account`, copy to canonical hash, remove only temp object. |
+| Blob PUT | Upload random `tmp/blob-upload/<32 hex>` object, verify measured SHA-256, call `blob_upload_account` (atomically enqueuing `blob.promote_recover` / `blob.promote_verify`), copy to canonical hash, cancel `blob.promote_recover`, remove temp object when no `blob.promote_verify` is pending. |
 | Recovery begin | Verify receipt and inventory, call `mail_recovery_upload_begin`; atomic session/items, reservation budgets, idempotency and consent audit. |
 | Chunk PUT | Write deterministic quarantine key, call `mail_recovery_upload_chunk_record`; row and both offsets are atomic. Exact replay writes nothing. |
 | Item commit | Assemble verified chunks to an exclusive 0600 file, upload canonical object, call `mail_recovery_upload_item_verify`; remove quarantine keys only after acknowledged commit. |
@@ -198,7 +198,11 @@ the affected targets and default guards with assigned full-schema owner/app
 DSNs, `REQUIRE_DB=1`, task-owned target and two Cargo jobs. Never treat a DB skip
 as pass.
 
-## Security (#531 F3)
-Security (#531 F3, owner-approved 2026-11-06): `blob-cleanup` checks at startup (`BlobCleanup::worker_bypasses_rls`, `pg_roles.rolbypassrls OR rolsuper` for `current_user`) that the worker credential is not filtered by row security, logs and refuses to run otherwise (its global `ref_count`/`messages.raw_ref` re-checks must see every tenant). `DB_WORKER_DSN` (or `DB_DSN` when unset) must therefore be `setjoin_worker`/BYPASSRLS. A transient check failure retries each tick. Mutant `blob-cleanup-no-bypass-check`; test `blob_cleanup_refuses_a_credential_without_bypassrls`.
+## Security (#531 F3, #549, #551)
+Security (#531 F3, owner-approved 2026-11-06; unified in Wave 2.2 #549): `WorkerSupervisor::boot` checks at startup (`WorkerPool::verify_bypassrls`, `pg_roles.rolbypassrls OR rolsuper` for `current_user`) that the worker credential is not filtered by row security, failing closed BEFORE `READY=1` otherwise (so `blob-cleanup`'s global live-root/`messages.raw_ref` checks and all other supervised workers see every tenant). `DB_WORKER_DSN` (or `DB_DSN` when unset) must therefore be `setjoin_worker`/BYPASSRLS. Mutant `blob-cleanup-no-bypass-check`; test `blob_cleanup_refuses_a_credential_without_bypassrls`.
 
 Foundation receipts / protected audits and the WORM retry handoff qualification (#419): [RECEIPTS.md](RECEIPTS.md).
+
+## Mark-and-Sweep S3 Blob GC (#550 V292, #551 V293)
+
+`bins/gateway/src/blob_gc.rs` implements the `off|shadow|live` Mark-and-Sweep S3 Blob GC worker (`BLOB_GC_MODE` env override > `blob_gc_config.mode`, live post-V293), supervised via `WorkerSupervisor` under external worker name `blob-cleanup` (alias `blob-gc`). It enforces fail-closed `BYPASSRLS` and `WORM_MODE` validation, Phase 1 Mark (`>= 24h` grace floor), Phase 2 Two-Transaction Sweep (Tx 2A `blob_gc_claim_purging` + Tx 2B dedicated `WorkerDatabase::connect()` session with `8s` idle-in-tx timeout, per-`sha256` advisory lock + `FOR UPDATE OF s, b` followed by fresh second-statement `READ COMMITTED` live/hold re-check, version-aware `S3Store::delete_blob_checked`, concurrency 1, circuit breaker, and graceful S3 403 Object Lock reversion), lock-safe `orphaned_message_blobs` cleanup, and >24h `tmp/blob-upload/*` staging sweep. All canonical S3 uploaders serialize via `blob_gc_reactivate_v2`/`blob_gc_register_and_reactivate`. Proof: `bins/gateway/tests/blob_mark_and_sweep_gc.rs`.

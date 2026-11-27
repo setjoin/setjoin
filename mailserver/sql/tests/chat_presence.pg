@@ -11,19 +11,16 @@ SELECT set_config('app.capture_notify', 'on', true);
 SELECT chat_channel_create(701, 'presence-small') AS small_id \gset
 SELECT chat_member_add(701, :small_id, 702);
 
--- chat_member_add's own 'member_added' fan-out already put one notify on
--- BOTH chat:701 and chat:702 (702 is a fan-out target of its own join) —
--- capture the baseline so the typing assert below is a delta, not a total.
-SELECT notify_count('chat:702') AS n_before_typing \gset
+-- Capture baseline on chat_ephemeral so the typing assert below is a delta.
+SELECT notify_count('chat_ephemeral') AS n_before_typing \gset
 
--- Test 1: a member's typing signal fans out to co-members without erroring.
+-- Test 1: a member's typing signal succeeds without erroring.
 SELECT lives_ok(format($$ SELECT chat_typing_signal(701, %s) $$, :small_id),
   'member typing signal succeeds');
 
--- Test 2: it actually pushes — exactly one additional notify lands on the
--- OTHER member's self-channel.
-SELECT is(notify_count('chat:702'), :n_before_typing + 1, 'typing signal notifies the co-member');
-SELECT is(last_notify_event('chat:702'), 'typing', 'notify payload event is "typing"');
+-- Test 2: it emits exactly one O(1) ephemeral typing push on chat_ephemeral.
+SELECT is(notify_count('chat_ephemeral'), :n_before_typing + 1, 'typing signal emits O(1) chat_ephemeral push');
+SELECT is(last_notify_event('chat_ephemeral'), 'typing', 'notify payload event is "typing"');
 
 -- Test 3: a non-member raises BZ163 (same code/shape as chat_message.sql).
 SELECT throws_ok(format($$ SELECT chat_typing_signal(703, %s) $$, :small_id),
@@ -39,10 +36,10 @@ SELECT is((SELECT count(*)::int FROM chat_channel_members WHERE channel_id = :bi
   33, 'fixture channel has 33 members (owner + 32)');
 
 -- Test 4: over the cap, the signal no-ops — zero notify rows anywhere.
-SELECT notify_count('chat:710') AS n_before \gset
+SELECT notify_count('chat_ephemeral') AS n_before \gset
 SELECT lives_ok(format($$ SELECT chat_typing_signal(710, %s) $$, :big_id),
   'typing signal on an over-cap channel does not error');
-SELECT is(notify_count('chat:710'), :n_before,
+SELECT is(notify_count('chat_ephemeral'), :n_before,
   'typing signal on a 33-member channel produces zero additional notify rows');
 
 SELECT * FROM finish();

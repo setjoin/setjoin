@@ -2,6 +2,86 @@
 use setjoin_pg::workers::WorkerDatabase;
 use std::{future::Future, pin::Pin, sync::Arc};
 
+/// Current S3 Object Lock retention metadata returned by `GetObjectRetention`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObjectRetentionInfo {
+    /// Lowercase mode: `"governance"` or `"compliance"`.
+    pub mode: String,
+    /// RFC 3339 retain-until timestamp.
+    pub retain_until: String,
+}
+
+/// Typed outcome for S3 Object Lock retention calls (`PutObjectRetention` / `GetObjectRetention`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RetentionError {
+    Transient(u16, String),
+    NotFound,
+    Forbidden(String),
+    Invalid(String),
+}
+
+impl std::fmt::Display for RetentionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Transient(status, msg) => {
+                write!(f, "transient S3 retention error ({status}): {msg}")
+            }
+            Self::NotFound => write!(f, "S3 object not found (404)"),
+            Self::Forbidden(msg) => write!(f, "S3 retention forbidden (403): {msg}"),
+            Self::Invalid(msg) => write!(f, "invalid S3 retention request: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for RetentionError {}
+
+/// Single entry returned by `GET /<bucket>?versions&prefix=<key>` (#551).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObjectVersionEntry {
+    pub key: String,
+    pub version_id: String,
+    pub is_delete_marker: bool,
+    pub last_modified_unix: i64,
+}
+
+/// Result of querying object versions for a key or prefix (#551).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VersionListing {
+    /// Bucket supports versioning (enabled or suspended); contains all matching
+    /// concrete versions (including `"null"` if present) and delete markers.
+    Versioned(Vec<ObjectVersionEntry>),
+    /// Backend does not expose object versions (`404`/`501`/`NotImplemented`,
+    /// `<ListBucketResult>`, or AWS S3 unversioned `"null"`-only exact listing).
+    Unversioned,
+}
+
+/// Typed result of deleting a single object or object version (#551).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DeleteVersionOutcome {
+    Deleted,
+    /// A bare `DELETE` on a versioned bucket created a delete marker (`x-amz-delete-marker: true`).
+    DeleteMarkerCreated,
+    /// Permanent S3 Object Lock / WORM retention rejection (HTTP 403), carrying
+    /// the observed unexpired `RetainUntilDate` when confirmed via `GetObjectRetention`.
+    WormLocked403 {
+        detail: String,
+        retain_until: Option<String>,
+    },
+    /// Conditional `If-Match` failed (`412 Precondition Failed`): object changed concurrently.
+    PreconditionFailed,
+    Error(String),
+}
+
+/// Typed outcome of permanent version-aware S3 blob deletion (#551).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BlobDeleteOutcome {
+    Deleted,
+    WormLocked403 {
+        detail: String,
+        retain_until: Option<String>,
+    },
+}
+
 /// The quarantine object-store boundary. Removal of a missing object succeeds.
 pub trait ObjectStore: Send + Sync {
     fn read<'a>(
@@ -32,14 +112,86 @@ pub trait ObjectStore: Send + Sync {
         &'a self,
         key: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
-    /// `PutObjectRetention` (WORM, #301): mode `governance|compliance`, RFC 3339 `until`.
+    /// Bounded-timeout removal used by Mark-and-Sweep Tx 2B (#550) so HTTP/TCP
+    /// abort fires strictly before PG's `idle_in_transaction_session_timeout`.
+    fn remove_with_timeout<'a>(
+        &'a self,
+        key: &'a str,
+        _timeout: std::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        self.remove(key)
+    }
+    /// Version-aware permanent deletion used by Mark-and-Sweep GC Tx 2B,
+    /// staging cleanup, orphan cleanup, and legacy reap-retry drain (#551).
+    ///
+    /// On versioned/suspended buckets, deletes every concrete version and delete
+    /// marker (stopping immediately on Object Lock 403). On unversioned buckets,
+    /// uses `HEAD` ETag + `If-Match` when supported by the backend.
+    fn delete_blob_checked<'a>(
+        &'a self,
+        key: &'a str,
+        timeout: std::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<BlobDeleteOutcome, String>> + Send + 'a>> {
+        Box::pin(async move {
+            match self.remove_with_timeout(key, timeout).await {
+                Ok(()) => Ok(BlobDeleteOutcome::Deleted),
+                Err(err) if is_strict_object_lock_error_msg(&err) => {
+                    Ok(BlobDeleteOutcome::WormLocked403 {
+                        detail: err,
+                        retain_until: None,
+                    })
+                }
+                Err(err) => Err(err),
+            }
+        })
+    }
+    /// Server-side copy from `from` staging key to canonical `to` key (#551).
+    fn promote_object<'a>(
+        &'a self,
+        _from: &'a str,
+        _to: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async { Err("object store does not support promote_object".into()) })
+    }
+    /// Checks whether `key` currently exists (`HEAD` 200 vs 404) (#551).
+    fn object_exists<'a>(
+        &'a self,
+        _key: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<bool, String>> + Send + 'a>> {
+        Box::pin(async { Ok(true) })
+    }
+    /// Lists `(key, last_modified_unix_secs)` under `prefix` for abandoned staging sweeps (#551).
+    fn list_prefix_with_modified<'a>(
+        &'a self,
+        _prefix: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<(String, i64)>, String>> + Send + 'a>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    /// `PutObjectRetention` (WORM, #301/#549): mode `governance|compliance`, RFC 3339 `until`.
     fn retain_object<'a>(
         &'a self,
         _key: &'a str,
         _mode: &'a str,
         _until: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
-        Box::pin(async { Err("object store does not accept retention".into()) })
+    ) -> Pin<Box<dyn Future<Output = Result<(), RetentionError>> + Send + 'a>> {
+        Box::pin(async {
+            Err(RetentionError::Invalid(
+                "object store does not accept retention".into(),
+            ))
+        })
+    }
+    /// `GetObjectRetention` (WORM, #549): inspect existing retention on `key`.
+    fn object_retention<'a>(
+        &'a self,
+        _key: &'a str,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Option<ObjectRetentionInfo>, RetentionError>> + Send + 'a>,
+    > {
+        Box::pin(async {
+            Err(RetentionError::Invalid(
+                "object store does not support object_retention".into(),
+            ))
+        })
     }
 }
 
@@ -101,6 +253,8 @@ pub struct S3Store {
     request_timeout: Option<std::time::Duration>,
     region: tokio::sync::Mutex<Option<String>>,
     small_cache: std::sync::Mutex<SmallCache>,
+    /// 0 = unprobed, 1 = backend enforces `If-Match` on `DELETE`, 2 = unsupported.
+    conditional_delete_supported: std::sync::atomic::AtomicU8,
 }
 
 pub(crate) enum BlobReadError {
@@ -363,6 +517,7 @@ impl S3Store {
             request_timeout: None,
             region: tokio::sync::Mutex::new(s3_region_from_url(endpoint)),
             small_cache: std::sync::Mutex::new(SmallCache::default()),
+            conditional_delete_supported: std::sync::atomic::AtomicU8::new(0),
         })
     }
 
@@ -578,17 +733,15 @@ impl S3Store {
         }
     }
 
-    /// minio-go's `executeMethod` loop for `PutObjectRetention` (blob PUT, #301): up to ten
-    /// attempts, 200 ms doubling to a 1 s cap, retrying transport failures and the
-    /// statuses minio-go treats as retryable.
+    /// Typed `PutObjectRetention` with minio-go retry policy for transient statuses (#301/#549).
     pub(crate) async fn retain_with_retries(
         &self,
         key: &str,
         mode: &str,
         until: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), RetentionError> {
         const RETRYABLE: [u16; 8] = [408, 429, 499, 500, 502, 503, 504, 520];
-        let mut last = String::from("object retention failed");
+        let mut last = RetentionError::Transient(0, "object retention failed".into());
         for attempt in 0..10u32 {
             if attempt > 0 {
                 let wait = (200u64 << (attempt - 1).min(3)).min(1000);
@@ -596,14 +749,108 @@ impl S3Store {
             }
             match self.retain_attempt(key, mode, until).await {
                 Ok(200..=299) => return Ok(()),
-                Ok(status) if RETRYABLE.contains(&status) => {
-                    last = format!("object retention failed ({status})")
+                Ok(404) => return Err(RetentionError::NotFound),
+                Ok(403) => {
+                    return Err(RetentionError::Forbidden(
+                        "object retention failed (403)".into(),
+                    ))
                 }
-                Ok(status) => return Err(format!("object retention failed ({status})")),
-                Err(e) => last = e,
+                Ok(status) if RETRYABLE.contains(&status) => {
+                    last = RetentionError::Transient(
+                        status,
+                        format!("object retention failed ({status})"),
+                    );
+                }
+                Ok(status) => {
+                    return Err(RetentionError::Invalid(format!(
+                        "object retention failed ({status})"
+                    )));
+                }
+                Err(e) => {
+                    if e == "invalid retention mode" {
+                        return Err(RetentionError::Invalid(e));
+                    }
+                    last = RetentionError::Transient(0, e);
+                }
             }
         }
         Err(last)
+    }
+
+    /// `GetObjectRetention` (`GET ?retention=`): inspects existing S3 Object Lock
+    /// retention so 403 replies on already-retained objects can be classified cleanly.
+    pub(crate) async fn get_object_retention(
+        &self,
+        key: &str,
+    ) -> Result<Option<ObjectRetentionInfo>, RetentionError> {
+        use s3::{
+            command::Command,
+            request::{tokio_backend::ReqwestRequest, Request},
+        };
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "PascalCase")]
+        struct RetentionReply {
+            mode: String,
+            retain_until_date: String,
+        }
+        let mut bucket = self
+            .bucket()
+            .await
+            .map_err(|e| RetentionError::Transient(0, e))?;
+        bucket.add_query("retention", "");
+        let response = ReqwestRequest::new(&bucket, key, Command::GetObject)
+            .await
+            .map_err(|e| RetentionError::Transient(0, e.to_string()))?
+            .response_data(false)
+            .await;
+        match response {
+            Ok(resp) => {
+                let status = resp.status_code();
+                if status == 200 {
+                    let parsed: RetentionReply = quick_xml::de::from_reader(resp.as_slice())
+                        .map_err(|e| {
+                            RetentionError::Invalid(format!("parse GetObjectRetention XML: {e}"))
+                        })?;
+                    return Ok(Some(ObjectRetentionInfo {
+                        mode: parsed.mode.to_ascii_lowercase(),
+                        retain_until: parsed.retain_until_date,
+                    }));
+                }
+                if status == 404 {
+                    let body = String::from_utf8_lossy(resp.as_slice());
+                    if body.contains("NoSuchObjectLockConfiguration")
+                        || body.contains("InvalidRequest")
+                    {
+                        return Ok(None);
+                    }
+                    return Err(RetentionError::NotFound);
+                }
+                if status == 403 {
+                    return Err(RetentionError::Forbidden(
+                        "GetObjectRetention returned 403".into(),
+                    ));
+                }
+                Err(RetentionError::Transient(
+                    status,
+                    format!("GetObjectRetention returned HTTP {status}"),
+                ))
+            }
+            Err(s3::error::S3Error::HttpFailWithBody(404, body)) => {
+                if body.contains("NoSuchObjectLockConfiguration") || body.contains("InvalidRequest")
+                {
+                    Ok(None)
+                } else {
+                    Err(RetentionError::NotFound)
+                }
+            }
+            Err(s3::error::S3Error::HttpFailWithBody(403, body)) => {
+                Err(RetentionError::Forbidden(body))
+            }
+            Err(s3::error::S3Error::HttpFailWithBody(status, body)) => {
+                Err(RetentionError::Transient(status, body))
+            }
+            Err(e) => Err(RetentionError::Transient(0, e.to_string())),
+        }
     }
 
     /// One `PUT ?retention` request; the status of any HTTP answer.
@@ -1110,47 +1357,888 @@ impl ObjectStore for S3Store {
         key: &'a str,
         mode: &'a str,
         until: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), RetentionError>> + Send + 'a>> {
         Box::pin(async move { self.retain_with_retries(key, mode, until).await })
+    }
+    fn object_retention<'a>(
+        &'a self,
+        key: &'a str,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Option<ObjectRetentionInfo>, RetentionError>> + Send + 'a>,
+    > {
+        Box::pin(async move { self.get_object_retention(key).await })
     }
     fn remove<'a>(
         &'a self,
         key: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move { self.remove_inner(key, None).await })
+    }
+    fn remove_with_timeout<'a>(
+        &'a self,
+        key: &'a str,
+        timeout: std::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move { self.remove_inner(key, Some(timeout)).await })
+    }
+    fn delete_blob_checked<'a>(
+        &'a self,
+        key: &'a str,
+        timeout: std::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<BlobDeleteOutcome, String>> + Send + 'a>> {
+        Box::pin(async move { self.delete_blob_checked_inner(key, timeout).await })
+    }
+    fn promote_object<'a>(
+        &'a self,
+        from: &'a str,
+        to: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move { self.promote(from, to).await })
+    }
+    fn object_exists<'a>(
+        &'a self,
+        key: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<bool, String>> + Send + 'a>> {
+        Box::pin(async move { self.stat_size(key).await.map(|s| s.is_some()) })
+    }
+    fn list_prefix_with_modified<'a>(
+        &'a self,
+        prefix: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<(String, i64)>, String>> + Send + 'a>> {
         Box::pin(async move {
-            if let Some(client) = &self.unsigned {
-                let _ = self.bucket().await?;
-                let response = client
-                    .delete(self.object_url(key)?)
-                    .send()
-                    .await
-                    .map_err(|error| error.to_string())?;
-                return if response.status().is_success() {
-                    Ok(())
-                } else {
-                    Err(format!("S3 delete returned HTTP {}", response.status()))
-                };
-            }
-
-            let response = self
-                .bucket()
-                .await?
-                .delete_object(key)
-                .await
-                .map_err(|e| e.to_string())?;
-            if (200..300).contains(&response.status_code()) {
-                Ok(())
-            } else {
-                Err(format!(
-                    "S3 delete returned HTTP {}",
-                    response.status_code()
-                ))
-            }
+            self.list_with_modified_including_versions(
+                prefix,
+                crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT,
+            )
+            .await
         })
     }
 }
 
+#[derive(Default, serde::Deserialize)]
+#[serde(default)]
+struct S3XmlError {
+    #[serde(rename = "Code", default)]
+    code: String,
+    #[serde(rename = "Message", default)]
+    message: String,
+}
+
+#[derive(Default, Debug, PartialEq, Eq)]
+struct ParsedListVersions {
+    is_list_versions_result: bool,
+    is_truncated: bool,
+    next_key_marker: String,
+    next_version_id_marker: String,
+    entries: Vec<ObjectVersionEntry>,
+}
+
+/// Streaming `quick_xml::Reader` parser for S3 `ListObjectVersions` XML (#551).
+/// Handles arbitrarily interleaved `<Version>` and `<DeleteMarker>` elements
+/// without `quick_xml::de`'s `overlapped-lists` limitation.
+fn parse_list_versions_xml(xml: &str) -> Result<ParsedListVersions, String> {
+    use quick_xml::events::Event;
+    use quick_xml::Reader;
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Container {
+        Root,
+        Version,
+        DeleteMarker,
+    }
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Field {
+        None,
+        IsTruncated,
+        NextKeyMarker,
+        NextVersionIdMarker,
+        Key,
+        VersionId,
+        LastModified,
+    }
+
+    let mut reader = Reader::from_str(xml);
+    let mut out = ParsedListVersions::default();
+    let mut container = Container::Root;
+    let mut field = Field::None;
+    let mut cur_key = String::new();
+    let mut cur_vid = String::new();
+    let mut cur_mod = String::new();
+    let mut root_seen = false;
+    let mut saw_root_end = false;
+    let mut depth = 0usize;
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) => {
+                depth += 1;
+                let local = e.local_name();
+                let name = local.as_ref();
+                if !root_seen {
+                    root_seen = true;
+                    out.is_list_versions_result = name == b"ListVersionsResult";
+                    if !out.is_list_versions_result {
+                        return Ok(out);
+                    }
+                    continue;
+                }
+                match (container, depth, name) {
+                    (Container::Root, 2, b"Version") => {
+                        container = Container::Version;
+                        cur_key.clear();
+                        cur_vid.clear();
+                        cur_mod.clear();
+                        field = Field::None;
+                    }
+                    (Container::Root, 2, b"DeleteMarker") => {
+                        container = Container::DeleteMarker;
+                        cur_key.clear();
+                        cur_vid.clear();
+                        cur_mod.clear();
+                        field = Field::None;
+                    }
+                    (Container::Root, 2, b"IsTruncated") => field = Field::IsTruncated,
+                    (Container::Root, 2, b"NextKeyMarker") => field = Field::NextKeyMarker,
+                    (Container::Root, 2, b"NextVersionIdMarker") => {
+                        field = Field::NextVersionIdMarker
+                    }
+                    (Container::Version | Container::DeleteMarker, 3, b"Key") => field = Field::Key,
+                    (Container::Version | Container::DeleteMarker, 3, b"VersionId") => {
+                        field = Field::VersionId
+                    }
+                    (Container::Version | Container::DeleteMarker, 3, b"LastModified") => {
+                        field = Field::LastModified
+                    }
+                    _ => field = Field::None,
+                }
+            }
+            Ok(Event::Empty(e)) => {
+                if !root_seen {
+                    out.is_list_versions_result = e.local_name().as_ref() == b"ListVersionsResult";
+                    return Ok(out);
+                }
+            }
+            Ok(Event::Text(e)) => {
+                let text = e
+                    .xml10_content()
+                    .map_err(|err| format!("decode ListObjectVersions XML text: {err}"))?;
+                match field {
+                    Field::IsTruncated => {
+                        if text.trim().eq_ignore_ascii_case("true") {
+                            out.is_truncated = true;
+                        }
+                    }
+                    Field::NextKeyMarker => out.next_key_marker.push_str(&text),
+                    Field::NextVersionIdMarker => out.next_version_id_marker.push_str(&text),
+                    Field::Key => cur_key.push_str(&text),
+                    Field::VersionId => cur_vid.push_str(&text),
+                    Field::LastModified => cur_mod.push_str(&text),
+                    Field::None => {}
+                }
+            }
+            Ok(Event::GeneralRef(e)) => {
+                let resolved = if let Some(ch) = e
+                    .resolve_char_ref()
+                    .map_err(|err| format!("resolve XML char ref: {err}"))?
+                {
+                    ch.to_string()
+                } else {
+                    let name = e
+                        .xml10_content()
+                        .map_err(|err| format!("decode XML entity ref: {err}"))?;
+                    quick_xml::escape::resolve_xml_entity(&name)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| format!("&{name};"))
+                };
+                match field {
+                    Field::NextKeyMarker => out.next_key_marker.push_str(&resolved),
+                    Field::NextVersionIdMarker => out.next_version_id_marker.push_str(&resolved),
+                    Field::Key => cur_key.push_str(&resolved),
+                    Field::VersionId => cur_vid.push_str(&resolved),
+                    Field::LastModified => cur_mod.push_str(&resolved),
+                    Field::IsTruncated | Field::None => {}
+                }
+            }
+            Ok(Event::CData(e)) => {
+                let text = String::from_utf8_lossy(e.as_ref());
+                match field {
+                    Field::IsTruncated => {
+                        if text.trim().eq_ignore_ascii_case("true") {
+                            out.is_truncated = true;
+                        }
+                    }
+                    Field::NextKeyMarker => out.next_key_marker.push_str(&text),
+                    Field::NextVersionIdMarker => out.next_version_id_marker.push_str(&text),
+                    Field::Key => cur_key.push_str(&text),
+                    Field::VersionId => cur_vid.push_str(&text),
+                    Field::LastModified => cur_mod.push_str(&text),
+                    Field::None => {}
+                }
+            }
+            Ok(Event::End(e)) => {
+                let local = e.local_name();
+                let name = local.as_ref();
+                if depth == 2
+                    && matches!(
+                        (container, name),
+                        (Container::Version, b"Version")
+                            | (Container::DeleteMarker, b"DeleteMarker")
+                    )
+                {
+                    let last_modified_unix = chrono::DateTime::parse_from_rfc3339(cur_mod.trim())
+                        .map(|t| t.timestamp())
+                        .unwrap_or(0);
+                    out.entries.push(ObjectVersionEntry {
+                        key: std::mem::take(&mut cur_key),
+                        version_id: std::mem::take(&mut cur_vid),
+                        is_delete_marker: container == Container::DeleteMarker,
+                        last_modified_unix,
+                    });
+                    cur_mod.clear();
+                    container = Container::Root;
+                }
+                if depth == 1 && name == b"ListVersionsResult" {
+                    saw_root_end = true;
+                }
+                field = Field::None;
+                depth = depth.saturating_sub(1);
+            }
+            Ok(Event::Eof) => break,
+            Err(err) => return Err(format!("parse ListObjectVersions XML: {err}")),
+            _ => {}
+        }
+    }
+    if out.is_list_versions_result && !saw_root_end {
+        return Err("truncated ListVersionsResult XML".into());
+    }
+    Ok(out)
+}
+
+/// Parses an RFC 3339 `RetainUntilDate` and returns `Some(raw)` ONLY when the
+/// timestamp is strictly in the future (`> Utc::now()`). An expired retention
+/// record is NOT active Object Lock protection.
+fn parse_unexpired_retain_until(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    let parsed = chrono::DateTime::parse_from_rfc3339(trimmed)
+        .ok()?
+        .with_timezone(&chrono::Utc);
+    if parsed > chrono::Utc::now() {
+        Some(trimmed.to_owned())
+    } else {
+        None
+    }
+}
+
+/// Strict error-code / message classifier for Object Lock 403 strings (fallback
+/// for trait mocks that only return `Err(String)` via `remove_with_timeout`).
+pub fn is_strict_object_lock_error_msg(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    lower.contains("object lock")
+        || lower.contains("objectlock")
+        || lower.contains("retainuntil")
+        || lower.contains("worm")
+        || lower.contains("immutable")
+        || (lower.contains("accessdenied") && lower.contains("retain"))
+}
+
+fn is_object_lock_xml_error(code: &str, message: &str) -> bool {
+    let lc = code.to_ascii_lowercase();
+    let lm = message.to_ascii_lowercase();
+    lc.contains("objectlock")
+        || lm.contains("object lock")
+        || lm.contains("objectlock")
+        || lm.contains("retainuntil")
+        || lm.contains("retention")
+        || lm.contains("worm")
+        || lm.contains("immutable")
+        || lm.contains("legal hold")
+}
+
+fn is_non_worm_auth_403_code(code: &str) -> bool {
+    matches!(
+        code,
+        "InvalidAccessKeyId"
+            | "SignatureDoesNotMatch"
+            | "ExpiredToken"
+            | "ExpiredTokenException"
+            | "AccountProblem"
+            | "AllAccessDisabled"
+            | "InvalidToken"
+            | "RequestTimeTooSkewed"
+    )
+}
+
 impl S3Store {
+    async fn send_signed_or_unsigned(
+        &self,
+        method: reqwest::Method,
+        key: &str,
+        query: &[(&str, &str)],
+        extra_headers: &[(&str, &str)],
+        timeout: std::time::Duration,
+    ) -> Result<(u16, reqwest::header::HeaderMap, Vec<u8>), String> {
+        use s3::{
+            command::Command,
+            request::{tokio_backend::ReqwestRequest, Request},
+        };
+        if let Some(client) = &self.unsigned {
+            let _ = self.bucket().await?;
+            let mut url = self.object_url(key)?;
+            if !query.is_empty() {
+                let mut pairs = url.query_pairs_mut();
+                for (k, v) in query {
+                    pairs.append_pair(k, v);
+                }
+            }
+            let mut req = client.request(method, url).timeout(timeout);
+            for (k, v) in extra_headers {
+                req = req.header(*k, *v);
+            }
+            let resp = req.send().await.map_err(|e| e.to_string())?;
+            let status = resp.status().as_u16();
+            let headers = resp.headers().clone();
+            let body = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
+            return Ok((status, headers, body));
+        }
+
+        let mut bucket = self.bucket().await?;
+        for (k, v) in query {
+            bucket.add_query(k, v);
+        }
+        for (k, v) in extra_headers {
+            if let (Ok(name), Ok(val)) = (
+                hyper::header::HeaderName::from_bytes(k.as_bytes()),
+                hyper::header::HeaderValue::from_str(v),
+            ) {
+                bucket.extra_headers.insert(name, val);
+            }
+        }
+        let cmd = match method {
+            reqwest::Method::GET => Command::GetObject,
+            reqwest::Method::DELETE => Command::DeleteObject,
+            reqwest::Method::HEAD => Command::HeadObject,
+            _ => return Err(format!("unsupported S3 HTTP method {method}")),
+        };
+        let signed_req = ReqwestRequest::new(&bucket, key, cmd)
+            .await
+            .map_err(|e| e.to_string())?;
+        let url = signed_req.url().map_err(|e| e.to_string())?;
+        let signed_headers = signed_req.headers().await.map_err(|e| e.to_string())?;
+        let mut req_headers = reqwest::header::HeaderMap::new();
+        for (name, value) in &signed_headers {
+            if let (Ok(name), Ok(value)) = (
+                reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes()),
+                reqwest::header::HeaderValue::from_bytes(value.as_bytes()),
+            ) {
+                req_headers.append(name, value);
+            }
+        }
+        let resp = self
+            .no_redirect
+            .request(method, url.as_str())
+            .headers(req_headers)
+            .timeout(timeout)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = resp.status().as_u16();
+        let headers = resp.headers().clone();
+        let body = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
+        Ok((status, headers, body))
+    }
+
+    async fn list_object_versions_raw(
+        &self,
+        prefix: &str,
+        exact_key: Option<&str>,
+        timeout: std::time::Duration,
+    ) -> Result<VersionListing, String> {
+        let mut entries = Vec::new();
+        let mut key_marker: Option<String> = None;
+        let mut version_id_marker: Option<String> = None;
+
+        for _page in 0..256u32 {
+            let mut query: Vec<(&str, &str)> = vec![("versions", ""), ("prefix", prefix)];
+            if let Some(km) = key_marker.as_deref() {
+                if !km.is_empty() {
+                    query.push(("key-marker", km));
+                }
+            }
+            if let Some(vm) = version_id_marker.as_deref() {
+                if !vm.is_empty() {
+                    query.push(("version-id-marker", vm));
+                }
+            }
+            let (status, _headers, body) = self
+                .send_signed_or_unsigned(reqwest::Method::GET, "", &query, &[], timeout)
+                .await?;
+            if status == 404 || status == 501 {
+                return Ok(VersionListing::Unversioned);
+            }
+            let body_str = String::from_utf8_lossy(&body);
+            if status != 200 {
+                let err: S3XmlError = quick_xml::de::from_str(&body_str).unwrap_or_default();
+                if matches!(
+                    err.code.as_str(),
+                    "NotImplemented" | "InvalidRequest" | "NoSuchVersion"
+                ) {
+                    return Ok(VersionListing::Unversioned);
+                }
+                return Err(format!(
+                    "S3 ListObjectVersions returned HTTP {status} ({} {})",
+                    err.code, err.message
+                ));
+            }
+            let parsed = parse_list_versions_xml(&body_str)?;
+            // Unversioned S3 gateways that ignore `?versions` return `<ListBucketResult>`
+            // instead of `<ListVersionsResult>`. Treat anything other than a genuine
+            // ListVersionsResult as unversioned so we never mistake 0 parsed versions for
+            // an already-absent object and skip deleting it.
+            if !parsed.is_list_versions_result {
+                return Ok(VersionListing::Unversioned);
+            }
+            for entry in parsed.entries {
+                if exact_key.is_none_or(|k| entry.key == k) {
+                    entries.push(entry);
+                }
+            }
+            if !parsed.is_truncated {
+                // AWS S3 unversioned buckets return a single `<Version>` with
+                // `VersionId == "null"` (no real non-"null" versions and no delete
+                // markers). Take the unversioned path on exact-key deletes so
+                // `probe_unversioned_conditional_delete` and `If-Match` are exercised!
+                // (If a suspended-versioning bucket creates a delete marker on bare
+                // DELETE, `DeleteMarkerCreated` re-lists and sees the delete marker.)
+                if exact_key.is_some()
+                    && !entries.is_empty()
+                    && entries.iter().all(|e| {
+                        !e.is_delete_marker && (e.version_id.is_empty() || e.version_id == "null")
+                    })
+                {
+                    return Ok(VersionListing::Unversioned);
+                }
+                return Ok(VersionListing::Versioned(entries));
+            }
+            if parsed.next_key_marker.is_empty() && parsed.next_version_id_marker.is_empty() {
+                return Err("S3 ListObjectVersions truncated without next markers".into());
+            }
+            key_marker = Some(parsed.next_key_marker);
+            version_id_marker = Some(parsed.next_version_id_marker);
+        }
+        Err("S3 ListObjectVersions exceeded 256 page safety bound".into())
+    }
+
+    /// Paginated `GET /<bucket>?versions&prefix=<key>` returning ALL exact-key
+    /// concrete versions and delete markers (#551).
+    pub async fn list_object_versions_exact(
+        &self,
+        key: &str,
+        timeout: std::time::Duration,
+    ) -> Result<VersionListing, String> {
+        self.list_object_versions_raw(key, Some(key), timeout).await
+    }
+
+    /// Paginated `GET /<bucket>?versions&prefix=<prefix>` returning ALL concrete
+    /// versions and delete markers under `prefix` (#551).
+    pub async fn list_object_versions_prefix(
+        &self,
+        prefix: &str,
+        timeout: std::time::Duration,
+    ) -> Result<VersionListing, String> {
+        self.list_object_versions_raw(prefix, None, timeout).await
+    }
+
+    /// Lists `(key, max_last_modified_unix)` under `prefix`, enumerating hidden
+    /// versions and delete markers via `list_object_versions_prefix` when the
+    /// backend supports versioning and falling back to `list_with_modified` on
+    /// unversioned gateways (#551).
+    pub async fn list_with_modified_including_versions(
+        &self,
+        prefix: &str,
+        timeout: std::time::Duration,
+    ) -> Result<Vec<(String, i64)>, String> {
+        match self.list_object_versions_prefix(prefix, timeout).await? {
+            VersionListing::Versioned(entries) => {
+                let mut by_key: std::collections::BTreeMap<String, i64> =
+                    std::collections::BTreeMap::new();
+                for entry in entries {
+                    by_key
+                        .entry(entry.key)
+                        .and_modify(|ts| {
+                            if entry.last_modified_unix > *ts {
+                                *ts = entry.last_modified_unix;
+                            }
+                        })
+                        .or_insert(entry.last_modified_unix);
+                }
+                Ok(by_key.into_iter().collect())
+            }
+            VersionListing::Unversioned => self.list_with_modified(prefix).await,
+        }
+    }
+
+    async fn get_object_retention_version(
+        &self,
+        key: &str,
+        version_id: Option<&str>,
+        timeout: std::time::Duration,
+    ) -> Result<Option<ObjectRetentionInfo>, RetentionError> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "PascalCase")]
+        struct RetentionReply {
+            mode: String,
+            retain_until_date: String,
+        }
+        let mut query = vec![("retention", "")];
+        if let Some(vid) = version_id.filter(|v| !v.is_empty()) {
+            query.push(("versionId", vid));
+        }
+        let (status, _headers, body) = self
+            .send_signed_or_unsigned(reqwest::Method::GET, key, &query, &[], timeout)
+            .await
+            .map_err(|e| RetentionError::Transient(0, e))?;
+        let body_str = String::from_utf8_lossy(&body);
+        match status {
+            200 => {
+                let parsed: RetentionReply = quick_xml::de::from_str(&body_str).map_err(|e| {
+                    RetentionError::Invalid(format!("parse GetObjectRetention XML: {e}"))
+                })?;
+                Ok(Some(ObjectRetentionInfo {
+                    mode: parsed.mode.to_ascii_lowercase(),
+                    retain_until: parsed.retain_until_date,
+                }))
+            }
+            404 => {
+                if body_str.contains("NoSuchObjectLockConfiguration")
+                    || body_str.contains("InvalidRequest")
+                {
+                    Ok(None)
+                } else {
+                    Err(RetentionError::NotFound)
+                }
+            }
+            403 => Err(RetentionError::Forbidden(body_str.into_owned())),
+            other => Err(RetentionError::Transient(
+                other,
+                format!("GetObjectRetention returned HTTP {other}"),
+            )),
+        }
+    }
+
+    /// Sends `DELETE /<bucket>/<key>` with optional `?versionId=<vid>` and
+    /// optional `If-Match: <etag>`, inspecting status, `x-amz-delete-marker`,
+    /// XML `<Code>`, and `GetObjectRetention` for accurate 403 classification (#551).
+    pub async fn delete_object_version(
+        &self,
+        key: &str,
+        version_id: Option<&str>,
+        if_match: Option<&str>,
+        timeout: std::time::Duration,
+    ) -> Result<DeleteVersionOutcome, String> {
+        let mut query: Vec<(&str, &str)> = Vec::new();
+        if let Some(vid) = version_id.filter(|v| !v.is_empty()) {
+            query.push(("versionId", vid));
+        }
+        let mut headers: Vec<(&str, &str)> = Vec::new();
+        if let Some(etag) = if_match.filter(|e| !e.is_empty()) {
+            headers.push(("if-match", etag));
+        }
+        let (status, resp_headers, body) = self
+            .send_signed_or_unsigned(reqwest::Method::DELETE, key, &query, &headers, timeout)
+            .await?;
+        match status {
+            200..=299 => {
+                let is_dm = resp_headers
+                    .get("x-amz-delete-marker")
+                    .and_then(|v| v.to_str().ok())
+                    .is_some_and(|v| v.eq_ignore_ascii_case("true"));
+                if version_id.is_none() && is_dm {
+                    Ok(DeleteVersionOutcome::DeleteMarkerCreated)
+                } else {
+                    Ok(DeleteVersionOutcome::Deleted)
+                }
+            }
+            404 => Ok(DeleteVersionOutcome::Deleted),
+            412 => Ok(DeleteVersionOutcome::PreconditionFailed),
+            403 => {
+                let body_str = String::from_utf8_lossy(&body);
+                let parsed: S3XmlError = quick_xml::de::from_str(&body_str).unwrap_or_default();
+                let detail = if parsed.code.is_empty() && parsed.message.is_empty() {
+                    format!("S3 delete returned HTTP 403 ({body_str})")
+                } else {
+                    format!("HTTP 403 {}: {}", parsed.code, parsed.message)
+                };
+                if is_non_worm_auth_403_code(&parsed.code) {
+                    return Ok(DeleteVersionOutcome::Error(detail));
+                }
+                if is_object_lock_xml_error(&parsed.code, &parsed.message) {
+                    let observed_until = self
+                        .get_object_retention_version(key, version_id, timeout)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|info| parse_unexpired_retain_until(&info.retain_until));
+                    return Ok(DeleteVersionOutcome::WormLocked403 {
+                        detail,
+                        retain_until: observed_until,
+                    });
+                }
+                // MinIO/AWS frequently return generic `AccessDenied` on Object Lock
+                // protected version DELETEs: confirm via GetObjectRetention AND require
+                // an unexpired `RetainUntilDate > now()` so credential/policy 403s or
+                // expired retention records are NOT misclassified as active WORM locks.
+                match self
+                    .get_object_retention_version(key, version_id, timeout)
+                    .await
+                {
+                    Ok(Some(info)) => match parse_unexpired_retain_until(&info.retain_until) {
+                        Some(until) => Ok(DeleteVersionOutcome::WormLocked403 {
+                            detail: format!(
+                                "{detail} (confirmed Object Lock retention mode={} until={until})",
+                                info.mode
+                            ),
+                            retain_until: Some(until),
+                        }),
+                        None => Ok(DeleteVersionOutcome::Error(format!(
+                            "{detail} (Object Lock retention expired or unparseable: {})",
+                            info.retain_until
+                        ))),
+                    },
+                    Ok(None) => Ok(DeleteVersionOutcome::Error(format!(
+                        "{detail} (no Object Lock retention present)"
+                    ))),
+                    Err(_) => {
+                        // Unable to confirm retention (e.g. policy denied GET ?retention too):
+                        // treat as transient error rather than silently reverting non-WORM 403.
+                        Ok(DeleteVersionOutcome::Error(detail))
+                    }
+                }
+            }
+            other => {
+                let body_str = String::from_utf8_lossy(&body);
+                let parsed: S3XmlError = quick_xml::de::from_str(&body_str).unwrap_or_default();
+                Ok(DeleteVersionOutcome::Error(format!(
+                    "S3 delete returned HTTP {other} ({} {})",
+                    parsed.code, parsed.message
+                )))
+            }
+        }
+    }
+
+    async fn head_etag_with_timeout(
+        &self,
+        key: &str,
+        timeout: std::time::Duration,
+    ) -> Result<Option<Option<String>>, String> {
+        let (status, headers, _body) = self
+            .send_signed_or_unsigned(reqwest::Method::HEAD, key, &[], &[], timeout)
+            .await?;
+        match status {
+            200 => {
+                let etag = headers
+                    .get("etag")
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_owned);
+                Ok(Some(etag))
+            }
+            404 => Ok(None),
+            other => Err(format!("S3 head returned HTTP {other}")),
+        }
+    }
+
+    /// Probes once whether an unversioned backend enforces `If-Match` on `DELETE`
+    /// (`PUT` probe -> `DELETE` with mismatched `If-Match` expecting `412`) (#551).
+    pub async fn probe_unversioned_conditional_delete(&self, timeout: std::time::Duration) -> bool {
+        use std::sync::atomic::Ordering;
+        match self.conditional_delete_supported.load(Ordering::Relaxed) {
+            1 => return true,
+            2 => return false,
+            _ => {}
+        }
+        let suffix = crate::jmap::random()
+            .map(|b| crate::jmap::reply::hex(&b))
+            .unwrap_or_else(|| "probe".to_owned());
+        let probe_key = format!("tmp/blob-upload/.cond-delete-probe-{suffix}");
+        let supported = if self
+            .put(&probe_key, b"probe", "application/octet-stream")
+            .await
+            .is_ok()
+        {
+            match self
+                .delete_object_version(
+                    &probe_key,
+                    None,
+                    Some("\"00000000000000000000000000000000\""),
+                    timeout,
+                )
+                .await
+            {
+                Ok(DeleteVersionOutcome::PreconditionFailed) => {
+                    let _ = self.remove_inner(&probe_key, Some(timeout)).await;
+                    true
+                }
+                _ => {
+                    let _ = self.remove_inner(&probe_key, Some(timeout)).await;
+                    false
+                }
+            }
+        } else {
+            false
+        };
+        let code = if supported { 1 } else { 2 };
+        let _ = self.conditional_delete_supported.compare_exchange(
+            0,
+            code,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
+        if !supported {
+            eprintln!(
+                "blob-gc: unversioned S3 backend does not enforce If-Match on DELETE; relying on proactive purging_at blob.promote_verify fencing"
+            );
+        }
+        supported
+    }
+
+    async fn delete_all_versions_entries(
+        &self,
+        entries: Vec<ObjectVersionEntry>,
+        timeout: std::time::Duration,
+    ) -> Result<BlobDeleteOutcome, String> {
+        // Delete concrete versions first, then delete markers so a WORM-locked
+        // concrete version aborts immediately before removing markers or blobs row.
+        let mut versions = Vec::new();
+        let mut markers = Vec::new();
+        for entry in entries {
+            if entry.is_delete_marker {
+                markers.push(entry);
+            } else {
+                versions.push(entry);
+            }
+        }
+        for entry in versions.into_iter().chain(markers.into_iter()) {
+            let vid = (!entry.version_id.is_empty()).then_some(entry.version_id.as_str());
+            match self
+                .delete_object_version(&entry.key, vid, None, timeout)
+                .await?
+            {
+                DeleteVersionOutcome::Deleted => {}
+                DeleteVersionOutcome::WormLocked403 {
+                    detail,
+                    retain_until,
+                } => {
+                    return Ok(BlobDeleteOutcome::WormLocked403 {
+                        detail,
+                        retain_until,
+                    });
+                }
+                DeleteVersionOutcome::DeleteMarkerCreated => {
+                    return Err(format!(
+                        "unexpected delete marker while deleting version {:?} of {}",
+                        vid, entry.key
+                    ));
+                }
+                DeleteVersionOutcome::PreconditionFailed => {
+                    return Err(format!(
+                        "unexpected 412 while deleting version of {}",
+                        entry.key
+                    ));
+                }
+                DeleteVersionOutcome::Error(err) => return Err(err),
+            }
+        }
+        Ok(BlobDeleteOutcome::Deleted)
+    }
+
+    async fn delete_blob_checked_inner(
+        &self,
+        key: &str,
+        timeout: std::time::Duration,
+    ) -> Result<BlobDeleteOutcome, String> {
+        match self.list_object_versions_exact(key, timeout).await? {
+            VersionListing::Versioned(entries) => {
+                if entries.is_empty() {
+                    return Ok(BlobDeleteOutcome::Deleted);
+                }
+                self.delete_all_versions_entries(entries, timeout).await
+            }
+            VersionListing::Unversioned => {
+                let etag_owned = if self.probe_unversioned_conditional_delete(timeout).await {
+                    match self.head_etag_with_timeout(key, timeout).await? {
+                        Some(etag) => etag,
+                        None => return Ok(BlobDeleteOutcome::Deleted),
+                    }
+                } else {
+                    None
+                };
+                match self
+                    .delete_object_version(key, None, etag_owned.as_deref(), timeout)
+                    .await?
+                {
+                    DeleteVersionOutcome::Deleted => Ok(BlobDeleteOutcome::Deleted),
+                    DeleteVersionOutcome::WormLocked403 {
+                        detail,
+                        retain_until,
+                    } => Ok(BlobDeleteOutcome::WormLocked403 {
+                        detail,
+                        retain_until,
+                    }),
+                    DeleteVersionOutcome::DeleteMarkerCreated => {
+                        // Bucket actually has versioning enabled; permanently delete every
+                        // concrete version and delete marker instead of accepting a delete marker.
+                        match self.list_object_versions_exact(key, timeout).await? {
+                            VersionListing::Versioned(entries) if !entries.is_empty() => {
+                                self.delete_all_versions_entries(entries, timeout).await
+                            }
+                            _ => Err(format!(
+                                "S3 returned x-amz-delete-marker=true for {key} but version listing returned no entries"
+                            )),
+                        }
+                    }
+                    DeleteVersionOutcome::PreconditionFailed => Err(format!(
+                        "S3 conditional DELETE precondition failed (ETag changed concurrently) for {key}"
+                    )),
+                    DeleteVersionOutcome::Error(err) => Err(err),
+                }
+            }
+        }
+    }
+}
+
+impl S3Store {
+    async fn remove_inner(
+        &self,
+        key: &str,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<(), String> {
+        if let Some(client) = &self.unsigned {
+            let _ = self.bucket().await?;
+            let mut req = client.delete(self.object_url(key)?);
+            if let Some(t) = timeout {
+                req = req.timeout(t);
+            }
+            let response = req.send().await.map_err(|error| error.to_string())?;
+            return if response.status().is_success() {
+                Ok(())
+            } else {
+                Err(format!("S3 delete returned HTTP {}", response.status()))
+            };
+        }
+
+        let mut bucket = self.bucket().await?;
+        if let Some(t) = timeout {
+            bucket.set_request_timeout(Some(t));
+        }
+        let response = bucket.delete_object(key).await.map_err(|e| e.to_string())?;
+        if (200..300).contains(&response.status_code()) {
+            Ok(())
+        } else {
+            Err(format!(
+                "S3 delete returned HTTP {}",
+                response.status_code()
+            ))
+        }
+    }
     /// Office's CopyN boundary: read at most the manifest length and ignore
     /// trailing object bytes, as frozen Go does when it closes that chunk.
     pub(crate) async fn read_prefix(&self, key: &str, length: usize) -> Result<Vec<u8>, String> {
@@ -2290,5 +3378,215 @@ mod tests {
         )
         .unwrap();
         assert_eq!(normalize_s3_region(&named.region), "eu-west-1");
+    }
+
+    #[test]
+    fn streaming_list_versions_parser_handles_interleaved_versions_and_delete_markers() {
+        use super::parse_list_versions_xml;
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Name>mailblobs</Name>
+  <IsTruncated>true</IsTruncated>
+  <NextKeyMarker>tmp/blob-upload/next</NextKeyMarker>
+  <NextVersionIdMarker>v-next</NextVersionIdMarker>
+  <Version>
+    <Key>tmp/blob-upload/aaa</Key>
+    <VersionId>v1</VersionId>
+    <LastModified>2026-01-01T00:00:00.000Z</LastModified>
+  </Version>
+  <DeleteMarker>
+    <Key>tmp/blob-upload/aaa</Key>
+    <VersionId>dm1</VersionId>
+    <LastModified>2026-01-02T00:00:00.000Z</LastModified>
+  </DeleteMarker>
+  <Version>
+    <Key>tmp/blob-upload/bbb</Key>
+    <VersionId>v2</VersionId>
+    <LastModified>2026-01-03T00:00:00.000Z</LastModified>
+  </Version>
+  <DeleteMarker>
+    <Key>tmp/blob-upload/bbb</Key>
+    <VersionId>dm2</VersionId>
+    <LastModified>2026-01-04T00:00:00.000Z</LastModified>
+  </DeleteMarker>
+</ListVersionsResult>"#;
+        let parsed = parse_list_versions_xml(xml).expect("interleaved XML must parse");
+        assert!(parsed.is_list_versions_result);
+        assert!(parsed.is_truncated);
+        assert_eq!(parsed.next_key_marker, "tmp/blob-upload/next");
+        assert_eq!(parsed.next_version_id_marker, "v-next");
+        assert_eq!(parsed.entries.len(), 4);
+        assert!(!parsed.entries[0].is_delete_marker);
+        assert_eq!(parsed.entries[0].version_id, "v1");
+        assert!(parsed.entries[1].is_delete_marker);
+        assert_eq!(parsed.entries[1].version_id, "dm1");
+        assert!(!parsed.entries[2].is_delete_marker);
+        assert_eq!(parsed.entries[2].version_id, "v2");
+        assert!(parsed.entries[3].is_delete_marker);
+        assert_eq!(parsed.entries[3].version_id, "dm2");
+        assert!(parsed.entries[1].last_modified_unix > parsed.entries[0].last_modified_unix);
+
+        let bucket_list =
+            parse_list_versions_xml("<ListBucketResult><Name>mailblobs</Name></ListBucketResult>")
+                .expect("ListBucketResult parses");
+        assert!(!bucket_list.is_list_versions_result);
+
+        let truncated = parse_list_versions_xml(
+            "<ListVersionsResult><IsTruncated>false</IsTruncated><Version><Key>k</Key>",
+        );
+        assert!(
+            truncated.is_err_and(|e| e.contains("truncated")),
+            "truncated ListVersionsResult XML must fail closed"
+        );
+    }
+
+    #[tokio::test]
+    async fn aws_unversioned_null_version_takes_if_match_path_and_expired_403_is_error() {
+        use super::{BlobDeleteOutcome, DeleteVersionOutcome};
+        let seen_if_match = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen_if_match_s = seen_if_match.clone();
+        let future_until = (chrono::Utc::now() + chrono::Duration::days(10)).to_rfc3339();
+        let future_until_s = future_until.clone();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _server = AbortServer(tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let seen_c = seen_if_match_s.clone();
+                let future_c = future_until_s.clone();
+                tokio::spawn(async move {
+                    let svc = service_fn(move |req| {
+                        let seen_r = seen_c.clone();
+                        let future_r = future_c.clone();
+                        async move {
+                            let method = req.method().clone();
+                            let path = req.uri().path().to_owned();
+                            let query = req.uri().query().unwrap_or("").to_owned();
+                            let if_match = req
+                                .headers()
+                                .get("if-match")
+                                .and_then(|v| v.to_str().ok())
+                                .map(str::to_owned);
+
+                            let resp = if method == hyper::Method::GET && query.contains("versions")
+                            {
+                                // AWS S3 unversioned bucket: single concrete VersionId="null"
+                                let xml = r#"<ListVersionsResult><IsTruncated>false</IsTruncated><Version><Key>null-key</Key><VersionId>null</VersionId><LastModified>2026-01-01T00:00:00.000Z</LastModified></Version></ListVersionsResult>"#;
+                                Response::builder()
+                                    .status(200)
+                                    .body(Full::new(Bytes::from(xml)))
+                                    .unwrap()
+                            } else if method == hyper::Method::PUT {
+                                Response::builder()
+                                    .status(200)
+                                    .body(Full::new(Bytes::new()))
+                                    .unwrap()
+                            } else if method == hyper::Method::HEAD && path.ends_with("/null-key") {
+                                Response::builder()
+                                    .status(200)
+                                    .header("etag", "\"etag-null-key\"")
+                                    .body(Full::new(Bytes::new()))
+                                    .unwrap()
+                            } else if method == hyper::Method::DELETE
+                                && path.contains(".cond-delete-probe-")
+                            {
+                                let status = if if_match.is_some() { 412 } else { 204 };
+                                Response::builder()
+                                    .status(status)
+                                    .body(Full::new(Bytes::new()))
+                                    .unwrap()
+                            } else if method == hyper::Method::DELETE && path.ends_with("/null-key")
+                            {
+                                if let Some(im) = if_match {
+                                    seen_r.lock().unwrap().push(im);
+                                }
+                                Response::builder()
+                                    .status(204)
+                                    .body(Full::new(Bytes::new()))
+                                    .unwrap()
+                            } else if method == hyper::Method::DELETE
+                                && (path.ends_with("/expired-403") || path.ends_with("/active-403"))
+                            {
+                                let xml = "<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>";
+                                Response::builder()
+                                    .status(403)
+                                    .body(Full::new(Bytes::from(xml)))
+                                    .unwrap()
+                            } else if method == hyper::Method::GET
+                                && query.contains("retention")
+                                && path.ends_with("/expired-403")
+                            {
+                                let xml = "<Retention><Mode>COMPLIANCE</Mode><RetainUntilDate>2020-01-01T00:00:00Z</RetainUntilDate></Retention>";
+                                Response::builder()
+                                    .status(200)
+                                    .body(Full::new(Bytes::from(xml)))
+                                    .unwrap()
+                            } else if method == hyper::Method::GET
+                                && query.contains("retention")
+                                && path.ends_with("/active-403")
+                            {
+                                let xml = format!(
+                                    "<Retention><Mode>COMPLIANCE</Mode><RetainUntilDate>{future_r}</RetainUntilDate></Retention>"
+                                );
+                                Response::builder()
+                                    .status(200)
+                                    .body(Full::new(Bytes::from(xml)))
+                                    .unwrap()
+                            } else {
+                                Response::builder()
+                                    .status(404)
+                                    .body(Full::new(Bytes::new()))
+                                    .unwrap()
+                            };
+                            Ok::<_, std::convert::Infallible>(resp)
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        }));
+
+        let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "", "").unwrap();
+        *store.region.lock().await = Some("us-east-1".into());
+        let timeout = std::time::Duration::from_secs(3);
+
+        // 1. AWS unversioned `"null"` version takes unversioned path and sends If-Match ETag
+        let res = store
+            .delete_blob_checked_inner("null-key", timeout)
+            .await
+            .expect("delete_blob_checked null-key");
+        assert_eq!(res, BlobDeleteOutcome::Deleted);
+        assert_eq!(
+            seen_if_match.lock().unwrap().as_slice(),
+            &["\"etag-null-key\"".to_owned()],
+            "AWS unversioned null-only listing must exercise If-Match conditional delete"
+        );
+
+        // 2. Expired GetObjectRetention on generic 403 must NOT classify as WormLocked403
+        let expired = store
+            .delete_object_version("expired-403", Some("v1"), None, timeout)
+            .await
+            .expect("delete_object_version expired-403");
+        assert!(
+            matches!(expired, DeleteVersionOutcome::Error(_)),
+            "expired retention must be treated as transient/IAM Error, got {expired:?}"
+        );
+
+        // 3. Unexpired GetObjectRetention on generic 403 returns WormLocked403 with exact retain_until
+        let active = store
+            .delete_object_version("active-403", Some("v1"), None, timeout)
+            .await
+            .expect("delete_object_version active-403");
+        match active {
+            DeleteVersionOutcome::WormLocked403 { retain_until, .. } => {
+                assert_eq!(retain_until.as_deref(), Some(future_until.as_str()));
+            }
+            other => panic!("expected WormLocked403 with observed retain_until, got {other:?}"),
+        }
     }
 }

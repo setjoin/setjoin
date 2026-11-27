@@ -58,7 +58,7 @@ SELECT public.apply_worker_ownership(
     'public.chat_schedule_message(bigint,bigint,text,bigint,bigint[],text,timestamp with time zone)'::regprocedure
 );
 
--- chat_scheduled_list: the caller's own pending + FAILED chat_send rows.
+-- chat_scheduled_list: the caller's own pending + enqueued + FAILED chat_send rows.
 -- Failed rows stay visible (grill-decided, plan Task 2): silent content loss
 -- is the wrong brand for a compliance product — the failure reason (the
 -- handler's caught BZ, in payload->>'failureCode') and the still-readable
@@ -80,7 +80,7 @@ BEGIN
                ) ORDER BY fire_at ASC)
           FROM public.scheduled_actions
          WHERE action_kind = 'chat_send'
-           AND status IN ('pending', 'failed')
+           AND status IN ('pending', 'enqueued', 'failed')
            AND payload->>'userId' = p_user_id::text
     ), '[]'::jsonb);
 END;
@@ -88,7 +88,7 @@ $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
 
 SELECT public.apply_worker_ownership('public.chat_scheduled_list(bigint)'::regprocedure);
 
--- chat_scheduled_cancel: works on pending AND failed (dismiss); ownership +
+-- chat_scheduled_cancel: works on pending, enqueued, AND failed (dismiss); ownership +
 -- id + status all folded into ONE DELETE (R1/R3, no check-then-act window).
 -- Anti-oracle (BZ179): doesn't exist, belongs to another user, or already
 -- fired/processing all fail identically — a client can't probe which.
@@ -108,7 +108,7 @@ BEGIN
         DELETE FROM public.scheduled_actions
          WHERE id = p_action_id
            AND action_kind = 'chat_send'
-           AND status IN ('pending', 'failed')
+           AND status IN ('pending', 'enqueued', 'failed')
            AND payload->>'userId' = p_user_id::text
         RETURNING 1
     )

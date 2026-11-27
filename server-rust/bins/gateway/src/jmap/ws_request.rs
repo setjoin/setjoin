@@ -3,12 +3,56 @@ use serde::de::{MapAccess, Visitor};
 use serde_json::{value::RawValue, Value};
 use std::collections::BTreeMap;
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RawScope {
+    pub scope_kind: String,
+    pub scope_id: String,
+}
+
+impl<'de> serde::Deserialize<'de> for RawScope {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct Fields;
+        impl<'de> Visitor<'de> for Fields {
+            type Value = RawScope;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("Scope descriptor")
+            }
+            fn visit_unit<E: serde::de::Error>(self) -> Result<RawScope, E> {
+                Ok(RawScope::default())
+            }
+            fn visit_map<M: MapAccess<'de>>(self, mut m: M) -> Result<RawScope, M::Error> {
+                let mut scope = RawScope::default();
+                while let Some(key) = m.next_key::<String>()? {
+                    match crate::guests_input::fold(&key).as_str() {
+                        "scopekind" | "kind" => {
+                            if let Some(v) = m.next_value::<Option<String>>()? {
+                                scope.scope_kind = v;
+                            }
+                        }
+                        "scopeid" | "id" => {
+                            if let Some(v) = m.next_value::<Option<String>>()? {
+                                scope.scope_id = v;
+                            }
+                        }
+                        _ => {
+                            m.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(scope)
+            }
+        }
+        d.deserialize_any(Fields)
+    }
+}
+
 #[derive(Default)]
 pub struct Envelope {
     pub kind: String,
     pub id: String,
     pub using: Vec<String>,
     pub calls: Vec<Call>,
+    pub scopes: Option<Vec<RawScope>>,
 }
 #[derive(Clone)]
 pub struct Call {
@@ -81,6 +125,9 @@ impl<'de> serde::Deserialize<'de> for Envelope {
                         }
                         "changed" => {
                             m.next_value::<Option<BTreeMap<String,Option<BTreeMap<String,Option<String>>>>>>()?;
+                        }
+                        "scopes" => {
+                            env.scopes = m.next_value::<Option<Vec<RawScope>>>()?;
                         }
                         _ => {
                             m.next_value::<serde::de::IgnoredAny>()?;

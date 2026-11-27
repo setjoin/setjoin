@@ -103,6 +103,28 @@ pub fn decode_identity(rows: &[setjoin_pg::Row]) -> Identity {
     }
 }
 
+/// Durable WorkQueue scalar gauges from `public.work_queue_stats()` (Wave 2.1, #548).
+#[derive(Clone, Copy, Default, Debug)]
+pub struct WorkQueueMetrics {
+    pub pending: i64,
+    pub leased: i64,
+    pub dead_letters: i64,
+    pub oldest_due_age_seconds: f64,
+}
+
+/// Decode one work-queue stats row (`sql::METRICS_WORK_QUEUE`); returns zeroes when empty.
+pub fn decode_work_queue(rows: &[setjoin_pg::Row]) -> WorkQueueMetrics {
+    let Some(row) = rows.first() else {
+        return WorkQueueMetrics::default();
+    };
+    WorkQueueMetrics {
+        pending: row.try_get(0).unwrap_or(0),
+        leased: row.try_get(1).unwrap_or(0),
+        dead_letters: row.try_get(2).unwrap_or(0),
+        oldest_due_age_seconds: row.try_get(3).unwrap_or(0.0),
+    }
+}
+
 /// Process-level values the front door supplies.
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Process {
@@ -117,6 +139,14 @@ pub struct Process {
 }
 
 pub fn render(process: &Process, identity: &Identity) -> String {
+    render_with_work_queue(process, identity, None)
+}
+
+pub fn render_with_work_queue(
+    process: &Process,
+    identity: &Identity,
+    work_queue: Option<&WorkQueueMetrics>,
+) -> String {
     let mut out = String::new();
     let mut family = |name: &str, help: &str, kind: &str, value: String| {
         out.push_str(&format!(
@@ -345,5 +375,31 @@ pub fn render(process: &Process, identity: &Identity) -> String {
         "counter",
         i.grant_changes.to_string(),
     );
+    if let Some(wq) = work_queue {
+        family(
+            "setjoin_work_queue_pending",
+            "Pending durable work queue items",
+            "gauge",
+            wq.pending.to_string(),
+        );
+        family(
+            "setjoin_work_queue_leased",
+            "Currently leased durable work queue items",
+            "gauge",
+            wq.leased.to_string(),
+        );
+        family(
+            "setjoin_work_queue_dead_letters",
+            "Un-replayed dead-lettered durable work queue items",
+            "gauge",
+            wq.dead_letters.to_string(),
+        );
+        family(
+            "setjoin_work_queue_oldest_due_age_seconds",
+            "Age in seconds of the oldest due pending work item",
+            "gauge",
+            format!("{:.3}", wq.oldest_due_age_seconds.max(0.0)),
+        );
+    }
     out
 }

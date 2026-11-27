@@ -532,11 +532,35 @@
       "rls_posture": "not_applicable",
       "read_contracts": []
     },
-    "blob_cleanup_queue": {
+    "blob_gc_config": {
       "owner": "blobs",
       "security_class": "system_only",
-      "rls_posture": "not_applicable",
+      "rls_posture": "enforced",
       "read_contracts": []
+    },
+    "blob_gc_shadow_discrepancies": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "blob_gc_shadow_runs": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "blob_gc_state": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "Storage DR scan compares blob_gc_state against blob_live_catalog() to report GC state drift (#551)."
+        }
+      ]
     },
     "blob_user_charges": {
       "owner": "blobs",
@@ -716,6 +740,13 @@
           "reason": "Guest detail and listing SQL queries project joined chat channel memberships."
         }
       ]
+    },
+    "chat_changes": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "channel_id -> chat_channel_members.user_id",
+      "read_contracts": []
     },
     "chat_channels": {
       "owner": "chat",
@@ -2861,7 +2892,7 @@
     "notify_intents": {
       "owner": "foundation",
       "security_class": "system_only",
-      "rls_posture": "not_applicable",
+      "rls_posture": "enforced",
       "read_contracts": []
     },
     "oauth_tokens": {
@@ -3371,6 +3402,18 @@
       "owner": "directory-sync",
       "security_class": "org_global",
       "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "scope_revocations": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "sync_tombstone_floor": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
       "read_contracts": []
     },
     "system_config": {
@@ -3896,6 +3939,24 @@
           "reason": "Self-service reads own webhook_subscriptions; mutations use rust_webhook_self_* reducers."
         }
       ]
+    },
+    "work_dead_letters": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "work_items": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "worker_schedules": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
     },
     "ws_subscriptions": {
       "owner": "foundation",

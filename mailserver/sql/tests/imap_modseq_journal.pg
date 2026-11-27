@@ -1,0 +1,561 @@
+-- pgTAP: Wave 2.7 (#554) — Align IMAP MODSEQ onto jmap_changes_journal & retire
+-- hot-path mail 'resync' sentinels across SQL reducers.
+--
+-- Proves:
+--   1. Bijection imap_modseq = jmap_email_state + 1: empty mailbox (state 0)
+--      advertises HIGHESTMODSEQ 1; first delivery (state 1) stamps imap_modseq = 2
+--      so CHANGEDSINCE 1 never skips the first delivery (RFC 7162 §3.1.2).
+--   2. Every upgraded hot-path reducer emits precise (entity_id, op) rows into
+--      jmap_changes_journal with ZERO 'resync' sentinels and stamps
+--      messages.imap_modseq = mailboxes.jmap_email_state + 1:
+--        - deliver() (retires nextval('imap_modseq_seq'); discard rule emits zero 'created')
+--        - jmap_email_set_create / jmap_email_set_update / jmap_email_set_destroy
+--        - jmap_email_recover / jmap_email_purge
+--        - transition_message_location / delete_draft_message
+--        - message_snooze / scheduled_action_snooze
+--        - quarantine_message / release_quarantine_tags
+--        - rule_engine (flag / mark_read / categorize)
+--        - quick_step_apply
+--        - scheduled_action_rules_retro (zero spurious rows when no rule matches)
+--   3. jmap_email_changes succeeds incrementally across ALL of the above with
+--      ZERO spurious BZ011 cannotCalculateChanges.
+--   4. imap_vanished_uids_since returns exact vanished UIDs for soft-deleted,
+--      hard-deleted/purged, and moved-out messages (both legacy and membership
+--      UID modes, enforcing l.retired_modseq > since_modseq on membership-mode
+--      destroyed rows), handles pruned & 'resync' cursors cleanly, and enforces
+--      fail-closed R1/RLS under setjoin_app.
+BEGIN;
+SELECT plan(53);
+
+-- ── Fixture: divergent user/mailbox ids via mk_account() (ADR-003) ──────────
+SELECT mk_account('modseq554') AS mb \gset
+SELECT mk_account('modseq554_other') AS other_mb \gset
+
+SELECT id AS inbox_tag FROM tags WHERE mailbox_id = :mb AND name = 'Inbox' \gset
+SELECT id AS other_inbox_tag FROM tags WHERE mailbox_id = :other_mb AND name = 'Inbox' \gset
+SELECT id AS trash_tag FROM tags WHERE mailbox_id = :mb AND name = 'Trash' \gset
+SELECT id AS drafts_tag FROM tags WHERE mailbox_id = :mb AND name = 'Drafts' \gset
+
+INSERT INTO tags (mailbox_id, name, tag_type, exclusive_group, sort_order, imap_expose, imap_uid_validity)
+VALUES
+  (:mb, 'Snoozed',     'system', 'snooze',     800, FALSE, 12345),
+  (:mb, 'Quarantined', 'system', 'quarantine', 900, FALSE, 12346)
+ON CONFLICT (mailbox_id, name) DO NOTHING;
+
+-- 1. Empty mailbox (jmap_email_state = 0) advertises HIGHESTMODSEQ 1 (state + 1).
+SELECT is(
+  imap_mailbox_highestmodseq(:mb),
+  1::BIGINT,
+  'empty mailbox (jmap_email_state = 0) advertises HIGHESTMODSEQ = 1'
+);
+
+-- ── 2. deliver(): first delivery (state = 1) gets imap_modseq = 2 (> 1!) ────
+SELECT deliver(
+  'raw-d1', '<d1@modseq554.test>', 'ext@example.com', 'Ext',
+  (SELECT email FROM mailboxes WHERE id = :mb),
+  jsonb_build_array(jsonb_build_object('email', (SELECT email FROM mailboxes WHERE id = :mb))),
+  '[]'::JSONB, '[]'::JSONB,
+  'Deliver 1', NULL, NULL, 'body 1', NULL, 120, FALSE, now(),
+  'pass', 'pass', 'pass', 0.0, NULL
+) AS m_deliv \gset
+
+SELECT is(
+  (SELECT imap_modseq FROM messages WHERE id = :m_deliv AND mailbox_id = :mb),
+  2::BIGINT,
+  'first delivery in empty mailbox gets imap_modseq = 2 (> empty HIGHESTMODSEQ 1)'
+);
+SELECT is(
+  (SELECT imap_modseq FROM messages WHERE id = :m_deliv AND mailbox_id = :mb),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'deliver() stamps messages.imap_modseq = mailboxes.jmap_email_state + 1'
+);
+SELECT is(
+  imap_mailbox_highestmodseq(:mb),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'imap_mailbox_highestmodseq tracks mailboxes.jmap_email_state + 1'
+);
+SELECT is(
+  (SELECT count(*)::INT FROM jmap_changes_journal
+    WHERE mailbox_id = :mb AND datatype = 'email' AND op = 'resync'),
+  0,
+  'deliver() writes zero resync sentinels'
+);
+SELECT is(
+  (SELECT imap_uid FROM jmap_changes_journal
+    WHERE mailbox_id = :mb AND datatype = 'email' AND entity_id = :m_deliv
+    ORDER BY state_seq DESC LIMIT 1),
+  (SELECT imap_uid FROM messages WHERE id = :m_deliv AND mailbox_id = :mb),
+  'deliver() journal row captures imap_uid'
+);
+
+-- ── 3. jmap_email_set_create: precise 'created' row, ZERO resync sentinel ───
+SELECT ((jmap_email_set_create(
+  :mb,
+  jsonb_build_object(
+    'c1', jsonb_build_object(
+      'mailboxIds', jsonb_build_object(:drafts_tag::TEXT, TRUE),
+      'subject', 'Draft 1',
+      'bodyValues', jsonb_build_object('text', jsonb_build_object('value', 'hello'))
+    )
+  )
+)->'created'->'c1'->>'id')::BIGINT) AS m_draft \gset
+
+SELECT is(
+  (SELECT imap_modseq FROM messages WHERE id = :m_draft AND mailbox_id = :mb),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'jmap_email_set_create stamps messages.imap_modseq = jmap_email_state + 1'
+);
+SELECT is(
+  (SELECT op FROM jmap_changes_journal
+    WHERE mailbox_id = :mb AND datatype = 'email' AND entity_id = :m_draft
+    ORDER BY state_seq DESC LIMIT 1),
+  'created',
+  'jmap_email_set_create writes precise created row'
+);
+
+-- ── 4. jmap_email_set_update (seen + flagged): stamps imap_modseq ───────────
+SELECT jmap_email_set_update(
+  :mb,
+  jsonb_build_object(:m_deliv::TEXT, jsonb_build_object('keywords', jsonb_build_object('$seen', TRUE, '$flagged', TRUE)))
+);
+SELECT is(
+  (SELECT imap_modseq FROM messages WHERE id = :m_deliv AND mailbox_id = :mb),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'jmap_email_set_update stamps messages.imap_modseq = jmap_email_state + 1'
+);
+
+-- ── 5. message_snooze + scheduled_action_snooze: precise 'updated' rows ─────
+SELECT message_snooze(:mb, :m_deliv, now() + interval '1 hour');
+SELECT is(
+  (SELECT imap_modseq FROM messages WHERE id = :m_deliv AND mailbox_id = :mb),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'message_snooze stamps messages.imap_modseq = jmap_email_state + 1'
+);
+
+-- Trigger scheduled_action_snooze directly on the enqueued snooze action.
+SELECT scheduled_action_snooze(sa)
+  FROM scheduled_actions sa
+ WHERE sa.mailbox_id = :mb AND sa.action_kind = 'snooze'
+ LIMIT 1;
+SELECT is(
+  (SELECT imap_modseq FROM messages WHERE id = :m_deliv AND mailbox_id = :mb),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'scheduled_action_snooze stamps messages.imap_modseq = jmap_email_state + 1'
+);
+
+-- ── 6. quarantine_message + release_quarantine_tags: precise 'updated' rows ─
+SELECT quarantine_message(:m_deliv, :mb, 'Test quarantine', 'virus', 'EICAR', TRUE);
+SELECT is(
+  (SELECT imap_modseq FROM messages WHERE id = :m_deliv AND mailbox_id = :mb),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'quarantine_message stamps messages.imap_modseq = jmap_email_state + 1'
+);
+
+SELECT release_quarantine_tags(:m_deliv, :mb, 'Inbox', TRUE);
+SELECT is(
+  (SELECT imap_modseq FROM messages WHERE id = :m_deliv AND mailbox_id = :mb),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'release_quarantine_tags stamps messages.imap_modseq = jmap_email_state + 1'
+);
+
+-- ── 7. rule_engine (flag, mark_read, categorize): precise 'updated' rows ────
+SELECT apply_action(:m_deliv, (SELECT received_at FROM messages WHERE id = :m_deliv), :mb, '{"type":"flag"}'::JSONB, 0);
+SELECT apply_action(:m_deliv, (SELECT received_at FROM messages WHERE id = :m_deliv), :mb, '{"type":"mark_read"}'::JSONB, 0);
+SELECT apply_action(:m_deliv, (SELECT received_at FROM messages WHERE id = :m_deliv), :mb, '{"type":"categorize","params":{"category":"Ops"}}'::JSONB, 0);
+SELECT is(
+  (SELECT imap_modseq FROM messages WHERE id = :m_deliv AND mailbox_id = :mb),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'rule_engine flag/mark_read/categorize stamp messages.imap_modseq = jmap_email_state + 1'
+);
+SELECT jmap_email_state AS before_noop_cat FROM mailboxes WHERE id = :mb \gset
+SELECT apply_action(:m_deliv, (SELECT received_at FROM messages WHERE id = :m_deliv), :mb, '{"type":"categorize","params":{"category":"Ops"}}'::JSONB, 0);
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = :mb),
+  :before_noop_cat::BIGINT,
+  'repeat rule_engine categorize (already present) is a no-op with zero state bump or journal row'
+);
+
+-- ── 8. quick_step_apply: precise 'updated' row ──────────────────────────────
+SELECT quick_step_set(:mb, NULL, 'TagOps', 'Zap', '[{"type":"categorize","params":{"category":"QS"}}]'::JSONB) AS qs_id \gset
+SELECT quick_step_apply(:mb, :qs_id, :m_deliv, (SELECT received_at FROM messages WHERE id = :m_deliv));
+SELECT is(
+  (SELECT imap_modseq FROM messages WHERE id = :m_deliv AND mailbox_id = :mb),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'quick_step_apply stamps messages.imap_modseq = jmap_email_state + 1'
+);
+
+-- ── 9. scheduled_action_rules_retro: zero spurious rows on no-match; precise on match ─
+SELECT jmap_email_state AS state_before_noop_retro FROM mailboxes WHERE id = :mb \gset
+INSERT INTO scheduled_actions (action_kind, fire_at, payload, mailbox_id, status)
+VALUES ('rules_retro', now(), '{"window":"90d"}'::JSONB, :mb, 'pending')
+RETURNING id AS noop_retro_id \gset
+SELECT scheduled_action_rules_retro(sa)
+  FROM scheduled_actions sa WHERE sa.id = :'noop_retro_id';
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = :mb),
+  :state_before_noop_retro::BIGINT,
+  'scheduled_action_rules_retro with no matching rules emits zero spurious state bumps or journal rows'
+);
+
+INSERT INTO rules (user_id, mailbox_id, name, priority, enabled, run_on, conditions, actions)
+VALUES (
+  (SELECT user_id FROM mailboxes WHERE id = :mb),
+  :mb, 'RetroCatRule', 5, TRUE, 'server',
+  '[{"field":"subject","op":"equals","value":"Deliver 1"}]'::JSONB,
+  '[{"type":"categorize","params":{"category":"Retro"}}]'::JSONB
+) RETURNING id AS retro_rule_id \gset
+INSERT INTO scheduled_actions (action_kind, fire_at, payload, mailbox_id, status)
+VALUES ('rules_retro', now(), jsonb_build_object('window', '90d', 'rule_id', :retro_rule_id), :mb, 'pending')
+RETURNING id AS retro_id \gset
+SELECT scheduled_action_rules_retro(sa)
+  FROM scheduled_actions sa WHERE sa.id = :'retro_id';
+SELECT is(
+  (SELECT imap_modseq FROM messages WHERE id = :m_deliv AND mailbox_id = :mb),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'scheduled_action_rules_retro matching rule stamps messages.imap_modseq = jmap_email_state + 1'
+);
+DELETE FROM rules WHERE id = :retro_rule_id;
+
+-- ── 10. transition_message_location + delete_draft_message ──────────────────
+SELECT imap_uid AS draft_uid FROM messages WHERE id = :m_draft \gset
+SELECT imap_mailbox_highestmodseq(:mb) AS before_draft_del \gset
+SELECT delete_draft_message(:m_draft, (SELECT received_at FROM messages WHERE id = :m_draft), :mb, TRUE);
+SELECT is(
+  (SELECT op FROM jmap_changes_journal
+    WHERE mailbox_id = :mb AND datatype = 'email' AND entity_id = :m_draft
+    ORDER BY state_seq DESC LIMIT 1),
+  'destroyed',
+  'delete_draft_message emits precise destroyed row'
+);
+SELECT is(
+  (SELECT imap_uid FROM jmap_changes_journal
+    WHERE mailbox_id = :mb AND datatype = 'email' AND entity_id = :m_draft
+    ORDER BY state_seq DESC LIMIT 1),
+  :draft_uid::BIGINT,
+  'delete_draft_message preserves imap_uid in journal even after hard DELETE'
+);
+SELECT is(
+  (imap_vanished_uids_since(:mb, :drafts_tag, :before_draft_del, FALSE, NULL)->'vanished'),
+  jsonb_build_array(:draft_uid::BIGINT),
+  'imap_vanished_uids_since recovers exact vanished UID after delete_draft_message hard DELETE'
+);
+
+-- ── 11. jmap_email_set_destroy -> jmap_email_recover -> jmap_email_purge ────
+SELECT deliver(
+  'raw-d2', '<d2@modseq554.test>', 'ext2@example.com', 'Ext2',
+  (SELECT email FROM mailboxes WHERE id = :mb),
+  jsonb_build_array(jsonb_build_object('email', (SELECT email FROM mailboxes WHERE id = :mb))),
+  '[]'::JSONB, '[]'::JSONB,
+  'Deliver 2', NULL, NULL, 'body 2', NULL, 120, FALSE, now(),
+  'pass', 'pass', 'pass', 0.0, NULL
+) AS m_deliv2 \gset
+SELECT imap_uid AS d2_uid FROM messages WHERE id = :m_deliv2 \gset
+SELECT imap_mailbox_highestmodseq(:mb) AS before_destroy \gset
+
+-- Move Inbox -> Trash via jmap_email_set_destroy
+SELECT jmap_email_set_destroy(:mb, ARRAY[:m_deliv2::BIGINT]);
+SELECT is(
+  (imap_vanished_uids_since(:mb, :inbox_tag, :before_destroy, FALSE, NULL)->'vanished'),
+  jsonb_build_array(:d2_uid::BIGINT),
+  'imap_vanished_uids_since reports vanished UID from Inbox after jmap_email_set_destroy'
+);
+
+-- Soft-delete from Trash, then recover back to Inbox
+SELECT jmap_email_set_destroy(:mb, ARRAY[:m_deliv2::BIGINT]);
+SELECT jmap_email_recover(:mb, ARRAY[:m_deliv2::BIGINT]);
+SELECT is(
+  (SELECT op FROM jmap_changes_journal
+    WHERE mailbox_id = :mb AND datatype = 'email' AND entity_id = :m_deliv2
+    ORDER BY state_seq DESC LIMIT 1),
+  'created',
+  'jmap_email_recover emits precise created row'
+);
+SELECT is(
+  (SELECT imap_modseq FROM messages WHERE id = :m_deliv2 AND mailbox_id = :mb),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'jmap_email_recover stamps messages.imap_modseq = jmap_email_state + 1'
+);
+
+-- Soft-delete again and purge permanently (p_notify = TRUE)
+UPDATE messages SET is_deleted = TRUE, deleted_at = now()
+ WHERE id = :m_deliv2 AND mailbox_id = :mb;
+DELETE FROM message_tags WHERE message_id = :m_deliv2;
+SELECT imap_mailbox_highestmodseq(:mb) AS before_purge \gset
+SELECT jmap_email_purge(:mb, ARRAY[:m_deliv2::BIGINT], TRUE);
+SELECT is(
+  (SELECT op FROM jmap_changes_journal
+    WHERE mailbox_id = :mb AND datatype = 'email' AND entity_id = :m_deliv2
+    ORDER BY state_seq DESC LIMIT 1),
+  'destroyed',
+  'jmap_email_purge emits precise destroyed row'
+);
+SELECT is(
+  (imap_vanished_uids_since(:mb, :inbox_tag, :before_purge, FALSE, NULL)->'vanished'),
+  jsonb_build_array(:d2_uid::BIGINT),
+  'imap_vanished_uids_since recovers exact vanished UID after jmap_email_purge hard DELETE'
+);
+
+-- ── 12. ZERO 'resync' sentinels across ALL hot-path reducers + incremental JMAP ─
+SELECT is(
+  (SELECT count(*)::INT FROM jmap_changes_journal
+    WHERE mailbox_id = :mb AND datatype = 'email' AND op = 'resync'),
+  0,
+  'ZERO resync sentinels written across all upgraded hot-path mail reducers'
+);
+SELECT lives_ok(
+  format($$SELECT jmap_email_changes(%s, '0')$$, :mb),
+  'jmap_email_changes(0) succeeds incrementally across every upgraded hot-path reducer with ZERO BZ011'
+);
+SELECT is(
+  (jmap_email_changes(:mb, '0')->>'newState')::BIGINT,
+  (SELECT jmap_email_state FROM mailboxes WHERE id = :mb),
+  'jmap_email_changes newState equals mailboxes.jmap_email_state'
+);
+
+-- ── 13. Move via transition_message_location surfaces in QRESYNC VANISHED ───
+SELECT deliver(
+  'raw-d3', '<d3@modseq554.test>', 'ext3@example.com', 'Ext3',
+  (SELECT email FROM mailboxes WHERE id = :mb),
+  jsonb_build_array(jsonb_build_object('email', (SELECT email FROM mailboxes WHERE id = :mb))),
+  '[]'::JSONB, '[]'::JSONB,
+  'Deliver 3', NULL, NULL, 'body 3', NULL, 120, FALSE, now(),
+  'pass', 'pass', 'pass', 0.0, NULL
+) AS m_deliv3 \gset
+SELECT imap_uid AS d3_uid FROM messages WHERE id = :m_deliv3 \gset
+SELECT mt.imap_uid AS d3_mem_uid
+  FROM message_tags mt
+ WHERE mt.message_id = :m_deliv3 AND mt.tag_id = :inbox_tag \gset
+SELECT imap_mailbox_highestmodseq(:mb) AS before_move \gset
+
+SELECT transition_message_location(
+  :m_deliv3, (SELECT received_at FROM messages WHERE id = :m_deliv3), 'Trash', :mb, 'user', TRUE
+);
+SELECT is(
+  (imap_vanished_uids_since(:mb, :inbox_tag, :before_move, FALSE, NULL)->'vanished'),
+  jsonb_build_array(:d3_uid::BIGINT),
+  'imap_vanished_uids_since (legacy mode) reports vanished UID from source folder after transition_message_location'
+);
+SELECT is(
+  (imap_vanished_uids_since(:mb, :inbox_tag, :before_move, TRUE, NULL)->'vanished'),
+  jsonb_build_array(:d3_mem_uid::BIGINT),
+  'imap_vanished_uids_since (membership-UID mode) reports retired membership UID after transition_message_location'
+);
+
+-- Single currency check: Trash tag imap_modseq + message_tags.imap_modseq equal jmap_email_state + 1.
+SELECT is(
+  (SELECT imap_modseq FROM tags WHERE id = :trash_tag),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'tags.imap_modseq stays aligned onto mailboxes.jmap_email_state + 1'
+);
+SELECT is(
+  (SELECT mt.imap_modseq FROM message_tags mt WHERE mt.message_id = :m_deliv3 AND mt.tag_id = :trash_tag),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'message_tags.imap_modseq stays aligned onto mailboxes.jmap_email_state + 1'
+);
+
+-- ── 13a. Membership-mode destroyed cutoff: pre-cursor retired UID NOT re-emitted ─
+-- Move :m_deliv3 back from Trash -> Inbox (allocates a NEW membership UID), record
+-- cursor AFTER the first retirement (:after_first_retire), then hard-purge :m_deliv3.
+-- imap_vanished_uids_since(..., :after_first_retire, TRUE, NULL) MUST report ONLY
+-- the second membership UID (:d3_mem_uid2), NEVER the pre-cursor :d3_mem_uid!
+SELECT imap_mailbox_highestmodseq(:mb) AS after_first_retire \gset
+SELECT transition_message_location(
+  :m_deliv3, (SELECT received_at FROM messages WHERE id = :m_deliv3), 'Inbox', :mb, 'user', TRUE
+);
+SELECT mt.imap_uid AS d3_mem_uid2
+  FROM message_tags mt
+ WHERE mt.message_id = :m_deliv3 AND mt.tag_id = :inbox_tag \gset
+SELECT ok(
+  :d3_mem_uid2 > :d3_mem_uid,
+  'moving message back to Inbox allocates a higher membership UID'
+);
+UPDATE messages SET is_deleted = TRUE, deleted_at = now()
+ WHERE id = :m_deliv3 AND mailbox_id = :mb;
+SELECT jmap_email_purge(:mb, ARRAY[:m_deliv3::BIGINT], TRUE);
+SELECT is(
+  (imap_vanished_uids_since(:mb, :inbox_tag, :after_first_retire, TRUE, NULL)->'vanished'),
+  jsonb_build_array(:d3_mem_uid2::BIGINT),
+  'membership-mode destroyed branch skips pre-cursor retired UID and reports only newly retired UID'
+);
+
+-- ── 13b. Unexpunged \Deleted is NOT vanished until actually expunged ────────
+SELECT imap_uid AS d1_uid FROM messages WHERE id = :m_deliv \gset
+SELECT imap_mailbox_highestmodseq(:mb) AS before_mark_del \gset
+UPDATE messages SET is_deleted = TRUE WHERE id = :m_deliv AND mailbox_id = :mb;
+SELECT notify_state_change(:mb, NULL, :m_deliv, 'destroyed');
+SELECT is(
+  (imap_vanished_uids_since(:mb, :inbox_tag, :before_mark_del, FALSE, NULL)->'vanished'),
+  '[]'::JSONB,
+  'unexpunged \\Deleted message still in message_tags is NOT reported as vanished'
+);
+-- Restore is_deleted = FALSE so :m_deliv remains live for subsequent checks.
+UPDATE messages SET is_deleted = FALSE WHERE id = :m_deliv AND mailbox_id = :mb;
+SELECT notify_state_change(:mb, NULL, :m_deliv, 'updated');
+
+-- ── 13c. delete_draft_message no-op on missing row does NOT bump state ──────
+SELECT jmap_email_state AS before_noop_draft FROM mailboxes WHERE id = :mb \gset
+SELECT delete_draft_message(99999999, now(), :mb, TRUE);
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = :mb),
+  :before_noop_draft::BIGINT,
+  'delete_draft_message on missing row does NOT bump state or journal phantom destroyed'
+);
+
+-- ── 13d. jmap_email_recover checks quota BEFORE mutating messages/tags ──────
+SELECT deliver(
+  'raw-d4-quota', '<d4-quota@modseq554.test>', 'ext4@example.com', 'Ext4',
+  (SELECT email FROM mailboxes WHERE id = :mb),
+  jsonb_build_array(jsonb_build_object('email', (SELECT email FROM mailboxes WHERE id = :mb))),
+  '[]'::JSONB, '[]'::JSONB,
+  'Deliver 4 Quota', NULL, NULL, 'body 4', NULL, 500, FALSE, now(),
+  'pass', 'pass', 'pass', 0.0, NULL
+) AS m_quota \gset
+UPDATE messages SET is_deleted = TRUE, deleted_at = now() WHERE id = :m_quota AND mailbox_id = :mb;
+DELETE FROM message_tags WHERE message_id = :m_quota;
+UPDATE mailboxes SET quota_bytes = 100, used_bytes = 100 WHERE id = :mb;
+SELECT jmap_email_recover(:mb, ARRAY[:m_quota::BIGINT]);
+SELECT is(
+  (SELECT is_deleted FROM messages WHERE id = :m_quota AND mailbox_id = :mb),
+  TRUE,
+  'over-quota jmap_email_recover leaves messages.is_deleted = TRUE untouched'
+);
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags WHERE message_id = :m_quota),
+  0,
+  'over-quota jmap_email_recover leaves message_tags untouched'
+);
+UPDATE mailboxes SET quota_bytes = 1073741824 WHERE id = :mb;
+
+-- ── 13e. scheduled_action_rules_retro & deliver() discard rule emit NO phantom created/updated ─
+SELECT deliver(
+  'raw-d5-disc', '<d5-disc@modseq554.test>', 'discardme@example.com', 'DiscardMe',
+  (SELECT email FROM mailboxes WHERE id = :mb),
+  jsonb_build_array(jsonb_build_object('email', (SELECT email FROM mailboxes WHERE id = :mb))),
+  '[]'::JSONB, '[]'::JSONB,
+  'Discard Subject', NULL, NULL, 'body discard', NULL, 120, FALSE, now(),
+  'pass', 'pass', 'pass', 0.0, NULL
+) AS m_disc \gset
+INSERT INTO rules (user_id, mailbox_id, name, priority, enabled, run_on, conditions, actions)
+VALUES (
+  (SELECT user_id FROM mailboxes WHERE id = :mb),
+  :mb, 'DiscardRule', 1, TRUE, 'server',
+  '[{"field":"from_addr","op":"equals","value":"discardme@example.com"}]'::JSONB,
+  '[{"type":"discard"}]'::JSONB
+) RETURNING id AS disc_rule_id \gset
+INSERT INTO scheduled_actions (action_kind, fire_at, payload, mailbox_id, status)
+VALUES ('rules_retro', now(), jsonb_build_object('window', '90d', 'rule_id', :disc_rule_id), :mb, 'pending')
+RETURNING id AS disc_retro_id \gset
+SELECT scheduled_action_rules_retro(sa)
+  FROM scheduled_actions sa WHERE sa.id = :'disc_retro_id';
+SELECT is(
+  (SELECT op FROM jmap_changes_journal
+    WHERE mailbox_id = :mb AND datatype = 'email' AND entity_id = :m_disc
+    ORDER BY state_seq DESC LIMIT 1),
+  'destroyed',
+  'scheduled_action_rules_retro does NOT append updated after discard destroyed row'
+);
+
+-- Now deliver a fresh message that matches DiscardRule AT DELIVERY TIME:
+-- deliver() must skip the final 'created' journal row!
+SELECT deliver(
+  'raw-d6-disc', '<d6-disc@modseq554.test>', 'discardme@example.com', 'DiscardMe',
+  (SELECT email FROM mailboxes WHERE id = :mb),
+  jsonb_build_array(jsonb_build_object('email', (SELECT email FROM mailboxes WHERE id = :mb))),
+  '[]'::JSONB, '[]'::JSONB,
+  'Discard At Delivery', NULL, NULL, 'body discard 2', NULL, 120, FALSE, now(),
+  'pass', 'pass', 'pass', 0.0, NULL
+) AS m_disc_deliv \gset
+SELECT is(
+  (SELECT count(*)::INT FROM jmap_changes_journal
+    WHERE mailbox_id = :mb AND datatype = 'email' AND entity_id = :m_disc_deliv AND op = 'created'),
+  0,
+  'deliver() with matching discard rule skips spurious created journal row'
+);
+
+-- ── 14. RLS / setjoin_app fail-closed GUC scope & cross-mailbox isolation ───
+-- Bump other_mb state so a foreign disclosure would be observable (> 1).
+UPDATE mailboxes SET jmap_email_state = 77 WHERE id = :other_mb;
+
+-- (a) Unset app.current_mailbox_id under setjoin_app MUST fail closed!
+SELECT set_config('app.current_mailbox_id', '', TRUE);
+SET LOCAL ROLE setjoin_app;
+SELECT is(
+  imap_mailbox_highestmodseq(:mb),
+  NULL::BIGINT,
+  'setjoin_app with unset app.current_mailbox_id gets NULL from imap_mailbox_highestmodseq'
+);
+SELECT throws_ok(
+  format($$SELECT imap_vanished_uids_since(%s, %s, 0, FALSE, NULL)$$, :mb, :inbox_tag),
+  'BZ268', NULL,
+  'setjoin_app with unset app.current_mailbox_id is rejected by imap_vanished_uids_since (BZ268)'
+);
+RESET ROLE;
+
+-- (b) Matching own GUC works; valid matching FOREIGN (other_mb, other_inbox_tag) MUST fail closed!
+SELECT set_config('app.current_mailbox_id', :mb::TEXT, TRUE);
+SET LOCAL ROLE setjoin_app;
+SELECT is(
+  imap_mailbox_highestmodseq(:mb),
+  (SELECT jmap_email_state + 1 FROM mailboxes WHERE id = :mb),
+  'setjoin_app can call imap_mailbox_highestmodseq for own mailbox'
+);
+SELECT is(
+  imap_mailbox_highestmodseq(:other_mb),
+  NULL::BIGINT,
+  'setjoin_app cannot read foreign mailbox highestModseq (returns NULL)'
+);
+SELECT is(
+  (imap_vanished_uids_since(:mb, :inbox_tag, :before_move, FALSE, NULL)->>'resyncRequired')::BOOLEAN,
+  FALSE,
+  'setjoin_app can call imap_vanished_uids_since under FORCE RLS'
+);
+SELECT throws_ok(
+  format($$SELECT imap_vanished_uids_since(%s, %s, 0, FALSE, NULL)$$, :other_mb, :inbox_tag),
+  'BZ268', NULL,
+  'imap_vanished_uids_since rejects cross-mailbox tag_id (BZ268)'
+);
+SELECT throws_ok(
+  format($$SELECT imap_vanished_uids_since(%s, %s, 0, FALSE, NULL)$$, :other_mb, :other_inbox_tag),
+  'BZ268', NULL,
+  'setjoin_app cannot read valid matching foreign (other_mb, other_inbox_tag) pair (BZ268, zero disclosure)'
+);
+RESET ROLE;
+
+-- ── 15. Pruned / resync cursor handling in imap_vanished_uids_since ─────────
+SELECT jmap_email_state AS before_resync_state FROM mailboxes WHERE id = :mb \gset
+SELECT imap_mailbox_highestmodseq(:mb) AS before_resync \gset
+SELECT notify_state_change(:mb, NULL);  -- deliberate coarse resync sentinel
+SELECT is(
+  (imap_vanished_uids_since(:mb, :inbox_tag, :before_resync, FALSE, NULL)->>'resyncRequired')::BOOLEAN,
+  TRUE,
+  'resync sentinel in window sets resyncRequired = true'
+);
+-- With client-supplied known_uids, vanished still computes exact missing subset!
+SELECT is(
+  (imap_vanished_uids_since(:mb, :inbox_tag, :before_resync, FALSE, ARRAY[(SELECT imap_uid FROM messages WHERE id = :m_deliv), :d3_uid, 999999]::BIGINT[])->'vanished'),
+  jsonb_build_array(:d3_uid::BIGINT, 999999),
+  'resync cursor with known_uids still reports exact vanished UIDs'
+);
+
+-- Pruned journal rows (oldest > since_state + 1) → resyncRequired = true (for both since = 1 AND since = 0!)
+DELETE FROM jmap_changes_journal WHERE mailbox_id = :mb AND datatype = 'email' AND state_seq < :before_resync_state;
+SELECT is(
+  (imap_vanished_uids_since(:mb, :inbox_tag, 1, FALSE, NULL)->>'resyncRequired')::BOOLEAN,
+  TRUE,
+  'pruned journal cursor (since=1) sets resyncRequired = true'
+);
+SELECT is(
+  (imap_vanished_uids_since(:mb, :inbox_tag, 0, FALSE, NULL)->>'resyncRequired')::BOOLEAN,
+  TRUE,
+  'pruned journal cursor (since=0 when oldest > 1) sets resyncRequired = true'
+);
+
+-- Future modseq → resyncRequired = true
+SELECT is(
+  (imap_vanished_uids_since(:mb, :inbox_tag, 99999999, FALSE, NULL)->>'resyncRequired')::BOOLEAN,
+  TRUE,
+  'future modseq cursor sets resyncRequired = true'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

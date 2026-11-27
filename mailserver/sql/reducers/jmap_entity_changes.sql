@@ -19,7 +19,9 @@ DECLARE
   v_created   BIGINT[] := '{}';
   v_updated   BIGINT[] := '{}';
   v_destroyed BIGINT[] := '{}';
-  v_has_more  BOOLEAN  := FALSE;
+  v_has_more        BOOLEAN  := FALSE;
+  v_tombstone_floor TIMESTAMPTZ;
+  v_cursor_at       TIMESTAMPTZ;
   r RECORD;
 BEGIN
   IF v_since > v_current THEN
@@ -45,6 +47,24 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Cannot calculate changes'
       USING ERRCODE = 'BZ011', HINT = '{"type":"cannotCalculateChanges"}';
+  END IF;
+
+  -- Wave 2.6 (#553): if revocation tombstones have been pruned past this cursor
+  -- (or no journal entry <= v_since remains to bound cursor age — fail-closed),
+  -- force a mandatory full scope-membership reconcile via BZ011.
+  v_tombstone_floor := public.sync_tombstone_floor_at();
+  IF v_since > 0 AND v_tombstone_floor > '-infinity'::timestamptz THEN
+    SELECT MAX(created_at)
+      INTO v_cursor_at
+      FROM jmap_changes_journal
+     WHERE mailbox_id = p_mailbox_id
+       AND datatype = p_datatype
+       AND state_seq <= v_since;  -- R1
+    IF v_cursor_at IS NULL OR v_cursor_at < v_tombstone_floor THEN
+      RAISE EXCEPTION 'Cannot calculate changes'
+        USING ERRCODE = 'BZ011',
+              HINT = '{"type":"cannotCalculateChanges","reason":"tombstoneFloorExceeded"}';
+    END IF;
   END IF;
 
   v_new_state := v_current;
@@ -103,4 +123,4 @@ BEGIN
     'destroyed', COALESCE(to_jsonb(v_destroyed), '[]'::JSONB)
   );
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql STABLE;

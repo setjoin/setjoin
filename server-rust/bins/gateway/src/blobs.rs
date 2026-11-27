@@ -265,7 +265,11 @@ impl<K: KeySource> BlobCommands<K> {
             .filter(|v| !v.is_empty())
             .unwrap_or("application/octet-stream")
             .to_owned();
-        let temp_key = format!("tmp/upload/{}", crate::jmap::reply::hex(&operation));
+        let temp_key = format!(
+            "{}{}",
+            crate::blob_retention::BLOB_STAGING_PREFIX,
+            crate::jmap::reply::hex(&operation)
+        );
         let path = std::env::temp_dir().join(format!(
             "setjoin-blob-upload-{}",
             crate::jmap::reply::hex(&operation)
@@ -300,37 +304,148 @@ impl<K: KeySource> BlobCommands<K> {
             return reply(500, "upload failed\n");
         }
         if format!("{:x}", hasher.finalize()) != hash {
-            let _ = self.store.remove(&temp_key).await;
+            let _ = self
+                .store
+                .delete_blob_checked(&temp_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                .await;
             return reply(400, "sha256 mismatch\n");
         }
+        // Durable-first WORM arming (#549/#551): enqueue `blob.worm_arm` (run_at = now() + 30s)
+        // BEFORE `blob_upload_account` commits `blob.promote_recover`, so a crash between
+        // `blob_upload_account` and `blob.worm_arm` enqueue can never let `BlobPromoteConsumer`
+        // publish canonical bytes without an armed WORM job. If enqueue fails, abort before
+        // accounting/promote (HTTP 500).
+        let worm_armed = if let Some(worm) = &worm {
+            let retain_until = crate::blob_retention::retain_until(chrono::Utc::now(), worm.days);
+            let payload = crate::blob_retention::WormArmPayload {
+                sha256: hash.clone(),
+                object_key: hash.clone(),
+                mode: worm.mode.clone(),
+                retain_days: worm.days,
+                retain_until: retain_until.clone(),
+                version_id: None,
+            };
+            let Ok(payload_text) = serde_json::to_string(&payload) else {
+                let _ = self
+                    .store
+                    .delete_blob_checked(&temp_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                    .await;
+                return reply(500, "upload failed\n");
+            };
+            let idem = crate::blob_retention::worm_idempotency_key(&hash, &retain_until);
+            let delay_secs = 300.0_f64;
+            let priority = 0_i16;
+            let max_attempts = crate::blob_retention::WORM_MAX_ATTEMPTS;
+            let kind = crate::blob_retention::WORK_KIND_WORM_ARM;
+            let Ok(rows) = self
+                .worker_exec
+                .protocol_query(
+                    "SELECT work_item_id, coalesced \
+                     FROM public.work_enqueue($1, $2::text::jsonb, $3, now() + make_interval(secs => $4), $5, $6)",
+                    &[
+                        (&kind, setjoin_pg::Type::TEXT),
+                        (&payload_text, setjoin_pg::Type::TEXT),
+                        (&idem, setjoin_pg::Type::TEXT),
+                        (&delay_secs, setjoin_pg::Type::FLOAT8),
+                        (&priority, setjoin_pg::Type::INT2),
+                        (&max_attempts, setjoin_pg::Type::INT4),
+                    ],
+                )
+                .await
+            else {
+                let _ = self
+                    .store
+                    .delete_blob_checked(&temp_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                    .await;
+                return reply(500, "upload failed\n");
+            };
+            let Some(work_item_id) = rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()) else {
+                let _ = self
+                    .store
+                    .delete_blob_checked(&temp_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                    .await;
+                return reply(500, "upload failed\n");
+            };
+            Some((work_item_id, worm.mode.clone(), retain_until))
+        } else {
+            None
+        };
         let Some(factory) = crate::policy_composition::tx_factory_from_executors(
             &self.exec,
             Some(&self.worker_exec),
         ) else {
-            let _ = self.store.remove(&temp_key).await;
+            if let Some((work_item_id, _, _)) = worm_armed {
+                let _ = self
+                    .worker_exec
+                    .protocol_query(
+                        "SELECT public.work_cancel_pending($1)",
+                        &[(&work_item_id, setjoin_pg::Type::INT8)],
+                    )
+                    .await;
+            }
+            let _ = self
+                .store
+                .delete_blob_checked(&temp_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                .await;
             return reply(500, "upload failed\n");
         };
         let Ok(user) = factory
             .mint_user_from_authorized(&actor, &ctx.identity.client_ip.to_string())
             .await
         else {
-            let _ = self.store.remove(&temp_key).await;
+            if let Some((work_item_id, _, _)) = worm_armed {
+                let _ = self
+                    .worker_exec
+                    .protocol_query(
+                        "SELECT public.work_cancel_pending($1)",
+                        &[(&work_item_id, setjoin_pg::Type::INT8)],
+                    )
+                    .await;
+            }
+            let _ = self
+                .store
+                .delete_blob_checked(&temp_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                .await;
             return reply(500, "upload failed\n");
         };
-        match setjoin_blobs::account_upload(
+        let (promote_work_item_id, verify_work_item_id) = match setjoin_blobs::account_upload(
             &factory,
             &user,
             &hash,
             &self.store.blob_reference(&hash),
             size,
             &content_type,
+            Some(&temp_key),
             operation,
         )
         .await
         {
-            setjoin_pg::CommandOutcome::Committed(_) => {}
+            setjoin_pg::CommandOutcome::Committed(raw) => {
+                let parsed = serde_json::from_str::<serde_json::Value>(&raw).ok();
+                let promote_id = parsed
+                    .as_ref()
+                    .and_then(|v| v.get("promoteWorkItemId"))
+                    .and_then(serde_json::Value::as_i64);
+                let verify_id = parsed
+                    .as_ref()
+                    .and_then(|v| v.get("verifyWorkItemId"))
+                    .and_then(serde_json::Value::as_i64);
+                (promote_id, verify_id)
+            }
             setjoin_pg::CommandOutcome::RolledBack(error) => {
-                let _ = self.store.remove(&temp_key).await;
+                if let Some((work_item_id, _, _)) = worm_armed {
+                    let _ = self
+                        .worker_exec
+                        .protocol_query(
+                            "SELECT public.work_cancel_pending($1)",
+                            &[(&work_item_id, setjoin_pg::Type::INT8)],
+                        )
+                        .await;
+                }
+                let _ = self
+                    .store
+                    .delete_blob_checked(&temp_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                    .await;
                 return if error.log_summary().contains("BZ001") {
                     reply(413, "storage quota exceeded\n")
                 } else {
@@ -346,20 +461,133 @@ impl<K: KeySource> BlobCommands<K> {
                 }
                 return response;
             }
-        }
+        };
         let promoted = self.store.promote(&temp_key, &hash).await;
-        let _ = self.store.remove(&temp_key).await;
         if promoted.is_err() {
+            // Only cancel `blob.worm_arm` and delete `temp_key` when no delayed
+            // `blob.promote_verify` owns `temp_key` AND `blob.promote_recover` was
+            // cancelled while still pending. If `promote_recover` was already leased
+            // (or `promote_verify` exists), keep `blob.worm_arm` armed so the worker
+            // promotes and locks the object durably.
+            let cancelled_recover = self
+                .settle_promote_recover(
+                    &factory,
+                    &user,
+                    promote_work_item_id,
+                    verify_work_item_id,
+                    &hash,
+                    &temp_key,
+                    operation,
+                )
+                .await;
+            if verify_work_item_id.is_none() && cancelled_recover {
+                if let Some((work_item_id, _, _)) = worm_armed {
+                    let _ = self
+                        .worker_exec
+                        .protocol_query(
+                            "SELECT public.work_cancel_pending($1)",
+                            &[(&work_item_id, setjoin_pg::Type::INT8)],
+                        )
+                        .await;
+                }
+            }
             return reply(500, "upload failed\n");
         }
-        if let Some(worm) = &worm {
-            // Non-fatal: the blob is stored; the cleanup tick retries the lock.
-            if let Err(e) = crate::blob_retention::apply(&*self.store, worm, &hash).await {
-                eprintln!("retention policy apply failed key={hash}: {e}");
-                crate::blob_retention::note_retry(&hash);
+        let _ = self
+            .settle_promote_recover(
+                &factory,
+                &user,
+                promote_work_item_id,
+                verify_work_item_id,
+                &hash,
+                &temp_key,
+                operation,
+            )
+            .await;
+        if let Some((work_item_id, mode, retain_until)) = worm_armed {
+            // Fast path: apply inline; cancel the deferred work item ONLY after
+            // `blob_gc_record_worm_lock` succeeds durably. On either apply or record
+            // failure, expedite `blob.worm_arm` for `WormArmConsumer` while returning HTTP 201.
+            match crate::blob_retention::apply_until(&*self.store, &mode, &hash, &retain_until)
+                .await
+            {
+                Ok(()) => {
+                    let recorded = self
+                        .worker_exec
+                        .protocol_statement(
+                            "SELECT public.blob_gc_record_worm_lock($1, $2::text::timestamptz, 'worm_put_apply')",
+                            &[
+                                (&hash, setjoin_pg::Type::TEXT),
+                                (&retain_until, setjoin_pg::Type::TEXT),
+                            ],
+                        )
+                        .await;
+                    if recorded.is_ok() {
+                        let _ = self
+                            .worker_exec
+                            .protocol_query(
+                                "SELECT public.work_cancel_pending($1)",
+                                &[(&work_item_id, setjoin_pg::Type::INT8)],
+                            )
+                            .await;
+                    } else {
+                        eprintln!(
+                            "worm lock record failed key={hash}; expediting blob.worm_arm for durable retry"
+                        );
+                        let _ = self
+                            .worker_exec
+                            .protocol_query(
+                                "SELECT public.work_expedite($1)",
+                                &[(&work_item_id, setjoin_pg::Type::INT8)],
+                            )
+                            .await;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("retention policy apply failed key={hash}: {e}");
+                    let _ = self
+                        .worker_exec
+                        .protocol_query(
+                            "SELECT public.work_expedite($1)",
+                            &[(&work_item_id, setjoin_pg::Type::INT8)],
+                        )
+                        .await;
+                }
             }
         }
         reply(201, "")
+    }
+
+    /// Cancels a pending `blob.promote_recover` item iff still unleased, and
+    /// permanently deletes all versions of `temp_key` ONLY when no delayed
+    /// `blob.promote_verify` owns it and `promote_recover` was cancelled.
+    #[allow(clippy::too_many_arguments)]
+    async fn settle_promote_recover(
+        &self,
+        factory: &setjoin_authz::principals::TxFactory,
+        user: &setjoin_authz::principals::UserPrincipal,
+        promote_work_item_id: Option<i64>,
+        verify_work_item_id: Option<i64>,
+        hash: &str,
+        temp_key: &str,
+        operation: [u8; 16],
+    ) -> bool {
+        use crate::recovery_worker::ObjectStore;
+        let cancelled_recover = match promote_work_item_id {
+            Some(wid) => setjoin_blobs::complete_promote_recover(
+                factory, user, wid, hash, temp_key, operation,
+            )
+            .await
+            .unwrap_or(false),
+            None => true,
+        };
+        if verify_work_item_id.is_none() && cancelled_recover {
+            let _ = self
+                .store
+                .delete_blob_checked(temp_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                .await;
+        }
+        cancelled_recover
     }
 }
 

@@ -37,7 +37,8 @@ DECLARE
     v_loc_count INT;
     v_new_tag_id BIGINT;
 BEGIN
-    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+    -- Canonical #481 lock order (mailboxes -> messages -> message_tags/tags).
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
 
     -- Guard against corrupt multi-location state: a message must carry 0 or 1
     -- location tags. >1 means the invariant was already broken upstream.
@@ -91,8 +92,25 @@ CREATE OR REPLACE FUNCTION delete_draft_message(
     p_mailbox_id  BIGINT,
     p_notify      BOOLEAN DEFAULT TRUE
 ) RETURNS VOID AS $$
+DECLARE
+    v_primary_tag BIGINT;
+    v_imap_uid    BIGINT;
+    v_folder_id   BIGINT;
+    v_state       BIGINT;
+    v_deleted     BOOLEAN := FALSE;
 BEGIN
-    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+    -- Canonical #481 lock order (mailboxes -> messages -> message_tags).
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
+
+    SELECT mt.tag_id
+      INTO v_primary_tag
+      FROM message_tags mt
+      JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = p_message_id
+       AND mt.received_at = p_received_at
+       AND t.mailbox_id = p_mailbox_id
+       AND mt.is_primary = TRUE
+     LIMIT 1;
 
     -- Remove location-group tags first (counter triggers fire on DELETE),
     -- scoped to the owning mailbox.
@@ -105,16 +123,27 @@ BEGIN
       AND t.exclusive_group = 'location';
 
     -- Delete the message row; ownership in the same WHERE (R3, no TOCTOU).
+    -- Capture imap_uid + folder_id BEFORE the row vanishes so QRESYNC VANISHED
+    -- can report the exact vanished UID from jmap_changes_journal (#554).
     -- The message_tags FK (ON DELETE CASCADE) clears any remaining tags.
     DELETE FROM messages
     WHERE id = p_message_id
       AND received_at = p_received_at
-      AND mailbox_id = p_mailbox_id;
+      AND mailbox_id = p_mailbox_id
+    RETURNING imap_uid, folder_id INTO v_imap_uid, v_folder_id;
+    v_deleted := FOUND;
 
-    -- Mailbox-wide change (message removed) → push through the single owner.
+    -- Mailbox-wide change (message removed) → push through the single owner with
+    -- precise (p_message_id, 'destroyed') ONLY when a row was actually deleted.
     -- Suppressed (p_notify = FALSE) when the caller already pushed the change.
-    IF p_notify THEN
-        PERFORM notify_state_change(p_mailbox_id, NULL);
+    IF v_deleted AND p_notify THEN
+        v_state := notify_state_change(p_mailbox_id, NULL, p_message_id, 'destroyed');
+        IF v_state IS NOT NULL AND (v_imap_uid IS NOT NULL OR COALESCE(v_primary_tag, v_folder_id) IS NOT NULL) THEN
+            PERFORM append_email_change(
+                p_mailbox_id, v_state, p_message_id, 'destroyed',
+                COALESCE(v_primary_tag, v_folder_id), v_imap_uid
+            );
+        END IF;
     END IF;
 END;
 $$ LANGUAGE plpgsql;

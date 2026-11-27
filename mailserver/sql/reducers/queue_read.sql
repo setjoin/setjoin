@@ -7,7 +7,7 @@
 -- Status mapping (per spec F3):
 --   journal_queue:     pending|deferred -> active, failed -> failed, dead -> dead, delivered -> done
 --   outbound_queue:    pending|sending|deferred -> active, bounced -> failed, delivered -> done
---   scheduled_actions: pending|processing -> active, failed -> failed, done -> done
+--   scheduled_actions: pending|enqueued|processing -> active, failed -> failed, done -> done
 --   bulk_role_jobs:    queued|running -> active, done -> done, error -> failed
 
 CREATE OR REPLACE VIEW queue_status_normalized AS
@@ -55,6 +55,7 @@ CREATE OR REPLACE VIEW queue_status_normalized AS
     sa.status,
     CASE sa.status
       WHEN 'pending'    THEN 'active'
+      WHEN 'enqueued'   THEN 'active'
       WHEN 'processing' THEN 'active'
       WHEN 'failed'     THEN 'failed'
       WHEN 'done'       THEN 'done'

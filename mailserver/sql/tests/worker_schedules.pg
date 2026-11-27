@@ -1,0 +1,200 @@
+-- worker_schedules.pg — Wave 2.2 (#549, V291): SKIP LOCKED cron schedule
+-- leases, RLS/ACL denial, fencing, clock_timestamp() expiry, schedule_tz
+-- drift rejection, work_release, worm_arm_dead_letters health check, and
+-- guest_notification_intent WorkQueue coalescing.
+BEGIN;
+SELECT plan(38);
+
+SELECT set_config('app.capture_notify', 'on', false);
+
+-- ── 1. Isolation posture (deny-all FORCE RLS) ────────────────────────────────
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.worker_schedules'::regclass),
+  true, 'V291: worker_schedules has RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.worker_schedules'::regclass),
+  true, 'V291: worker_schedules RLS is FORCEd');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies WHERE tablename = 'worker_schedules'),
+  0, 'V291: worker_schedules has ZERO permissive policies');
+SELECT is(
+  (SELECT tableowner FROM pg_tables WHERE tablename = 'worker_schedules'),
+  'setjoin_owner', 'V291: worker_schedules owned by setjoin_owner');
+
+-- ── 2. Function ACLs & preflight hygiene (zero SECURITY DEFINER drift) ───────
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname IN (
+        'worker_schedule_register',
+        'worker_schedule_claim',
+        'worker_schedule_heartbeat',
+        'worker_schedule_complete',
+        'worker_schedule_release',
+        'work_release',
+        'work_cancel_pending',
+        'work_expedite'
+      )
+      AND p.prosecdef = FALSE
+      AND 'search_path=pg_catalog, public' = ANY(p.proconfig)),
+  8, 'all 8 Wave 2.2 worker reducers are SECURITY INVOKER with pinned search_path');
+
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef = TRUE
+      AND pg_get_userbyid(p.proowner) = 'setjoin_worker'
+      AND p.proname = 'guest_notification_intent_enqueue'
+      AND 'search_path=pg_catalog, public' = ANY(p.proconfig)),
+  1, 'guest_notification_intent_enqueue stays SECURITY DEFINER owned by setjoin_worker with pinned search_path');
+
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.worker_schedule_register(text,text,integer,text,text)', 'EXECUTE'),
+  false, 'setjoin_app has NO EXECUTE on worker_schedule_register');
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.worker_schedule_claim(text[],text,integer,integer)', 'EXECUTE'),
+  false, 'setjoin_app has NO EXECUTE on worker_schedule_claim');
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.worker_schedule_heartbeat(text,bigint,text,integer)', 'EXECUTE'),
+  false, 'setjoin_app has NO EXECUTE on worker_schedule_heartbeat');
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.worker_schedule_complete(text,bigint,text,text,integer,text,timestamptz)', 'EXECUTE'),
+  false, 'setjoin_app has NO EXECUTE on worker_schedule_complete');
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.worker_schedule_release(text,bigint,text)', 'EXECUTE'),
+  false, 'setjoin_app has NO EXECUTE on worker_schedule_release');
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.work_release(bigint,integer,text)', 'EXECUTE'),
+  false, 'setjoin_app has NO EXECUTE on work_release');
+SELECT is(
+  has_function_privilege('setjoin_worker', 'public.worker_schedule_claim(text[],text,integer,integer)', 'EXECUTE'),
+  true, 'setjoin_worker holds EXECUTE on worker_schedule_claim');
+SELECT is(
+  has_function_privilege('setjoin_worker', 'public.work_release(bigint,integer,text)', 'EXECUTE'),
+  true, 'setjoin_worker holds EXECUTE on work_release');
+
+-- ── 3. Seed as setjoin_worker, then prove setjoin_app denial ─────────────────
+SET LOCAL ROLE setjoin_worker;
+SELECT task_name AS ws_name
+  FROM public.worker_schedule_register('pgtap-sched-a', '@every 60s', 30, 'UTC', 'worker') \gset
+SELECT is(:'ws_name'::text, 'pgtap-sched-a', 'worker_schedule_register creates schedule row');
+
+SELECT throws_ok(
+  $$ SELECT * FROM public.worker_schedule_register('pgtap-sched-a', '@every 60s', 30, 'America/New_York', 'worker') $$,
+  'BZ040', NULL, 'worker_schedule_register rejects mismatched schedule_tz across HA nodes');
+
+SELECT * FROM public.worker_schedule_register('pgtap-sched-b', '@every 60s', 45, 'UTC', 'worker') \gset b_
+SELECT is(:b_timeout_secs, 45, 'second schedule registers cleanly');
+RESET ROLE;
+
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(
+  $$ SELECT count(*) FROM public.worker_schedules $$,
+  '42501', NULL, 'setjoin_app direct SELECT on worker_schedules is denied');
+SELECT throws_ok(
+  $$ INSERT INTO public.worker_schedules (task_name, schedule_spec, timeout_secs) VALUES ('bad', '@every 10s', 10) $$,
+  '42501', NULL, 'setjoin_app direct INSERT on worker_schedules is denied');
+SELECT throws_ok(
+  $$ SELECT * FROM public.worker_schedule_claim(ARRAY['pgtap-sched-a'], 'app-node', 30, 1) $$,
+  '42501', NULL, 'setjoin_app EXECUTE on worker_schedule_claim is denied');
+SELECT throws_ok(
+  $$ SELECT public.work_release(1, 1, 'app-node') $$,
+  '42501', NULL, 'setjoin_app EXECUTE on work_release is denied');
+RESET ROLE;
+
+-- ── 4. Multi-worker SKIP LOCKED claim, fencing, heartbeat, complete, release ─
+SET LOCAL ROLE setjoin_worker;
+
+-- Worker 1 claims 1 task (pgtap-sched-a).
+SELECT task_name AS c1_name, fencing_token AS c1_tok, lease_owner AS c1_owner
+  FROM public.worker_schedule_claim(ARRAY['pgtap-sched-a', 'pgtap-sched-b'], 'node-1', 30, 1) \gset
+SELECT is(:'c1_name'::text, 'pgtap-sched-a', 'first claim picks earliest due task');
+SELECT is(:c1_tok::bigint, 1::bigint, 'fencing_token increments to 1 on first claim');
+
+-- Worker 2 claims next disjoint task (pgtap-sched-b), never double-claiming pgtap-sched-a.
+SELECT task_name AS c2_name, fencing_token AS c2_tok
+  FROM public.worker_schedule_claim(ARRAY['pgtap-sched-a', 'pgtap-sched-b'], 'node-2', 30, 4) \gset
+SELECT is(:'c2_name'::text, 'pgtap-sched-b', 'second worker claims only remaining due task');
+SELECT is(
+  (SELECT count(*)::int FROM public.worker_schedule_claim(ARRAY['pgtap-sched-a', 'pgtap-sched-b'], 'node-3', 30, 4)),
+  0, 'third worker claims zero rows while both are leased');
+
+-- Heartbeat fencing: wrong token / wrong owner fails, matching succeeds.
+SELECT is(
+  public.worker_schedule_heartbeat('pgtap-sched-a', 999, 'node-1', 30),
+  false, 'heartbeat rejects stale fencing_token');
+SELECT is(
+  public.worker_schedule_heartbeat('pgtap-sched-a', :c1_tok, 'node-2', 30),
+  false, 'heartbeat rejects mismatched lease_owner');
+SELECT is(
+  public.worker_schedule_heartbeat('pgtap-sched-a', :c1_tok, 'node-1', 30),
+  true, 'heartbeat extends valid active lease');
+
+-- Expired lease reclaim via clock_timestamp().
+UPDATE public.worker_schedules
+   SET lease_expires_at = clock_timestamp() - interval '2 seconds'
+ WHERE task_name = 'pgtap-sched-a';
+SELECT is(
+  public.worker_schedule_heartbeat('pgtap-sched-a', :c1_tok, 'node-1', 30),
+  false, 'heartbeat returns false after lease_expires_at <= clock_timestamp()');
+
+SELECT task_name AS r1_name, fencing_token AS r1_tok, lease_owner AS r1_owner
+  FROM public.worker_schedule_claim(ARRAY['pgtap-sched-a'], 'node-3', 30, 1) \gset
+SELECT is(:r1_tok::bigint, 2::bigint, 'expired lease reclaimed with incremented fencing_token=2');
+SELECT is(
+  public.worker_schedule_complete('pgtap-sched-a', :c1_tok, 'node-1', 'ok', 10, NULL, clock_timestamp() + interval '60 seconds'),
+  false, 'stale owner/token rejected on worker_schedule_complete');
+
+-- Valid completion with multibyte UTF-8 truncation and missed-slot coalescing.
+SELECT is(
+  public.worker_schedule_complete('pgtap-sched-a', :r1_tok, 'node-3', 'error', 42, repeat('测', 2000), clock_timestamp() - interval '5 minutes'),
+  true, 'valid fencing_token completes schedule row');
+SELECT ok(
+  (SELECT lease_owner IS NULL
+      AND last_outcome = 'error'
+      AND consecutive_failures = 1
+      AND octet_length(last_error) <= 4096
+      AND next_due_at >= last_completed_at - interval '1 second'
+     FROM public.worker_schedules WHERE task_name = 'pgtap-sched-a'),
+  'complete clears lease, truncates error <= 4096B, increments consecutive_failures, and coalesces past next_due_at');
+
+-- Graceful shutdown release pulls next_due_at <= clock_timestamp() for immediate pickup.
+SELECT is(
+  public.worker_schedule_release('pgtap-sched-b', :c2_tok, 'node-2'),
+  true, 'worker_schedule_release clears active lease');
+SELECT is(
+  (SELECT task_name FROM public.worker_schedule_claim(ARRAY['pgtap-sched-b'], 'node-4', 30, 1)),
+  'pgtap-sched-b', 'released schedule is immediately claimable by peer');
+
+-- ── 5. work_release decrements attempts & rings work bell ────────────────────
+SELECT work_item_id AS wr_id
+  FROM public.work_enqueue('test.release_job', '{"ok":true}'::jsonb, 'rel-1', now(), 0::smallint, 3) \gset
+SELECT id AS wr_claimed, claim_generation AS wr_gen, attempts AS wr_att
+  FROM public.work_queue_claim('node-rel', ARRAY['test.release_job'], 1, 60, NULL) \gset
+SELECT is(
+  public.work_release(:wr_claimed, :wr_gen, 'node-rel'),
+  true, 'work_release releases active lease');
+SELECT ok(
+  (SELECT status = 'pending' AND locked_by IS NULL AND lease_expires_at IS NULL AND attempts = 0
+     FROM public.work_items WHERE id = :wr_claimed),
+  'work_release resets item to pending and decrements attempts back to 0');
+
+-- ── 6. health_check emits worm_arm_dead_letters ──────────────────────────────
+SELECT work_item_id AS worm_id
+  FROM public.work_enqueue('blob.worm_arm', '{"sha256":"abc"}'::jsonb, 'worm-pgtap', now(), 0::smallint, 1) \gset
+SELECT id AS worm_claimed, claim_generation AS worm_gen
+  FROM public.work_queue_claim('node-worm', ARRAY['blob.worm_arm'], 1, 60, NULL) \gset
+SELECT outcome AS worm_out FROM public.work_queue_fail(:worm_claimed, :worm_gen, 'node-worm', 's3 403', NULL, TRUE) \gset
+RESET ROLE;
+
+SELECT health_check();
+SELECT is(
+  (SELECT status FROM public.health_history WHERE check_name = 'worm_arm_dead_letters' ORDER BY id DESC LIMIT 1),
+  'error', 'health_check reports error when un-replayed blob.worm_arm DLQ exists');
+
+SELECT * FROM finish();
+ROLLBACK;

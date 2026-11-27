@@ -333,7 +333,9 @@ DECLARE
   v_created   BIGINT[] := '{}';
   v_updated   BIGINT[] := '{}';
   v_destroyed BIGINT[] := '{}';
-  v_has_more  BOOLEAN  := FALSE;
+  v_has_more        BOOLEAN  := FALSE;
+  v_tombstone_floor TIMESTAMPTZ;
+  v_cursor_at       TIMESTAMPTZ;
   r RECORD;
 BEGIN
   -- R1: always filter by auth-derived mailbox id
@@ -366,6 +368,24 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Cannot calculate changes'
       USING ERRCODE = 'BZ011', HINT = '{"type":"cannotCalculateChanges"}';
+  END IF;
+
+  -- Wave 2.6 (#553): if revocation tombstones have been pruned past this cursor
+  -- (or no journal entry <= v_since remains to bound cursor age — fail-closed),
+  -- force a mandatory full scope-membership reconcile via BZ011.
+  v_tombstone_floor := public.sync_tombstone_floor_at();
+  IF v_since > 0 AND v_tombstone_floor > '-infinity'::timestamptz THEN
+    SELECT MAX(created_at)
+      INTO v_cursor_at
+      FROM jmap_changes_journal
+     WHERE mailbox_id = p_mailbox_id
+       AND datatype = 'email'
+       AND state_seq <= v_since;  -- R1
+    IF v_cursor_at IS NULL OR v_cursor_at < v_tombstone_floor THEN
+      RAISE EXCEPTION 'Cannot calculate changes'
+        USING ERRCODE = 'BZ011',
+              HINT = '{"type":"cannotCalculateChanges","reason":"tombstoneFloorExceeded"}';
+    END IF;
   END IF;
 
   v_new_state := v_current;
@@ -428,7 +448,7 @@ BEGIN
     'destroyed', COALESCE(to_jsonb(v_destroyed), '[]'::JSONB)
   );
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql STABLE;
 
 -- jmap_email_set_update: update emails (keywords, mailboxIds) and soft-delete.
 -- No-op means no effect (#219, owner decision 2026-10-29): a message joins the
@@ -458,8 +478,8 @@ DECLARE
   -- ponytail: collect successful ids → ONE bump + N journal rows + ONE push after loop.
   v_updated_ids  BIGINT[] := '{}'::BIGINT[];
 BEGIN
-  -- Capture oldState before the loop so the batch return is correct.
-  SELECT jmap_email_state INTO v_old_state FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  -- Capture oldState + acquire canonical #481 mailbox lock BEFORE locking messages.
+  SELECT jmap_email_state INTO v_old_state FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
   v_new_state := v_old_state;  -- fallback if no messages are updated
 
   FOR v_id, v_patch IN SELECT k::BIGINT, v FROM jsonb_each(p_updates) AS t(k, v) ORDER BY k::BIGINT
@@ -632,6 +652,7 @@ BEGIN
     END LOOP;
     PERFORM app_notify('tag:' || p_mailbox_id, json_build_object(
       'event', 'state_change', 'tag_id', NULL, 'state', v_new_state)::TEXT);
+    PERFORM public.emit_wakeup_bell('sync', 'mailbox:' || p_mailbox_id || ':0:Email');
   END IF;
 
   RETURN jsonb_build_object(
@@ -663,8 +684,12 @@ DECLARE
   v_trash_id       BIGINT;
   -- ponytail: collect successful ids → ONE bump + N journal rows + ONE push after loop.
   v_destroyed_ids  BIGINT[] := '{}'::BIGINT[];
-  v_primary_tag  BIGINT;
-  v_size_bytes   BIGINT;
+  v_destroyed_tags BIGINT[] := '{}'::BIGINT[];
+  v_destroyed_uids BIGINT[] := '{}'::BIGINT[];
+  v_primary_tag    BIGINT;
+  v_imap_uid       BIGINT;
+  v_size_bytes     BIGINT;
+  v_idx            INT;
 BEGIN
   -- Capture oldState and lock mailbox before any tag/message reads or writes.
   SELECT jmap_email_state INTO v_old_state FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
@@ -673,11 +698,15 @@ BEGIN
   SELECT id INTO v_trash_id FROM tags
   WHERE name = 'Trash' AND mailbox_id = p_mailbox_id;
 
+  -- Capture oldState + acquire canonical #481 mailbox lock BEFORE mutating messages.
+  SELECT jmap_email_state INTO v_old_state FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
+  v_new_state := v_old_state;
+
   FOR v_id IN SELECT x FROM unnest(COALESCE(p_ids, ARRAY[]::BIGINT[])) AS x ORDER BY x
   LOOP
     BEGIN
       -- Verify message exists and get metadata
-      SELECT received_at, size_bytes INTO v_received_at, v_size_bytes
+      SELECT received_at, size_bytes, imap_uid INTO v_received_at, v_size_bytes, v_imap_uid
       FROM messages
       WHERE id = v_id AND mailbox_id = p_mailbox_id AND NOT is_deleted;
 
@@ -695,7 +724,7 @@ BEGIN
 
       IF v_trash_id IS NOT NULL AND v_primary_tag IS DISTINCT FROM v_trash_id THEN
         -- Move to Trash through the single location seam. p_notify=FALSE: the
-        -- per-id notify_state_change below owns the single bump + push per id.
+        -- post-loop batch bump below owns the single bump + push.
         PERFORM transition_message_location(v_id, v_received_at, 'Trash', p_mailbox_id, 'user', FALSE);
       ELSE
         -- Already in Trash (or no Trash tag exists) → soft-delete
@@ -711,8 +740,10 @@ BEGIN
         WHERE id = p_mailbox_id;
       END IF;
 
-      -- Collect id for the post-loop batch bump.
-      v_destroyed_ids := array_append(v_destroyed_ids, v_id);
+      -- Collect id + pre-destroy folder/UID for the post-loop batch bump.
+      v_destroyed_ids  := array_append(v_destroyed_ids,  v_id);
+      v_destroyed_tags := array_append(v_destroyed_tags, v_primary_tag);
+      v_destroyed_uids := array_append(v_destroyed_uids, v_imap_uid);
       v_destroyed := v_destroyed || to_jsonb(v_id::TEXT);
     EXCEPTION WHEN OTHERS THEN
       v_notDestroyed := v_notDestroyed || jsonb_build_object(v_id::TEXT,
@@ -720,14 +751,18 @@ BEGIN
     END;
   END LOOP;
 
-  -- Batch-collapse (offline #3): ONE bump + N precise journal rows at that seq + ONE push.
+  -- Batch-collapse (offline #3, #554): ONE bump + N precise journal rows at that seq + ONE push.
   IF array_length(v_destroyed_ids, 1) IS NOT NULL THEN
     v_new_state := bump_email_state(p_mailbox_id);
-    FOREACH v_id IN ARRAY v_destroyed_ids LOOP
-      PERFORM append_email_change(p_mailbox_id, v_new_state, v_id, 'destroyed');
+    FOR v_idx IN 1..array_length(v_destroyed_ids, 1) LOOP
+      PERFORM append_email_change(
+        p_mailbox_id, v_new_state, v_destroyed_ids[v_idx], 'destroyed',
+        v_destroyed_tags[v_idx], v_destroyed_uids[v_idx]
+      );
     END LOOP;
     PERFORM app_notify('tag:' || p_mailbox_id, json_build_object(
       'event', 'state_change', 'tag_id', NULL, 'state', v_new_state)::TEXT);
+    PERFORM public.emit_wakeup_bell('sync', 'mailbox:' || p_mailbox_id || ':0:Email');
   END IF;
 
   RETURN jsonb_build_object(
@@ -800,13 +835,15 @@ CREATE OR REPLACE FUNCTION jmap_email_recover(
   p_ids        BIGINT[]
 ) RETURNS JSONB AS $$
 DECLARE
-  v_recovered   JSONB := '[]'::JSONB;
-  v_notRecovered JSONB := '{}'::JSONB;
-  v_new_state   BIGINT;
-  v_id          BIGINT;
-  v_received_at TIMESTAMPTZ;
-  v_size_bytes  BIGINT;
+  v_recovered     JSONB    := '[]'::JSONB;
+  v_notRecovered  JSONB    := '{}'::JSONB;
+  v_new_state     BIGINT;
+  v_id            BIGINT;
+  v_received_at   TIMESTAMPTZ;
+  v_size_bytes    BIGINT;
+  v_recovered_ids BIGINT[] := '{}'::BIGINT[];
 BEGIN
+  -- Canonical #481 lock order (mailboxes -> messages -> message_tags).
   PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
 
   FOR v_id IN SELECT x FROM unnest(COALESCE(p_ids, ARRAY[]::BIGINT[])) AS x ORDER BY x
@@ -822,25 +859,27 @@ BEGIN
         CONTINUE;
       END IF;
 
+      -- Check quota BEFORE mutating messages/tags so an over-quota rejection
+      -- never commits unjournaled writes.
+      IF NOT check_quota(p_mailbox_id, v_size_bytes) THEN
+        v_notRecovered := v_notRecovered || jsonb_build_object(v_id::TEXT,
+          jsonb_build_object('type', 'overQuota', 'description', 'Not enough free space to recover'));
+        CONTINUE;
+      END IF;
+
       -- Restore message
       UPDATE messages SET is_deleted = FALSE, deleted_at = NULL
       WHERE id = v_id AND received_at = v_received_at
         AND mailbox_id = p_mailbox_id;
 
       -- Move back to Inbox through the single location seam. Batch loop with ONE
-      -- notify_state_change after the loop → suppress the per-swap push.
+      -- batch-collapsed bump + precise journal rows after the loop.
       PERFORM transition_message_location(v_id, v_received_at, 'Inbox', p_mailbox_id, 'user', FALSE);
 
-      -- Restore quota (with space check)
-      IF check_quota(p_mailbox_id, v_size_bytes) THEN
-        UPDATE mailboxes SET used_bytes = used_bytes + v_size_bytes
-        WHERE id = p_mailbox_id;
-      ELSE
-        v_notRecovered := v_notRecovered || jsonb_build_object(v_id::TEXT,
-          jsonb_build_object('type', 'overQuota', 'description', 'Not enough free space to recover'));
-        CONTINUE;
-      END IF;
+      UPDATE mailboxes SET used_bytes = used_bytes + v_size_bytes
+      WHERE id = p_mailbox_id;
 
+      v_recovered_ids := array_append(v_recovered_ids, v_id);
       v_recovered := v_recovered || to_jsonb(v_id::TEXT);
     EXCEPTION WHEN OTHERS THEN
       v_notRecovered := v_notRecovered || jsonb_build_object(v_id::TEXT,
@@ -848,8 +887,18 @@ BEGIN
     END;
   END LOOP;
 
-  -- Bump state + push on the canonical 'tag:{mailbox_id}' channel.
-  v_new_state := notify_state_change(p_mailbox_id, NULL);
+  -- Batch-collapse (#554): ONE bump + N precise 'created' journal rows + ONE push (no resync sentinel).
+  IF array_length(v_recovered_ids, 1) IS NOT NULL THEN
+    v_new_state := bump_email_state(p_mailbox_id);
+    FOREACH v_id IN ARRAY v_recovered_ids LOOP
+      PERFORM append_email_change(p_mailbox_id, v_new_state, v_id, 'created');
+    END LOOP;
+    PERFORM app_notify('tag:' || p_mailbox_id, json_build_object(
+      'event', 'state_change', 'tag_id', NULL, 'state', v_new_state)::TEXT);
+    PERFORM public.emit_wakeup_bell('sync', 'mailbox:' || p_mailbox_id || ':0:Email');
+  ELSE
+    SELECT jmap_email_state INTO v_new_state FROM mailboxes WHERE id = p_mailbox_id;
+  END IF;
 
   RETURN jsonb_build_object(
     'accountId', p_mailbox_id::TEXT,
@@ -878,20 +927,29 @@ CREATE OR REPLACE FUNCTION jmap_email_purge(
   p_notify     BOOLEAN DEFAULT TRUE
 ) RETURNS JSONB AS $$
 DECLARE
-  v_purged     JSONB := '[]'::JSONB;
-  v_notPurged  JSONB := '{}'::JSONB;
-  v_new_state  BIGINT;
-  v_id         BIGINT;
+  v_purged      JSONB    := '[]'::JSONB;
+  v_notPurged   JSONB    := '{}'::JSONB;
+  v_new_state   BIGINT;
+  v_id          BIGINT;
   v_received_at TIMESTAMPTZ;
-  v_raw_ref    TEXT;
-  v_shared     INT;
+  v_raw_ref     TEXT;
+  v_imap_uid    BIGINT;
+  v_folder_id   BIGINT;
+  v_primary_tag BIGINT;
+  v_shared      INT;
+  v_purged_ids  BIGINT[] := '{}'::BIGINT[];
+  v_purged_tags BIGINT[] := '{}'::BIGINT[];
+  v_purged_uids BIGINT[] := '{}'::BIGINT[];
+  v_idx         INT;
 BEGIN
-  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  -- Canonical #481 lock order (mailboxes -> messages).
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
 
   FOR v_id IN SELECT x FROM unnest(COALESCE(p_ids, ARRAY[]::BIGINT[])) AS x ORDER BY x
   LOOP
     BEGIN
-      SELECT received_at, raw_ref INTO v_received_at, v_raw_ref
+      SELECT received_at, raw_ref, imap_uid, folder_id
+        INTO v_received_at, v_raw_ref, v_imap_uid, v_folder_id
       FROM messages
       WHERE id = v_id AND mailbox_id = p_mailbox_id AND is_deleted;
 
@@ -900,6 +958,13 @@ BEGIN
           jsonb_build_object('type', 'notFound'));
         CONTINUE;
       END IF;
+
+      SELECT mt.tag_id INTO v_primary_tag
+      FROM message_tags mt
+      WHERE mt.message_id = v_id
+        AND mt.received_at = v_received_at
+        AND mt.is_primary = TRUE
+      LIMIT 1;
 
       -- Deduplication check: is raw_ref shared by other messages?
       SELECT COUNT(*) INTO v_shared
@@ -919,6 +984,9 @@ BEGIN
       DELETE FROM messages WHERE id = v_id AND received_at = v_received_at
         AND mailbox_id = p_mailbox_id;
 
+      v_purged_ids  := array_append(v_purged_ids,  v_id);
+      v_purged_tags := array_append(v_purged_tags, COALESCE(v_primary_tag, v_folder_id));
+      v_purged_uids := array_append(v_purged_uids, v_imap_uid);
       v_purged := v_purged || to_jsonb(v_id::TEXT);
     EXCEPTION WHEN OTHERS THEN
       v_notPurged := v_notPurged || jsonb_build_object(v_id::TEXT,
@@ -926,11 +994,20 @@ BEGIN
     END;
   END LOOP;
 
-  -- Bump state + push on the canonical 'tag:{mailbox_id}' channel — unless the
-  -- caller (IMAP expunge) already notified the soft-delete and only wants the
-  -- blob-safe hard-delete. Either way newState reflects the current counter.
-  IF p_notify THEN
-    v_new_state := notify_state_change(p_mailbox_id, NULL);
+  -- Batch-collapse (#554): ONE bump + N precise 'destroyed' journal rows (with
+  -- pre-delete folder_id + imap_uid for QRESYNC VANISHED) + ONE push — unless
+  -- the caller (IMAP expunge) already notified the soft-delete.
+  IF p_notify AND array_length(v_purged_ids, 1) IS NOT NULL THEN
+    v_new_state := bump_email_state(p_mailbox_id);
+    FOR v_idx IN 1..array_length(v_purged_ids, 1) LOOP
+      PERFORM append_email_change(
+        p_mailbox_id, v_new_state, v_purged_ids[v_idx], 'destroyed',
+        v_purged_tags[v_idx], v_purged_uids[v_idx]
+      );
+    END LOOP;
+    PERFORM app_notify('tag:' || p_mailbox_id, json_build_object(
+      'event', 'state_change', 'tag_id', NULL, 'state', v_new_state)::TEXT);
+    PERFORM public.emit_wakeup_bell('sync', 'mailbox:' || p_mailbox_id || ':0:Email');
   ELSE
     SELECT jmap_email_state INTO v_new_state FROM mailboxes WHERE id = p_mailbox_id;
   END IF;
@@ -1004,7 +1081,11 @@ CREATE OR REPLACE FUNCTION jmap_email_set_create(
 DECLARE
   v_created      JSONB := '{}'::JSONB;
   v_notCreated   JSONB := '{}'::JSONB;
+  v_old_state    BIGINT;
   v_new_state    BIGINT;
+  v_created_ids  BIGINT[] := '{}'::BIGINT[];
+  v_created_tags BIGINT[] := '{}'::BIGINT[];
+  v_idx          INT;
   v_creation_id  TEXT;
   v_obj          JSONB;
   v_from         JSONB;
@@ -1039,7 +1120,8 @@ DECLARE
   v_vote_response TEXT;
   v_reply_to_arr JSONB;
 BEGIN
-  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
+  SELECT jmap_email_state INTO v_old_state FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
+  v_new_state := v_old_state;
 
   FOR v_creation_id, v_obj IN SELECT * FROM jsonb_each(p_creates)
   LOOP
@@ -1321,6 +1403,8 @@ BEGIN
         VALUES (v_msg_id, v_now, v_tag_id, 'user', v_tag_id = v_first_tag_id);
       END LOOP;
 
+      v_created_ids  := array_append(v_created_ids,  v_msg_id);
+      v_created_tags := array_append(v_created_tags, v_first_tag_id);
       v_created := v_created || jsonb_build_object(v_creation_id,
         jsonb_build_object('id', v_msg_id::TEXT));
 
@@ -1333,12 +1417,22 @@ BEGIN
     END;
   END LOOP;
 
-  -- Bump state + push on the canonical 'tag:{mailbox_id}' channel.
-  v_new_state := notify_state_change(p_mailbox_id, NULL);
+  -- Batch-collapse (#554): ONE bump + N precise 'created' journal rows + ONE push (no resync sentinel).
+  IF array_length(v_created_ids, 1) IS NOT NULL THEN
+    v_new_state := bump_email_state(p_mailbox_id);
+    FOR v_idx IN 1..array_length(v_created_ids, 1) LOOP
+      PERFORM append_email_change(
+        p_mailbox_id, v_new_state, v_created_ids[v_idx], 'created', v_created_tags[v_idx]
+      );
+    END LOOP;
+    PERFORM app_notify('tag:' || p_mailbox_id, json_build_object(
+      'event', 'state_change', 'tag_id', NULL, 'state', v_new_state)::TEXT);
+    PERFORM public.emit_wakeup_bell('sync', 'mailbox:' || p_mailbox_id || ':0:Email');
+  END IF;
 
   RETURN jsonb_build_object(
     'accountId', p_mailbox_id::TEXT,
-    'oldState', (v_new_state - 1)::TEXT,
+    'oldState', v_old_state::TEXT,
     'newState', v_new_state::TEXT,
     'created', v_created,
     'notCreated', v_notCreated

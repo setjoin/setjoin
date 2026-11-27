@@ -971,8 +971,19 @@ pub const UNFURL_WRITE: SqlContract = SqlContract {
 pub const UNFURL_BLOB: SqlContract = SqlContract {
     id: "chat.unfurl_blob",
     domain: "chat",
-    sql: "SELECT 'null'::text FROM (SELECT rust_blob_register_metadata($1,$2,$3,$4)) effect",
+    sql: "SELECT 'null'::text FROM (SELECT blob_gc_register_and_reactivate($1,$2,$3,$4)) effect",
     params: &[Type::TEXT, Type::TEXT, Type::INT8, Type::TEXT],
+    columns: &[ColumnSpec::unnamed(Type::TEXT)],
+    scope: SqlScope::UserScoped,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
+};
+
+pub const CHANNEL_CHANGES: SqlContract = SqlContract {
+    id: "chat.channel_changes",
+    domain: "chat",
+    sql: "SELECT chat_changes_since($1,$2,$3,$4)::text",
+    params: &[Type::INT8, Type::INT8, Type::INT8, Type::INT4],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
@@ -1049,4 +1060,5 @@ pub const SQL_CONTRACTS: &[SqlContract] = &[
     UNFURL_CLAIM,
     UNFURL_WRITE,
     UNFURL_BLOB,
+    CHANNEL_CHANGES,
 ];

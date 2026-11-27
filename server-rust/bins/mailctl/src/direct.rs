@@ -7,6 +7,7 @@ pub mod rls;
 mod scim;
 mod smime;
 mod sources;
+mod work;
 
 use setjoin_schema::MIGRATIONS;
 
@@ -66,6 +67,10 @@ async fn execute(cmd: &str, action: &str, args: &[String]) -> Result<i32, String
         }
         ("scim", _) => {
             scim::execute(action, args).await?;
+            Ok(0)
+        }
+        ("work" | "workq", _) => {
+            work::execute(action, args).await?;
             Ok(0)
         }
         ("schema", "apply") => {

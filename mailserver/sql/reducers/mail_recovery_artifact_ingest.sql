@@ -132,8 +132,8 @@ BEGIN
             RAISE EXCEPTION 'recovery blob inventory is invalid'
                 USING ERRCODE='BZ251',HINT='{"type":"continuity_receipt_invalid"}';
         END IF;
-        INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count)
-        VALUES(v_blob->>'sha256',v_blob->>'objectRef',(v_blob->>'size')::bigint,'application/octet-stream',0)
+        INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type)
+        VALUES(v_blob->>'sha256',v_blob->>'objectRef',(v_blob->>'size')::bigint,'application/octet-stream')
         ON CONFLICT(sha256) DO NOTHING;
         IF NOT EXISTS(
             SELECT 1 FROM blobs
@@ -171,5 +171,9 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION mail_recovery_artifact_ingest(bigint,uuid,text,text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION mail_recovery_artifact_ingest(bigint,uuid,text,text) TO setjoin_worker;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_worker') THEN
+        GRANT EXECUTE ON FUNCTION mail_recovery_artifact_ingest(bigint,uuid,text,text) TO setjoin_worker;
+    END IF;
+END $$;
 SELECT apply_worker_ownership('mail_recovery_artifact_ingest(bigint,uuid,text,text)'::regprocedure);

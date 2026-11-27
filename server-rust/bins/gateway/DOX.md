@@ -290,33 +290,36 @@ have shared effects (row deletes, S3 deletes and puts): never leave both copies 
   Record: `GOFREE_RECORD_DRAIN=all GOFREE_GO_SOURCE=<sha>`; S3 requests compare as
   a multiset (Go interleaves list pages with deletes; the sets are identical).
 
-## Blob cleanup worker (#411)
+## Blob cleanup worker (#411, Wave 2.4 #551)
 
-`RUST_WORKERS_ON=blob-cleanup` (`src/blob_cleanup.rs`) takes Go's
-`blob.Handler.StartCleanup` (5 min, first tick after one interval). It refuses to
-start unless `GO_WORKERS_OFF` lists `blob-cleanup`, runs on `DB_WORKER_DSN`
-(fallback `DB_DSN`) and needs the object store (`S3_*`). Shared effects (row and
-S3 deletes): never run both copies. Per tick, in Go's order, each statement
-autocommit:
+`RUST_WORKERS_ON=blob-cleanup` (alias `blob-gc`, `src/blob_cleanup.rs` + `src/blob_gc.rs`)
+runs as a distributed `WorkerSupervisor` periodic schedule (`@every 300s`,
+`timeout_secs = 300`, `safe_to_release = false`, decoupled from `cron_specs`) on
+`DB_WORKER_DSN` (`setjoin_worker`, `BYPASSRLS`, fallback `DB_DSN`) with `S3_*`.
+Legacy `blobs.ref_count` and `blob_cleanup_queue` were retired in `V293`. Per
+tick (bounded by a wall-clock tick budget and cooperative cancellation between
+items, never aborting mid-Tx 2B):
 
-- **cleanup queue:** `blob_cleanup_queue` rows past `scheduled_at + delay_minutes`
-  whose blob has `ref_count = 0`; each does `DELETE FROM blobs WHERE sha256=$1 AND
-  ref_count=0` (the queue row cascades) and, only if a row went, an object delete
-  keyed by the bare sha. A failed delete lands in a process-local ledger (1024 max,
-  arbitrary eviction).
-- **orphaned_message_blobs:** every `raw_ref`; inline text (contains CR/LF) is only
-  dequeued; otherwise, if no `messages.raw_ref` matches, the exact key is deleted
-  (a refused delete leaves the row queued, no same-tick retry), then the row goes.
-- **reap retries:** ledger entries re-checked against `blobs` (re-uploaded: dropped),
-  else the delete is retried, so a refusing store sees a delete again each tick.
-- `BLOB_RECLAIM_GRACE_MINUTES` is Go's PUT-time arming of `delay_minutes`; the tick
-  only reads the column. Go's WORM retention-retry ledger (armed by Go's own PUT)
-  is `blob_retention`'s ledger: Rust's PUT arms it and the last step of the tick drains it.
-- Tests: `tests/blob_cleanup_recorded.rs` (frozen Go's real cleanup steps through
-  overlay `tests/conformance/drain/blob_cleanup_tick_test.go.txt`, shared fake S3,
-  goldens `goldens/blob-*.json`; `ticks` > 1 replays the retry ledger),
-  `tests/blob_cleanup_startup.rs`. Seed ages need margin: a cold Go build can take
-  minutes between seeding and the tick.
+- **Phase 1 Mark & Phase 2 Two-Tx Sweep:** marks unreferenced unheld blobs past
+  the `>= 24h` grace floor `reclaim_eligible`, claims `purging` past cooldown
+  (Tx 2A), and deletes under per-`sha256` advisory lock + `FOR UPDATE OF s, b`
+  followed by a fresh second-statement `READ COMMITTED` snapshot re-check of
+  `blob_has_live_reference` and `blob_is_held_or_retained`, using version-aware
+  `S3Store::delete_blob_checked` (Tx 2B).
+- **orphaned_message_blobs:** inline text is dequeued; legacy bare 64-hex rows
+  present in `public.blobs` are dequeued for Mark-and-Sweep ownership; prefixed
+  keys (`inbound/*`, `blobs/*`, `dmarc/*`) acquire `pg_advisory_xact_lock`,
+  re-check all 5 `raw_ref` tables, delete via `delete_blob_checked`, and dequeue.
+- **abandoned `tmp/blob-upload/*` sweep:** removes staging objects older than 24h
+  not referenced by any pending/leased `blob.promote_recover` or `blob.promote_verify`
+  work item.
+- **WorkQueue consumers (`src/supervisor/worm.rs`):** `WormArmConsumer` drains
+  `blob.worm_arm` and atomically records `worm_locked_until` in `blob_gc_state`;
+  `BlobPromoteConsumer` drains `blob.promote_recover` and `blob.promote_verify`;
+  `BlobReapRetryConsumer` safely drains residual pre-cutover `blob.s3_reap_retry`.
+- Tests: `tests/blob_mark_and_sweep_gc.rs` (concurrency races, 6 Wave 2.4 stress
+  & regression suites, `WorkerSupervisor` schedule claim), `tests/blob_cleanup_recorded.rs`,
+  `tests/blob_cleanup_startup.rs`.
 
 ## Compliance (#289)
 
@@ -1195,3 +1198,16 @@ requires `kerberos.enabled` + readable keytab (`kerberos.keytab`, fallback
 account lockout (`check_account_lockout`), fail-closed guest refusal before `event='login'`,
 TOTP refusal, and `RuntimeGate::enforce_kerberos` (`Proof::kerberos`). Tests:
 `tests/dav_negotiate_auth.rs`, `tests/delete_gate.rs`.
+
+## Mark-and-Sweep S3 Blob GC (`src/blob_gc.rs`, #550)
+
+`src/blob_gc.rs` implements the `off|shadow|live` Mark-and-Sweep S3 Blob GC worker (`BLOB_GC_MODE` env override > worker-only `blob_gc_config.mode`, default `off`), fail-closed `BYPASSRLS` and `WORM_MODE` checks, Audit V3 `app.audit_hmac_key` propagation via `WorkerDatabase::connect_session()` / `SET LOCAL`, Shadow zero-deletion reconciliation (`blob_gc_shadow_reconcile`), and Live Two-Transaction Sweep (Tx 2A `blob_gc_claim_purging` + Tx 2B dedicated session with `8s` idle-in-tx timeout, per-`sha256` advisory lock, `<= 4s` bounded HTTP S3 DELETE, concurrency 1, circuit breaker, and graceful S3 403 Object Lock reversion). `src/blob_cleanup.rs` samples `GcMode` once per tick, drops its connection before invoking `BlobGcWorker::tick_with_mode`, runs Shadow before legacy cleanup, and disables legacy `process_cleanup_queue`/`retry_failed_reaps` while fencing bare 64-hex keys under `live`. Canonical S3 uploaders (`blobs.rs`, `jmap/upload.rs`, `chat_unfurl.rs`, `recovery.rs`, `platform_storage.rs`, `jmap/smime_outbound.rs`, `mailbox_io.rs`, `migration_runner/mod.rs`) serialize via `blob_gc_reactivate` / `blob_gc_register_and_reactivate`. See [blobs DOX](../../crates/domains/blobs/DOX.md) and `tests/blob_mark_and_sweep_gc.rs`.
+
+## Scope-keyed `SyncWakeupHub` and live `scope_revoked` detachment (#552)
+
+`src/jmap/sync_hub.rs` multiplexes five `ListenHub` channels (`sync` cap 2048, `scope_revoked` cap 4096, `drive_access` cap 1024, `group_membership_changed` cap 1024, `chat_ephemeral` cap 1024) per process:
+- **Opt-in & wire compatibility:** `GET /.well-known/jmap` advertises `X-Setjoin-Sync-Wakeup: 1` without altering JMAP Session JSON bodies; `/jmap/ws` sends no unsolicited `SyncReady` frame on connect and handles `ScopeAttach` / `ScopeDetach` (`MAX_ATTACHED_SCOPES = 512`, `"primary"` mailbox alias, string `scopeId`/`subtreeAnchorId`, partial denials in `ScopeAttachResponse`).
+- **Batched off-loop authorization:** `ScopeAttach` runs up to 3 batched `= ANY($2::bigint[])` `UserPrincipal`-scoped queries (`ATTACH_AUTH_DEADLINE = 5s`), enforcing owner/`read`/`full_access` vs `manage_calendar`/`calendar_acls` (`Calendar`/`CalendarEvent` only) vs denied `send_as`/`send_on_behalf`, keeping scopes unroutable until authorized, and re-checking revocation watermarks post-attach.
+- **Priority control rail vs coalescing wakeup rail:** `ScopeRevoked` / `SessionRevoked` / `offline.wipe` flow on a dedicated cap-64 rail that closes with `CloseCode::Restart` on overflow (never dropping revocations), while `SyncWakeup` coalesces per-connection (`MAX(seq)` for `space`/`channel`, `0` for `mailbox`, `<= 64` `dataTypes`).
+- **Live revocation & `ResyncRequired`:** Reads `public.scope_revocations` (or `drive_access_invalidations`, ignoring grants and `tree_move`) on the worker pool and re-verifies live effective access before detaching (preventing spoofed or post-regrant revokes). `ListenEvent::ResyncRequired` replays missed `scope_revocations` rows and re-verifies every attached scope (fail-closed `CloseCode::Restart` on DB error).
+- **Guest SSE & retention:** `/jmap/eventsource` auto-attaches up to 512 authorized Chat channels and Drive spaces (`drive_user_has_space_access`), emits named `sync_wakeup` and priority `scope_revoked` events exempt from the 16-event per-channel cap, and `supervisor/schedule.rs::wave2_maintenance_tasks` registers `prune-scope-revocations` (`prune_scope_revocations(90)`, aligned `>=` Drive's 90-day floor) and `prune-chat-changes` (disjoint from `cron_catalog::CATALOG`'s `prune-changes-journal`; uniform `GREATEST(configured_offline_window_days, 30)` + high-water cap, advancing `sync_tombstone_floor`, `#553`). `GET /api/chat/channels/{id}/changes` serves monotonic `chat_changes_since` deltas with strict query parsing and `BZ011` → HTTP `409` `{"type":"cannotCalculateChanges"}`. Tests: `tests/sync_wakeup_hub.rs`, `tests/chat_changes_retention.rs`.

@@ -456,6 +456,16 @@ async fn exercise(
             }
             e
         })
+        // Normalize Wave 2.4 (#551) atomic staging (`tmp/blob-upload/*`),
+        // version-listing probes (`?versions`), and post-commit HEAD verification.
+        .filter(|e| {
+            let path = e["path"].as_str().unwrap_or("");
+            let method = e["method"].as_str().unwrap_or("");
+            let is_versions = e.get("query").and_then(|q| q.get("versions")).is_some();
+            !path.starts_with("tmp/blob-upload/")
+                && !is_versions
+                && !(action == "import" && method == "HEAD")
+        })
         .collect();
     let effects = json!([{"table":"messages+mailboxes+tags","before":mask_value(before, fx),"after":mask_value(after, fx)}, {"table":"object-store","requests":s3_log}]);
     let mut request = json!({"method":p.method,"path":p.pattern,"external_path":format!("/api{}",p.pattern),"summary":p.summary});

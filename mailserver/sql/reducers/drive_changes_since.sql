@@ -4,7 +4,9 @@
 CREATE OR REPLACE FUNCTION drive_changes_since(
   p_user_id BIGINT, p_space_id BIGINT, p_since BIGINT, p_max INT DEFAULT 500
 ) RETURNS JSONB AS $$
-DECLARE v_head BIGINT; v_floor BIGINT; v_rows JSONB; v_n BIGINT;
+DECLARE
+  v_head BIGINT; v_floor BIGINT; v_rows JSONB; v_n BIGINT;
+  v_tombstone_floor TIMESTAMPTZ; v_cursor_at TIMESTAMPTZ;
 BEGIN
   SELECT s.change_seq INTO v_head FROM drive_spaces s
    WHERE s.id=p_space_id
@@ -18,6 +20,20 @@ BEGIN
   SELECT COALESCE(MIN(seq) - 1, v_head) INTO v_floor FROM drive_changes WHERE space_id = p_space_id;
   IF p_since < v_floor THEN
     RETURN jsonb_build_object('cannotCalculateChanges', true);
+  END IF;
+  v_tombstone_floor := public.sync_tombstone_floor_at();
+  IF p_since > 0 AND v_tombstone_floor > '-infinity'::timestamptz THEN
+    SELECT MAX(at)
+      INTO v_cursor_at
+      FROM public.drive_changes
+     WHERE space_id = p_space_id
+       AND seq <= p_since;
+    IF v_cursor_at IS NULL OR v_cursor_at < v_tombstone_floor THEN
+      RETURN jsonb_build_object(
+        'cannotCalculateChanges', true,
+        'tombstoneFloorExceeded', true
+      );
+    END IF;
   END IF;
   WITH scanned AS MATERIALIZED (
     SELECT node_id,op,seq FROM drive_changes

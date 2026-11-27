@@ -1,30 +1,20 @@
 -- pgTAP: blob_upload_account — user-scoped blob upload accounting reducer
--- (med-blob-reclamation-001, Astra HOLD: admission, charge insertion, and
--- reclamation arming moved out of handler.go's Go transaction into ONE
--- reducer-owned transaction).
+-- (med-blob-reclamation-001 + Wave 2.4 #551 Mark-and-Sweep cutover).
 --
--- Proves: measured-byte admission + charge + arming land atomically; a dedup
--- re-upload stores no new bytes and is never charged (and re-arms only a
--- still-unattached canonical); the per-user bound rejects over-quota
--- admission with BZ001 while leaving ZERO partial effects (all-or-none — the
--- blobs row, charge and arming roll back with the rejection), including the
--- exact-boundary arithmetic (charged == bound - size admits; anything more
--- rejects); enforcement OFF (p_quota_bytes <= 0) still records accounting.
+-- Proves: measured-byte admission + charge + blob_gc_state reactivation +
+-- durable blob.promote_recover intent land atomically; a dedup re-upload stores
+-- no new bytes and is never charged (and reactivates reclaim_eligible / purging
+-- blobs, scheduling blob.promote_verify when racing purging); the per-user bound
+-- rejects over-quota admission with BZ001 while leaving ZERO partial effects
+-- (no blobs row, no charge, no promote work item); enforcement OFF still records
+-- accounting.
 --
--- Cross-CONNECTION serialization (simultaneous uploads serialize on the
--- blob_user_usage FOR UPDATE row lock) cannot be expressed in single-session
--- pgTAP; the lock-shaped FOR UPDATE read and its bound decision are proven
--- here, and the concurrent bound is proven by
--- mailserver/internal/blob TestConcurrentUploadsNeverExceedPerUserBound.
---
--- Requires: blob_upload_account, blobs, blob_user_charges, blob_user_usage
--- (V235), blob_cleanup_queue, trg_blob_user_charge_inc/dec (V235).
+-- Requires: blob_upload_account, blobs, blob_user_charges, blob_user_usage (V235),
+-- blob_gc_state (V292), V293 cutover, work_items (V290).
 BEGIN;
-SELECT plan(36);
+SELECT plan(41);
 
 -- ── Fixtures (rolled back with the test transaction) ─────────────────────────
--- blob_user_charges/blob_user_usage deliberately carry no users FK (V235
--- header), so synthetic user ids need no users/mailboxes rows.
 SELECT repeat('a1', 32) AS sha_new,
        repeat('b2', 32) AS sha_att,
        repeat('c3', 32) AS sha_fresh,
@@ -33,7 +23,8 @@ SELECT repeat('a1', 32) AS sha_new,
        repeat('f6', 32) AS sha_quota_c,
        repeat('07', 32) AS sha_big,
        repeat('18', 32) AS sha_edge,
-       repeat('29', 32) AS sha_over
+       repeat('29', 32) AS sha_over,
+       repeat('3a', 32) AS sha_purging
   \gset
 
 -- ── Shape ────────────────────────────────────────────────────────────────────
@@ -53,37 +44,64 @@ SELECT throws_ok(
   $f$SELECT blob_upload_account(4242, repeat('a1',32), 'blobs/x', 1, 't', 0, 0)$f$,
   'BZ040', NULL, 'a non-positive grace window is refused (BZ040)');
 
--- ══ Phase 1: admission + charge + arming land together ══════════════════════
+-- ══ Phase 1: admission + charge + promote_recover intent land together ══════
+SELECT blob_upload_account(
+  4242, :'sha_new', 'blobs/' || :'sha_new', 100, 'application/pdf', 60, 0,
+  'tmp/blob-upload/0123456789abcdef0123456789abcdef'
+) AS phase1_res \gset
+
 SELECT is(
-  (blob_upload_account(4242, :'sha_new', 'blobs/' || :'sha_new', 100, 'application/pdf', 60, 0))->>'result',
+  (:'phase1_res'::jsonb)->>'result',
   'stored', 'a fresh blob admits as stored');
 SELECT is(
   (SELECT size_bytes FROM blobs WHERE sha256 = :'sha_new'),
   100::bigint, 'the blobs row carries the measured byte size');
 SELECT is(
-  (SELECT ref_count FROM blobs WHERE sha256 = :'sha_new'),
-  0, 'a fresh admission is stored at ref_count = 0');
+  (SELECT gc_state FROM public.blob_gc_state WHERE blob_sha256 = :'sha_new'),
+  'active', 'a fresh admission initializes blob_gc_state as active');
 SELECT is(
   (SELECT user_id::text || ':' || size_bytes FROM blob_user_charges WHERE blob_sha256 = :'sha_new'),
   '4242:100', 'the charge attributes the measured bytes to the uploading user');
 SELECT is(
   (SELECT charged_bytes FROM blob_user_usage WHERE user_id = 4242),
   100::bigint, 'the V235 inc trigger sums the charge into the user aggregate');
+SELECT isnt(
+  ((:'phase1_res'::jsonb)->>'promoteWorkItemId')::bigint,
+  NULL, 'fresh upload with p_staging_key enqueues a durable blob.promote_recover item');
 SELECT is(
-  (SELECT delay_minutes FROM blob_cleanup_queue WHERE blob_sha256 = :'sha_new'),
-  60, 'arming writes the queue row with the configured grace window');
+  (SELECT count(*)::int FROM public.work_items
+    WHERE id = ((:'phase1_res'::jsonb)->>'promoteWorkItemId')::bigint
+      AND kind = 'blob.promote_recover'
+      AND status = 'pending'),
+  1, 'blob.promote_recover work item is pending in work_items');
 SELECT is(
-  (SELECT (scheduled_at + make_interval(mins => delay_minutes)) >= now()
-     FROM blob_cleanup_queue WHERE blob_sha256 = :'sha_new'),
-  true, 'a freshly armed entry is not yet due');
+  public.blob_is_held_or_retained(:'sha_new', 0),
+  true, 'pending blob.promote_recover intent protects sha256 from GC');
+SELECT is(
+  public.blob_promote_recover_complete(
+    ((:'phase1_res'::jsonb)->>'promoteWorkItemId')::bigint,
+    :'sha_new',
+    'tmp/blob-upload/0123456789abcdef0123456789abcdef'
+  ),
+  true, 'blob_promote_recover_complete cancels the pending intent after promote');
+SELECT is(
+  public.blob_is_held_or_retained(:'sha_new', 0),
+  false, 'completed promote_recover intent no longer holds sha256');
 
--- ══ Phase 2: dedup re-upload — no new bytes, no second charge, re-arm ════════
--- Make the entry due first, so the re-arm (ON CONFLICT DO UPDATE) is observable:
--- a DO NOTHING would leave it due with delay 0; the bump restores the window.
-UPDATE blob_cleanup_queue SET scheduled_at = now() - interval '1 minute', delay_minutes = 0
+-- ══ Phase 2: dedup re-upload — no new bytes, no second charge, reactivation ═
+UPDATE public.blob_gc_state
+   SET gc_state = 'reclaim_eligible',
+       reclaim_eligible_at = now() - interval '25 hours',
+       last_touched_at = now() - interval '48 hours'
  WHERE blob_sha256 = :'sha_new';
+
+SELECT blob_upload_account(
+  5252, :'sha_new', 'blobs/' || :'sha_new', 100, 'application/pdf', 60, 0,
+  'tmp/blob-upload/fedcba9876543210fedcba9876543210'
+) AS dedup_res \gset
+
 SELECT is(
-  (blob_upload_account(5252, :'sha_new', 'blobs/' || :'sha_new', 100, 'application/pdf', 60, 0))->>'result',
+  (:'dedup_res'::jsonb)->>'result',
   'dedup', 'a re-upload of the same content deduplicates');
 SELECT is(
   (SELECT count(*)::int FROM blob_user_charges WHERE blob_sha256 = :'sha_new'),
@@ -95,33 +113,46 @@ SELECT is(
   (SELECT count(*)::int FROM blob_user_usage WHERE user_id = 5252),
   0, 'the deduplicating user is charged nothing (no usage row)');
 SELECT is(
-  (SELECT delay_minutes FROM blob_cleanup_queue WHERE blob_sha256 = :'sha_new'),
-  60, 'the dedup re-upload re-arms the grace window (delay restored)');
+  (SELECT gc_state FROM public.blob_gc_state WHERE blob_sha256 = :'sha_new'),
+  'active', 'the dedup re-upload reactivates reclaim_eligible to active');
 SELECT is(
-  (SELECT (scheduled_at + make_interval(mins => delay_minutes)) >= now()
-     FROM blob_cleanup_queue WHERE blob_sha256 = :'sha_new'),
-  true, 'the re-armed entry is no longer due');
+  ((:'dedup_res'::jsonb)->>'wasPurging')::boolean,
+  false, 'dedup against reclaim_eligible reports wasPurging = false');
 
--- Attached canonical: a dedup re-upload must NOT arm (the V075 detach trigger
--- owns attached blobs' reclamation).
-INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
-VALUES (:'sha_att', 'blobs/' || :'sha_att', 5, 'application/octet-stream', 1);
+-- Dedup racing a 'purging' blob sets wasPurging = true and enqueues delayed blob.promote_verify.
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, created_at)
+VALUES (:'sha_purging', 'blobs/' || :'sha_purging', 12, 'application/octet-stream', now() - interval '48 hours');
+INSERT INTO public.blob_gc_state (blob_sha256, gc_state, reclaim_eligible_at, purging_at, last_touched_at)
+VALUES (:'sha_purging', 'purging', now() - interval '25 hours', now() - interval '10 seconds', now() - interval '48 hours');
+
+SELECT blob_upload_account(
+  5252, :'sha_purging', 'blobs/' || :'sha_purging', 12, 'application/octet-stream', 60, 0,
+  'tmp/blob-upload/11112222333344445555666677778888'
+) AS purging_dedup_res \gset
+
+SELECT is(
+  ((:'purging_dedup_res'::jsonb)->>'wasPurging')::boolean,
+  true, 'dedup racing purging reports wasPurging = true');
+SELECT is(
+  (SELECT count(*)::int FROM public.work_items
+    WHERE id = ((:'purging_dedup_res'::jsonb)->>'verifyWorkItemId')::bigint
+      AND kind = 'blob.promote_verify'
+      AND status = 'pending'
+      AND run_at > now() + interval '30 seconds'),
+  1, 'dedup racing purging enqueues delayed blob.promote_verify (60s)');
+
+-- Existing canonicals still dedup cleanly with or without blob_gc_state rows.
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
+VALUES (:'sha_att', 'blobs/' || :'sha_att', 5, 'application/octet-stream');
 SELECT is(
   (blob_upload_account(5252, :'sha_att', 'blobs/' || :'sha_att', 5, 'application/octet-stream', 60, 0))->>'result',
-  'dedup', 'a dedup re-upload of an attached canonical still dedups');
-SELECT is(
-  (SELECT count(*)::int FROM blob_cleanup_queue WHERE blob_sha256 = :'sha_att'),
-  0, 'arming skips an attached canonical (ref_count = 1, V075 trigger territory)');
+  'dedup', 'a dedup re-upload of an existing canonical still dedups');
 
--- Unattached canonical with no queue entry: a dedup re-upload arms it.
-INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
-VALUES (:'sha_fresh', 'blobs/' || :'sha_fresh', 7, 'application/octet-stream', 0);
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
+VALUES (:'sha_fresh', 'blobs/' || :'sha_fresh', 7, 'application/octet-stream');
 SELECT is(
   (blob_upload_account(5252, :'sha_fresh', 'blobs/' || :'sha_fresh', 7, 'application/octet-stream', 60, 0))->>'result',
   'dedup', 'a dedup re-upload of an unattached canonical dedups');
-SELECT is(
-  (SELECT delay_minutes FROM blob_cleanup_queue WHERE blob_sha256 = :'sha_fresh'),
-  60, 'arming covers a still-unattached canonical that had no queue entry');
 
 -- ══ Phase 3: serialized quota bound (user 6262, bound 1000) ══════════════════
 SELECT is(
@@ -131,13 +162,18 @@ SELECT is(
   (blob_upload_account(6262, :'sha_quota_b', 'blobs/' || :'sha_quota_b', 400, 'application/octet-stream', 60, 1000))->>'result',
   'stored', 'second 400-byte upload admits (800 ≤ 1000)');
 -- Over-bound admission raises the registered storage-quota code and aborts the
--- WHOLE reducer — no blobs row, no charge, no arming, aggregate untouched.
+-- WHOLE reducer — no blobs row, no charge, no work item, aggregate untouched.
 SELECT throws_ok(
-  $f$SELECT blob_upload_account(6262, repeat('f6',32), 'blobs/x', 400, 'application/octet-stream', 60, 1000)$f$,
+  $f$SELECT blob_upload_account(6262, repeat('f6',32), 'blobs/x', 400, 'application/octet-stream', 60, 1000, 'tmp/blob-upload/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')$f$,
   'BZ001', NULL, 'a third 400-byte upload is rejected over the bound (BZ001 over_quota)');
 SELECT is(
   (SELECT count(*)::int FROM blobs WHERE sha256 = :'sha_quota_c'),
   0, 'the rejected upload persists NO blobs row (transaction rolled back)');
+SELECT is(
+  (SELECT count(*)::int FROM public.work_items
+    WHERE kind = 'blob.promote_recover'
+      AND payload->>'sha256' = :'sha_quota_c'),
+  0, 'the rejected upload persists NO blob.promote_recover work item');
 SELECT is(
   (SELECT count(*)::int FROM blob_user_charges WHERE user_id = 6262),
   2, 'the rejected upload persists NO charge row');
@@ -146,7 +182,6 @@ SELECT is(
   800::bigint, 'the aggregate is exactly the accepted bytes after the rejection');
 
 -- Boundary arithmetic (the overflow-safe shape: charged > bound - size):
--- 800 == 1000 - 200 admits; anything more rejects.
 SELECT is(
   (blob_upload_account(6262, :'sha_edge', 'blobs/' || :'sha_edge', 200, 'application/octet-stream', 60, 1000))->>'result',
   'stored', 'a boundary upload charging the bound exactly admits');
@@ -180,6 +215,9 @@ SELECT is(
 SELECT is(
   (SELECT count(*)::int FROM schema_migrations WHERE version = 243),
   1, 'schema_migrations records version 243');
+SELECT is(
+  (SELECT count(*)::int FROM schema_migrations WHERE version = 293),
+  1, 'schema_migrations records version 293');
 
 SELECT * FROM finish();
 ROLLBACK;

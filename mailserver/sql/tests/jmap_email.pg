@@ -62,13 +62,13 @@ SELECT is(
   (SELECT jmap_email_state FROM mailboxes WHERE id = (SELECT mb_id FROM _acct)),
   :s0::BIGINT, 'purge(p_notify=FALSE) does NOT bump jmap_email_state (IMAP already notified)');
 
--- Test 6: jmap_email_set_create uses 2-arg notify_state_change → resync sentinel →
--- real jmap_email_changes raises BZ011 (cannotCalculateChanges). Task 4 upgrades
--- the call site to precise rows; until then, BZ011 is the correct contract.
-SELECT throws_ok(
-  format($$SELECT jmap_email_changes(%s,'0')$$, (SELECT mb_id FROM _acct))::text,
-  'BZ011', NULL,
-  'jmap_email_changes after set_create → resync sentinel → BZ011');
+-- Test 6: Wave 2.7 (#554) retired hot-path 'resync' sentinels in
+-- jmap_email_set_create / recover / purge — jmap_email_changes now succeeds
+-- incrementally with zero spurious BZ011 (the created+purged message cancels).
+SELECT is(
+  (jmap_email_changes((SELECT mb_id FROM _acct), '0')->>'hasMoreChanges'),
+  'false',
+  'jmap_email_changes after set_create/recover/purge succeeds incrementally (no resync sentinel)');
 
 -- ── Archive filter (A2): inArchive returns only messages with NO location-group
 --    tag (archived = location tag removed → All Mail), excluding Inbox/Trash mail.
@@ -374,9 +374,9 @@ SELECT is(
 -- quota account for the BLOB's bytes (a declared-0 oversized blob can no
 -- longer sail past the cap to the submission assembler). ──
 CREATE TEMP TABLE _sz AS SELECT mk_account('szacct') AS mb_id;
-INSERT INTO blobs (sha256, minio_ref, size_bytes, ref_count)
-  VALUES (repeat('a', 64), 's3://er5s12-blob-a', 1000, 1),
-         (repeat('b', 64), 's3://er5s12-blob-b', 26300000, 1)
+INSERT INTO blobs (sha256, minio_ref, size_bytes)
+  VALUES (repeat('a', 64), 's3://er5s12-blob-a', 1000),
+         (repeat('b', 64), 's3://er5s12-blob-b', 26300000)
   ON CONFLICT (sha256) DO NOTHING;
 
 -- 37: an honest declaration (size == blob size) creates, and the persisted

@@ -48,6 +48,7 @@ BEGIN
       'task_id', p_task_id
     )::TEXT
   );
+  PERFORM public.emit_wakeup_bell('sync', 'mailbox:' || p_mailbox_id || ':0:Task');
 
   RETURN v_state;
 END;

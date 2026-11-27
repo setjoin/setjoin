@@ -18,6 +18,7 @@ struct ConfigEntry {
 #[derive(Clone)]
 struct Blob {
     hash: String,
+    minio_ref: String,
     size: i64,
 }
 #[derive(serde::Serialize)]
@@ -28,6 +29,8 @@ struct Manifest {
     hashes: Vec<String>,
     count: usize,
     total_size: i64,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    primary_keys: BTreeMap<String, String>,
 }
 #[derive(serde::Serialize)]
 struct Index {
@@ -51,6 +54,44 @@ pub struct Engine {
     signer: Ed25519KeyPair,
     replica: Option<Store>,
 }
+/// Derives the primary object-store key from `blobs.minio_ref` (stripping a
+/// leading `<bucket>/` prefix when `minio_ref` has the `<bucket>/<hash>` shape
+/// while preserving explicit `blobs/<hash>` or bare `<hash>` spellings).
+pub fn resolve_primary_source_key(hash: &str, minio_ref: &str) -> String {
+    let trimmed = minio_ref.trim().trim_start_matches('/');
+    if trimmed == hash {
+        return hash.to_owned();
+    }
+    if let Some(rest) = trimmed.strip_suffix(hash) {
+        if rest == "blobs/" {
+            return format!("blobs/{hash}");
+        }
+        if let Some(prefix) = rest.strip_suffix('/') {
+            if !prefix.is_empty() && !prefix.contains('/') {
+                return hash.to_owned();
+            }
+        }
+    }
+    format!("blobs/{hash}")
+}
+
+/// Resolves the `primary_keys` entry to persist when a blob hits the verified
+/// incremental skip path (#551): preserves the previous manifest's layout for
+/// unchanged hashes before falling back to `minio_ref`.
+fn resolve_incremental_bare_key(
+    hash: &str,
+    preferred_src: &str,
+    prev_hashes: Option<&BTreeSet<String>>,
+    prev_primary_keys: Option<&BTreeMap<String, String>>,
+) -> bool {
+    if let (Some(hashes), Some(keys)) = (prev_hashes, prev_primary_keys) {
+        if hashes.contains(hash) {
+            return keys.get(hash).is_some_and(|k| k == hash);
+        }
+    }
+    preferred_src == hash
+}
+
 fn env(k: &str) -> String {
     std::env::var(k).unwrap_or_default()
 }
@@ -265,7 +306,7 @@ impl Engine {
         }
         let rows = match db
             .query(
-                "SELECT b.sha256,b.size_bytes FROM blobs b WHERE b.ref_count>0",
+                "SELECT sha256, minio_ref, size_bytes FROM public.blob_live_catalog()",
                 &[],
             )
             .await
@@ -273,16 +314,28 @@ impl Engine {
             Ok(rows) => rows,
             Err(e) => return self.fail(db, id, vec![e], 0, 0, 0).await,
         };
-        let blobs = rows
-            .iter()
-            .map(|r| Blob {
-                hash: r.get(0),
-                size: r.get(1),
-            })
-            .collect::<Vec<_>>();
+        let mut blobs = Vec::with_capacity(rows.len());
+        for r in &rows {
+            let hash = r
+                .try_get::<_, String>(0)
+                .map_err(|e| format!("decode live catalog sha256: {e}"))?;
+            let minio_ref = r
+                .try_get::<_, String>(1)
+                .map_err(|e| format!("decode live catalog minio_ref: {e}"))?;
+            let size = r
+                .try_get::<_, i64>(2)
+                .map_err(|e| format!("decode live catalog size_bytes: {e}"))?;
+            blobs.push(Blob {
+                hash,
+                minio_ref,
+                size,
+            });
+        }
+        let mut prev_manifest: Option<Option<(BTreeSet<String>, BTreeMap<String, String>)>> = None;
         let mut copied = 0i32;
         let mut skipped = 0i32;
         let mut errors = vec![];
+        let mut primary_keys: BTreeMap<String, String> = BTreeMap::new();
         for blob in &blobs {
             if blob.hash.len() != 64
                 || !blob
@@ -297,28 +350,85 @@ impl Engine {
                 ));
                 continue;
             }
-            let key = format!("blobs/{}", blob.hash);
+            let dest_key = format!("blobs/{}", blob.hash);
+            let preferred_src = resolve_primary_source_key(&blob.hash, &blob.minio_ref);
             if self
                 .backup
-                .head(&key)
+                .head(&dest_key)
                 .await
                 .is_ok_and(|s| s as i64 == blob.size)
                 && verify(&self.backup, blob).await.is_ok()
             {
+                let prev = match &prev_manifest {
+                    Some(cached) => cached.as_ref(),
+                    None => {
+                        let loaded = crate::restore::download_manifest(&self.backup)
+                            .await
+                            .ok()
+                            .map(|m| {
+                                let hashes: BTreeSet<String> =
+                                    m.blob_manifest.hashes.into_iter().collect();
+                                (hashes, m.blob_manifest.primary_keys)
+                            });
+                        prev_manifest = Some(loaded);
+                        prev_manifest.as_ref().and_then(Option::as_ref)
+                    }
+                };
+                if resolve_incremental_bare_key(
+                    &blob.hash,
+                    &preferred_src,
+                    prev.map(|(h, _)| h),
+                    prev.map(|(_, k)| k),
+                ) {
+                    primary_keys.insert(blob.hash.clone(), blob.hash.clone());
+                }
                 skipped += 1;
                 continue;
             }
-            // minio-go obtains source object metadata before streaming a copy.
-            if self.backup.needs_source_metadata() {
-                let _ = self.primary.head(&key).await;
-            }
-            if let Err(e) = self
-                .backup
-                .copy_from(&self.primary, &key, blob.size as u64)
-                .await
-            {
-                errors.push(format!("blob {}: copy/close: {e}", blob.hash));
-                continue;
+            // Resolve primary object key from minio_ref (supporting both bare `<sha>`
+            // objects stored by blobs.rs/mailbox_io.rs and `blobs/<sha>` legacy keys).
+            let alt_src = if preferred_src != dest_key {
+                dest_key.clone()
+            } else {
+                blob.hash.clone()
+            };
+            let copy_res = if self.backup.needs_source_metadata() {
+                // minio-go obtains source object metadata before streaming a copy.
+                let source_key = if self.primary.head(&preferred_src).await.is_ok() {
+                    preferred_src
+                } else if self.primary.head(&alt_src).await.is_ok() {
+                    alt_src
+                } else {
+                    preferred_src
+                };
+                self.backup
+                    .copy_from_key(&self.primary, &source_key, &dest_key, blob.size as u64)
+                    .await
+                    .map(|()| source_key)
+            } else {
+                match self
+                    .backup
+                    .copy_from_key(&self.primary, &preferred_src, &dest_key, blob.size as u64)
+                    .await
+                {
+                    Ok(()) => Ok(preferred_src),
+                    Err(primary_err) => self
+                        .backup
+                        .copy_from_key(&self.primary, &alt_src, &dest_key, blob.size as u64)
+                        .await
+                        .map(|()| alt_src)
+                        .map_err(|_| primary_err),
+                }
+            };
+            let source_key = match copy_res {
+                Ok(key) => key,
+                Err(e) => {
+                    errors.push(format!("blob {}: copy/close: {e}", blob.hash));
+                    continue;
+                }
+            };
+            if source_key == blob.hash {
+                primary_keys.insert(blob.hash.clone(), blob.hash.clone());
             }
             if let Err(e) = verify(&self.backup, blob).await {
                 errors.push(format!(
@@ -367,6 +477,7 @@ impl Engine {
             hashes: blobs.iter().map(|b| b.hash.clone()).collect(),
             count: blobs.len(),
             total_size: blobs.iter().map(|b| b.size).sum(),
+            primary_keys,
         };
         let mut index = Index {
             schema_version: 1,
@@ -602,5 +713,57 @@ async fn replicate(backup: Store, replica: Store, blobs: Vec<Blob>, stamp: Strin
         if let Err(e) = result {
             eprintln!("replica manifest {key}: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_incremental_bare_key, resolve_primary_source_key};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    #[test]
+    fn resolve_primary_source_key_handles_bare_bucket_and_prefixed_layouts() {
+        let sha = "a".repeat(64);
+        assert_eq!(resolve_primary_source_key(&sha, &sha), sha);
+        assert_eq!(
+            resolve_primary_source_key(&sha, &format!("mailblobs/{sha}")),
+            sha
+        );
+        assert_eq!(
+            resolve_primary_source_key(&sha, &format!("blobs/{sha}")),
+            format!("blobs/{sha}")
+        );
+    }
+
+    #[test]
+    fn resolve_incremental_bare_key_preserves_previous_manifest_layout() {
+        let bare = "a".repeat(64);
+        let prefixed = "b".repeat(64);
+        let fresh = "c".repeat(64);
+        let hashes: BTreeSet<String> = [bare.clone(), prefixed.clone()].into_iter().collect();
+        let mut prev_keys = BTreeMap::new();
+        prev_keys.insert(bare.clone(), bare.clone());
+
+        // Previous manifest recorded bare -> stays bare even if preferred_src is blobs/<sha>.
+        assert!(resolve_incremental_bare_key(
+            &bare,
+            &format!("blobs/{bare}"),
+            Some(&hashes),
+            Some(&prev_keys)
+        ));
+        // Previous manifest recorded prefixed (absent from primary_keys) -> stays prefixed.
+        assert!(!resolve_incremental_bare_key(
+            &prefixed,
+            &prefixed,
+            Some(&hashes),
+            Some(&prev_keys)
+        ));
+        // Unseen hash falls back to preferred_src.
+        assert!(resolve_incremental_bare_key(
+            &fresh,
+            &fresh,
+            Some(&hashes),
+            Some(&prev_keys)
+        ));
     }
 }

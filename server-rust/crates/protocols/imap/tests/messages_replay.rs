@@ -10,6 +10,27 @@ use tokio::{
     sync::watch,
 };
 
+/// Wave 2.7 (#554): authenticated LOGIN/AUTHENTICATE/CAPABILITY replies now
+/// advertise `CONDSTORE QRESYNC` (recorded in oracle/divergences.json).
+fn wave27_expected_reply(expected: &str, authed: bool) -> String {
+    let mut out = String::with_capacity(expected.len() + 36);
+    for line in expected.split_inclusive("\r\n") {
+        let is_auth_cap = line.contains("OK [CAPABILITY ")
+            && (line.contains("LOGIN completed") || line.contains("AUTHENTICATE completed"));
+        let is_post_auth_cap_list = authed && line.starts_with("* CAPABILITY ");
+        if (is_auth_cap || is_post_auth_cap_list) && !line.contains("CONDSTORE") {
+            out.push_str(&line.replacen(
+                "IMAP4rev2 LOGIN-REFERRALS ID ENABLE",
+                "IMAP4rev2 LOGIN-REFERRALS ID ENABLE CONDSTORE QRESYNC",
+                1,
+            ));
+        } else {
+            out.push_str(line);
+        }
+    }
+    out
+}
+
 async fn read_upto(stream: &mut TcpStream, want: usize, wait: Duration) -> Vec<u8> {
     let mut out = Vec::new();
     let deadline = tokio::time::Instant::now() + wait;
@@ -100,6 +121,7 @@ async fn run(
         let (stop, rx) = watch::channel(false);
         let task = tokio::spawn(Arc::new(server(db, "plain")).serve(listener, rx));
         let mut conn: Option<TcpStream> = None;
+        let mut authed = false;
         for (i, step) in session["steps"].as_array().unwrap().iter().enumerate() {
             let at = format!("{name} step {i}");
             if let Some(action) = step.get("action") {
@@ -118,7 +140,14 @@ async fn run(
             if !request.is_empty() {
                 stream.write_all(request.as_bytes()).await.unwrap();
             }
-            let expected = step["response"].as_str().unwrap().as_bytes();
+            let raw_expected = step["response"].as_str().unwrap();
+            if raw_expected.contains("LOGIN completed")
+                || raw_expected.contains("AUTHENTICATE completed")
+            {
+                authed = true;
+            }
+            let expected_str = wave27_expected_reply(raw_expected, authed);
+            let expected = expected_str.as_bytes();
             let actual = read_upto(stream, expected.len(), Duration::from_secs(5)).await;
             assert_eq!(
                 String::from_utf8_lossy(&actual),

@@ -1,0 +1,316 @@
+{
+  "schema_version": 1,
+  "description": "Exhaustive classification of all blob, SHA-256, and object-reference columns across mailserver/sql/dbschema/V*.sql (Issue #550).",
+  "live_roots": [
+    {
+      "table": "message_attachments",
+      "column": "blob_sha256",
+      "predicate": "ma.blob_sha256 = p_sha256",
+      "notes": "FK to public.blobs(sha256); message attachment references."
+    },
+    {
+      "table": "hr_expense_receipts",
+      "column": "blob_sha256",
+      "predicate": "her.blob_sha256 = p_sha256",
+      "notes": "FK to public.blobs(sha256); HR expense receipt blobs."
+    },
+    {
+      "table": "chat_link_previews",
+      "column": "image_blob_sha256",
+      "predicate": "clp.image_blob_sha256 = p_sha256",
+      "notes": "FK to public.blobs(sha256); unfurled chat preview thumbnail blobs."
+    },
+    {
+      "table": "users",
+      "column": "avatar_sha256",
+      "predicate": "u.avatar_sha256 = p_sha256",
+      "notes": "FK to public.blobs(sha256); user avatar blobs (previously lacked ref_count triggers)."
+    },
+    {
+      "table": "contacts",
+      "column": "avatar_sha256",
+      "predicate": "c.avatar_sha256 = p_sha256",
+      "notes": "FK to public.blobs(sha256); contact avatar blobs (previously lacked ref_count triggers)."
+    },
+    {
+      "table": "mail_recovery_upload_items",
+      "column": "object_ref",
+      "predicate": "mrui.status = 'verified' AND mrui.object_ref = p_sha256",
+      "notes": "Verified client-recovery item canonical 64-hex S3 object reference."
+    },
+    {
+      "table": "mail_recovery_quarantine_artifacts",
+      "column": "raw_ref",
+      "predicate": "mrqa.status NOT IN ('rejected', 'tampered') AND mrqa.raw_ref = p_sha256",
+      "notes": "Active recovery quarantine artifact canonical raw MIME 64-hex S3 reference."
+    },
+    {
+      "table": "mail_recovery_quarantine_artifacts",
+      "column": "blob_inventory",
+      "predicate": "mrqa.status NOT IN ('rejected', 'tampered') AND jsonb_array_elements(mrqa.blob_inventory) sha256/objectRef = p_sha256",
+      "notes": "Active recovery quarantine artifact JSONB array of attachment/inline blob sha256/objectRef entries."
+    },
+    {
+      "table": "messages",
+      "column": "raw_ref",
+      "predicate": "length(m.raw_ref) = 64 AND m.raw_ref ~ '^[0-9a-f]{64}$' AND m.raw_ref = p_sha256",
+      "notes": "Canonical bare 64-hex message raw RFC 5322 blob reference (excluding inline RFC 5322 text)."
+    },
+    {
+      "table": "outbound_queue",
+      "column": "raw_ref",
+      "predicate": "length(oq.raw_ref) = 64 AND oq.raw_ref ~ '^[0-9a-f]{64}$' AND oq.raw_ref = p_sha256",
+      "notes": "Outbound SMTP queue bare 64-hex blob reference."
+    },
+    {
+      "table": "outbound_queue_hot",
+      "column": "raw_ref",
+      "predicate": "length(oqh.raw_ref) = 64 AND oqh.raw_ref ~ '^[0-9a-f]{64}$' AND oqh.raw_ref = p_sha256",
+      "notes": "Hot outbound SMTP queue bare 64-hex blob reference."
+    },
+    {
+      "table": "journal_queue",
+      "column": "raw_ref",
+      "predicate": "length(jq.raw_ref) = 64 AND jq.raw_ref ~ '^[0-9a-f]{64}$' AND jq.raw_ref = p_sha256",
+      "notes": "Journal queue bare 64-hex raw message blob reference."
+    },
+    {
+      "table": "held_inbound_messages",
+      "column": "raw_ref",
+      "predicate": "length(him.raw_ref) = 64 AND him.raw_ref ~ '^[0-9a-f]{64}$' AND him.raw_ref = p_sha256",
+      "notes": "Held inbound moderation/approval message bare 64-hex blob reference."
+    },
+    {
+      "table": "ediscovery_searches",
+      "column": "export_ref",
+      "predicate": "es.export_ref IS NOT NULL AND length(es.export_ref) = 64 AND es.export_ref ~ '^[0-9a-f]{64}$' AND es.export_ref = p_sha256",
+      "notes": "eDiscovery export archive bare 64-hex blob reference."
+    }
+  ],
+  "blobs_internal": [
+    {
+      "table": "blobs",
+      "column": "sha256",
+      "reason": "Primary key of the canonical blobs catalog table."
+    },
+    {
+      "table": "blobs",
+      "column": "minio_ref",
+      "reason": "Internal S3 object reference column on the canonical blobs catalog table."
+    },
+    {
+      "table": "blob_user_charges",
+      "column": "blob_sha256",
+      "reason": "Per-user quota charge accounting referencing blobs(sha256) ON DELETE CASCADE; not a live root."
+    },
+    {
+      "table": "orphaned_message_blobs",
+      "column": "raw_ref",
+      "reason": "Legacy orphaned raw_ref cleanup queue; not a live retention root."
+    },
+    {
+      "table": "blob_gc_state",
+      "column": "blob_sha256",
+      "reason": "Mark-and-Sweep GC companion state table referencing blobs(sha256) ON DELETE CASCADE; not a live root."
+    },
+    {
+      "table": "blob_gc_shadow_discrepancies",
+      "column": "blob_sha256",
+      "reason": "Shadow reconciliation audit log recording discrepancies; not a live retention root."
+    }
+  ],
+  "separate_storage_plane": [
+    {
+      "table": "drive_chunk_gc_queue",
+      "column": "sha256",
+      "reason": "Drive chunk GC plane keyed under drive/ prefix; governed by drive_workers.rs."
+    },
+    {
+      "table": "drive_chunks",
+      "column": "sha256",
+      "reason": "Drive content-addressed chunk plane under drive/ prefix; independent of public.blobs."
+    },
+    {
+      "table": "drive_chunks",
+      "column": "storage_ref",
+      "reason": "Drive chunk S3 key under drive/ prefix; independent of public.blobs."
+    },
+    {
+      "table": "drive_file_versions",
+      "column": "content_sha256",
+      "reason": "Drive version content digest over drive_chunks; independent of public.blobs."
+    },
+    {
+      "table": "drive_file_versions",
+      "column": "preview_sha256",
+      "reason": "Drive preview thumbnail digest under drive/ prefix; independent of public.blobs."
+    },
+    {
+      "table": "drive_upload_authorizations",
+      "column": "sha256",
+      "reason": "Drive chunk upload authorization digest under drive/ prefix."
+    },
+    {
+      "table": "drive_upload_claims",
+      "column": "sha256",
+      "reason": "Drive chunk upload claim digest under drive/ prefix."
+    },
+    {
+      "table": "drive_version_chunks",
+      "column": "chunk_sha256",
+      "reason": "Drive version-to-chunk mapping referencing drive_chunks."
+    },
+    {
+      "table": "exchange_assessment_artifacts",
+      "column": "object_key",
+      "reason": "Exchange assessment artifact S3 key under dedicated prefix; governed by exchange_deletion.rs."
+    },
+    {
+      "table": "exchange_assessment_artifacts",
+      "column": "sha256",
+      "reason": "Exchange assessment artifact digest on dedicated storage plane."
+    },
+    {
+      "table": "exchange_assessment_upload_chunks",
+      "column": "object_key",
+      "reason": "Exchange assessment staged upload chunk key under dedicated prefix."
+    },
+    {
+      "table": "exchange_assessment_upload_chunks",
+      "column": "sha256",
+      "reason": "Exchange assessment staged upload chunk digest on dedicated storage plane."
+    },
+    {
+      "table": "journal_queue",
+      "column": "journal_report_ref",
+      "reason": "MinIO journal/-prefixed structured MIME journal report key (V030__journal_reports.sql); never stores a bare 64-hex public.blobs key."
+    },
+    {
+      "table": "mail_recovery_upload_chunks",
+      "column": "object_key",
+      "reason": "Recovery staging chunk key under recovery-quarantine/... prefix; governed by recovery_worker.rs."
+    },
+    {
+      "table": "meeting_presentations",
+      "column": "annotation_snapshot_ref",
+      "reason": "Meet presentation annotation snapshot storage plane; independent of public.blobs."
+    },
+    {
+      "table": "meeting_recordings",
+      "column": "staging_key",
+      "reason": "Meet LiveKit Egress recording staging key; governed by meet_worker.rs."
+    }
+  ],
+  "non_blob_digest": [
+    {
+      "table": "continuity_client_witnesses",
+      "column": "token_sha256",
+      "reason": "32-byte witness token digest; authentication token hash, not an S3 blob."
+    },
+    {
+      "table": "exchange_assessment_artifacts",
+      "column": "aad_sha256",
+      "reason": "AEAD associated-data integrity digest, not an S3 object key."
+    },
+    {
+      "table": "exchange_assessment_idempotency",
+      "column": "payload_sha256",
+      "reason": "Request idempotency payload hash, not an S3 object key."
+    },
+    {
+      "table": "identity_jobs",
+      "column": "artifact_sha256",
+      "reason": "Identity job export checksum bytea, not a public.blobs key."
+    },
+    {
+      "table": "identity_source_inbox",
+      "column": "object_key",
+      "reason": "External directory source principal key (AD/LDAP/SCIM), not an S3 object key."
+    },
+    {
+      "table": "identity_source_quarantines",
+      "column": "object_key",
+      "reason": "External directory source principal key (AD/LDAP/SCIM), not an S3 object key."
+    },
+    {
+      "table": "mail_recovery_incident_accounts",
+      "column": "evidence_token_sha256",
+      "reason": "32-byte recovery evidence token digest, not an S3 blob."
+    },
+    {
+      "table": "mail_recovery_quarantine_artifacts",
+      "column": "lineage_sha256",
+      "reason": "32-byte continuity lineage digest, not an S3 blob."
+    },
+    {
+      "table": "mail_recovery_quarantine_artifacts",
+      "column": "raw_mime_sha256",
+      "reason": "32-byte integrity digest matching raw_ref; the live root is raw_ref."
+    },
+    {
+      "table": "mail_recovery_upload_chunks",
+      "column": "sha256",
+      "reason": "32-byte chunk integrity digest; staged S3 object is tracked by object_key."
+    },
+    {
+      "table": "mail_recovery_upload_items",
+      "column": "sha256",
+      "reason": "32-byte declared item integrity digest; live S3 root is object_ref once verified."
+    },
+    {
+      "table": "mail_recovery_upload_sessions",
+      "column": "lineage_sha256",
+      "reason": "32-byte continuity lineage digest, not an S3 blob."
+    },
+    {
+      "table": "mail_recovery_upload_sessions",
+      "column": "raw_mime_sha256",
+      "reason": "32-byte declared raw MIME integrity digest before verification."
+    },
+    {
+      "table": "meeting_presentation_annotations",
+      "column": "content_sha256",
+      "reason": "Annotation payload integrity checksum, not a public.blobs key."
+    },
+    {
+      "table": "meeting_presentations",
+      "column": "source_sha256",
+      "reason": "Presentation source integrity digest, not a public.blobs key."
+    },
+    {
+      "table": "meeting_semantic_recordings",
+      "column": "timeline_sha256",
+      "reason": "Semantic timeline JSON integrity digest, not a public.blobs key."
+    },
+    {
+      "table": "meeting_semantic_segments",
+      "column": "content_sha256",
+      "reason": "Semantic segment text integrity digest, not a public.blobs key."
+    },
+    {
+      "table": "office_provider_policies",
+      "column": "config_sha256",
+      "reason": "Office provider policy configuration digest, not an S3 blob."
+    },
+    {
+      "table": "office_provider_qualifications",
+      "column": "config_sha256",
+      "reason": "Office qualification configuration digest, not an S3 blob."
+    },
+    {
+      "table": "office_save_receipts",
+      "column": "content_sha256",
+      "reason": "WOPI save receipt content integrity digest, not a public.blobs key."
+    },
+    {
+      "table": "upgrade_history",
+      "column": "binary_sha256",
+      "reason": "Release binary verification digest, not an S3 blob."
+    },
+    {
+      "table": "upgrade_schema_migration_evidence",
+      "column": "migration_sha256",
+      "reason": "Schema migration SQL file checksum, not an S3 blob."
+    }
+  ]
+}

@@ -309,3 +309,24 @@ users	COVERED	wave18c_force_rls.pg	tenant A: sees only own users	V288: two-tenan
 webauthn_ceremonies	COVERED	wave18c_force_rls.pg	tenant A: sees only own webauthn_ceremonies	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
 webhook_subscriptions	COVERED	wave18c_force_rls.pg	tenant A: sees only own webhook_subscriptions (NULL org webhook hidden)	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + NULL org webhook hidden + INSERT 42501.
 ws_subscriptions	COVERED	wave18c_force_rls.pg	tenant A: sees only own ws_subscriptions	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+
+# ── V290 durable WorkQueue, DLQ & notify_intents (Wave 2.1, #548). ──────────
+work_items	COVERED	work_queue.pg	setjoin_app direct SELECT on work_items is denied	V290: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct table access and worker-only reducers raise 42501/BZ003.
+work_dead_letters	COVERED	work_queue.pg	setjoin_app direct SELECT on work_dead_letters is denied	V290: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct table access and DLQ reducers raise 42501/BZ003.
+notify_intents	COVERED	notify_decouple.pg	setjoin_app direct SELECT on notify_intents is denied	V290: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/DELETE fail with 42501 while app_notify/emit_wakeup_bell enqueue via SECURITY DEFINER app_notify_enqueue_intent.
+
+# ── V291 distributed SKIP LOCKED worker_schedules (Wave 2.2, #549). ─────────
+worker_schedules	COVERED	worker_schedules.pg	setjoin_app direct SELECT on worker_schedules is denied	V291: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/INSERT and worker_schedule_* / work_release reducers raise 42501.
+
+# ── V292 Mark-and-Sweep S3 Blob GC worker-only companion tables (#550). ─────
+blob_gc_state	COVERED	blob_mark_and_sweep_gc.pg	blob_gc_state direct SELECT denied for setjoin_app	V292: FORCE RLS deny-all + REVOKE ALL FROM setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/INSERT/UPDATE/DELETE fail with 42501 while blob_gc_reactivate and blob_upload_account succeed.
+blob_gc_shadow_runs	COVERED	blob_mark_and_sweep_gc.pg	blob_gc_shadow_runs direct SELECT denied for setjoin_app	V292: FORCE RLS deny-all + REVOKE ALL FROM setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/INSERT fail with 42501.
+blob_gc_shadow_discrepancies	COVERED	blob_mark_and_sweep_gc.pg	blob_gc_shadow_discrepancies direct SELECT denied for setjoin_app	V292: FORCE RLS deny-all + REVOKE ALL FROM setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/INSERT fail with 42501.
+blob_gc_config	COVERED	blob_mark_and_sweep_gc.pg	blob_gc_config direct SELECT denied for setjoin_app	V292: FORCE RLS deny-all + REVOKE ALL FROM setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/UPDATE fail with 42501.
+
+# ── V294 durable scope_revocations journal (Wave 2.5, #552). ────────────────
+scope_revocations	COVERED	scope_revocations.pg	setjoin_app direct SELECT on scope_revocations is denied	V294: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/INSERT/DELETE fail with 42501 and spoofed emit_scope_revoked raises 42501.
+
+# ── V295 chat_changes monotonic journal & sync_tombstone_floor (Wave 2.6, #553). ──
+chat_changes	COVERED	chat_changes_retention.pg	non-member sees zero chat_changes rows under FORCE RLS	V295: member-scoped chat_member_role FORCE RLS (SELECT+INSERT only, fail-closed on unset GUC); SET LOCAL ROLE setjoin_app proves non-member SELECT 0-count, foreign INSERT 42501, and UPDATE/DELETE denied.
+sync_tombstone_floor	COVERED	chat_changes_retention.pg	setjoin_app direct SELECT on sync_tombstone_floor is denied	V295: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/UPDATE fail with 42501 while sync_tombstone_floor_at() reads the scalar floor.

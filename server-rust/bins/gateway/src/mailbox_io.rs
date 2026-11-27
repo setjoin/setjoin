@@ -250,12 +250,69 @@ impl<S: ObjectStore> Importer<'_, S> {
             fields.message_id.clone()
         };
         let reference = hex(&Sha256::digest(raw));
+        let staging_op = crate::jmap::random().ok_or(Fail::Generic)?;
+        let staging_key = format!(
+            "{}{}",
+            crate::blob_retention::BLOB_STAGING_PREFIX,
+            hex(&staging_op)
+        );
+        // Stage bytes FIRST under tmp/blob-upload/*, then atomically reactivate +
+        // enqueue delayed blob.promote_verify inside blob_gc_reactivate_v2() if
+        // previously 'purging' (#551).
         self.store
-            .put(&reference, raw, "message/rfc822")
+            .put(&staging_key, raw, "message/rfc822")
             .await
             .map_err(|_| Fail::Generic)?;
+        let staging_opt = Some(staging_key.as_str());
+        let react_rows = match self
+            .worker
+            .protocol_query(
+                "SELECT public.blob_gc_reactivate_v2($1, $2)::text",
+                &[
+                    (&reference, setjoin_pg::Type::TEXT),
+                    (&staging_opt, setjoin_pg::Type::TEXT),
+                ],
+            )
+            .await
+        {
+            Ok(rows) => rows,
+            Err(_) => {
+                // Leave staging_key intact on an ambiguous DB error so a committed
+                // blob.promote_verify keeps its bytes; 24h sweep reaps if uncommitted.
+                return Err(Fail::Generic);
+            }
+        };
+        let was_purging = react_rows
+            .first()
+            .and_then(|r| r.try_get::<_, String>(0).ok())
+            .and_then(|raw_json| serde_json::from_str::<serde_json::Value>(&raw_json).ok())
+            .and_then(|v| v.get("was_purging").and_then(serde_json::Value::as_bool))
+            .unwrap_or(false);
+        if self
+            .store
+            .put(&reference, raw, "message/rfc822")
+            .await
+            .is_err()
+        {
+            if !was_purging {
+                let _ = self
+                    .store
+                    .delete_blob_checked(&staging_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                    .await;
+            }
+            return Err(Fail::Generic);
+        }
+        if !was_purging {
+            let _ = self
+                .store
+                .delete_blob_checked(&staging_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                .await;
+        }
         // Postgres refuses invalid UTF-8 and NUL in a text parameter: that is the
         // reducer call failing in Go, after the upload.
+        // `import_message()` acquires `pg_advisory_xact_lock(blob_gc_lock_key(p_raw_ref))`
+        // and calls `blob_gc_register_and_reactivate` in the SAME transaction that inserts
+        // into `public.messages` (#551).
         let strings = db::Strings::of(&fields, &message_id).ok_or(Fail::Generic)?;
         let operation = crate::jmap::random().ok_or(Fail::Generic)?;
         let (secs, micros): (Option<i64>, Option<i32>) = match fields.date {
@@ -307,7 +364,21 @@ impl<S: ObjectStore> Importer<'_, S> {
         )
         .await
         {
-            CommandOutcome::Committed(Some(_)) => Ok(()),
+            CommandOutcome::Committed(Some(_)) => {
+                // Post-commit fence (#551): never treat a failed HEAD as "object exists",
+                // and surface any re-PUT failure cleanly.
+                let needs_reput = match self.store.object_exists(&reference).await {
+                    Ok(true) => false,
+                    Ok(false) | Err(_) => true,
+                };
+                if needs_reput {
+                    self.store
+                        .put(&reference, raw, "message/rfc822")
+                        .await
+                        .map_err(|_| Fail::Generic)?;
+                }
+                Ok(())
+            }
             CommandOutcome::Committed(None) => Err(Fail::Revoked),
             _ => Err(Fail::Generic),
         }

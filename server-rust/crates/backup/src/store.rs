@@ -398,36 +398,51 @@ impl Store {
     /// Stream a primary object directly to its destination. Integrity is checked
     /// by re-reading the committed content-addressed object before publication.
     pub async fn copy_from(&self, source: &Self, key: &str, size: u64) -> Result<(), String> {
+        self.copy_from_key(source, key, key, size).await
+    }
+    /// Stream a primary object from `source_key` to `dest_key` in this store (#551).
+    pub async fn copy_from_key(
+        &self,
+        source: &Self,
+        source_key: &str,
+        dest_key: &str,
+        size: u64,
+    ) -> Result<(), String> {
         if let Some(local) = &self.local {
-            let stage = local.stage(key)?;
-            source.get_file(key, &stage.temp).await?;
+            let stage = local.stage(dest_key)?;
+            source.get_file(source_key, &stage.temp).await?;
             return stage.commit().await;
         }
         if let Some(local) = &source.local {
-            return self.put_file(key, &local.path(key, true)?).await;
+            return self
+                .put_file(dest_key, &local.path(source_key, true)?)
+                .await;
         }
         // Frozen aws-sdk-go-v2 hashes a seekable source before rewinding it
         // for upload. Keep that streamed pre-read, without a spool or buffer.
         let payload = if !self.minio && !self.oss {
-            source.body_digest(key).await?.0
+            source.body_digest(source_key).await?.0
         } else {
             "UNSIGNED-PAYLOAD".into()
         };
         let response = source
             .checked(
-                source.request(Method::GET, key, &digest(b""))?.send().await,
-                key,
+                source
+                    .request(Method::GET, source_key, &digest(b""))?
+                    .send()
+                    .await,
+                source_key,
             )
             .await?;
         let body = reqwest::Body::wrap_stream(response.bytes_stream());
         self.checked(
-            self.request(Method::PUT, key, &payload)?
+            self.request(Method::PUT, dest_key, &payload)?
                 .header("Content-Type", "application/octet-stream")
                 .header("Content-Length", size)
                 .body(body)
                 .send()
                 .await,
-            key,
+            dest_key,
         )
         .await?;
         Ok(())

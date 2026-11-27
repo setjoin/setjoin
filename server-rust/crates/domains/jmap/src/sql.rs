@@ -340,7 +340,7 @@ pub const HTTP_BLOB_ACCOUNT_READ: SqlContract = SqlContract {
 pub const HTTP_BLOB_ACCOUNT_UPLOAD: SqlContract = SqlContract {
     id: "jmap.http_blob_account_upload",
     domain: "jmap",
-    sql: "SELECT blob_upload_account($1,$2,$3,$4,$5,$6,$7)::text",
+    sql: "SELECT blob_upload_account($1,$2,$3,$4,$5,$6,$7,$8)::text",
     params: &[
         Type::INT8,
         Type::TEXT,
@@ -349,6 +349,7 @@ pub const HTTP_BLOB_ACCOUNT_UPLOAD: SqlContract = SqlContract {
         Type::TEXT,
         Type::INT4,
         Type::INT8,
+        Type::TEXT,
     ],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,

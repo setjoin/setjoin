@@ -369,7 +369,7 @@ async fn snapshot(
             ("calendars","SELECT (to_jsonb(t)-'id'||jsonb_build_object('calendar_id',id))::text FROM calendars t WHERE mailbox_id IN($1,$2) ORDER BY mailbox_id,id"),
             ("mailboxes","SELECT (to_jsonb(t)-'id'||jsonb_build_object('mailbox_id',id))::text FROM mailboxes t WHERE id IN($1,$2) ORDER BY id"),
             ("entity_state","SELECT to_jsonb(t)::text FROM jmap_entity_state t WHERE mailbox_id IN($1,$2) ORDER BY mailbox_id,datatype"),
-            ("journal","SELECT to_jsonb(t)::text FROM jmap_changes_journal t WHERE mailbox_id IN($1,$2) ORDER BY mailbox_id,datatype,state_seq,entity_id")
+            ("journal","SELECT (to_jsonb(t)-'imap_uid')::text FROM jmap_changes_journal t WHERE mailbox_id IN($1,$2) ORDER BY mailbox_id,datatype,state_seq,entity_id")
         ]{let rows=c.query(sql,&[&a.mailbox,&b.mailbox]).await?;out[name]=json!(rows.iter().map(|r|serde_json::from_str::<Value>(&r.get::<_,String>(0))).collect::<Result<Vec<_>,_>>()?);}
         for row in out["journal"].as_array_mut().unwrap() {
             if row["datatype"] == "Calendar" {

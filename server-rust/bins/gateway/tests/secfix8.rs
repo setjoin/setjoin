@@ -360,59 +360,26 @@ async fn m365_connect_needs_a_real_public_host() -> Result<(), BoxError> {
     result
 }
 
-/// #531 F3: the blob-cleanup worker refuses to run on a credential that row security filters.
+/// #531 F3 / #549: WorkerSupervisor::boot refuses to start on a credential
+/// that row security filters (replaces per-tick BlobCleanup check).
 #[tokio::test]
 async fn blob_cleanup_refuses_a_credential_without_bypassrls() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
-    use setjoin_gateway::{blob_cleanup::BlobCleanup, recovery_worker::S3Store};
-    use setjoin_pg::workers::WorkerDatabase;
-    use std::sync::Arc;
+    use setjoin_gateway::supervisor::{SupervisorConfig, WorkerSupervisor};
     let Some(db) = Db::for_case("secfix8-blob-cleanup") else {
         return Ok(());
-    };
-    let store = |_: ()| {
-        Arc::new(
-            S3Store::new(
-                "http://127.0.0.1:1",
-                "mailblobs",
-                "test-access",
-                "test-secret",
-            )
-            .unwrap(),
-        )
     };
     let app = db
         .app
         .clone()
         .ok_or("the app (non-BYPASSRLS) DSN is required")?;
-    let filtered = BlobCleanup::new(WorkerDatabase::new(&app)?, store(()));
+    let filtered = WorkerSupervisor::boot(SupervisorConfig::new(&app)).await;
     assert!(
-        !filtered.worker_bypasses_rls().await?,
-        "the request-pool role must not count as BYPASSRLS"
+        filtered.is_err(),
+        "WorkerSupervisor::boot must refuse a credential without BYPASSRLS"
     );
-    let returned = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        filtered.run_until(std::future::pending::<()>()),
-    )
-    .await;
-    assert!(
-        returned.is_ok(),
-        "the worker kept running on a credential without BYPASSRLS"
-    );
-    let privileged = BlobCleanup::new(WorkerDatabase::new(&db.dsn)?, store(()));
-    assert!(
-        privileged.worker_bypasses_rls().await?,
-        "the worker credential has BYPASSRLS"
-    );
-    let still = tokio::time::timeout(
-        std::time::Duration::from_millis(1500),
-        privileged.run_until(std::future::pending::<()>()),
-    )
-    .await;
-    assert!(
-        still.is_err(),
-        "the worker refused to run on a BYPASSRLS credential"
-    );
+    let privileged = WorkerSupervisor::boot(SupervisorConfig::new(&db.dsn)).await?;
+    privileged.shutdown().await?;
     Ok(())
 }
 

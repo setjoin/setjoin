@@ -1,0 +1,203 @@
+-- work_queue.pg — Wave 2.1 (#548, V290): durable WorkQueue, DLQ, RLS/ACL
+-- isolation, claim_generation fencing, UTF-8 truncation, and wakeup bells.
+BEGIN;
+SELECT plan(45);
+
+SELECT set_config('app.capture_notify', 'on', false);
+
+-- ── 1. Isolation posture (V253/V281 deny-all FORCE RLS) ──────────────────────
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.work_items'::regclass),
+  true, 'V290: work_items has RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.work_items'::regclass),
+  true, 'V290: work_items RLS is FORCEd');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies WHERE tablename = 'work_items'),
+  0, 'V290: work_items has ZERO permissive policies');
+SELECT is(
+  (SELECT tableowner FROM pg_tables WHERE tablename = 'work_items'),
+  'setjoin_owner', 'V290: work_items owned by setjoin_owner');
+
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.work_dead_letters'::regclass),
+  true, 'V290: work_dead_letters has RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.work_dead_letters'::regclass),
+  true, 'V290: work_dead_letters RLS is FORCEd');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies WHERE tablename = 'work_dead_letters'),
+  0, 'V290: work_dead_letters has ZERO permissive policies');
+SELECT is(
+  (SELECT tableowner FROM pg_tables WHERE tablename = 'work_dead_letters'),
+  'setjoin_owner', 'V290: work_dead_letters owned by setjoin_owner');
+
+-- ── 2. Function ACLs & SECURITY DEFINER preflight hygiene ────────────────────
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.work_enqueue(text,jsonb,text,timestamptz,smallint,integer)', 'EXECUTE'),
+  false, 'setjoin_app has NO EXECUTE on work_enqueue');
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.work_queue_claim(text,text[],integer,integer,integer)', 'EXECUTE'),
+  false, 'setjoin_app has NO EXECUTE on work_queue_claim');
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.work_queue_dlq_replay(bigint,boolean,boolean)', 'EXECUTE'),
+  false, 'setjoin_app has NO EXECUTE on work_queue_dlq_replay');
+SELECT is(
+  has_function_privilege('setjoin_worker', 'public.work_queue_claim(text,text[],integer,integer,integer)', 'EXECUTE'),
+  true, 'setjoin_worker holds EXECUTE on work_queue_claim');
+SELECT is(
+  has_function_privilege('public', 'public.work_enqueue_app(text,jsonb,text,timestamptz)', 'EXECUTE'),
+  false, 'PUBLIC has NO EXECUTE on SECURITY DEFINER work_enqueue_app');
+SELECT is(
+  has_function_privilege('public', 'public.work_queue_stats()', 'EXECUTE'),
+  false, 'PUBLIC has NO EXECUTE on SECURITY DEFINER work_queue_stats');
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname IN ('work_enqueue_app', 'work_queue_stats')
+      AND p.prosecdef = TRUE
+      AND pg_get_userbyid(p.proowner) = 'setjoin_worker'
+      AND 'search_path=pg_catalog, public' = ANY(p.proconfig)),
+  2, 'SECURITY DEFINER work_enqueue_app and work_queue_stats owned by setjoin_worker with pinned search_path');
+
+-- ── 3. Seed rows as setjoin_worker, then prove setjoin_app denial ────────────
+SET LOCAL ROLE setjoin_worker;
+SELECT work_item_id AS w_seed, coalesced AS w_seed_coal
+  FROM public.work_enqueue('test.worker_job', '{"k":"v"}'::jsonb, 'idem-seed', now(), 5::smallint, 3) \gset
+SELECT ok(:w_seed > 0 AND NOT :'w_seed_coal'::boolean, 'worker enqueue succeeds and returns coalesced=false');
+SELECT work_item_id AS w_dup, coalesced AS w_dup_coal
+  FROM public.work_enqueue('test.worker_job', '{"k":"other"}'::jsonb, 'idem-seed', now(), 5::smallint, 3) \gset
+SELECT ok(:w_dup = :w_seed AND :'w_dup_coal'::boolean, 'duplicate (kind, idempotency_key) coalesces to original work_item_id');
+
+-- Dead-letter a row so work_dead_letters is non-empty when proving setjoin_app denial.
+SELECT id AS w_dlq_src, claim_generation AS w_dlq_gen
+  FROM public.work_queue_claim('worker-seed', ARRAY['test.worker_job'], 1, 60, NULL) \gset
+SELECT outcome AS w_fail_out, dead_letter_id AS w_dlq_id
+  FROM public.work_queue_fail(:w_dlq_src, :w_dlq_gen, 'worker-seed', repeat('测', 2000), NULL, TRUE) \gset
+SELECT is(:'w_fail_out'::text, 'dead_lettered'::text, 'permanent failure moves item to work_dead_letters');
+SELECT cmp_ok(
+  (SELECT octet_length(last_error) FROM public.work_dead_letters WHERE id = :w_dlq_id),
+  '<=', 4096, 'UTF-8 multibyte last_error truncated cleanly to <= 4096 bytes');
+RESET ROLE;
+
+-- ── 4. setjoin_app table & reducer denial + work_enqueue_app safety ──────────
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(
+  $$ SELECT count(*) FROM public.work_items $$,
+  '42501', NULL, 'setjoin_app direct SELECT on work_items is denied');
+SELECT throws_ok(
+  $$ SELECT count(*) FROM public.work_dead_letters $$,
+  '42501', NULL, 'setjoin_app direct SELECT on work_dead_letters is denied');
+SELECT throws_ok(
+  $$ INSERT INTO public.work_items (kind) VALUES ('app.domain_event') $$,
+  '42501', NULL, 'setjoin_app direct INSERT on work_items is denied');
+SELECT throws_ok(
+  $$ SELECT * FROM public.work_enqueue('scheduled_action.send', '{}'::jsonb) $$,
+  '42501', NULL, 'setjoin_app EXECUTE on work_enqueue is denied');
+SELECT throws_ok(
+  $$ SELECT * FROM public.work_enqueue_app('scheduled_action.send', '{}'::jsonb) $$,
+  'BZ040', NULL, 'work_enqueue_app rejects non-allowlisted privileged kind');
+SELECT throws_ok(
+  $$ SELECT * FROM public.work_enqueue_app('app.domain_event', '{}'::jsonb) $$,
+  'BZ003', NULL, 'work_enqueue_app refuses call without authenticated actor GUCs');
+
+SELECT set_config('app.current_user_id', '42', true);
+SELECT set_config('app.current_mailbox_id', '77', true);
+SELECT work_item_id AS w_app1, coalesced AS w_app1_coal
+  FROM public.work_enqueue_app(
+    'app.domain_event',
+    '{"actor_user_id":"999","actor_mailbox_id":"888","msg":"hi"}'::jsonb,
+    'evt-1',
+    now() + interval '30 days'
+  ) \gset
+SELECT ok(:w_app1 > 0 AND NOT :'w_app1_coal'::boolean, 'work_enqueue_app enqueues allowlisted kind under verified GUCs');
+SELECT work_item_id AS w_app2, coalesced AS w_app2_coal
+  FROM public.work_enqueue_app('app.domain_event', '{"msg":"dup"}'::jsonb, 'evt-1', now()) \gset
+SELECT ok(:w_app2 = :w_app1 AND :'w_app2_coal'::boolean, 'work_enqueue_app coalesces duplicate scoped idempotency_key');
+SELECT ok(
+  (SELECT dead_letters >= 1 FROM public.work_queue_stats()),
+  'setjoin_app can read scalar work_queue_stats()');
+RESET ROLE;
+
+-- Verify R2 actor stamping, tenant-scoped idempotency_key prefix, and clamped delay/priority.
+SELECT ok(
+  (SELECT payload->>'actor_user_id' = '42'
+      AND payload->>'actor_mailbox_id' = '77'
+      AND idempotency_key = 'app:usr:42:mbx:77:evt-1'
+      AND priority = 0
+      AND max_attempts = 5
+      AND run_at <= now() + interval '24 hours 1 minute'
+     FROM public.work_items WHERE id = :w_app1),
+  'work_enqueue_app stamped R2 GUCs (overwriting spoofed actor), prefixed idempotency_key, and clamped priority/run_at');
+
+-- Defense-in-depth BZ003 check on work_queue_require_worker if EXECUTE were ever granted.
+GRANT EXECUTE ON FUNCTION public.work_queue_require_worker() TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(
+  $$ SELECT public.work_queue_require_worker() $$,
+  'BZ003', NULL, 'work_queue_require_worker raises BZ003 for non-BYPASSRLS role');
+RESET ROLE;
+REVOKE ALL ON FUNCTION public.work_queue_require_worker() FROM setjoin_app;
+
+-- ── 5. Multi-worker SKIP LOCKED, fencing, backoff, reclaim, and DLQ replay ───
+SET LOCAL ROLE setjoin_worker;
+SELECT work_item_id AS w_job FROM public.work_enqueue('test.lifecycle', '{"n":1}'::jsonb, NULL, now(), 0::smallint, 2) \gset
+SELECT id AS c1_id, claim_generation AS c1_gen, attempts AS c1_att
+  FROM public.work_queue_claim('worker-a', ARRAY['test.lifecycle'], 10, 60, NULL) \gset
+SELECT ok(:c1_id = :w_job AND :c1_gen = 1 AND :c1_att = 1, 'worker-a claims job with claim_generation=1, attempts=1');
+SELECT is(
+  (SELECT count(*)::int FROM public.work_queue_claim('worker-b', ARRAY['test.lifecycle'], 10, 60, NULL)),
+  0, 'worker-b skips already-leased job (SKIP LOCKED)');
+
+-- Stale claim_generation fencing.
+SELECT is(public.work_queue_complete(:w_job, 0, 'worker-a'), false, 'complete with stale claim_generation is fenced out');
+SELECT is(public.work_queue_heartbeat(:w_job, 0, 'worker-a', 60), false, 'heartbeat with stale claim_generation is fenced out');
+SELECT is(
+  (SELECT outcome FROM public.work_queue_fail(:w_job, 0, 'worker-a', 'bad', 5.0, FALSE)),
+  'lease_lost', 'fail with stale claim_generation returns lease_lost');
+
+-- Transient fail -> backoff -> retry -> exhaust max_attempts -> DLQ.
+SELECT is(
+  (SELECT outcome FROM public.work_queue_fail(:w_job, :c1_gen, 'worker-a', 'transient err', 0.0, FALSE)),
+  'retried', 'attempt 1/2 transient failure returns retried');
+SELECT id AS c2_id, claim_generation AS c2_gen, attempts AS c2_att
+  FROM public.work_queue_claim('worker-b', ARRAY['test.lifecycle'], 10, 1, NULL) \gset
+SELECT ok(:c2_id = :w_job AND :c2_gen = 2 AND :c2_att = 2, 'worker-b reclaims job with claim_generation=2, attempts=2');
+
+-- Expire lease at max_attempts -> reclaim_expired moves poison pill straight to DLQ.
+UPDATE public.work_items SET lease_expires_at = now() - interval '5 seconds' WHERE id = :w_job;
+SELECT reclaimed AS rec_n, dead_lettered AS dead_n
+  FROM public.work_queue_reclaim_expired(10) \gset
+SELECT ok(:rec_n = 0 AND :dead_n = 1, 'reclaim_expired moves attempt-exhausted expired lease straight to work_dead_letters');
+
+-- DLQ replay re-enqueues and marks replayed_at.
+SELECT id AS dlq_life FROM public.work_dead_letters WHERE work_item_id = :w_job \gset
+SELECT work_item_id AS replayed_id
+  FROM public.work_queue_dlq_replay(:dlq_life, FALSE, FALSE) \gset
+SELECT ok(
+  :replayed_id > 0
+  AND (SELECT replayed_at IS NOT NULL AND replayed_work_item_id = :replayed_id
+         FROM public.work_dead_letters WHERE id = :dlq_life),
+  'work_queue_dlq_replay re-enqueues item and stamps replayed_at/replayed_work_item_id');
+
+-- Concurrent/duplicate --force --reset-idempotency replay while prior replay is still active is refused.
+SELECT throws_ok(
+  format($$ SELECT * FROM public.work_queue_dlq_replay(%s, TRUE, TRUE) $$, :dlq_life),
+  'BZ040', NULL, 'work_queue_dlq_replay refuses --force --reset-idempotency while prior replay work item is still active');
+
+-- Capped claim with NULL kinds is rejected with BZ040.
+SELECT throws_ok(
+  $$ SELECT * FROM public.work_queue_claim('worker-a', NULL, 10, 60, 2) $$,
+  'BZ040', NULL, 'work_queue_claim rejects p_max_concurrency with NULL p_kinds');
+
+-- Content-free wakeup bell validation.
+SELECT lives_ok($$ SELECT public.emit_wakeup_bell('sync', 'mb:77') $$, 'emit_wakeup_bell accepts sync bus <= 128B hint');
+SELECT throws_ok($$ SELECT public.emit_wakeup_bell('other', 'x') $$, 'BZ040', NULL, 'emit_wakeup_bell rejects invalid bus');
+SELECT throws_ok($$ SELECT public.emit_wakeup_bell('work', repeat('x', 129)) $$, 'BZ040', NULL, 'emit_wakeup_bell rejects > 128B hint');
+SELECT throws_ok($$ SELECT public.emit_wakeup_bell('work', '{"pii":"nope"}') $$, 'BZ040', NULL, 'emit_wakeup_bell rejects JSON/non-token hint');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

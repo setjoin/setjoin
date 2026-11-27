@@ -58,7 +58,7 @@ async fn snapshot(c: &tokio_postgres::Client, a: i64, b: i64) -> Result<Value, B
         "books":rows(c,&format!("SELECT (to_jsonb(ab)-'created_at'-'updated_at')::text FROM addressbooks ab WHERE mailbox_id IN ({a},{b}) ORDER BY id")).await?,
         "contacts":rows(c,&format!("SELECT (to_jsonb(c)-'created_at'-'updated_at'-'etag')::text FROM contacts c WHERE addressbook_id IN ({BOOK},{OTHER}) ORDER BY id")).await?,
         "state":rows(c,&format!("SELECT to_jsonb(s)::text FROM jmap_entity_state s WHERE mailbox_id IN ({a},{b}) ORDER BY mailbox_id,datatype")).await?,
-        "journal":rows(c,&format!("SELECT (to_jsonb(j)-'id'-'created_at')::text FROM jmap_changes_journal j WHERE mailbox_id IN ({a},{b}) ORDER BY mailbox_id,state_seq,resource_uid")).await?,
+        "journal":rows(c,&format!("SELECT (to_jsonb(j)-'id'-'created_at'-'imap_uid')::text FROM jmap_changes_journal j WHERE mailbox_id IN ({a},{b}) ORDER BY mailbox_id,state_seq,resource_uid")).await?,
         "visibility":rows(c,&format!("SELECT (to_jsonb(j)-'first_seen_at')::text FROM gal_visibility_journal j WHERE mailbox_id IN ({a},{b}) ORDER BY mailbox_id,user_id")).await?
     }))
 }
@@ -278,11 +278,11 @@ pub async fn run(route: &str, label: &str, mutant: Option<&'static str>) -> Resu
             if cut==common::commit::CommitCut::BeforeCommit {
                 if observation["effects"][0]["before"]!=observation["effects"][0]["after"] || observation["audit"]!=json!([]) || observation["notify"]!=json!([]){return Err("pre-COMMIT cut published effects".into());}
             }else{
-                let expected:Value=serde_json::from_slice(&std::fs::read(&file)?)?;let mut expected=expected["observation"].clone();expected.as_object_mut().unwrap().remove("response");let mut actual=observation.clone();actual.as_object_mut().unwrap().remove("response");golden::compare(&expected,&actual)?;
+                let expected:Value=serde_json::from_slice(&std::fs::read(&file)?)?;let mut expected=expected["observation"].clone();strip_retired_avatar_refcount(&mut expected["effects"]);expected.as_object_mut().unwrap().remove("response");let mut actual=observation.clone();actual.as_object_mut().unwrap().remove("response");golden::compare(&expected,&actual)?;
             }
             eprintln!("COMMIT-CUT: CardDAV {route} :: {cut:?} (fresh actor/command lookup, no write replay)");
         }else if recording {golden::record(&file,&json!({"format":1,"route":format!("* /carddav/ {route}"),"case":label,"go_source":std::env::var("GOFREE_GO_SOURCE")?,"observation":observation}))?;}else{
-            let expected:Value=common::golden_doc(&file,"observation",&observation);let comparison=golden::compare(&expected["observation"],&observation);
+            let mut expected:Value=common::golden_doc(&file,"observation",&observation);strip_retired_avatar_refcount(&mut expected["observation"]["effects"]);let comparison=golden::compare(&expected["observation"],&observation);
             if let Some(mutant)=mutant {
                 if comparison.is_ok(){return Err(format!("mutant survived: {mutant}").into());}
                 if mutant=="no-notify" && (expected["observation"]["notify"].as_array().is_none_or(Vec::is_empty) || observation["notify"]!=json!([])){return Err("notification mutant was not discriminated".into());}
@@ -292,7 +292,8 @@ pub async fn run(route: &str, label: &str, mutant: Option<&'static str>) -> Resu
                 comparison?;
                 let row_file=file.with_file_name(format!("{route}-{label}-row-effects.json"));
                 if row_file.exists() {
-                    let rows:Value=serde_json::from_slice(&std::fs::read(&row_file)?)?;
+                    let mut rows:Value=serde_json::from_slice(&std::fs::read(&row_file)?)?;
+                    strip_retired_avatar_refcount(&mut rows["effects"]);
                     golden::compare(&expected["observation"]["effects"],&rows["effects"])?;
                     golden::compare(&rows["effects"],&observation["effects"])?;
                 }
@@ -376,4 +377,27 @@ async fn install_mutant(
         restore.push("DROP TRIGGER gofree_cal5_double_bump ON addressbooks; DROP FUNCTION gofree_cal5_double_bump()".into());
     }
     Ok(restore)
+}
+
+/// Wave 2.4 (#551) retired `blobs.ref_count` in V293. Strip retired `ref_count`
+/// from immutable frozen-Go `avatar_blob` snapshots in memory without editing goldens.
+fn strip_retired_avatar_refcount(effects: &mut Value) {
+    let Some(items) = effects.as_array_mut() else {
+        return;
+    };
+    for item in items {
+        for phase in ["before", "after"] {
+            if let Some(blobs) = item
+                .get_mut(phase)
+                .and_then(|p| p.get_mut("avatar_blob"))
+                .and_then(Value::as_array_mut)
+            {
+                for b in blobs {
+                    if let Some(obj) = b.as_object_mut() {
+                        obj.remove("ref_count");
+                    }
+                }
+            }
+        }
+    }
 }

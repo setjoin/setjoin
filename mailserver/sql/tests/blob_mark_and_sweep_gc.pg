@@ -1,0 +1,539 @@
+-- pgTAP: Wave 2.3 (#550) + Wave 2.4 (#551) — Mark-and-Sweep S3 Blob GC
+-- live cutover: 14 live roots, 24h grace floor, legal-hold/retention/WORM gate
+-- (including infinite expires_at IS NULL), retired blobs.ref_count &
+-- blob_cleanup_queue, owner-callable blob_live_catalog(), blob_gc_reactivate_v2,
+-- blob_promote_recover_enqueue/complete, FORCE RLS deny-all posture, BZ003
+-- BYPASSRLS enforcement, and setjoin_app uploader reactivation.
+BEGIN;
+SELECT plan(79);
+
+-- ── 1. Migration bookkeeping, V293 retirement, zero feature_toggles, FORCE RLS
+SELECT is(
+  (SELECT count(*)::int FROM public.schema_migrations WHERE version = 292),
+  1, 'schema_migrations records version 292');
+
+SELECT is(
+  (SELECT count(*)::int FROM public.schema_migrations WHERE version = 293),
+  1, 'schema_migrations records version 293');
+
+SELECT is(
+  (SELECT mode FROM public.blob_gc_config WHERE id = 1),
+  'live', 'V293 flipped blob_gc_config.mode to live');
+
+SELECT is(
+  (SELECT count(*)::int FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'blobs' AND column_name = 'ref_count'),
+  0, 'V293 dropped public.blobs.ref_count column');
+
+SELECT is(
+  to_regclass('public.blob_cleanup_queue'),
+  NULL, 'V293 dropped public.blob_cleanup_queue table');
+
+SELECT is(
+  (SELECT count(*)::int FROM pg_trigger t
+     JOIN pg_class c ON c.oid = t.tgrelid
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND t.tgname IN (
+        'attachment_blob_refcount',
+        'attachment_blob_refcount_inc',
+        'blob_refcount_cleanup',
+        'trg_hr_expense_receipts_inc',
+        'trg_hr_expense_receipts_dec',
+        'chat_link_preview_blob_refcount'
+      )),
+  0, 'V293 dropped all 6 legacy blobs.ref_count / blob_cleanup_queue triggers');
+
+SELECT is(
+  (SELECT count(*)::int FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'blobs' AND column_name = 'gc_state'),
+  0, 'public.blobs has no gc_state column');
+
+SELECT is(
+  (SELECT count(*)::int FROM public.feature_toggles WHERE key LIKE '%blob_gc%'),
+  0, 'public.feature_toggles has no blob_gc row');
+
+SELECT is(
+  (SELECT count(*)::int FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname IN ('blob_gc_state', 'blob_gc_shadow_runs', 'blob_gc_shadow_discrepancies', 'blob_gc_config')
+      AND c.relrowsecurity AND c.relforcerowsecurity),
+  4, 'all 4 blob_gc_* companion tables have ENABLE + FORCE ROW LEVEL SECURITY');
+
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename IN ('blob_gc_state', 'blob_gc_shadow_runs', 'blob_gc_shadow_discrepancies', 'blob_gc_config')),
+  0, 'all 4 blob_gc_* companion tables have zero RLS policies (deny-all)');
+
+-- ── 2. Fixtures: divergent user_id != mailbox_id via mk_account ──────────────
+SELECT mk_account('blobgc-main') AS mb_main \gset
+SELECT user_id AS uid_main FROM public.mailboxes WHERE id = :mb_main \gset
+SELECT get_tag_id('Inbox', :mb_main) AS inbox_main \gset
+SELECT mk_account('blobgc-held') AS mb_held \gset
+SELECT user_id AS uid_held FROM public.mailboxes WHERE id = :mb_held \gset
+SELECT get_tag_id('Inbox', :mb_held) AS inbox_held \gset
+SELECT mk_shared_mailbox('blobgc-retained') AS mb_ret \gset
+SELECT get_tag_id('Inbox', :mb_ret) AS inbox_ret \gset
+
+-- Deterministic 64-hex digests for every scenario
+SELECT repeat('01', 32) AS s_att,
+       repeat('02', 32) AS s_hr,
+       repeat('03', 32) AS s_chat,
+       repeat('04', 32) AS s_uav,
+       repeat('05', 32) AS s_cav,
+       repeat('06', 32) AS s_rec_item_ver,
+       repeat('07', 32) AS s_rec_item_upl,
+       repeat('08', 32) AS s_rec_qa_raw,
+       repeat('09', 32) AS s_rec_qa_inv,
+       repeat('0a', 32) AS s_rec_qa_rej,
+       repeat('0b', 32) AS s_msg_raw,
+       repeat('0c', 32) AS s_outq,
+       repeat('0d', 32) AS s_outq_hot,
+       repeat('0e', 32) AS s_journal,
+       repeat('0f', 32) AS s_held_inb,
+       repeat('10', 32) AS s_edisc,
+       repeat('11', 32) AS s_young_2359,
+       repeat('12', 32) AS s_old_2401,
+       repeat('13', 32) AS s_hold_retain_until,
+       repeat('14', 32) AS s_hold_worm_until,
+       repeat('15', 32) AS s_hold_worm_age,
+       repeat('16', 32) AS s_hold_msg_held,
+       repeat('17', 32) AS s_hold_litigation,
+       repeat('18', 32) AS s_hold_mrt_hold,
+       repeat('19', 32) AS s_hold_mrt_inf,
+       repeat('1a', 32) AS s_hold_mrt_future,
+       repeat('1b', 32) AS s_hold_mrt_expired,
+       repeat('1c', 32) AS s_hold_lifecycle,
+       repeat('1d', 32) AS s_reactivate_v2,
+       repeat('1e', 32) AS s_reactivate_app,
+       repeat('1f', 32) AS s_promote_intent
+  \gset
+
+-- Seed all test blobs 48 hours old (except s_young_2359 at 23h59m and s_old_2401 at 24h01m)
+INSERT INTO public.blobs (sha256, minio_ref, size_bytes, content_type, created_at)
+SELECT sha, 'mailblobs/' || sha, 100, 'application/octet-stream', now() - interval '48 hours'
+  FROM unnest(ARRAY[
+    :'s_att', :'s_hr', :'s_chat', :'s_uav', :'s_cav',
+    :'s_rec_item_ver', :'s_rec_item_upl', :'s_rec_qa_raw', :'s_rec_qa_inv', :'s_rec_qa_rej',
+    :'s_msg_raw', :'s_outq', :'s_outq_hot', :'s_journal', :'s_held_inb', :'s_edisc',
+    :'s_hold_retain_until', :'s_hold_worm_until', :'s_hold_worm_age',
+    :'s_hold_msg_held', :'s_hold_litigation', :'s_hold_mrt_hold',
+    :'s_hold_mrt_inf', :'s_hold_mrt_future', :'s_hold_mrt_expired',
+    :'s_hold_lifecycle', :'s_reactivate_v2', :'s_reactivate_app', :'s_promote_intent'
+  ]) AS sha;
+
+INSERT INTO public.blobs (sha256, minio_ref, size_bytes, content_type, created_at)
+VALUES
+  (:'s_young_2359', 'mailblobs/' || :'s_young_2359', 100, 'text/plain', now() - interval '23 hours 59 minutes'),
+  (:'s_old_2401',   'mailblobs/' || :'s_old_2401',   100, 'text/plain', now() - interval '24 hours 1 minute');
+
+-- Wire all 14 live roots
+-- (1) messages.raw_ref + (2) message_attachments.blob_sha256
+INSERT INTO public.messages (mailbox_id, folder_id, thread_id, imap_uid, message_id, subject, from_addr, to_addrs, size_bytes, raw_ref, received_at)
+VALUES (:mb_main, :inbox_main, 't-gc-root', 1001, '<gc-root-msg@mk.test>', 'root', 'a@mk.test', '["b@mk.test"]'::jsonb, 100, :'s_msg_raw', now() - interval '2 days')
+RETURNING id AS msg_main_id, received_at AS msg_main_at \gset
+
+INSERT INTO public.message_attachments (message_id, received_at, blob_sha256, filename, content_type, size_bytes)
+VALUES (:msg_main_id, :'msg_main_at', :'s_att', 'a.bin', 'application/octet-stream', 100);
+
+-- (3) hr_expense_receipts.blob_sha256
+INSERT INTO public.approval_requests (consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at)
+VALUES ('hr.expense', :uid_main, 'exp', '{}'::jsonb, 'user', :uid_main, now() + interval '1 day')
+RETURNING id AS appr_hr_id \gset
+INSERT INTO public.hr_expense_receipts (approval_request_id, line_index, blob_sha256, filename)
+VALUES (:appr_hr_id, 0, :'s_hr', 'receipt.pdf');
+
+-- (4) chat_link_previews.image_blob_sha256
+INSERT INTO public.chat_link_previews (url_hash, url, status, image_blob_sha256)
+VALUES (repeat('aa', 32), 'https://example.test/preview', 'ok', :'s_chat');
+
+-- (5) users.avatar_sha256
+UPDATE public.users SET avatar_sha256 = :'s_uav' WHERE id = :uid_main;
+
+-- (6) contacts.avatar_sha256
+INSERT INTO public.addressbooks (mailbox_id, name) VALUES (:mb_main, 'gc-ab')
+RETURNING id AS ab_id \gset
+INSERT INTO public.contacts (addressbook_id, vcard_uid, display_name, avatar_sha256)
+VALUES (:ab_id, 'gc-vcard-1', 'Alice', :'s_cav');
+
+-- (7) mail_recovery_upload_items.object_ref (verified vs uploading)
+INSERT INTO public.mail_recovery_incidents (id, installation_id, minimum_timeline, maximum_timeline, reason, opened_by, step_up_binding, expires_at, idempotency_key)
+VALUES (gen_random_uuid(), gen_random_uuid(), 1, 1, 'blob gc test incident', :uid_main, decode(repeat('aa', 32), 'hex'), now() + interval '1 day', gen_random_uuid())
+RETURNING id AS rec_inc_id \gset
+
+INSERT INTO public.mail_recovery_upload_sessions (id, incident_id, mailbox_id, uploading_user_id, device_id, artifact_identity, lineage_sha256, raw_mime_sha256, eligibility, declared_size, total_declared_size, next_offset, receipt, consented_at, expires_at, idempotency_key)
+VALUES (gen_random_uuid(), :'rec_inc_id', :mb_main, :uid_main, gen_random_uuid(), decode(repeat('11', 32), 'hex'), decode(repeat('22', 32), 'hex'), decode(:'s_rec_item_ver', 'hex'), 'received', 100, 100, 100, '{}'::jsonb, now(), now() + interval '1 day', gen_random_uuid())
+RETURNING id AS rec_sess_1 \gset
+
+INSERT INTO public.mail_recovery_upload_items (session_id, item_id, role, sha256, declared_size, next_offset, status, object_ref)
+VALUES
+  (:'rec_sess_1', 'raw-verified', 'raw', decode(:'s_rec_item_ver', 'hex'), 100, 100, 'verified', :'s_rec_item_ver'),
+  (:'rec_sess_1', 'att-uploading', 'attachment', decode(:'s_rec_item_upl', 'hex'), 100, 50, 'uploading', :'s_rec_item_upl');
+
+-- (8) & (9) mail_recovery_quarantine_artifacts.raw_ref + blob_inventory (active vs rejected)
+INSERT INTO public.mail_recovery_quarantine_artifacts (id, session_id, incident_id, mailbox_id, uploading_user_id, device_id, artifact_identity, lineage_sha256, raw_mime_sha256, raw_mime_size, raw_ref, receipt, signed_timeline, signed_boot_epoch, parsed_headers, blob_inventory, malware_status, status)
+VALUES (
+  gen_random_uuid(), :'rec_sess_1', :'rec_inc_id', :mb_main, :uid_main, gen_random_uuid(),
+  decode(repeat('33', 32), 'hex'), decode(repeat('44', 32), 'hex'), decode(:'s_rec_qa_raw', 'hex'),
+  100, :'s_rec_qa_raw', '{}'::jsonb, 1, gen_random_uuid(), '{}'::jsonb,
+  jsonb_build_array(jsonb_build_object('sha256', :'s_rec_qa_inv', 'objectRef', :'s_rec_qa_inv', 'role', 'attachment', 'size', '100')),
+  'clean', 'quarantined'
+);
+
+INSERT INTO public.mail_recovery_upload_sessions (id, incident_id, mailbox_id, uploading_user_id, device_id, artifact_identity, lineage_sha256, raw_mime_sha256, eligibility, declared_size, total_declared_size, next_offset, receipt, consented_at, expires_at, idempotency_key)
+VALUES (gen_random_uuid(), :'rec_inc_id', :mb_main, :uid_main, gen_random_uuid(), decode(repeat('55', 32), 'hex'), decode(repeat('66', 32), 'hex'), decode(:'s_rec_qa_rej', 'hex'), 'received', 100, 100, 100, '{}'::jsonb, now(), now() + interval '1 day', gen_random_uuid())
+RETURNING id AS rec_sess_2 \gset
+
+INSERT INTO public.mail_recovery_quarantine_artifacts (id, session_id, incident_id, mailbox_id, uploading_user_id, device_id, artifact_identity, lineage_sha256, raw_mime_sha256, raw_mime_size, raw_ref, receipt, signed_timeline, signed_boot_epoch, parsed_headers, blob_inventory, malware_status, status)
+VALUES (
+  gen_random_uuid(), :'rec_sess_2', :'rec_inc_id', :mb_main, :uid_main, gen_random_uuid(),
+  decode(repeat('77', 32), 'hex'), decode(repeat('88', 32), 'hex'), decode(:'s_rec_qa_rej', 'hex'),
+  100, :'s_rec_qa_rej', '{}'::jsonb, 1, gen_random_uuid(), '{}'::jsonb,
+  '[]'::jsonb, 'clean', 'rejected'
+);
+
+-- (10) outbound_queue.raw_ref
+INSERT INTO public.outbound_queue (message_id, from_addr, rcpt_addrs, raw_ref)
+VALUES ('<gc-oq@mk.test>', 'a@mk.test', ARRAY['b@mk.test'], :'s_outq');
+
+-- (11) outbound_queue_hot.raw_ref
+INSERT INTO public.outbound_queue_hot (message_id, from_addr, rcpt_addrs, raw_ref)
+VALUES ('<gc-oqh@mk.test>', 'a@mk.test', ARRAY['b@mk.test'], :'s_outq_hot');
+
+-- (12) journal_queue.raw_ref
+INSERT INTO public.journal_queue (message_id, envelope_from, envelope_to, raw_ref, journal_mailbox_id)
+VALUES ('<gc-jq@mk.test>', 'a@mk.test', 'b@mk.test', :'s_journal', :mb_main);
+
+-- (13) held_inbound_messages.raw_ref
+INSERT INTO public.distribution_groups (mailbox_id) VALUES (:mb_main)
+RETURNING id AS dg_id \gset
+INSERT INTO public.approval_requests (consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at)
+VALUES ('mail.group_moderation', :uid_main, 'mod', '{}'::jsonb, 'user', :uid_main, now() + interval '1 day')
+RETURNING id AS appr_mod_id \gset
+INSERT INTO public.held_inbound_messages (approval_request_id, group_id, raw_ref, envelope, deliver_params)
+VALUES (:appr_mod_id, :dg_id, :'s_held_inb', '{}'::jsonb, '{}'::jsonb);
+
+-- (14) ediscovery_searches.export_ref
+INSERT INTO public.ediscovery_searches (name, created_by, query, export_ref)
+VALUES ('gc-search', :uid_main, '{}'::jsonb, :'s_edisc');
+
+-- ── 3. Verify all 14 live roots return true from blob_has_live_reference ─────
+SELECT is(public.blob_has_live_reference(:'s_att'), true, 'root 1: message_attachments.blob_sha256 is live');
+SELECT is(public.blob_has_live_reference(:'s_hr'), true, 'root 2: hr_expense_receipts.blob_sha256 is live');
+SELECT is(public.blob_has_live_reference(:'s_chat'), true, 'root 3: chat_link_previews.image_blob_sha256 is live');
+SELECT is(public.blob_has_live_reference(:'s_uav'), true, 'root 4: users.avatar_sha256 is live');
+SELECT is(public.blob_has_live_reference(:'s_cav'), true, 'root 5: contacts.avatar_sha256 is live');
+SELECT is(public.blob_has_live_reference(:'s_rec_item_ver'), true, 'root 6: mail_recovery_upload_items.object_ref (verified) is live');
+SELECT is(public.blob_has_live_reference(:'s_rec_item_upl'), false, 'unverified mail_recovery_upload_items.object_ref is NOT live');
+SELECT is(public.blob_has_live_reference(:'s_rec_qa_raw'), true, 'root 7: mail_recovery_quarantine_artifacts.raw_ref (quarantined) is live');
+SELECT is(public.blob_has_live_reference(:'s_rec_qa_inv'), true, 'root 8: mail_recovery_quarantine_artifacts.blob_inventory is live');
+SELECT is(public.blob_has_live_reference(:'s_rec_qa_rej'), false, 'rejected mail_recovery_quarantine_artifacts.raw_ref is NOT live');
+SELECT is(public.blob_has_live_reference(:'s_msg_raw'), true, 'root 9: messages.raw_ref (64-hex) is live');
+SELECT is(public.blob_has_live_reference(:'s_outq'), true, 'root 10: outbound_queue.raw_ref (64-hex) is live');
+SELECT is(public.blob_has_live_reference(:'s_outq_hot'), true, 'root 11: outbound_queue_hot.raw_ref (64-hex) is live');
+SELECT is(public.blob_has_live_reference(:'s_journal'), true, 'root 12: journal_queue.raw_ref (64-hex) is live');
+SELECT is(public.blob_has_live_reference(:'s_held_inb'), true, 'root 13: held_inbound_messages.raw_ref (64-hex) is live');
+SELECT is(public.blob_has_live_reference(:'s_edisc'), true, 'root 14: ediscovery_searches.export_ref (64-hex) is live');
+
+-- ── 4. Legal-hold, retention-tag (incl. infinite expires_at IS NULL), WORM ───
+INSERT INTO public.blob_gc_state (blob_sha256, gc_state, last_touched_at, retain_until)
+VALUES (:'s_hold_retain_until', 'active', now() - interval '48 hours', now() + interval '1 day');
+
+INSERT INTO public.blob_gc_state (blob_sha256, gc_state, last_touched_at, worm_locked_until)
+VALUES (:'s_hold_worm_until', 'active', now() - interval '48 hours', now() + interval '30 days');
+
+-- messages.held = true
+INSERT INTO public.messages (mailbox_id, folder_id, thread_id, imap_uid, message_id, subject, from_addr, to_addrs, size_bytes, raw_ref, held, received_at)
+VALUES (:mb_main, :inbox_main, 't-gc-held', 1002, '<gc-held@mk.test>', 'held', 'a@mk.test', '["b@mk.test"]'::jsonb, 100, :'s_hold_msg_held', true, now() - interval '2 days');
+
+-- mailboxes.litigation_hold = true
+UPDATE public.mailboxes SET litigation_hold = true WHERE id = :mb_held;
+INSERT INTO public.messages (mailbox_id, folder_id, thread_id, imap_uid, message_id, subject, from_addr, to_addrs, size_bytes, raw_ref, received_at)
+VALUES (:mb_held, :inbox_held, 't-gc-lit', 1003, '<gc-lit@mk.test>', 'lit', 'a@mk.test', '["b@mk.test"]'::jsonb, 100, :'s_hold_litigation', now() - interval '2 days');
+
+-- retention_policies & message_retention_tags
+INSERT INTO public.retention_policies (name, retain_days, action)
+VALUES ('gc-pol-hold', 1, 'hold') RETURNING id AS pol_hold_id \gset
+INSERT INTO public.retention_policies (name, retain_days, action)
+VALUES ('gc-pol-del', 30, 'delete') RETURNING id AS pol_del_id \gset
+
+INSERT INTO public.messages (mailbox_id, folder_id, thread_id, imap_uid, message_id, subject, from_addr, to_addrs, size_bytes, raw_ref, received_at)
+VALUES (:mb_main, :inbox_main, 't-gc-mrt-hold', 1004, '<gc-mrt-hold@mk.test>', 'm1', 'a@mk.test', '["b@mk.test"]'::jsonb, 100, :'s_hold_mrt_hold', now() - interval '2 days')
+RETURNING id AS m_mrt_hold, received_at AS m_mrt_hold_at \gset
+INSERT INTO public.message_retention_tags (message_id, received_at, policy_id, expires_at)
+VALUES (:m_mrt_hold, :'m_mrt_hold_at', :pol_hold_id, now() - interval '1 hour');
+
+-- Infinite retention: expires_at IS NULL with action='delete' MUST be protected!
+INSERT INTO public.messages (mailbox_id, folder_id, thread_id, imap_uid, message_id, subject, from_addr, to_addrs, size_bytes, raw_ref, received_at)
+VALUES (:mb_main, :inbox_main, 't-gc-mrt-inf', 1005, '<gc-mrt-inf@mk.test>', 'm2', 'a@mk.test', '["b@mk.test"]'::jsonb, 100, :'s_hold_mrt_inf', now() - interval '2 days')
+RETURNING id AS m_mrt_inf, received_at AS m_mrt_inf_at \gset
+INSERT INTO public.message_retention_tags (message_id, received_at, policy_id, expires_at)
+VALUES (:m_mrt_inf, :'m_mrt_inf_at', :pol_del_id, NULL);
+
+INSERT INTO public.messages (mailbox_id, folder_id, thread_id, imap_uid, message_id, subject, from_addr, to_addrs, size_bytes, raw_ref, received_at)
+VALUES (:mb_main, :inbox_main, 't-gc-mrt-fut', 1006, '<gc-mrt-fut@mk.test>', 'm3', 'a@mk.test', '["b@mk.test"]'::jsonb, 100, :'s_hold_mrt_future', now() - interval '2 days')
+RETURNING id AS m_mrt_fut, received_at AS m_mrt_fut_at \gset
+INSERT INTO public.message_retention_tags (message_id, received_at, policy_id, expires_at)
+VALUES (:m_mrt_fut, :'m_mrt_fut_at', :pol_del_id, now() + interval '10 days');
+
+INSERT INTO public.messages (mailbox_id, folder_id, thread_id, imap_uid, message_id, subject, from_addr, to_addrs, size_bytes, raw_ref, received_at)
+VALUES (:mb_main, :inbox_main, 't-gc-mrt-exp', 1007, '<gc-mrt-exp@mk.test>', 'm4', 'a@mk.test', '["b@mk.test"]'::jsonb, 100, :'s_hold_mrt_expired', now() - interval '2 days')
+RETURNING id AS m_mrt_exp, received_at AS m_mrt_exp_at \gset
+INSERT INTO public.message_retention_tags (message_id, received_at, policy_id, expires_at)
+VALUES (:m_mrt_exp, :'m_mrt_exp_at', :pol_del_id, now() - interval '1 hour');
+
+-- Detached-retained mailbox_lifecycle
+INSERT INTO public.mailbox_lifecycle (mailbox_id, access_state, delivery_state, binding_state, bound_user_id, retained_at, retention_until)
+VALUES (:mb_ret, 'detached', 'rejecting', 'retained', NULL, now() - interval '1 day', now() + interval '30 days')
+ON CONFLICT (mailbox_id) DO UPDATE
+   SET access_state = 'detached',
+       delivery_state = 'rejecting',
+       binding_state = 'retained',
+       bound_user_id = NULL,
+       retained_at = EXCLUDED.retained_at,
+       retention_until = EXCLUDED.retention_until;
+INSERT INTO public.messages (mailbox_id, folder_id, thread_id, imap_uid, message_id, subject, from_addr, to_addrs, size_bytes, raw_ref, received_at)
+VALUES (:mb_ret, :inbox_ret, 't-gc-ml-ret', 1008, '<gc-ml-ret@mk.test>', 'm5', 'a@mk.test', '["b@mk.test"]'::jsonb, 100, :'s_hold_lifecycle', now() - interval '2 days');
+
+SELECT is(public.blob_is_held_or_retained(:'s_hold_retain_until', 0), true, 'blob_gc_state.retain_until > now() holds blob');
+SELECT is(public.blob_is_held_or_retained(:'s_hold_worm_until', 0), true, 'blob_gc_state.worm_locked_until > now() holds blob');
+SELECT is(public.blob_is_held_or_retained(:'s_hold_worm_age', 30), true, 'active WORM_MODE days holds blob within created_at + days');
+SELECT is(public.blob_is_held_or_retained(:'s_hold_worm_age', 0), false, 'WORM off does not hold unreferenced blob');
+SELECT is(public.blob_is_held_or_retained(:'s_hold_msg_held', 0), true, 'messages.held = true holds blob');
+SELECT is(public.blob_is_held_or_retained(:'s_hold_litigation', 0), true, 'mailboxes.litigation_hold = true holds blob');
+SELECT is(public.blob_is_held_or_retained(:'s_hold_mrt_hold', 0), true, 'retention_policies.action = hold protects blob even past expires_at');
+SELECT is(public.blob_is_held_or_retained(:'s_hold_mrt_inf', 0), true, 'message_retention_tags.expires_at IS NULL (infinite retention) protects blob');
+SELECT is(public.blob_is_held_or_retained(:'s_hold_mrt_future', 0), true, 'unexpired message_retention_tags protects blob');
+SELECT is(public.blob_is_held_or_retained(:'s_hold_mrt_expired', 0), false, 'expired delete retention tag does not hold blob');
+SELECT is(public.blob_is_held_or_retained(:'s_hold_lifecycle', 0), true, 'detached-retained mailbox_lifecycle protects blob');
+SELECT throws_ok(
+  $f$SELECT public.blob_is_held_or_retained(repeat('12', 32), -1)$f$,
+  'BZ040', NULL, 'negative p_worm_days fails closed (BZ040)');
+
+-- ── 5. Grace floor (23h59m vs 24h01m) & Phase 1 Mark ─────────────────────────
+SELECT is(
+  (public.blob_gc_mark(1, 0, 500)->>'effective_grace_minutes')::int,
+  1440, 'blob_gc_mark clamps grace window to >= 1440 minutes (24h floor)');
+
+SELECT is(
+  COALESCE((SELECT gc_state FROM public.blob_gc_state WHERE blob_sha256 = :'s_young_2359'), 'active'),
+  'active', 'blob at 23h59m stays active under 24h grace floor');
+
+SELECT is(
+  (SELECT gc_state FROM public.blob_gc_state WHERE blob_sha256 = :'s_old_2401'),
+  'reclaim_eligible', 'unreferenced blob at 24h01m becomes reclaim_eligible');
+
+SELECT is(
+  (SELECT gc_state FROM public.blob_gc_state WHERE blob_sha256 = :'s_rec_item_upl'),
+  'reclaim_eligible', 'unverified recovery item blob past grace becomes reclaim_eligible');
+
+SELECT is(
+  (SELECT gc_state FROM public.blob_gc_state WHERE blob_sha256 = :'s_rec_qa_rej'),
+  'reclaim_eligible', 'rejected quarantine artifact blob past grace becomes reclaim_eligible');
+
+SELECT is(
+  (SELECT count(*)::int FROM public.blob_gc_state
+    WHERE blob_sha256 IN (
+      :'s_att', :'s_hr', :'s_chat', :'s_uav', :'s_cav',
+      :'s_rec_item_ver', :'s_rec_qa_raw', :'s_rec_qa_inv',
+      :'s_msg_raw', :'s_outq', :'s_outq_hot', :'s_journal', :'s_held_inb', :'s_edisc'
+    ) AND gc_state <> 'active'),
+  0, 'all 14 live roots remain active after blob_gc_mark');
+
+-- ── 6. Tx 2A claim_purging + cooldown + WORM armed vs detected audit split ───
+SELECT is(
+  public.blob_gc_claim_purging(:'s_old_2401', 1440, 1440, 0),
+  'cooldown', 'claim_purging respects cooldown when freshly marked reclaim_eligible');
+
+UPDATE public.blob_gc_state
+   SET reclaim_eligible_at = now() - interval '25 hours'
+ WHERE blob_sha256 = :'s_old_2401';
+
+SELECT is(
+  public.blob_gc_claim_purging(:'s_old_2401', 1440, 1440, 0),
+  'purging', 'claim_purging transitions eligible blob past cooldown to purging');
+
+SELECT is(
+  public.blob_gc_record_worm_lock(:'s_old_2401', now() + interval '7 days', 'worm_put_apply'),
+  true, 'blob_gc_record_worm_lock records inline worm_put_apply arming');
+
+SELECT is(
+  (SELECT count(*)::int FROM public.admin_audit_log
+    WHERE action = 'blob_gc_worm_lock_armed' AND after_state->>'sha256' = :'s_old_2401'),
+  1, 'worm_put_apply writes blob_gc_worm_lock_armed audit action (distinct from 403 detection)');
+
+SELECT is(
+  public.blob_gc_record_worm_lock(:'s_old_2401', now() + interval '14 days', 'test_403'),
+  true, 'blob_gc_record_worm_lock reverts blob on 403 Object Lock detection');
+
+SELECT is(
+  (SELECT gc_state FROM public.blob_gc_state WHERE blob_sha256 = :'s_old_2401'),
+  'active', 'worm-locked blob reverted to active');
+
+SELECT is(
+  (SELECT count(*)::int FROM public.admin_audit_log
+    WHERE action = 'blob_gc_worm_lock_detected' AND after_state->>'sha256' = :'s_old_2401'),
+  1, '403 detection writes blob_gc_worm_lock_detected audit warning');
+
+-- ── 7. Wave 2.4 cutover: blob_live_catalog (as setjoin_owner), reactivate_v2,
+--       promote_recover, noncanonical sha256 skip ────────────────────────────
+SELECT is(
+  to_regprocedure('public.blob_gc_shadow_reconcile(integer,integer,integer)'),
+  NULL, 'V293 retired blob_gc_shadow_reconcile');
+
+-- Verify set-based blob_live_catalog() works as non-superuser setjoin_owner!
+SET LOCAL ROLE setjoin_owner;
+SELECT is(
+  (SELECT count(*)::int FROM public.blob_live_catalog()
+    WHERE sha256 IN (
+      :'s_att', :'s_hr', :'s_chat', :'s_uav', :'s_cav',
+      :'s_rec_item_ver', :'s_rec_qa_raw', :'s_rec_qa_inv',
+      :'s_msg_raw', :'s_outq', :'s_outq_hot', :'s_journal', :'s_held_inb', :'s_edisc'
+    )),
+  14, 'blob_live_catalog() callable by setjoin_owner returns all 14 live roots');
+
+SELECT is(
+  (SELECT count(*)::int FROM public.blob_live_catalog()
+    WHERE sha256 IN (:'s_old_2401', :'s_rec_item_upl', :'s_rec_qa_rej')),
+  0, 'blob_live_catalog() excludes unreferenced, unverified, and rejected blobs');
+RESET ROLE;
+
+-- Verify blob_gc_reactivate_v2 on purging row schedules delayed blob.promote_verify
+INSERT INTO public.blob_gc_state (blob_sha256, gc_state, reclaim_eligible_at, purging_at, last_touched_at)
+VALUES (:'s_reactivate_v2', 'purging', now() - interval '25 hours', now() - interval '30 seconds', now() - interval '48 hours')
+ON CONFLICT (blob_sha256) DO UPDATE
+   SET gc_state = 'purging',
+       reclaim_eligible_at = EXCLUDED.reclaim_eligible_at,
+       purging_at = EXCLUDED.purging_at;
+
+SELECT public.blob_gc_reactivate_v2(:'s_reactivate_v2', 'tmp/blob-upload/00112233445566778899aabbccddeeff') AS v2_res \gset
+SELECT is(
+  ((:'v2_res'::jsonb)->>'was_purging')::boolean
+    AND EXISTS (
+      SELECT 1 FROM public.work_items
+       WHERE id = ((:'v2_res'::jsonb)->>'verify_work_item_id')::bigint
+         AND kind = 'blob.promote_verify'
+         AND status = 'pending'
+         AND run_at > now() + interval '30 seconds'
+    ),
+  true, 'blob_gc_reactivate_v2 on purging schedules delayed blob.promote_verify (60s)');
+
+-- Verify blob_promote_recover_enqueue validates staging prefix and protects sha256
+SELECT throws_ok(
+  $f$SELECT public.blob_promote_recover_enqueue(repeat('1f', 32), 'tmp/upload/0011223344556677', 30.0)$f$,
+  'BZ040', NULL, 'blob_promote_recover_enqueue rejects non-tmp/blob-upload/* staging keys (BZ040)');
+
+SELECT public.blob_promote_recover_enqueue(:'s_promote_intent', 'tmp/blob-upload/00112233445566778899aabbccddeeff', 30.0) AS prom_wid \gset
+SELECT is(
+  public.blob_is_held_or_retained(:'s_promote_intent', 0),
+  true, 'pending blob.promote_recover protects sha256 in blob_is_held_or_retained');
+
+SELECT is(
+  public.blob_promote_recover_complete(:prom_wid, :'s_promote_intent', 'tmp/blob-upload/00112233445566778899aabbccddeeff'),
+  true, 'blob_promote_recover_complete cancels pending work item');
+SELECT is(
+  public.blob_is_held_or_retained(:'s_promote_intent', 0),
+  false, 'completed promote_recover intent releases GC hold');
+
+-- Noncanonical sha256 skipped cleanly by blob_gc_mark
+INSERT INTO public.blobs (sha256, minio_ref, size_bytes, content_type, created_at)
+VALUES ('legacy/noncanonical-key-550', 'legacy/noncanonical-key-550', 10, 'application/octet-stream', now() - interval '72 hours')
+ON CONFLICT (sha256) DO NOTHING;
+
+SELECT public.blob_gc_mark(1440, 0, 500);
+SELECT is(
+  (SELECT count(*)::int FROM public.blob_gc_state WHERE blob_sha256 = 'legacy/noncanonical-key-550'),
+  0, 'noncanonical blobs.sha256 is skipped cleanly by blob_gc_mark (never wedges Tx 2A)');
+
+-- ── 8. FORCE RLS deny-all, BZ003 refusal, and setjoin_app uploader reactivation
+SELECT is(
+  to_regprocedure('public.blob_gc_reactivate(text,timestamptz)'),
+  NULL, '2-arg blob_gc_reactivate(text,timestamptz) does not exist (setjoin_app cannot set worm_locked_until)');
+
+INSERT INTO public.blob_gc_state (blob_sha256, gc_state, reclaim_eligible_at, purging_at, last_touched_at)
+VALUES (:'s_reactivate_app', 'purging', now() - interval '25 hours', now() - interval '1 minute', now() - interval '48 hours')
+ON CONFLICT (blob_sha256) DO UPDATE
+   SET gc_state = 'purging',
+       reclaim_eligible_at = EXCLUDED.reclaim_eligible_at,
+       purging_at = EXCLUDED.purging_at,
+       last_touched_at = EXCLUDED.last_touched_at;
+
+-- Verify BZ003 guard fires if a NOBYPASSRLS role were ever granted EXECUTE:
+SAVEPOINT sp_bz003;
+GRANT EXECUTE ON FUNCTION public.blob_gc_mark(integer, integer, integer) TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(
+  $f$SELECT public.blob_gc_mark(1440, 0, 10)$f$,
+  'BZ003', NULL, 'SECURITY INVOKER blob_gc_mark refuses NOBYPASSRLS caller with BZ003');
+RESET ROLE;
+ROLLBACK TO SAVEPOINT sp_bz003;
+
+-- Test real production setjoin_app ACLs (without extra grants):
+SET LOCAL ROLE setjoin_app;
+
+SELECT throws_ok(
+  $f$SELECT count(*) FROM public.blob_gc_state$f$,
+  '42501', NULL, 'blob_gc_state direct SELECT denied for setjoin_app');
+SELECT throws_ok(
+  $f$INSERT INTO public.blob_gc_state(blob_sha256) VALUES (repeat('ff', 32))$f$,
+  '42501', NULL, 'blob_gc_state direct INSERT denied for setjoin_app');
+SELECT throws_ok(
+  $f$UPDATE public.blob_gc_state SET gc_state = 'active'$f$,
+  '42501', NULL, 'blob_gc_state direct UPDATE denied for setjoin_app');
+SELECT throws_ok(
+  $f$DELETE FROM public.blob_gc_state$f$,
+  '42501', NULL, 'blob_gc_state direct DELETE denied for setjoin_app');
+SELECT throws_ok(
+  $f$SELECT count(*) FROM public.blob_gc_shadow_runs$f$,
+  '42501', NULL, 'blob_gc_shadow_runs direct SELECT denied for setjoin_app');
+SELECT throws_ok(
+  $f$SELECT count(*) FROM public.blob_gc_shadow_discrepancies$f$,
+  '42501', NULL, 'blob_gc_shadow_discrepancies direct SELECT denied for setjoin_app');
+SELECT throws_ok(
+  $f$SELECT count(*) FROM public.blob_gc_config$f$,
+  '42501', NULL, 'blob_gc_config direct SELECT denied for setjoin_app');
+SELECT throws_ok(
+  $f$SELECT public.blob_gc_mark(1440, 0, 10)$f$,
+  '42501', NULL, 'setjoin_app cannot execute worker-only blob_gc_mark (42501)');
+SELECT throws_ok(
+  $f$SELECT * FROM public.blob_live_catalog()$f$,
+  '42501', NULL, 'setjoin_app cannot execute owner/worker-only blob_live_catalog (42501)');
+SELECT throws_ok(
+  $f$SELECT public.blob_gc_record_worm_lock(repeat('aa', 32), 'infinity'::timestamptz, 'forged')$f$,
+  '42501', NULL, 'setjoin_app cannot execute worker-only blob_gc_record_worm_lock (42501)');
+
+-- Narrow SECURITY DEFINER blob_gc_reactivate + blob_upload_account + promote_recover MUST SUCCEED as setjoin_app!
+SELECT is(
+  public.blob_gc_reactivate(:'s_reactivate_app'),
+  true, 'setjoin_app can reactivate a purging blob via blob_gc_reactivate()');
+
+SELECT is(
+  (public.blob_upload_account(:uid_main, :'s_rec_qa_rej', 'mailblobs/' || :'s_rec_qa_rej', 100, 'text/plain', 1440, 0))->>'result',
+  'dedup', 'setjoin_app blob_upload_account() succeeds and reactivates reclaim_eligible blob');
+
+SELECT public.blob_promote_recover_enqueue(:'s_promote_intent', 'tmp/blob-upload/aabbccddeeff00112233445566778899', 30.0) AS app_prom_wid \gset
+SELECT is(
+  public.blob_promote_recover_complete(:app_prom_wid, :'s_promote_intent', 'tmp/blob-upload/aabbccddeeff00112233445566778899'),
+  true, 'setjoin_app can enqueue and complete blob_promote_recover via narrow SECURITY DEFINER helpers');
+SELECT is(
+  public.blob_promote_recover_enqueue(repeat('ef', 32), 'tmp/blob-upload/aabbccddeeff00112233445566778899', 30.0),
+  NULL::bigint, 'blob_promote_recover_enqueue returns NULL when sha256 is absent from public.blobs');
+
+RESET ROLE;
+
+SELECT is(
+  (SELECT gc_state FROM public.blob_gc_state WHERE blob_sha256 = :'s_reactivate_app'),
+  'active', 'blob_gc_reactivate transitioned purging row to active');
+
+SELECT is(
+  (SELECT worm_locked_until FROM public.blob_gc_state WHERE blob_sha256 = :'s_reactivate_app'),
+  NULL, 'blob_gc_reactivate never sets worm_locked_until');
+
+SELECT is(
+  (SELECT gc_state FROM public.blob_gc_state WHERE blob_sha256 = :'s_rec_qa_rej'),
+  'active', 'blob_upload_account transitioned reclaim_eligible row to active');
+
+SELECT * FROM finish();
+ROLLBACK;

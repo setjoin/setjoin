@@ -1,13 +1,13 @@
 //! Exact scoped bearer download, observed through the real front door.
 mod common;
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use hyper::{Request, Response};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use setjoin_conformance::{fixture, harness::Db};
 use setjoin_gateway::{
-    Config, Gateway, RouteTable, TrustedProxies,
     attachment::{AttachmentCommands, AttachmentRoute},
     recovery_worker::S3Store,
+    Config, Gateway, RouteTable, TrustedProxies,
 };
 use setjoin_pg::ScopedExecutor;
 use sha2::{Digest, Sha256};
@@ -60,7 +60,7 @@ async fn run_case(case: &str, mutant: bool) -> Result<(), common::BoxError> {
  owner.batch_execute("INSERT INTO feature_toggles(key,enabled) VALUES('feature.offline_mail',true),('feature.connectivity_aware_sync',true) ON CONFLICT(key) DO UPDATE SET enabled=true").await?;
  let policy:i64=owner.query_one("INSERT INTO offline_policies(name,scope_type,scope_id,enabled,require_approval,connectivity_sync_mode,automatic_network_max) VALUES('blobs1-oracle','user',$1,true,false,'execute','unmetered') RETURNING id",&[&caller.user]).await?.get(0);
  let device:i64=owner.query_one("INSERT INTO user_devices(user_id,device_name,platform,fingerprint_hash,offline_opt_in,offline_approval) VALUES($1,'blobs1-device','desktop',sha256('blobs1-fingerprint'::bytea),true,'approved') RETURNING id",&[&caller.user]).await?.get(0);
- owner.execute("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$1,17,'text/plain',0)",&[&hash]).await?;
+ owner.execute("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type) VALUES($1,$1,17,'text/plain')",&[&hash]).await?;
  owner.execute("INSERT INTO message_attachments(message_id,received_at,blob_sha256,filename,content_type,disposition,size_bytes) SELECT id,received_at,$1,'x.txt','text/plain','attachment',17 FROM messages WHERE id=$2 AND mailbox_id=$3",&[&hash,&account.two_labels,&account.mailbox]).await?;
  if gated {
    let enabled = match case {

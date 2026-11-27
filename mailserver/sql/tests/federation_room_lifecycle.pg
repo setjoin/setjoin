@@ -40,8 +40,8 @@ SELECT is((SELECT after_state ->> 'channelId' FROM admin_audit_log
 SELECT set_config('app.capture_notify', 'on', true);
 SELECT chat_channel_create(96001, 'bind-notify') AS ch_bind_notify \gset
 SELECT federation_room_create(96001, :ch_bind_notify, 'alpha.test');
-SELECT is(last_notify_event(format('chat:%s', 96001)), 'federation_roster',
-  'federation_room_create notifies federation_roster on the channel');
+SELECT is(last_notify_payload('sync'), format('channel:%s:0', :ch_bind_notify),
+  'federation_room_create emits an O(1) sync bell on the channel');
 
 -- ══════════════════════════════════════════════════════════════════════
 -- §2 federation_room_create: refusals

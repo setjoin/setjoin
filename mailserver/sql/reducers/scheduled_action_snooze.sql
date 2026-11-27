@@ -63,7 +63,7 @@ BEGIN
     ELSIF v_deleted > 0 THEN
         -- Snoozed tag removed but a location already present → still a visibility
         -- change; push once (no new location tag, so mailbox-wide bump).
-        PERFORM notify_state_change(v_mailbox_id, NULL);
+        PERFORM notify_state_change(v_mailbox_id, NULL, v_message_id, 'updated');
     END IF;
 
     RETURN jsonb_build_object('status', 'ok', 'note', 'woken');

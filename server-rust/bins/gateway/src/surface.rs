@@ -539,28 +539,49 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                 if !cfg.metrics.admits(authorization) {
                     Reply::new(401, None, "no-store", Bytes::new())
                 } else {
-                    let identity =
+                    let (identity, work_queue) =
                         match self.worker.as_ref().unwrap_or(&self.exec).try_worker_pool() {
                             Some(pool) => match pool.begin_repeatable_read_only().await {
                                 Ok(mut tx) => {
-                                    let rows = tx
+                                    let identity = match tx
                                         .query_contract(&setjoin_static::sql::METRICS_IDENTITY, &[])
-                                        .await;
-                                    let _ = tx.rollback().await;
-                                    match rows {
+                                        .await
+                                    {
                                         Ok(rows) => metrics::decode_identity(&rows),
                                         Err(_) => metrics::Identity::default(),
-                                    }
+                                    };
+                                    let work_queue = match tx
+                                        .query_contract(
+                                            &setjoin_static::sql::METRICS_WORK_QUEUE,
+                                            &[],
+                                        )
+                                        .await
+                                    {
+                                        Ok(rows) => metrics::decode_work_queue(&rows),
+                                        Err(_) => metrics::WorkQueueMetrics::default(),
+                                    };
+                                    let _ = tx.rollback().await;
+                                    (identity, work_queue)
                                 }
-                                Err(_) => metrics::Identity::default(),
+                                Err(_) => (
+                                    metrics::Identity::default(),
+                                    metrics::WorkQueueMetrics::default(),
+                                ),
                             },
-                            None => metrics::Identity::default(),
+                            None => (
+                                metrics::Identity::default(),
+                                metrics::WorkQueueMetrics::default(),
+                            ),
                         };
                     Reply::new(
                         200,
                         Some("text/plain; version=0.0.4"),
                         "no-store",
-                        metrics::render(&crate::served_stats::snapshot(), &identity),
+                        metrics::render_with_work_queue(
+                            &crate::served_stats::snapshot(),
+                            &identity,
+                            Some(&work_queue),
+                        ),
                     )
                 }
             }

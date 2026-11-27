@@ -865,6 +865,13 @@ async fn sign_one(
     let signed = resolve_and_sign(&candidates, &draft.from_addr, &content)?;
     let size = signed.len() as i64;
     let key = sha256_hex(&signed);
+    worker
+        .protocol_statement(
+            "SELECT public.blob_gc_reactivate($1)",
+            &[(&key, setjoin_pg::Type::TEXT)],
+        )
+        .await
+        .map_err(|_| smime::REASON_SIGN_FAILED)?;
     store
         .put(&key, &signed, "message/rfc822")
         .await
@@ -945,6 +952,13 @@ async fn encrypt_one(
         .map_err(|_| (smime::REASON_ENCRYPT_NO_CERT, Vec::new()))?;
     let size = encrypted.len() as i64;
     let key = sha256_hex(&encrypted);
+    worker
+        .protocol_statement(
+            "SELECT public.blob_gc_reactivate($1)",
+            &[(&key, setjoin_pg::Type::TEXT)],
+        )
+        .await
+        .map_err(|_| (smime::REASON_ENCRYPT_NO_CERT, Vec::new()))?;
     store
         .put(&key, &encrypted, "message/rfc822")
         .await
@@ -978,6 +992,13 @@ async fn assemble_plain_attachment(
     let wire = assemble_mixed_mime(&raw, &parts)?;
     let size = wire.len() as i64;
     let key = sha256_hex(&wire);
+    worker
+        .protocol_statement(
+            "SELECT public.blob_gc_reactivate($1)",
+            &[(&key, setjoin_pg::Type::TEXT)],
+        )
+        .await
+        .map_err(|e| format!("blob gc reactivate failed: {}", e.message))?;
     store.put(&key, &wire, "message/rfc822").await?;
     Ok(Some((key, size)))
 }

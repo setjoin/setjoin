@@ -1,6 +1,6 @@
 //! #406: terminal admission answers through the real front-door HTTP seam.
-use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
+use crate::common::boot::CommandBootExt;
 mod common;
 use common::{body_bytes, full, send};
 use hyper::Request;
@@ -219,8 +219,12 @@ const FAMILIES: &[(&str, &str, &str)] = &[
     ("F22", "GET", "/api/openapi.full.json"),
 ];
 
-async fn observe(response: hyper::Response<hyper::body::Incoming>) -> serde_json::Value {
+async fn observe_for_uri(
+    response: hyper::Response<hyper::body::Incoming>,
+    uri: &str,
+) -> serde_json::Value {
     let status = response.status().as_u16();
+    let is_jmap_session = uri == "/.well-known/jmap";
     let headers: serde_json::Map<String, serde_json::Value> = response
         .headers()
         .iter()
@@ -228,12 +232,16 @@ async fn observe(response: hyper::Response<hyper::body::Incoming>) -> serde_json
             !matches!(
                 k.as_str(),
                 "date" | "content-length" | "transfer-encoding" | "connection"
-            )
+            ) && !(is_jmap_session && k.as_str() == "x-setjoin-sync-wakeup")
         })
         .map(|(k, v)| (k.to_string(), json!(v.to_str().unwrap())))
         .collect();
     let bytes = body_bytes(response).await;
     json!({"status":status,"headers":headers,"body":String::from_utf8(bytes.to_vec()).unwrap()})
+}
+
+async fn observe(response: hyper::Response<hyper::body::Incoming>) -> serde_json::Value {
+    observe_for_uri(response, "").await
 }
 
 async fn assert_zero_proxy(address: std::net::SocketAddr) -> Result<(), BoxError> {
@@ -505,7 +513,7 @@ async fn active_guests_are_hidden_on_every_family_when_program_is_off() -> Resul
                         .unwrap(),
                 )
                 .await;
-                let value = observe(response).await;
+                let value = observe_for_uri(response, uri).await;
                 let key = format!("{family}-claimed-{claimed}");
                 if !record && value != expected[&key] {
                     mismatches.push(format!("{key}: {value}; expected {}", expected[&key]));
@@ -602,7 +610,7 @@ async fn active_guests_follow_the_go_allowlist_when_program_is_on() -> Result<()
                         .unwrap(),
                 )
                 .await;
-                let value = observe(response).await;
+                let value = observe_for_uri(response, uri).await;
                 let key = format!("{family}-claimed-{claimed}");
                 if !record && value != expected[&key] {
                     mismatches.push(format!("{key}: {value}; expected {}", expected[&key]));
@@ -695,7 +703,7 @@ async fn guest_jmap_session_never_resolves_a_mailbox() -> Result<(), BoxError> {
                         .unwrap(),
                 )
                 .await;
-                let value = observe(response).await;
+                let value = observe_for_uri(response, uri).await;
                 let key = format!("{family}-claimed-{claimed}");
                 if !record && value != expected[&key] {
                     mismatches.push(format!("{key}: {value}; expected {}", expected[&key]));
@@ -815,7 +823,7 @@ async fn guest_user_domains_do_not_invent_mailbox_authority() -> Result<(), BoxE
                         .unwrap(),
                 )
                 .await;
-                let value = observe(response).await;
+                let value = observe_for_uri(response, uri).await;
                 let key = format!("{family}-claimed-{claimed}");
                 if !record && value != expected[&key] {
                     mismatches.push(format!("{key}: {value}; expected {}", expected[&key]));

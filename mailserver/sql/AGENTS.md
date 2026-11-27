@@ -1,11 +1,10 @@
 # mailserver/sql — DOX child AGENTS.md
 
-Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Reducers commit authorization/data/state/audit/notify atomically. Preserve authenticated identity currency and same-statement ownership. Reducer bodies use CREATE OR REPLACE, p_/v_, registered BZ errors and no NOT NULL function parameters; schema/seed changes alone require forward migrations. Do not hand-edit the collapsed baseline. Loader is deterministic fixed-point, failing loudly. Preserve trigger-owned blob refcounts and domain-specific RLS. Query work requires docs/standards/DATABASE_SECURITY.md; RLS helpers require ARCH-018-force-rls-scope-helper-recipe.md. Read the owning reducers/README.md entry and relevant local contract, then affected pgTAP/consumer proofs. No children.
+Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Reducers commit authorization/data/state/audit/notify atomically. Preserve authenticated identity currency and same-statement ownership. Reducer bodies use CREATE OR REPLACE, p_/v_, registered BZ errors and no NOT NULL function parameters; schema/seed changes alone require forward migrations. Do not hand-edit the collapsed baseline. Loader is deterministic fixed-point, failing loudly. Preserve Mark-and-Sweep blob GC live-root manifest (`config/blob-reference-manifest.json`, V292/V293) and domain-specific RLS. Query work requires docs/standards/DATABASE_SECURITY.md; RLS helpers require ARCH-018-force-rls-scope-helper-recipe.md. Read the owning reducers/README.md entry and relevant local contract, then affected pgTAP/consumer proofs. No children.
 
 ## DOX sections
 
 - [WebAuthn login replay and pending revocation (#336)](DOX.md#webauthn-login-replay-and-pending-revocation-336)
-
 - [Purpose](DOX.md#purpose)
   - [Security recovery additions (V229/V232)](DOX.md#security-recovery-additions-v229v232)
   - [Transactional updater and client continuity authority (V178–V182)](DOX.md#transactional-updater-and-client-continuity-authority-v178v182)
@@ -97,17 +96,16 @@ Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Re
 - [Rust approval policy data transactions](DOX.md#rust-approval-policy-data-transactions) — F10 data/audit transaction parity (#269).
 - [Rust Drive content-view audit](DOX.md#rust-drive-content-view-audit-transaction-275) — F14 post-admission dedup transaction and actor fence.
 - [Drive statement snapshots](DOX.md#rust-drive-statement-snapshots-275) — content admission/revocation and atomic restore/source-manifest reads.
-- [Rust admin role transactions](DOX.md#rust-admin-role-transactions-278) — F01 role create/update/delete/assign/remove mirroring Go (#278).
-- [Rust admin scope-set transactions](DOX.md#rust-admin-scope-set-transactions-279) — F01 scope-set CRUD/member reducers mirroring Go (#279).
-- [Rust admin group-mapping update](DOX.md#rust-admin-group-mapping-update-369) — F01 `rust_admin_group_mappings_put` mirroring Go (#369).
-- [Rust admin user-lifecycle transactions](DOX.md#rust-admin-user-lifecycle-transactions-282) — F01 user create/update/delete/secure/app-password reducers mirroring Go (#282).
-- [Rust admin organization-policy transactions](DOX.md#rust-admin-organization-policy-transactions-372) — F01 department and policy-reorder reducers mirroring Go (#372).
+- [Rust admin role transactions](DOX.md#rust-admin-role-transactions-278) — F01 role CRUD/assign (#278).
+- [Rust admin scope-set transactions](DOX.md#rust-admin-scope-set-transactions-279) — F01 scope-set CRUD (#279).
+- [Rust admin group-mapping update](DOX.md#rust-admin-group-mapping-update-369) — F01 `rust_admin_group_mappings_put` (#369).
+- [Rust admin user-lifecycle transactions](DOX.md#rust-admin-user-lifecycle-transactions-282) — F01 user lifecycle (#282).
+- [Rust admin organization-policy transactions](DOX.md#rust-admin-organization-policy-transactions-372) — F01 department/policy-reorder (#372).
 - [Rust Guests transaction wrappers](DOX.md#rust-guests-transaction-wrappers-272) — F11 atomic profile, lifecycle and invitation transactions.
-- [Rust Compliance eDiscovery](DOX.md#rust-compliance-ediscovery-289) — F04 close/hold/search/export transactions mirroring Go (#289).
+- [Rust Compliance eDiscovery](DOX.md#rust-compliance-ediscovery-289) — F04 close/hold/search/export (#289).
 - [Rust MDM transactions](DOX.md#rust-mdm-policy-transactions-310) — F07 policy writes and frozen-Go lifecycle scope parity.
 - [Rust Chat compliance](DOX.md#rust-chat-compliance-291) — F04 policy data/audit and live grant fences.
-
-- [Rust platform system transactions](DOX.md#rust-platform-system-transactions-443) — F08 SoD mode and welcome test-send reducers mirroring Go (#443).
+- [Rust platform system transactions](DOX.md#rust-platform-system-transactions-443) — F08 SoD mode and welcome test-send (#443).
 - [Rust Compliance retention transactions](DOX.md#rust-compliance-retention-policy-transactions-290) — F04 scoped policy data/audit parity.
 - [Rust MAM data transactions](DOX.md#rust-mam-data-transactions-311) — F07 policy maps and checked post-commit notification parity.
 - [Rust offline governance](DOX.md#rust-offline-governance-312) — F07 frozen-Go reducer scope and atomic evidence adapter.
@@ -131,7 +129,6 @@ Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Re
 - [Rust SAML link begin (#341)](DOX.md#rust-saml-link-begin-341) — elevation, receipt.
 - [SAML ACS (#546)](DOX.md#saml-acs-546)
 - [Rust shared unlink (#341)](DOX.md#rust-shared-identity-unlink-341) — owned detach/revocation and opaque receipt.
-- [Identity S/MIME](DOX.md#rust-identity-self-service-smime-494) (#494).
-- [SMTP security](DOX.md#rust-smtp-inbound-security-transaction-526) (#526).
-- [SMTP iMIP](DOX.md#rust-smtp-imip-transactions-526) (#526).
+- [Identity S/MIME](DOX.md#rust-identity-self-service-smime-494) (#494), [SMTP](DOX.md#rust-smtp-inbound-security-transaction-526) (#526).
+- WorkQueue/schedules (V290–V291, #548–#549); [Blob GC](DOX.md#blob-gc-v292-v293-550-551) (V292–V293, #550–#551); SyncWakeup (V294, #552); `chat_changes` (V295, #553); IMAP MODSEQ/journal (V296, #554).
 - Table manifest: `config/table-ownership-manifest.json` (#539).

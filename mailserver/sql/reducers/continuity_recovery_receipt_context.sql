@@ -47,7 +47,7 @@ BEGIN
        AND NOT EXISTS (
            SELECT 1 FROM scheduled_actions sa
            WHERE sa.mailbox_id=p_mailbox_id
-             AND sa.status IN ('pending','processing')
+             AND sa.status IN ('pending','enqueued','processing')
              AND sa.payload @> jsonb_build_object('message_id',m.id)
        )
        AND (loc.name IS DISTINCT FROM 'Sent' OR NOT EXISTS (

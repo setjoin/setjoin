@@ -1504,6 +1504,15 @@ const PROBES: &[TableProbe] = &[
         insert_a_sql: "INSERT INTO chat_messages (id, channel_id, seq, author_id, body) OVERRIDING SYSTEM VALUE VALUES (939201, 930200, 2, 910001, 'hello ins')",
     },
     TableProbe {
+        table: "chat_changes",
+        class: ManifestClass::UserScoped,
+        guc_mode: GucMode::UserOnly,
+        seed_sql: "INSERT INTO chat_changes (channel_id, change_seq, message_id, op) VALUES (930200, 1, 930201, 'created')",
+        where_a: "channel_id = 930200 AND change_seq = 1",
+        update_set: "op = op",
+        insert_a_sql: "INSERT INTO chat_changes (channel_id, change_seq, message_id, op) VALUES (930200, 2, 930201, 'updated')",
+    },
+    TableProbe {
         table: "chat_mentions",
         class: ManifestClass::UserScoped,
         guc_mode: GucMode::UserOnly,
@@ -2740,10 +2749,10 @@ async fn rls_full_matrix_187_scoped_tables_under_setjoin_app() {
         }
     }
     assert_eq!(mailbox_count, 66, "expected 66 mailbox_scoped tables");
-    assert_eq!(user_count, 121, "expected 121 user_scoped tables");
-    assert_eq!(manifest_scoped.len(), 187, "expected 187 scoped tables");
+    assert_eq!(user_count, 122, "expected 122 user_scoped tables");
+    assert_eq!(manifest_scoped.len(), 188, "expected 188 scoped tables");
 
-    // 2. Assert exact 1:1 coverage between manifest's 187 scoped tables and PROBES.
+    // 2. Assert exact 1:1 coverage between manifest's 188 scoped tables and PROBES.
     let mut probe_set: BTreeSet<String> = BTreeSet::new();
     for p in PROBES {
         assert!(
@@ -2766,7 +2775,7 @@ async fn rls_full_matrix_187_scoped_tables_under_setjoin_app() {
         uncovered.is_empty(),
         "uncovered scoped tables in manifest (add live matrix probes): {uncovered:?}"
     );
-    assert_eq!(PROBES.len(), 187);
+    assert_eq!(PROBES.len(), 188);
 
     // 3. Connect to PostgreSQL (skip only when REQUIRE_DB unset and no DSN).
     let Some(owner_str) = owner_dsn() else {
@@ -2879,8 +2888,8 @@ async fn rls_full_matrix_187_scoped_tables_under_setjoin_app() {
         .expect("query pg_class RLS posture");
     assert_eq!(
         rls_rows.len(),
-        187,
-        "all 187 scoped tables must exist in pg_class"
+        188,
+        "all 188 scoped tables must exist in pg_class"
     );
     for row in &rls_rows {
         let relname: String = row.get(0);
@@ -3203,7 +3212,7 @@ async fn run_live_187_matrix(owner: &Client, app: &Client, app_unset: &Client) {
 
         verified_count += 1;
     }
-    assert_eq!(verified_count, 187, "must verify all 187 scoped tables");
+    assert_eq!(verified_count, 188, "must verify all 188 scoped tables");
 
     // Verify `app_unset` still has truly NULL GUCs after all 187 table probes.
     let still_unset: bool = app_unset

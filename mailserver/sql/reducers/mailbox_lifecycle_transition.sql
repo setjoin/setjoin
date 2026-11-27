@@ -139,6 +139,15 @@ BEGIN
     VALUES(p_operation_id,v_event,'mailbox-lifecycle:'||p_operation_id::text,
       jsonb_build_object('mailboxId',p_mailbox_id::text,'generation',v_l.generation::text,'event',v_event));
   PERFORM audit_write(p_actor,replace(v_event,'.','_'),'mailbox',p_mailbox_id,v_before,v_after,NULL,p_reason,'core');
+  IF p_action IN ('suspend','detach_retain') THEN
+    PERFORM public.emit_scope_revoked(
+      NULL,
+      'mailbox',
+      p_mailbox_id,
+      CASE WHEN p_action='suspend' THEN 'mailbox_suspended' ELSE 'mailbox_detached' END,
+      NULL
+    );
+  END IF;
   PERFORM app_notify('mailbox_lifecycle',json_build_object('mailbox_id',p_mailbox_id,'generation',v_l.generation)::text);
   RETURN v_result;
 END $$;

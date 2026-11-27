@@ -24,7 +24,8 @@ BEGIN
                   HINT = jsonb_build_object('type', 'snooze_past', 'until', p_until)::TEXT;
     END IF;
 
-    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+    -- Canonical #481 lock order (mailboxes -> messages) before locking message row.
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
 
     -- R1: resolve the message AND verify ownership in the same statement.
     SELECT received_at INTO v_received_at
@@ -72,7 +73,7 @@ BEGIN
     -- One call: bump email + tag state (the Snoozed tag membership changed) and
     -- push on the canonical tag:{mailbox_id} channel. The counter trigger has
     -- already bumped the per-tag jmap_state; notify_state_change leaves it alone.
-    PERFORM notify_state_change(p_mailbox_id, v_snooze_tag);
+    PERFORM notify_state_change(p_mailbox_id, v_snooze_tag, p_message_id, 'updated');
 
     RETURN jsonb_build_object(
         'snoozed', TRUE,

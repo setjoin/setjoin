@@ -45,6 +45,7 @@ pub mod sse;
 pub mod submission;
 mod submission_actions;
 mod submission_input;
+pub mod sync_hub;
 pub mod transfer;
 mod upload;
 pub mod ws_request;

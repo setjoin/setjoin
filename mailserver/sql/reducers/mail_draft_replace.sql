@@ -9,6 +9,7 @@ SET search_path=pg_catalog,public AS $$
 DECLARE v_existing mail_work_operations%ROWTYPE; v_session mail_draft_collaboration%ROWTYPE;
   v_create jsonb; v_new_id bigint; v_new_received timestamptz; v_content_digest text;
   v_attachment_digest text; v_result jsonb; v_state bigint; v_sender text;
+  v_old_imap_uid bigint; v_old_folder_id bigint; v_old_primary_tag bigint; v_email_state bigint;
 BEGIN
   IF NOT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.shared_mail_drafts'),false) THEN
     RAISE EXCEPTION 'shared mail drafts are disabled' USING ERRCODE='BZ300';
@@ -27,6 +28,8 @@ BEGIN
     END IF;
     RAISE EXCEPTION 'shared draft idempotency conflict' USING ERRCODE='BZ303';
   END IF;
+  -- Acquire mailboxes lock before locking draft/message rows (#481).
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
   SELECT * INTO v_session FROM mail_draft_collaboration
    WHERE draft_session_id=p_draft_session_id AND mailbox_id=p_mailbox_id FOR UPDATE;
   IF NOT FOUND OR v_session.state<>'active' OR v_session.lease_holder_user_id<>p_actor_user_id
@@ -48,9 +51,14 @@ BEGIN
          WHERE m.user_id=p_actor_user_id AND lower(a.email)=v_sender)) THEN
     RAISE EXCEPTION 'final sender is not authorized' USING ERRCODE='BZ005';
   END IF;
-  IF NOT EXISTS(SELECT 1 FROM messages m WHERE m.mailbox_id=p_mailbox_id
-      AND m.id=v_session.message_id AND m.received_at=v_session.received_at
-      AND m.is_draft AND NOT m.is_deleted) THEN
+  SELECT m.imap_uid, m.folder_id,
+         (SELECT mt.tag_id FROM message_tags mt
+           WHERE mt.message_id=m.id AND mt.received_at=m.received_at AND mt.is_primary=TRUE LIMIT 1)
+    INTO v_old_imap_uid, v_old_folder_id, v_old_primary_tag
+    FROM messages m
+   WHERE m.mailbox_id=p_mailbox_id AND m.id=v_session.message_id
+     AND m.received_at=v_session.received_at AND m.is_draft AND NOT m.is_deleted;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'shared draft not found' USING ERRCODE='BZ007';
   END IF;
 
@@ -70,7 +78,19 @@ BEGIN
   INSERT INTO mail_draft_revisions(draft_session_id,revision,message_id,received_at,editor_user_id,
     content_digest,attachment_digest) VALUES(p_draft_session_id,p_base_revision+1,v_new_id,v_new_received,
     p_actor_user_id,v_content_digest,v_attachment_digest);
+  v_email_state:=NULLIF(v_create->>'newState','')::bigint;
+  IF v_email_state IS NULL THEN
+    SELECT jmap_email_state INTO v_email_state FROM mailboxes WHERE id=p_mailbox_id;
+  END IF;
+  IF v_email_state IS NOT NULL THEN
+    PERFORM set_config('app.imap_retire_modseq',(GREATEST(v_email_state,0)+1)::text,true);
+  END IF;
   PERFORM delete_draft_message(v_session.message_id,v_session.received_at,p_mailbox_id,false);
+  PERFORM set_config('app.imap_retire_modseq','',true);
+  IF v_email_state IS NOT NULL THEN
+    PERFORM append_email_change(p_mailbox_id,v_email_state,v_session.message_id,'destroyed',
+      COALESCE(v_old_primary_tag,v_old_folder_id),v_old_imap_uid);
+  END IF;
   UPDATE mail_draft_collaboration SET message_id=v_new_id,received_at=v_new_received,
     content_revision=p_base_revision+1,lease_expires_at=statement_timestamp()+interval '2 minutes',
     generation=generation+1,last_operation_id=p_operation_id,updated_at=statement_timestamp()

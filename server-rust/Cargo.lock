@@ -6527,6 +6527,7 @@ dependencies = [
  "setjoin-threat",
  "setjoin-tls",
  "setjoin-user-settings",
+ "setjoin-workqueue",
  "sha1 0.10.7",
  "sha2 0.10.9",
  "sm4",
@@ -6720,6 +6721,7 @@ dependencies = [
  "setjoin-pg",
  "setjoin-push",
  "setjoin-schema",
+ "setjoin-workqueue",
  "sha2 0.10.9",
  "sm3 0.4.2",
  "tokio",
@@ -7064,6 +7066,22 @@ dependencies = [
  "setjoin-pg",
  "setjoin-sql-catalog",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "setjoin-workqueue"
+version = "0.0.0"
+dependencies = [
+ "ring",
+ "serde",
+ "serde_json",
+ "setjoin-conformance",
+ "setjoin-contracts",
+ "setjoin-pg",
+ "setjoin-workqueue",
+ "tokio",
+ "tokio-postgres",
+ "tokio-util",
 ]
 
 [[package]]

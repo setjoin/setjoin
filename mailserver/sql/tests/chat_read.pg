@@ -51,7 +51,7 @@ SELECT is((SELECT last_read_seq FROM chat_channel_members
 -- on the highest-frequency chat event) ────────────────────────────────────
 SELECT chat_mark_read(1002, :ch_id, :m1_seq);
 SELECT is(last_notify_event('chat:1002'), 'read', 'mark_read self-notifies ''read'' on the acting user''s own channel');
-SELECT is(last_notify_event('chat:1001'), 'message_created', 'mark_read never fans out to OTHER channel members (chat:1001''s last event is still the prior send, not a read event)');
+SELECT is(notify_count('chat:1001'), 0, 'mark_read never fans out to OTHER channel members (zero pushes on chat:1001)');
 
 -- ── chat_conversation_list: membership scoping, shape, ordering ──────────
 SELECT ok(NOT (SELECT jsonb_path_exists(chat_conversation_list(1003),

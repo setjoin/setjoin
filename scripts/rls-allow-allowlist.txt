@@ -195,3 +195,6 @@ users	COVERED	wave18c_force_rls.pg	ALLOW users: setjoin_app UPDATE own profile s
 webauthn_ceremonies	COVERED	wave18c_force_rls.pg	ALLOW webauthn_ceremonies: setjoin_app INSERT/UPDATE/DELETE own ceremony succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
 webhook_subscriptions	COVERED	wave18c_force_rls.pg	ALLOW webhook_subscriptions: setjoin_app INSERT/UPDATE/DELETE own subscription succeeds	V288: same-tenant INSERT/UPDATE/DELETE via rust_webhook_self_* under SET LOCAL ROLE setjoin_app with user GUC.
 ws_subscriptions	COVERED	wave18c_force_rls.pg	ALLOW ws_subscriptions: setjoin_app INSERT/UPDATE/DELETE own subscription succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+
+# ── V295 chat_changes monotonic journal (Wave 2.6, #553). ───────────────────
+chat_changes	COVERED	chat_changes_retention.pg	member chat_message_send writes and reads back chat_changes row as setjoin_app (ALLOW)	V295: chat_message_send() appends a chat_changes row as setjoin_app under the member GUC and reads it back under FORCE RLS.

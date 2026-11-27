@@ -282,6 +282,7 @@ impl Drop for PoolLease {
 #[derive(Clone)]
 pub struct ScopedExecutor {
     pool: PoolBackend,
+    dsn: Option<Arc<str>>,
     timeouts: Timeouts,
     audit_keys: Option<Arc<AuditKeys>>,
     user_receipt: Option<crate::ReceiptCommand>,
@@ -297,6 +298,7 @@ impl ScopedExecutor {
                 runtime_handle: tokio::runtime::Handle::try_current().ok(),
                 cancel_sem: Arc::new(Semaphore::new(CANCEL_SEMAPHORE_PERMITS)),
             },
+            dsn: None,
             timeouts: Timeouts::resolved(),
             audit_keys: None,
             user_receipt: None,
@@ -326,6 +328,7 @@ impl ScopedExecutor {
         )?;
         Ok(Self {
             pool: PoolBackend::Fast(pool),
+            dsn: Some(Arc::from(dsn)),
             timeouts,
             audit_keys: None,
             user_receipt: None,
@@ -375,6 +378,7 @@ impl ScopedExecutor {
         match &self.pool {
             PoolBackend::Fast(pool) => Some(crate::WorkerPool::from_parts(
                 pool.clone(),
+                self.dsn.clone(),
                 self.audit_keys.clone(),
             )),
             PoolBackend::Legacy { .. } => None,
@@ -876,6 +880,103 @@ impl ScopedExecutor {
         self.read_scoped_with_lock(auth, sql, params, None).await
     }
 
+    /// Run multiple read-only `SELECT`s in ONE `REPEATABLE READ READ ONLY`
+    /// transaction scoped to `auth`'s mailbox (single MVCC snapshot across all
+    /// statements, e.g. RFC 7162 `SELECT (QRESYNC)`).
+    pub async fn run_read_repeatable<T, F>(
+        &self,
+        auth: &MailboxAuthContext,
+        body: F,
+    ) -> Result<T, StatementFailure>
+    where
+        F: AsyncFnOnce(&mut ScopedReadTx) -> Result<T, StatementFailure>,
+    {
+        let auth = self.transaction_auth(auth);
+        let preamble = Preamble {
+            mailbox: auth
+                .mailbox_optional()
+                .map(|m| m.decimal())
+                .unwrap_or_default(),
+            actor: auth.actor().decimal(),
+            operation_id: None,
+            audit_keys: auth.audit_keys.clone(),
+            lock_key: None,
+        };
+        let preamble_step = preamble.to_step()?;
+        let begin = build_begin_sql(
+            "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY",
+            self.timeouts.statement,
+            PlanCacheHint::Auto,
+        );
+        let deadline = Instant::now() + self.timeouts.statement * 2;
+        let mut lease_opt = None;
+        for attempt in 0..2 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(StatementFailure::refused("read timed out"));
+            }
+            let object = self
+                .pool
+                .get()
+                .await
+                .map_err(|_| StatementFailure::refused("pool unavailable"))?;
+            let object = ReadLease(Some(object));
+            let client = object.client();
+            let begun = tokio::time::timeout(remaining, async {
+                tokio::join!(
+                    biased;
+                    client.batch_execute(&begin),
+                    preamble_step.execute(client),
+                )
+            })
+            .await;
+            let Ok((begin_res, preamble_res)) = begun else {
+                return Err(StatementFailure::refused("read timed out"));
+            };
+            if let Err(e) = begin_res {
+                if attempt == 0 && e.as_db_error().is_none() {
+                    drop(object);
+                    continue;
+                }
+                return Err(StatementFailure::from_db(&e));
+            }
+            if let Err(e) = preamble_res {
+                if e.as_db_error().is_some()
+                    && matches!(object.client().batch_execute("ROLLBACK").await, Ok(()))
+                    && !object.is_closed()
+                {
+                    object.keep();
+                }
+                return Err(StatementFailure::from_db(&e));
+            }
+            lease_opt = Some(object);
+            break;
+        }
+        let Some(lease) = lease_opt else {
+            return Err(StatementFailure::refused("pool unavailable"));
+        };
+        let mut tx = ScopedReadTx { lease };
+        match body(&mut tx).await {
+            Ok(value) => match tx.lease.client().batch_execute("COMMIT").await {
+                Ok(()) => {
+                    if !tx.lease.is_closed() {
+                        tx.lease.keep();
+                    }
+                    Ok(value)
+                }
+                Err(e) => Err(StatementFailure::from_db(&e)),
+            },
+            Err(err) => {
+                if matches!(tx.lease.client().batch_execute("ROLLBACK").await, Ok(()))
+                    && !tx.lease.is_closed()
+                {
+                    tx.lease.keep();
+                }
+                Err(err)
+            }
+        }
+    }
+
     /// A mailbox-less, verified actor's read-only user-domain query.
     pub async fn read_user_scoped(
         &self,
@@ -1264,6 +1365,41 @@ impl ScopedExecutor {
 
         let result = Some(body(&mut tx).await);
         tx.finish(result, operation).await
+    }
+}
+
+/// A mailbox-scoped `REPEATABLE READ READ ONLY` transaction handle for
+/// multi-statement snapshot-consistent reads.
+pub struct ScopedReadTx {
+    lease: ReadLease,
+}
+
+impl ScopedReadTx {
+    /// Run one admitted read-only `SELECT` inside the snapshot transaction.
+    pub async fn query(
+        &mut self,
+        sql: &str,
+        params: &[Param<'_>],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        admit_select(sql).map_err(StatementFailure::refused)?;
+        let encoded = pre_encode_params(params)?;
+        let typed: Vec<Param<'_>> = encoded.iter().map(PreEncodedParam::as_param).collect();
+        let stream = self
+            .lease
+            .client()
+            .query_typed_raw(sql, typed)
+            .await
+            .map_err(|e| StatementFailure::from_db(&e))?;
+        futures_util::pin_mut!(stream);
+        let mut rows = Vec::new();
+        while let Some(row) = stream
+            .try_next()
+            .await
+            .map_err(|e| StatementFailure::from_db(&e))?
+        {
+            rows.push(row);
+        }
+        Ok(rows)
     }
 }
 

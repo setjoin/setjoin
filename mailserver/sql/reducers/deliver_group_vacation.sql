@@ -264,7 +264,7 @@ BEGIN
     -- When NOT encrypted, preserve the inbound-detected p_crypto_type.
     p_vote_response, CASE WHEN p_is_encrypted THEN 'smime-encrypted' ELSE p_crypto_type END,
     p_is_external, p_sender_display_name, p_is_name_spoof, v_is_first_time,
-    v_imap_uid, nextval('imap_modseq_seq'),
+    v_imap_uid, COALESCE(v_mailbox.jmap_email_state, 0) + 2,
     v_mailbox.litigation_hold, now(),
     normalize_list_id(p_list_id),
     p_smime_status, p_smime_signer_email, p_smime_signer_cn, p_smime_issuer_cn
@@ -346,9 +346,14 @@ BEGIN
     PERFORM apply_rules(v_message_id, now()::TIMESTAMPTZ, v_mailbox.id, 'server');
   END IF;
 
-  -- 10. Retention + journal (best-effort: journal failure must not abort delivery)
-  IF current_setting('app.skip_retention', true) IS DISTINCT FROM 'true' THEN
-    PERFORM tag_retention(v_message_id, now()::TIMESTAMPTZ, v_mailbox.id);
+  -- 10. Retention + journal (best-effort: journal failure must not abort delivery;
+  --     skip tag_retention if a delivery rule 'discard'ed the message at step 8).
+  IF current_setting('app.skip_retention', true) IS DISTINCT FROM 'true'
+     AND EXISTS (
+       SELECT 1 FROM messages
+        WHERE id = v_message_id AND received_at = v_received_at AND mailbox_id = v_mailbox.id
+     ) THEN
+    PERFORM tag_retention(v_message_id, v_received_at, v_mailbox.id);
   END IF;
   IF current_setting('app.skip_journaling', true) IS DISTINCT FROM 'true' THEN
     BEGIN
@@ -461,22 +466,28 @@ BEGIN
   PERFORM trace(p_message_id, 'received', p_from_addr, p_rcpt_addr,
     NULL, jsonb_build_object('mailbox_id', v_mailbox.id, 'spam_score', p_spam_score));
 
-  -- 13. Notify: one call bumps email + tag state (fixes the missed-bump /
-  --     stale-token bug — a new inbound message now advances jmap_email_state)
-  --     and pushes on tag:{mailbox_id}.
-  PERFORM notify_state_change(v_mailbox.id, v_folder_id, v_message_id, 'created');
+  -- 13. Notify & 14. Push intent: skip if an inbound rule 'discard'ed the message
+  --     at step 8 (delete_draft_message already emitted the precise 'destroyed' delta).
+  IF EXISTS (
+    SELECT 1 FROM messages
+     WHERE id = v_message_id
+       AND received_at = v_received_at
+       AND mailbox_id = v_mailbox.id
+  ) THEN
+    PERFORM notify_state_change(v_mailbox.id, v_folder_id, v_message_id, 'created');
 
-  -- 14. Push intent (QoL #9): enqueue for the mail-push worker when the feature is
-  -- ON, the message did not land in Spam, and the thread isn't muted. The worker
-  -- (pushjobs) re-checks push_should_notify (prefs / VIP / DND) before dispatching
-  -- — this is only the cheap in-txn enqueue. Idempotent per delivered row via
-  -- UNIQUE (mailbox_id, message_id).
-  IF v_folder_id IS DISTINCT FROM v_spam_tag_id
-     AND NOT v_is_muted
-     AND COALESCE((SELECT enabled FROM feature_toggles WHERE key = 'feature.mail_push'), FALSE) THEN
-    INSERT INTO push_intents (mailbox_id, message_id, received_at)
-    VALUES (v_mailbox.id, v_message_id, v_received_at)
-    ON CONFLICT (mailbox_id, message_id) DO NOTHING;
+    -- 14. Push intent (QoL #9): enqueue for the mail-push worker when the feature is
+    -- ON, the message did not land in Spam, and the thread isn't muted. The worker
+    -- (pushjobs) re-checks push_should_notify (prefs / VIP / DND) before dispatching
+    -- — this is only the cheap in-txn enqueue. Idempotent per delivered row via
+    -- UNIQUE (mailbox_id, message_id).
+    IF v_folder_id IS DISTINCT FROM v_spam_tag_id
+       AND NOT v_is_muted
+       AND COALESCE((SELECT enabled FROM feature_toggles WHERE key = 'feature.mail_push'), FALSE) THEN
+      INSERT INTO push_intents (mailbox_id, message_id, received_at)
+      VALUES (v_mailbox.id, v_message_id, v_received_at)
+      ON CONFLICT (mailbox_id, message_id) DO NOTHING;
+    END IF;
   END IF;
 
   RETURN v_message_id;

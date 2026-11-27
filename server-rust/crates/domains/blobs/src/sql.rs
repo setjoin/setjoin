@@ -146,8 +146,8 @@ pub const ITEM_CHUNKS: SqlContract = SqlContract {
 pub const VERIFY_ITEM: SqlContract = SqlContract {
     id: "blobs.verify_item",
     domain: "blobs",
-    sql: "SELECT mail_recovery_upload_item_verify($1,$2::text::uuid,$3,$4)::text",
-    params: &[Type::INT8, Type::TEXT, Type::TEXT, Type::TEXT],
+    sql: "SELECT mail_recovery_upload_item_verify($1,$2::text::uuid,$3,$4,$5)::text",
+    params: &[Type::INT8, Type::TEXT, Type::TEXT, Type::TEXT, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
@@ -157,7 +157,7 @@ pub const VERIFY_ITEM: SqlContract = SqlContract {
 pub const ACCOUNT_UPLOAD: SqlContract = SqlContract {
     id: "blobs.account_upload",
     domain: "blobs",
-    sql: "SELECT blob_upload_account($1,$2,$3,$4,$5,$6,$7)::text",
+    sql: "SELECT blob_upload_account($1,$2,$3,$4,$5,$6,$7,$8)::text",
     params: &[
         Type::INT8,
         Type::TEXT,
@@ -166,8 +166,20 @@ pub const ACCOUNT_UPLOAD: SqlContract = SqlContract {
         Type::TEXT,
         Type::INT4,
         Type::INT8,
+        Type::TEXT,
     ],
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
+    scope: SqlScope::UserScoped,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
+};
+
+pub const COMPLETE_PROMOTE_RECOVER: SqlContract = SqlContract {
+    id: "blobs.complete_promote_recover",
+    domain: "blobs",
+    sql: "SELECT public.blob_promote_recover_complete($1,$2,$3)",
+    params: &[Type::INT8, Type::TEXT, Type::TEXT],
+    columns: &[ColumnSpec::unnamed(Type::BOOL)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
@@ -267,6 +279,7 @@ pub const SQL_CONTRACTS: &[SqlContract] = &[
     ITEM_CHUNKS,
     VERIFY_ITEM,
     ACCOUNT_UPLOAD,
+    COMPLETE_PROMOTE_RECOVER,
     ATTACHMENT_METADATA,
     BEGIN_UPLOAD,
     FINALIZE_ITEM,

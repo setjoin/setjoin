@@ -199,8 +199,8 @@ RESET ROLE;
 -- policy rows — so a non-admin now gets policies APPLIED without reading them.
 -- This case runs as setjoin_app under a NON-admin requester's GUC (u3 holds no
 -- admin_role_assignments) — the exact production shape that returned NULL before.
-INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
-  VALUES ('baf00receipt000000000000000000000000000000000000000000000001', 'minio:baf-receipt-1', 2048, 'application/pdf', 0);
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
+  VALUES ('baf00receipt000000000000000000000000000000000000000000000001', 'minio:baf-receipt-1', 2048, 'application/pdf');
 INSERT INTO approval_policies (consumer_type, name, priority, conditions, requires_approval, approver_spec)
   VALUES ('hr.expense', 'baf-expense-all', 9200, '{}'::jsonb, true, jsonb_build_object('kind','named','user_id',:u4));
 SET LOCAL ROLE setjoin_app;

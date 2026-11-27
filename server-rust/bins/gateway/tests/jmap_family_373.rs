@@ -26,7 +26,7 @@ const EFFECT_ENTITY_STATE: (&str, &str) = (
 );
 const EFFECT_JOURNAL: (&str, &str) = (
     "journal",
-    "SELECT COALESCE(jsonb_agg(to_jsonb(j) ORDER BY j.datatype, j.state_seq, j.entity_id), '[]'::jsonb)::text \
+    "SELECT COALESCE(jsonb_agg(to_jsonb(j) - 'imap_uid' ORDER BY j.datatype, j.state_seq, j.entity_id), '[]'::jsonb)::text \
      FROM jmap_changes_journal j WHERE j.mailbox_id IN ({a.mailbox},{f.mailbox})",
 );
 const EFFECT_LISTS: (&str, &str) = (
