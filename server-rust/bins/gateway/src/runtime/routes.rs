@@ -201,6 +201,7 @@ async fn build_with_keys<K: KeySource + 'static>(
         auth_authority,
         listen_hub,
         allow_private_keys: _,
+        boot_posture,
     } = deps;
     let issuer = env("JWT_ISSUER").unwrap_or_else(|| "mailserver".into());
     eprintln!(
@@ -517,7 +518,7 @@ async fn build_with_keys<K: KeySource + 'static>(
                 std::env::var(name).ok()
             }))
             .with_livekit(crate::meet_livekit::LiveKit::from_env())
-            .with_boot_posture(deps.boot_posture.clone());
+            .with_boot_posture(boot_posture.clone());
     if let Some(alerts) = &health_alerts {
         platform = platform.with_health_alerts(alerts.clone());
     }
@@ -974,7 +975,7 @@ async fn build_with_keys<K: KeySource + 'static>(
                 let livekit = crate::meet_livekit::LiveKit::from_env();
                 let gate =
                     setjoin_static::health::HealthGate::new(surface_config.probes_configured)
-                        .with_boot_posture(deps.boot_posture.clone())
+                        .with_boot_posture(boot_posture.clone())
                         .with_probes(Arc::new(move || {
                             let livekit = livekit.clone();
                             Box::pin(

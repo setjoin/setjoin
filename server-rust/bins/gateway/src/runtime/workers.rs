@@ -52,7 +52,8 @@ pub(super) fn webhook_codec() -> setjoin_platform::webhook_secret::SecretCodec {
 /// `ad-sync` worker share it. The resolved boot YAML/env pins Go's enable
 /// value. Disabled handlers still exist and answer their native auth/config
 /// outcomes; only shared-effect workers require the enable value to be true.
-pub(super) fn ad_runtime() -> Result<Option<Arc<crate::directory_sync_workers::AdRuntime>>, String> {
+pub(super) fn ad_runtime() -> Result<Option<Arc<crate::directory_sync_workers::AdRuntime>>, String>
+{
     let wanted = ["ad-sync", "ad-toggle-observer"]
         .iter()
         .any(|name| listed("RUST_WORKERS_ON", name));

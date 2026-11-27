@@ -237,7 +237,7 @@ impl AuthAuthority for InProcessAuthAuthority {
                 DisableTarget::UserId(id) => (*id, ""),
                 DisableTarget::ExternalId(ext) => (0, ext.as_str()),
             };
-            match issuance::disable(&self.server.exec, &caller, user_id, external_id).await {
+            match issuance::disable(self.server.auth_db(), &caller, user_id, external_id).await {
                 CommandOutcome::Committed(true) => Ok(DisableOutcome::Disabled),
                 CommandOutcome::Committed(false) => Ok(DisableOutcome::NotFound),
                 CommandOutcome::Unknown { .. } => Err(AuthAuthorityError::Unavailable(
@@ -257,7 +257,7 @@ impl AuthAuthority for InProcessAuthAuthority {
         Box::pin(async move {
             let caller = ClientProof::in_process();
             let raw = issuance::introspect(
-                &self.server.exec,
+                self.server.auth_db(),
                 &caller,
                 token,
                 &self.server.config.issuer,
@@ -273,7 +273,7 @@ impl AuthAuthority for InProcessAuthAuthority {
     ) -> AuthFuture<'a, Result<(), AuthAuthorityError>> {
         Box::pin(async move {
             let caller = ClientProof::in_process();
-            match issuance::revoke(&self.server.exec, &caller, token).await {
+            match issuance::revoke(self.server.auth_db(), &caller, token).await {
                 CommandOutcome::Committed(()) => Ok(()),
                 CommandOutcome::Unknown { .. } => Err(AuthAuthorityError::Unavailable(
                     "revocation outcome unavailable".into(),
