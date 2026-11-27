@@ -119,6 +119,9 @@ async function isDpopAdmissionRefusal(
 	externalSignal: AbortSignal | null | undefined,
 	effectiveSignal: AbortSignal
 ): Promise<boolean> {
+	if (typeof res.clone !== 'function') {
+		return false;
+	}
 	let text: string;
 	try {
 		// `text()` resolves only when the body COMPLETES; its rejection is the

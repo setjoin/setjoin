@@ -1,39 +1,25 @@
-// End-user mail-rules client — the 4 security-scoped /settings/rules routes.
-// Mirrors the delivery.ts fetch style (httpRequest seam; auth cookie automatic).
-// The gateway forces the caller's own primary mailbox + non-transport, so we
-// never send mailboxId/isTransportRule.
+// End-user mail-rules client — the security-scoped /api/settings/rules routes.
+// Uses the schema-first openapi-fetch edgeClient routed over httpRequest (DPoP
+// proof signing + 401 admission recovery + timeout). The gateway forces the
+// caller's own primary mailbox + non-transport, so we never send mailboxId or
+// isTransportRule on writes.
 
-import { httpRequest } from '$lib/http';
+import { createEdgeClient, toEdgeProblemError, type components } from '$lib/edge/client';
 import { problemDetail } from '$lib/errors';
 
 /** A simple rule-engine condition (mirrors eval_condition in rule_engine.sql). */
-export interface RuleCondition {
-	field: string; // from_addr | subject | body | spam_score | size_bytes | has_attachments | sender_domain
-	op: string; // contains | equals | starts_with | matches_regex | in_list | gt | lt | ...
-	value: string;
-}
+export type RuleCondition = components['schemas']['Rules.RuleCondition'];
 
 /** A rule-engine action (mirrors apply_action in rule_engine.sql). */
-export interface RuleAction {
-	type: string; // move_to | flag | mark_read | categorize | delete | forward_to | add_header | bcc | append_footer | redirect
-	params?: Record<string, string>;
-}
+export type RuleAction = components['schemas']['Rules.RuleAction'];
 
-export type RunOn = 'server' | 'client' | 'both';
+export type RunOn = components['schemas']['Rules.RunOn'];
 
-export interface UserRule {
-	id: number;
-	mailboxId: number;
-	name: string;
-	enabled: boolean;
-	priority: number;
-	runOn: RunOn;
-	isTransportRule: boolean;
+type WireUserRule = components['schemas']['Rules.UserRule'];
+
+export interface UserRule extends Omit<WireUserRule, 'conditions' | 'actions'> {
 	conditions: RuleCondition[];
 	actions: RuleAction[];
-	stopProcessing: boolean;
-	createdAt: string;
-	updatedAt: string;
 }
 
 /** The write shape the server accepts (mailboxId + isTransportRule are ignored server-side). */
@@ -47,73 +33,94 @@ export interface RuleInput {
 	stopProcessing: boolean;
 }
 
-const JSON_HEADERS = { 'content-type': 'application/json' };
+/** How far back an "apply to existing mail" sweep reaches. */
+export type RetroWindow = components['schemas']['Rules.RetroWindow'];
 
-// Surface the reducer's problem+json detail for the caller's own rules (low-risk surface).
-const ruleError = (r: Response) => problemDetail(r, `Rule request failed (${r.status})`);
+export type ApplyRetroResult = components['schemas']['Rules.ApplyRetroResult'];
+
+export type ApplyStatus = components['schemas']['Rules.ApplyStatus'];
+
+// Preserve RFC 9457 problem+json detail on non-allowStatuses errors (e.g. plain 403).
+const rulesEdgeClient = createEdgeClient({
+	onError: (r) => problemDetail(r, `Rule request failed (${r.status})`)
+});
+
+function ruleFailure(error: unknown, response: Response): Error {
+	return toEdgeProblemError(error, response, `Rule request failed (${response.status})`);
+}
+
+function normalizeRule(rule: WireUserRule): UserRule {
+	return {
+		...rule,
+		conditions: rule.conditions ?? [],
+		actions: rule.actions ?? []
+	};
+}
 
 export async function listRules(signal?: AbortSignal): Promise<UserRule[]> {
 	// -list suffix: the SPA page is at /settings/rules, so the GET list API must use a
-	// disjoint path or it shadows the SPA on deep-link/refresh (see main.go + b8a94e30).
-	const res = await httpRequest('/api/settings/rules-list', { method: 'GET', signal, onError: ruleError });
-	return (await res.json()) as UserRule[];
+	// disjoint path or it shadows the SPA on deep-link/refresh.
+	const { data, error, response } = await rulesEdgeClient.GET('/api/settings/rules-list', {
+		signal
+	});
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw ruleFailure(error, response);
+	}
+	return data.map(normalizeRule);
 }
 
 export async function createRule(input: RuleInput): Promise<number> {
-	const res = await httpRequest('/api/settings/rules', {
-		method: 'POST',
-		headers: JSON_HEADERS,
-		body: JSON.stringify(input),
-		onError: ruleError
+	const { data, error, response } = await rulesEdgeClient.POST('/api/settings/rules', {
+		body: input
 	});
-	const body = (await res.json()) as { id: number };
-	return body.id;
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw ruleFailure(error, response);
+	}
+	return data.id;
 }
 
 export async function updateRule(id: number, input: RuleInput): Promise<void> {
-	await httpRequest(`/api/settings/rules/${id}`, {
-		method: 'PUT',
-		headers: JSON_HEADERS,
-		body: JSON.stringify(input),
-		onError: ruleError
+	const { error, response } = await rulesEdgeClient.PUT('/api/settings/rules/{id}', {
+		params: { path: { id } },
+		body: input
 	});
+	if (!response.ok || error !== undefined) {
+		throw ruleFailure(error, response);
+	}
 }
 
 export async function deleteRule(id: number): Promise<void> {
-	await httpRequest(`/api/settings/rules/${id}`, { method: 'DELETE', onError: ruleError });
-}
-
-/** How far back an "apply to existing mail" sweep reaches. */
-export type RetroWindow = '90d' | '1y' | 'all';
-
-export interface ApplyRetroResult {
-	actionId: string;
-	status: string; // 'queued'
-}
-
-export interface ApplyStatus {
-	status: 'pending' | 'processing' | 'done' | 'failed';
-	processed?: number; // populated once the sweep completes
-	truncated?: boolean; // true when the window exceeded the server cap
+	const { error, response } = await rulesEdgeClient.DELETE('/api/settings/rules/{id}', {
+		params: { path: { id } }
+	});
+	if (!response.ok || error !== undefined) {
+		throw ruleFailure(error, response);
+	}
 }
 
 /** Enqueue an async sweep applying this rule to existing mail (202 → action id). */
 export async function applyRuleRetro(id: number, window: RetroWindow): Promise<ApplyRetroResult> {
-	const res = await httpRequest(`/api/settings/rules/${id}/apply`, {
-		method: 'POST',
-		headers: JSON_HEADERS,
-		body: JSON.stringify({ window }),
-		onError: ruleError
+	const { data, error, response } = await rulesEdgeClient.POST('/api/settings/rules/{id}/apply', {
+		params: { path: { id } },
+		body: { window }
 	});
-	return (await res.json()) as ApplyRetroResult;
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw ruleFailure(error, response);
+	}
+	return data;
 }
 
 /** Poll the progress of a retro-apply sweep by its action id. */
 export async function getApplyStatus(actionId: string, signal?: AbortSignal): Promise<ApplyStatus> {
-	const res = await httpRequest(`/api/settings/rules/apply/${encodeURIComponent(actionId)}`, {
-		method: 'GET',
-		signal,
-		onError: ruleError
-	});
-	return (await res.json()) as ApplyStatus;
+	const { data, error, response } = await rulesEdgeClient.GET(
+		'/api/settings/rules/apply/{actionId}',
+		{
+			params: { path: { actionId } },
+			signal
+		}
+	);
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw ruleFailure(error, response);
+	}
+	return data;
 }

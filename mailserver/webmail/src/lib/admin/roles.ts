@@ -1,4 +1,4 @@
-import { adminFetch } from './transport';
+import { createEdgeClient, toEdgeProblemError } from '$lib/edge/client';
 
 export interface PermissionCatalogEntry {
 	key: string;
@@ -58,29 +58,66 @@ export interface EffectivePerms {
 	consoles: string[];
 }
 
+export interface SodModeStatus {
+	enabled: boolean;
+	violations: Array<{ violationType: string; subject: string; detail: string }>;
+}
+
+const rolesEdge = createEdgeClient({
+	cache: 'no-store',
+	loginRedirect: '/login',
+	forbiddenMessage: 'Admin access required'
+});
+
+function reasonHeader(reason?: string): { 'X-Audit-Reason'?: string } | undefined {
+	return reason ? { 'X-Audit-Reason': reason } : undefined;
+}
+
+function adminError(error: unknown, response: Response): Error {
+	if (error && typeof error === 'object' && 'error' in error && typeof (error as { error?: unknown }).error === 'string') {
+		return new Error((error as { error: string }).error);
+	}
+	return toEdgeProblemError(error, response);
+}
+
 export async function adminPermissionCatalog(): Promise<PermissionCatalogEntry[]> {
-	const res = await adminFetch('/admin/permissions');
-	return (await res.json()) as PermissionCatalogEntry[];
+	const { data, error, response } = await rolesEdge.GET('/api/admin/permissions');
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw adminError(error, response);
+	}
+	return data as PermissionCatalogEntry[];
 }
 
 export async function adminListRoles(): Promise<AdminRole[]> {
-	const res = await adminFetch('/admin/roles');
-	return (await res.json()) as AdminRole[];
+	const { data, error, response } = await rolesEdge.GET('/api/admin/roles');
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw adminError(error, response);
+	}
+	return data as AdminRole[];
 }
 
 export async function adminGetRole(id: number): Promise<RoleDetail> {
-	const res = await adminFetch('/admin/roles/' + id);
-	return (await res.json()) as RoleDetail;
+	const { data, error, response } = await rolesEdge.GET('/api/admin/roles/{id}', {
+		params: { path: { id } }
+	});
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw adminError(error, response);
+	}
+	return data as RoleDetail;
 }
 
 export async function adminCreateRole(
-	data: { name: string; description: string; permissions: string[]; domainScope?: number | null },
+	body: { name: string; description: string; permissions: string[]; domainScope?: number | null },
 	reason?: string
 ): Promise<{ id: number }> {
-	const headers: Record<string, string> = {};
-	if (reason) headers['X-Audit-Reason'] = reason;
-	const res = await adminFetch('/admin/roles', { method: 'POST', body: JSON.stringify(data), headers });
-	return (await res.json()) as { id: number };
+	const { data, error, response } = await rolesEdge.POST('/api/admin/roles', {
+		params: { header: reasonHeader(reason) },
+		body
+	});
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw adminError(error, response);
+	}
+	return data;
 }
 
 export async function adminUpdateRole(
@@ -88,15 +125,22 @@ export async function adminUpdateRole(
 	patch: { name?: string; description?: string; permissions?: string[]; domainScope?: number | null },
 	reason?: string
 ): Promise<void> {
-	const headers: Record<string, string> = {};
-	if (reason) headers['X-Audit-Reason'] = reason;
-	await adminFetch('/admin/roles/' + id, { method: 'PUT', body: JSON.stringify(patch), headers });
+	const { error, response } = await rolesEdge.PUT('/api/admin/roles/{id}', {
+		params: { path: { id }, header: reasonHeader(reason) },
+		body: patch
+	});
+	if (!response.ok || error !== undefined) {
+		throw adminError(error, response);
+	}
 }
 
 export async function adminDeleteRole(id: number, reason?: string): Promise<void> {
-	const headers: Record<string, string> = {};
-	if (reason) headers['X-Audit-Reason'] = reason;
-	await adminFetch('/admin/roles/' + id, { method: 'DELETE', headers });
+	const { error, response } = await rolesEdge.DELETE('/api/admin/roles/{id}', {
+		params: { path: { id }, header: reasonHeader(reason) }
+	});
+	if (!response.ok || error !== undefined) {
+		throw adminError(error, response);
+	}
 }
 
 export async function adminAssignMember(
@@ -104,44 +148,53 @@ export async function adminAssignMember(
 	body: { userId: number; domainOverride?: number | null; expiresAt?: string | null; scopeType?: 'ou' | 'set' | null; scopeId?: number | null; eligible?: boolean },
 	reason?: string
 ): Promise<{ id: number }> {
-	const headers: Record<string, string> = {};
-	if (reason) headers['X-Audit-Reason'] = reason;
-	const res = await adminFetch('/admin/roles/' + roleId + '/members', {
-		method: 'POST',
-		body: JSON.stringify(body),
-		headers,
+	const { data, error, response } = await rolesEdge.POST('/api/admin/roles/{id}/members', {
+		params: { path: { id: roleId }, header: reasonHeader(reason) },
+		body
 	});
-	return (await res.json()) as { id: number };
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw adminError(error, response);
+	}
+	return data;
 }
 
 export async function adminRemoveMember(roleId: number, userId: number, reason?: string): Promise<void> {
-	const headers: Record<string, string> = {};
-	if (reason) headers['X-Audit-Reason'] = reason;
-	await adminFetch('/admin/roles/' + roleId + '/members/' + userId, { method: 'DELETE', headers });
+	const { error, response } = await rolesEdge.DELETE('/api/admin/roles/{id}/members/{userId}', {
+		params: { path: { id: roleId, userId }, header: reasonHeader(reason) }
+	});
+	if (!response.ok || error !== undefined) {
+		throw adminError(error, response);
+	}
 }
 
 export async function adminEffectivePermissions(userId: number): Promise<EffectivePerms> {
-	const res = await adminFetch('/admin/users/' + userId + '/effective-permissions');
-	return (await res.json()) as EffectivePerms;
-}
-
-export interface SodModeStatus {
-	enabled: boolean;
-	violations: Array<{ violationType: string; subject: string; detail: string }>;
+	const { data, error, response } = await rolesEdge.GET('/api/admin/users/{id}/effective-permissions', {
+		params: { path: { id: userId } }
+	});
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw adminError(error, response);
+	}
+	return {
+		...data,
+		consoles: data.consoles ?? []
+	};
 }
 
 export async function adminGetSodMode(): Promise<SodModeStatus> {
-	const res = await adminFetch('/admin/dengbao/sod-mode');
-	return (await res.json()) as SodModeStatus;
+	const { data, error, response } = await rolesEdge.GET('/api/admin/dengbao/sod-mode');
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw adminError(error, response);
+	}
+	return data;
 }
 
 export async function adminSetSodMode(enabled: boolean, reason?: string): Promise<{ enabled: boolean }> {
-	const headers: Record<string, string> = {};
-	if (reason) headers['X-Audit-Reason'] = reason;
-	const res = await adminFetch('/admin/dengbao/sod-mode', {
-		method: 'PUT',
-		body: JSON.stringify({ enabled }),
-		headers,
+	const { data, error, response } = await rolesEdge.PUT('/api/admin/dengbao/sod-mode', {
+		params: { header: reasonHeader(reason) },
+		body: { enabled }
 	});
-	return (await res.json()) as { enabled: boolean };
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw adminError(error, response);
+	}
+	return data;
 }

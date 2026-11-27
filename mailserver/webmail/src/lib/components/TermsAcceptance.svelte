@@ -4,6 +4,7 @@
 	import { Dialog, Button, Spinner } from '$lib/components/ui';
 	import { t } from '$lib/i18n';
 	import { goto } from '$app/navigation';
+	import { createEdgeClient } from '$lib/edge/client';
 
 	interface Tou {
 		id: number;
@@ -111,8 +112,9 @@
 	}
 
 	async function signOut() {
+		const termsAuthEdge = createEdgeClient({ loginRedirect: null, allowStatuses: [401, 403, 500] });
 		try {
-			await fetch('/auth/logout', { method: 'POST' });
+			await termsAuthEdge.POST('/auth/logout', { parseAs: 'stream' });
 		} finally {
 			goto('/login');
 		}

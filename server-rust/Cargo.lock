@@ -6590,6 +6590,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "setjoin-edge-contract"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "setjoin-federation"
 version = "0.0.0"
 dependencies = [
@@ -7300,14 +7308,18 @@ dependencies = [
  "hyper-util",
  "libc",
  "reqwest",
+ "serde",
+ "serde-saphyr",
  "serde_json",
  "setjoin-auth",
  "setjoin-authz",
  "setjoin-boot",
  "setjoin-config-secret",
  "setjoin-conformance",
+ "setjoin-edge-contract",
  "setjoin-gateway",
  "setjoin-identity",
+ "setjoin-mail-security",
  "setjoin-pg",
  "setjoin-schema",
  "setjoin-threat",

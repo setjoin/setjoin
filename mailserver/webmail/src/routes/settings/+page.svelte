@@ -15,6 +15,8 @@
 	import { applyTheme as applyThemeShared, applyDensity as applyDensityShared } from '$lib/theme/apply';
 	import type { OfflineCaps } from '$lib/offline/caps';
 	import { offlineReason, cappedWindow } from '$lib/offline/caps';
+	import type { OfflineWindow } from '$lib/offline/window';
+	import { saveOfflineWindow } from '$lib/api/offline';
 	import { isOfflineAvailable } from '$lib/offline/store';
 	import { offlineOptIn } from '$lib/admin/client';
 	import { getStore } from '$lib/offline/store';
@@ -579,7 +581,7 @@
 
 	// ── Offline: window days — persist to server as nearest valid window string ─
 	// ponytail: snaps to nearest valid discrete window; best-effort save
-	function daysToWindowStr(days: number): string {
+	function daysToWindowStr(days: number): OfflineWindow {
 		if (days <= 7) return '7d';
 		if (days <= 30) return '30d';
 		if (days <= 90) return '90d';
@@ -591,12 +593,7 @@
 	async function saveWindowDays(days: number) {
 		offlineWindowDays = days;
 		try {
-			await fetch('/api/settings/view', {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				credentials: 'include',
-				body: JSON.stringify({ offlineWindow: daysToWindowStr(days) }),
-			});
+			await saveOfflineWindow(daysToWindowStr(days));
 		} catch {
 			// ponytail: best-effort pref; local state stays updated even on server fail
 		}

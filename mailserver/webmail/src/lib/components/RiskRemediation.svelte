@@ -12,6 +12,7 @@
 	import { untrack, onMount } from 'svelte';
 	import { Button, Spinner } from '$lib/components/ui';
 	import { t } from '$lib/i18n';
+	import { createEdgeClient } from '$lib/edge/client';
 	import { focusTrap } from '$lib/actions/focusTrap';
 
 	type State = 'idle' | 'loading' | 'success' | 'error' | 'locked';
@@ -61,13 +62,19 @@
 			// In production this posts to the auth re-verify endpoint; on success
 			// the server returns 200 and we call onVerified(). On failure (network
 			// or max-attempts) we surface error/locked.
-			const res = await fetch('/auth/mfa/reauth', { method: 'POST', credentials: 'include' });
-			if (res.ok) {
+			const riskReauthEdge = createEdgeClient({
+				loginRedirect: null,
+				allowStatuses: [400, 401, 403, 415, 423, 429, 500]
+			});
+			const { error, response: res } = await riskReauthEdge.POST('/auth/mfa/reauth', {
+				credentials: 'include'
+			});
+			if (res.ok && error === undefined) {
 				remState = 'success';
 				announce = t('risk_rem.success');
 				setTimeout(() => { onVerified(); }, 1800);
-			} else if (res.status === 423) {
-				// 423 Locked — too many attempts or no MFA enrolled.
+			} else if (res.status === 423 || res.status === 429) {
+				// 423 Locked / 429 factor lockout — too many attempts or no MFA enrolled.
 				remState = 'locked';
 			} else {
 				remState = 'error';

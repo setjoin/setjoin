@@ -14,18 +14,14 @@ import type { ChatAttachment, ChatMessage } from '$lib/chat/api';
 import { jmapSession } from '$lib/stores/session';
 import { user } from '$lib/stores/auth';
 
-const typedFetch = vi.fn();
-vi.mock('$lib/http', async () => {
-	const actual = await vi.importActual<typeof import('$lib/http')>('$lib/http');
-	return { ...actual, typedFetch: (...a: unknown[]) => typedFetch(...a) };
-});
-
+const getNodesMeta = vi.fn();
 const fetchVersionContent = vi.fn();
 const fetchVersionPreview = vi.fn();
 vi.mock('$lib/drive/api', async () => {
 	const actual = await vi.importActual<typeof import('$lib/drive/api')>('$lib/drive/api');
 	return {
 		...actual,
+		getNodesMeta: (...a: unknown[]) => getNodesMeta(...a),
 		fetchVersionContent: (...a: unknown[]) => fetchVersionContent(...a),
 		fetchVersionPreview: (...a: unknown[]) => fetchVersionPreview(...a),
 	};
@@ -63,7 +59,7 @@ const createObjectURL = vi.fn(() => 'blob:mock-url');
 const revokeObjectURL = vi.fn();
 
 beforeEach(() => {
-	typedFetch.mockReset();
+	getNodesMeta.mockReset();
 	fetchVersionContent.mockReset();
 	fetchVersionPreview.mockReset();
 	jmapSession.set(null);
@@ -85,10 +81,10 @@ describe('MessageAttachments — Chat A2 Task 8 attachments', () => {
 	});
 
 	it('an image attachment resolves node-meta then fetches content as a blob and renders a thumbnail', async () => {
-		typedFetch.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
+		getNodesMeta.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
 		fetchVersionContent.mockResolvedValue({ blob: async () => new Blob(['x'], { type: 'image/png' }) });
 		const { container } = render(MessageAttachments, { message: msg({ attachments: [attachment()] }) });
-		await waitFor(() => expect(typedFetch).toHaveBeenCalledWith('/api/drive/nodes?ids=5'));
+		await waitFor(() => expect(getNodesMeta).toHaveBeenCalledWith([5]));
 		await waitFor(() => expect(screen.getByAltText('pic.png')).toBeTruthy());
 		expect((screen.getByAltText('pic.png') as HTMLImageElement).src).toBe('blob:mock-url');
 		expect(container.querySelector('.mrow__thumb')).toBeTruthy();
@@ -103,7 +99,7 @@ describe('MessageAttachments — Chat A2 Task 8 attachments', () => {
 				guest: { allowDownload: false },
 			},
 		} as never);
-		typedFetch.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
+		getNodesMeta.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
 		const { container } = render(MessageAttachments, { message: msg({ attachments: [attachment()] }) });
 		await waitFor(() => expect(screen.getByText('View-only: original file unavailable')).toBeTruthy());
 		expect(fetchVersionContent).not.toHaveBeenCalled();
@@ -112,7 +108,7 @@ describe('MessageAttachments — Chat A2 Task 8 attachments', () => {
 
 	it('a known auth guest remains view-only when JMAP capability loading failed', async () => {
 		user.set({ email: 'guest@partner.example', isAdmin: false, hasMailbox: false, accountType: 'guest' });
-		typedFetch.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
+		getNodesMeta.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
 		const { container } = render(MessageAttachments, { message: msg({ attachments: [attachment()] }) });
 		await waitFor(() => expect(screen.getByText('View-only: original file unavailable')).toBeTruthy());
 		expect(fetchVersionContent).not.toHaveBeenCalled();
@@ -129,7 +125,7 @@ describe('MessageAttachments — Chat A2 Task 8 attachments', () => {
 			},
 		} as never);
 		user.set({ email: 'guest@partner.example', isAdmin: false, hasMailbox: false, accountType: 'guest' });
-		typedFetch.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
+		getNodesMeta.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
 		fetchVersionPreview.mockResolvedValue({ status: 200, blob: async () => new Blob(['pdf'], { type: 'application/pdf' }) });
 		const { container } = render(MessageAttachments, {
 			message: msg({ attachments: [attachment({ filename: 'brief.docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })] }),
@@ -143,7 +139,7 @@ describe('MessageAttachments — Chat A2 Task 8 attachments', () => {
 	});
 
 	it('row height (the fixed thumbnail box) is unchanged across the <img> load event — A1 scroll-anchor pin', async () => {
-		typedFetch.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
+		getNodesMeta.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
 		fetchVersionContent.mockResolvedValue({ blob: async () => new Blob(['x'], { type: 'image/png' }) });
 		const { container } = render(MessageAttachments, { message: msg({ attachments: [attachment()] }) });
 		const box = container.querySelector('.mrow__thumb') as HTMLElement;
@@ -163,7 +159,7 @@ describe('MessageAttachments — Chat A2 Task 8 attachments', () => {
 	});
 
 	it('a non-image attachment renders a file chip (name + size) with download + Open in Drive once resolved', async () => {
-		typedFetch.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
+		getNodesMeta.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
 		render(MessageAttachments, {
 			message: msg({ attachments: [attachment({ filename: 'report.pdf', contentType: 'application/pdf', sizeBytes: 3072 })] }),
 		});
@@ -176,14 +172,14 @@ describe('MessageAttachments — Chat A2 Task 8 attachments', () => {
 	});
 
 	it('node-meta lookup returning nothing (deleted/invisible node) renders a tombstone chip', async () => {
-		typedFetch.mockResolvedValue([]);
+		getNodesMeta.mockResolvedValue([]);
 		render(MessageAttachments, { message: msg({ attachments: [attachment({ filename: 'gone.png' })] }) });
 		await waitFor(() => expect(screen.getByText('Attachment unavailable')).toBeTruthy());
 		expect(screen.queryByAltText('gone.png')).toBeNull();
 	});
 
 	it('an <img> onerror flips the thumbnail to a tombstone', async () => {
-		typedFetch.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
+		getNodesMeta.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
 		fetchVersionContent.mockResolvedValue({ blob: async () => new Blob(['x'], { type: 'image/png' }) });
 		render(MessageAttachments, { message: msg({ attachments: [attachment()] }) });
 		await waitFor(() => expect(screen.getByAltText('pic.png')).toBeTruthy());
@@ -195,12 +191,12 @@ describe('MessageAttachments — Chat A2 Task 8 attachments', () => {
 		const { container } = render(MessageAttachments, {
 			message: msg({ status: 'sending', attachments: [attachment({ fileNodeId: 0 })] }),
 		});
-		expect(typedFetch).not.toHaveBeenCalled();
+		expect(getNodesMeta).not.toHaveBeenCalled();
 		expect(container.querySelector('.mrow__attachments')).toBeNull();
 	});
 
 	it('clicking a resolved thumbnail opens an M1 Dialog lightbox', async () => {
-		typedFetch.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
+		getNodesMeta.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
 		fetchVersionContent.mockResolvedValue({ blob: async () => new Blob(['x'], { type: 'image/png' }) });
 		render(MessageAttachments, { message: msg({ attachments: [attachment()] }) });
 		await waitFor(() => expect(screen.getByAltText('pic.png')).toBeTruthy());
@@ -243,7 +239,7 @@ describe('MessageAttachments — A3 QoL Task 15: voice messages', () => {
 	}
 
 	it('a ready voice attachment renders a native <audio> player, not the generic file-chip UI', async () => {
-		typedFetch.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
+		getNodesMeta.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
 		const { container } = render(MessageAttachments, { message: voiceMsg() });
 		await waitFor(() => expect(screen.getByTestId('voice-player')).toBeTruthy());
 		const audio = screen.getByTestId('voice-player') as HTMLAudioElement;
@@ -253,7 +249,7 @@ describe('MessageAttachments — A3 QoL Task 15: voice messages', () => {
 	});
 
 	it('an unresolved/deleted voice attachment shows the unavailable tombstone, never a broken player', async () => {
-		typedFetch.mockResolvedValue([]);
+		getNodesMeta.mockResolvedValue([]);
 		render(MessageAttachments, { message: voiceMsg() });
 		await waitFor(() => expect(screen.getByText('Attachment unavailable')).toBeTruthy());
 		expect(screen.queryByTestId('voice-player')).toBeNull();

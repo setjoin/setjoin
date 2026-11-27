@@ -1,16 +1,20 @@
-import { httpRequest } from '$lib/http';
+import { createEdgeClient } from '$lib/edge/client';
 import type { Trace } from '$lib/types/delivery';
 
+const deliveryEdgeClient = createEdgeClient({
+	onError: (r) => `Trace error: ${r.status}`
+});
+
 export async function messageTrace(id: string, signal?: AbortSignal): Promise<Trace> {
-	// The id is interpolated into the request path, so it is percent-encoded at
-	// this boundary — a malformed id can shape the path (e.g. add segments) but
-	// never escape the /api/messages/ prefix. Server-issued ids (hex/UUID) are
-	// unaffected; anything else fails closed with a scoped 404/401 at the
-	// gateway rather than a differently-shaped route.
-	const res = await httpRequest(`/api/messages/${encodeURIComponent(id)}/trace`, {
-		method: 'GET',
-		signal,
-		onError: (r) => `Trace error: ${r.status}`
+	// openapi-fetch percent-encodes path parameters via encodeURIComponent at this
+	// boundary — a malformed id cannot escape the /api/messages/ prefix; anything
+	// else fails closed with a scoped 404/401 at the gateway.
+	const { data, error, response } = await deliveryEdgeClient.GET('/api/messages/{emailId}/trace', {
+		params: { path: { emailId: id } },
+		signal
 	});
-	return (await res.json()) as Trace;
+	if (!response.ok || error !== undefined || data === undefined) {
+		throw new Error(`Trace error: ${response.status}`);
+	}
+	return data as Trace;
 }

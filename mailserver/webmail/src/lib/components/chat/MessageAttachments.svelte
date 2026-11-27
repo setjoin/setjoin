@@ -53,8 +53,7 @@
 	import { Dialog } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { t } from '$lib/i18n';
-	import { typedFetch } from '$lib/http';
-	import { contentUrl, fetchVersionContent } from '$lib/drive/api';
+	import { contentUrl, fetchVersionContent, getNodesMeta } from '$lib/drive/api';
 	import { effectiveCaps, isGuestSession } from '$lib/stores/session';
 	import { user } from '$lib/stores/auth';
 	import type { VersionMeta } from '$lib/drive/opener.svelte';
@@ -145,7 +144,7 @@
 
 	async function resolveAttachment(a: ChatAttachment): Promise<void> {
 		try {
-			const rows = await typedFetch<NodeMetaLite[]>(`/api/drive/nodes?ids=${a.fileNodeId}`);
+			const rows = await getNodesMeta([a.fileNodeId]);
 			const meta = rows[0];
 			// Invisible/unknown/deleted node — nodes_meta.go silently omits it
 			// rather than 403/404ing (its own doc comment), indistinguishable
