@@ -467,12 +467,7 @@ fn burst_has_trailing_commit(buf: &[u8]) -> bool {
             return false;
         }
         let tag = buf[pos];
-        let len = i32::from_be_bytes([
-            buf[pos + 1],
-            buf[pos + 2],
-            buf[pos + 3],
-            buf[pos + 4],
-        ]);
+        let len = i32::from_be_bytes([buf[pos + 1], buf[pos + 2], buf[pos + 3], buf[pos + 4]]);
         if len < 4 {
             return false;
         }
@@ -882,7 +877,11 @@ async fn admin_write_and_sensitive_read_commit_core_audit_under_lean_policy_and_
         })
         .await
         .unwrap_err();
-    assert_eq!(err_closure.sqlstate.as_deref(), Some("22P02"), "{err_closure:?}");
+    assert_eq!(
+        err_closure.sqlstate.as_deref(),
+        Some("22P02"),
+        "{err_closure:?}"
+    );
     assert!(
         !tx2_executed.load(Ordering::SeqCst),
         "Tx 2 closure must NEVER run when Tx 1 audit fails"
@@ -1754,7 +1753,9 @@ async fn interactive_capability_tx_local_refusal_rolls_back_cleanly_without_unkn
     let out_user = pool
         .run_user_write(&env_user, &user, deadline(), async |tx| {
             let mismatched: i32 = 42;
-            let _ = tx.query("SELECT $1::text", &[(&mismatched, Type::TEXT)]).await?;
+            let _ = tx
+                .query("SELECT $1::text", &[(&mismatched, Type::TEXT)])
+                .await?;
             Ok::<_, setjoin_pg::StatementFailure>(())
         })
         .await;
