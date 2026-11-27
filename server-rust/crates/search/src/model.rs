@@ -729,4 +729,63 @@ pub trait SearchIndexer: Send + Sync {
     ) -> BoxFuture<'a, Result<usize, SearchError>>;
 
     fn commit_generation<'a>(&'a self) -> BoxFuture<'a, Result<u64, SearchError>>;
+
+    /// Lease-fenced variant of [`Self::upsert_batch`]: checks `lease_lost`
+    /// inside the critical commit/publication section before mutating on-disk state.
+    fn upsert_batch_checked<'a>(
+        &'a self,
+        docs: &'a [IndexDocument],
+        lease_lost: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    ) -> BoxFuture<'a, Result<usize, SearchError>> {
+        if lease_lost
+            .as_deref()
+            .is_some_and(|f| f.load(std::sync::atomic::Ordering::Acquire))
+        {
+            return Box::pin(async {
+                Err(SearchError::Unavailable(
+                    "workqueue lease lost before search upsert".to_owned(),
+                ))
+            });
+        }
+        self.upsert_batch(docs)
+    }
+
+    /// Lease-fenced variant of [`Self::delete_batch`]: checks `lease_lost`
+    /// inside the critical commit/publication section before mutating on-disk state.
+    fn delete_batch_checked<'a>(
+        &'a self,
+        keys: &'a [DocumentKey],
+        lease_lost: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    ) -> BoxFuture<'a, Result<usize, SearchError>> {
+        if lease_lost
+            .as_deref()
+            .is_some_and(|f| f.load(std::sync::atomic::Ordering::Acquire))
+        {
+            return Box::pin(async {
+                Err(SearchError::Unavailable(
+                    "workqueue lease lost before search delete".to_owned(),
+                ))
+            });
+        }
+        self.delete_batch(keys)
+    }
+
+    /// Lease-fenced variant of [`Self::commit_generation`]: checks `lease_lost`
+    /// inside the critical commit/publication section before publishing a new generation.
+    fn commit_generation_checked<'a>(
+        &'a self,
+        lease_lost: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    ) -> BoxFuture<'a, Result<u64, SearchError>> {
+        if lease_lost
+            .as_deref()
+            .is_some_and(|f| f.load(std::sync::atomic::Ordering::Acquire))
+        {
+            return Box::pin(async {
+                Err(SearchError::Unavailable(
+                    "workqueue lease lost before search commit".to_owned(),
+                ))
+            });
+        }
+        self.commit_generation()
+    }
 }

@@ -28,10 +28,8 @@ Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go se
   - `crates/sql-catalog` (`setjoin-sql-catalog`, #541) — zero-proc-macro typed
     SQL contract catalog (`SqlContract`, `SqlScope`, `pg_rfc3339!`);
     [contract](crates/sql-catalog/DOX.md).
-  - `tests/conformance` — DB-backed parity and recorded-golden harness; [contract](DOX.md#conformance-harness-contract).
-  - `tests/sql-contracts` (`setjoin-sql-contracts`, `verify-sql-contracts`, #541) —
-    disposable-Postgres SQL contract verifier gated by `scripts/check-rust-sql-contracts.sh`
-    and `scripts/check-rust-sql-contracts-selftest.sh`; [contract](crates/sql-catalog/DOX.md).
+  - `tests/conformance` — DB-backed parity/golden harness; [contract](DOX.md#conformance-harness-contract).
+  - `tests/sql-contracts` (`setjoin-sql-contracts`, #541) — disposable-Postgres SQL verifier (`scripts/check-rust-sql-contracts*.sh`); [contract](crates/sql-catalog/DOX.md).
 - `pilot/` — separate pilot workspace; [contract](DOX.md#pilot-workspace-contract).
 - `tools/schema-simulation/` — separate tooling workspace; [contract](DOX.md#schema-simulation-workspace).
 
@@ -175,5 +173,5 @@ Shared Go UUID identifiers (#455): [contracts](crates/contracts/DOX.md#go-uuid-i
 - `crates/certificates` — shared Go certificate/PEM profile and recipient trust cache; [contract](crates/certificates/DOX.md).
 
 - `crates/calendar-format` — shared Go calendar parser; [contract](crates/calendar-format/DOX.md).
-- `crates/workqueue` (#548/#549) — durable WorkQueue, `worker_schedules` leases, DLQ (`operator`), privileged `worker` feature (family-isolated). `bins/gateway/src/supervisor/` owns `WorkerSupervisor`, boot `BYPASSRLS`, WORM arming, drain-then-retire.
-- `crates/search` (`setjoin-search`, #556) — foundation two-tier `SearchEngine`/`SearchIndexer` seam, optional `pg_bigm` Tier-1 baseline, pure-MIT `tantivy` index (`<= 50 MB` writer cap, default OFF), and PG re-authorization helpers; [contract](crates/search/DOX.md).
+- `crates/workqueue` (#548/#549) — WorkQueue, `worker_schedules`, DLQ (`operator`), family-isolated `worker`; `WorkerSupervisor` in `bins/gateway/src/supervisor/`.
+- `crates/search` (`setjoin-search`, #556/#557) — foundation two-tier search, pure-MIT `tantivy` + content extraction/indexing pipeline; [contract](crates/search/DOX.md).

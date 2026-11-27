@@ -264,3 +264,7 @@ blob_gc_config	COVERED	blob_mark_and_sweep_gc.pg	blob_gc_config direct SELECT de
 # ── V290 Two-tier search freshness fencing tables (#556). ───────────────────
 search_dirty_keys	COVERED	V290__search_two_tier.pg	search_dirty_keys denies all setjoin_app SELECT access (42501)	V290 (#556): worker-only search freshness staging table with ENABLE+FORCE RLS, zero policies, and REVOKE ALL FROM PUBLIC/setjoin_app; SET LOCAL ROLE setjoin_app SELECT/INSERT raise 42501.
 search_index_watermarks	COVERED	V290__search_two_tier.pg	search_index_watermarks denies all setjoin_app SELECT access (42501)	V290 (#556): worker-only search index watermark fence with ENABLE+FORCE RLS, zero policies, and REVOKE ALL FROM PUBLIC/setjoin_app; SET LOCAL ROLE setjoin_app SELECT/INSERT raise 42501.
+
+# ── V291 Content-addressed search extraction cache & indexing outbox (#557). ─
+search_extracted_text	COVERED	V291__search_extraction.pg	search_extracted_text denies all setjoin_app SELECT access (42501)	V291 (#557): worker-only content-addressed extraction cache with ENABLE+FORCE RLS, zero policies, and REVOKE ALL FROM PUBLIC/setjoin_app; SET LOCAL ROLE setjoin_app SELECT/INSERT raise 42501.
+search_index_outbox	COVERED	V291__search_extraction.pg	search_index_outbox denies all setjoin_app SELECT access (42501)	V291 (#557): worker-only monotonic search indexing outbox with ENABLE+FORCE RLS, zero policies, and REVOKE ALL FROM PUBLIC/setjoin_app; SET LOCAL ROLE setjoin_app SELECT/INSERT raise 42501.

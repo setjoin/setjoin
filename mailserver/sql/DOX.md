@@ -2506,3 +2506,35 @@ keys and reserved `sub_id`) and `public.search_index_watermarks` — both with
 to `setjoin_worker` (restated in `scripts/provision-roles.sql`). Zero `blobs` columns
 and zero `feature_toggles` rows are added. Proof: `tests/V290__search_two_tier.pg` and
 `server-rust/crates/search/tests/two_tier_db.rs`.
+
+## Content-addressed search extraction cache & indexing outbox (`V291__search_extraction_cache_and_outbox.sql`, #557)
+
+`V291__search_extraction_cache_and_outbox.sql` adds two worker-only `system_only`
+tables — `public.search_extracted_text` (content-addressed SHA-256 extracted-text cache
+across `'blob'` and `'drive_file_version'` planes, capped at `<= 512 KiB`, non-`extracted`/
+`truncated_limit` statuses constrained to `extracted_text IS NULL`) and
+`public.search_index_outbox` (gap-free `bigserial` outbox with `processed_at`
+settlement, `txid xid8`, and optional `action_id uuid` across all 5 search corpora) —
+both with `ENABLE`+`FORCE ROW LEVEL SECURITY`, zero policies (deny-all to `setjoin_app`
+and `PUBLIC`), `OWNER TO setjoin_owner`, and table/sequence grants restricted to
+`setjoin_worker` (restated in `scripts/provision-roles.sql`), plus strictly additive
+`search_index_watermarks.indexed_outbox_seq`.
+Both `content_sha256` columns are classified `blobs_internal` in
+`config/blob-reference-manifest.json` (never pinning deleted blobs). Worker-only
+`SECURITY INVOKER` helpers (`reducers/search_extraction.sql`, embedded verbatim in `V291`)
+enforce `BZ003` (`rolbypassrls OR rolsuper`): `search_extracted_text_gc_sweep` (cross-plane
+check against both `blob_has_live_reference()` and `drive_file_versions`, preserving
+Drive 30-day admin trash; wired into `BlobGcWorker::run_live`), `search_outbox_enqueue`,
+`search_outbox_claim_batch` (`processed_at IS NULL` gap-free claim),
+`search_outbox_mark_processed`, and epoch-safe monotonic `search_watermark_advance`
+(rejects stale `EXCLUDED.epoch < w.epoch`), plus `IMMUTABLE`
+`search_scheduled_action_doc_id(uuid)` and worker-owned `SECURITY DEFINER`
+write-capture trigger `search_index_outbox_trg_fn()` attached to `messages`
+(`BEFORE DELETE` for scoped cascading attachment tombstones + `AFTER INSERT/UPDATE/DELETE`),
+`message_attachments` (direct deletes also re-index parent Mail), `chat_messages`,
+`chat_message_revisions`, `chat_message_attachments`, `drive_nodes`,
+`drive_file_versions`, and `scheduled_actions` (strictly inert until
+`search_index_watermarks` is seeded under `SETJOIN_SEARCH_TIER2_ENABLED=true`).
+Zero `blobs` columns and zero `feature_toggles` rows are added. Proof:
+`tests/V291__search_extraction.pg`, `crates/search/tests/extraction_indexing_db.rs`,
+and `bins/gateway/tests/search_worker_db.rs`.

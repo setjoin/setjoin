@@ -481,12 +481,32 @@ pub async fn run_with_options(
         crate::blob_retention::config(),
         crate::blob_retention::Config::On(_)
     );
+    let search_caps = if subsystems.http || subsystems.workers {
+        match configuration_exec.as_ref() {
+            Some(exec) => setjoin_search::probe_pg_capabilities_exec(exec)
+                .await
+                .unwrap_or_default(),
+            None => setjoin_search::PgSearchCapabilities::default(),
+        }
+    } else {
+        setjoin_search::PgSearchCapabilities::default()
+    };
+    let search_runtime = Arc::new(setjoin_search::SearchRuntime::from_env(search_caps));
+    if search_runtime.config().tier2_enabled {
+        let health = search_runtime.health();
+        if !health.is_healthy() {
+            eprintln!(
+                "setjoin-gateway: Tier-2 search enabled but degraded ({health:?}); falling back to Tier-1 PostgreSQL baseline"
+            );
+        }
+    }
     let need_supervisor = subsystems.workers
         && (options.require_worker_bypassrls
             || options.use_schedule_leases
             || work_queue.is_some()
             || promote_store.is_some()
             || push_drain.is_some()
+            || search_runtime.config().tier2_enabled
             || admin_jobs
                 .as_ref()
                 .is_some_and(|a| a.bulk.is_some() || a.eap.is_some()));
@@ -547,7 +567,7 @@ pub async fn run_with_options(
         // committed `blob.promote_recover` and `blob.promote_verify` intents never
         // stall unprocessed (#551). WORM arming and residual `blob.s3_reap_retry`
         // drain boot alongside when blob-cleanup, work-queue, or WORM is enabled (#549/#551).
-        if let Some(store) = promote_store {
+        if let Some(store) = promote_store.clone() {
             let promote_consumer = crate::supervisor::worm::BlobPromoteConsumer::new(store.clone());
             sup.spawn("blob-promote-consumer", move |ctx| {
                 promote_consumer.run(ctx)
@@ -561,6 +581,26 @@ pub async fn run_with_options(
                 });
             }
             wq_consumer_spawned = true;
+        }
+        // Wave 3.2 (#557): opt-in content-addressed extraction and full-domain
+        // Mail/Chat/Drive indexing consumers (strictly OFF unless
+        // SETJOIN_SEARCH_TIER2_ENABLED=true).
+        if search_runtime.config().tier2_enabled {
+            if let (Some(engine), Some(store)) = (search_runtime.tier2().cloned(), promote_store) {
+                let single_flight = Arc::new(setjoin_search::ExtractionSingleFlight::default());
+                let extract_consumer =
+                    crate::supervisor::search_worker::SearchExtractConsumer::new(store.clone())
+                        .with_single_flight(Arc::clone(&single_flight));
+                sup.spawn("search-extract-consumer", move |ctx| {
+                    extract_consumer.run(ctx)
+                });
+                let index_consumer =
+                    crate::supervisor::search_worker::SearchIndexConsumer::new(engine, store)
+                        .with_single_flight(single_flight)
+                        .with_freshness_fence(search_runtime.freshness_fence().clone());
+                sup.spawn("search-index-consumer", move |ctx| index_consumer.run(ctx));
+                wq_consumer_spawned = true;
+            }
         }
         // Wire durable WorkQueue + legacy SKIP LOCKED drain consumer for
         // bulk_role_jobs, eap_apply_jobs, and guest_notification_intents,
@@ -763,23 +803,8 @@ pub async fn run_with_options(
         let mut gateway = Gateway::new(config, route_table)?
             .with_http_limits(http_limits)
             .map_err(|e| format!("GATEWAY_MAX_CONNECTIONS: {e}"))?
-            .with_configuration(&configuration);
-        let search_caps = match configuration_exec.as_ref() {
-            Some(exec) => setjoin_search::probe_pg_capabilities_exec(exec)
-                .await
-                .unwrap_or_default(),
-            None => setjoin_search::PgSearchCapabilities::default(),
-        };
-        let search_runtime = Arc::new(setjoin_search::SearchRuntime::from_env(search_caps));
-        if search_runtime.config().tier2_enabled {
-            let health = search_runtime.health();
-            if !health.is_healthy() {
-                eprintln!(
-                    "setjoin-gateway: Tier-2 search enabled but degraded ({health:?}); falling back to Tier-1 PostgreSQL baseline"
-                );
-            }
-        }
-        gateway = gateway.with_search_runtime(search_runtime);
+            .with_configuration(&configuration)
+            .with_search_runtime(search_runtime.clone());
         if let Some(authority) = options.auth_authority.clone() {
             gateway = gateway.with_auth_authority(authority);
         } else {

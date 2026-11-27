@@ -588,23 +588,35 @@ impl SharedState {
         Ok(disk)
     }
 
-    fn upsert_batch_sync(&self, docs: &[IndexDocument]) -> Result<usize, SearchError> {
+    fn check_lease(lease_lost: Option<&AtomicBool>) -> Result<(), SearchError> {
+        if lease_lost.is_some_and(|f| f.load(Ordering::Acquire)) {
+            return Err(SearchError::Unavailable(
+                "workqueue lease lost before Tantivy commit publication".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn upsert_batch_sync(
+        &self,
+        docs: &[IndexDocument],
+        lease_lost: Option<&AtomicBool>,
+    ) -> Result<usize, SearchError> {
         validate_batch_bounds(docs)?;
+        Self::check_lease(lease_lost)?;
         self.ensure_active_epoch_for_write()?;
         let _guard = self
             .write_mutex
             .lock()
             .map_err(|_| SearchError::Internal("write mutex poisoned".to_owned()))?;
         let _lock = self.acquire_rebuild_lock()?;
+        Self::check_lease(lease_lost)?;
 
         let snapshot = self.loaded.load_full();
         let Some(epoch) = snapshot.as_ref().as_ref() else {
             return Err(SearchError::Unavailable("no active epoch".to_owned()));
         };
         let mut dirty_manifest = self.verify_disk_epoch_matches(epoch.manifest.epoch)?;
-        dirty_manifest.clean_shutdown = false;
-        self.write_manifest_atomic(&dirty_manifest)?;
-
         let mut writer =
             create_bounded_writer(&epoch.index, self.config.effective_writer_heap_bytes())?;
         for doc in docs {
@@ -615,52 +627,64 @@ impl SharedState {
                 .add_document(tdoc)
                 .map_err(|e| SearchError::Internal(format!("tantivy add_document: {e}")))?;
         }
+        // Final lease check inside the write lock immediately before dirtying manifest & committing!
+        Self::check_lease(lease_lost)?;
+        dirty_manifest.clean_shutdown = false;
+        self.write_manifest_atomic(&dirty_manifest)?;
         writer
             .commit()
             .map_err(|e| SearchError::Io(format!("tantivy commit: {e}")))?;
-        self.publish_reloaded_generation_locked(epoch, dirty_manifest.generation)?;
+        self.publish_reloaded_generation_locked(epoch, dirty_manifest.generation, lease_lost)?;
         Ok(docs.len())
     }
 
-    fn delete_batch_sync(&self, keys: &[DocumentKey]) -> Result<usize, SearchError> {
+    fn delete_batch_sync(
+        &self,
+        keys: &[DocumentKey],
+        lease_lost: Option<&AtomicBool>,
+    ) -> Result<usize, SearchError> {
+        Self::check_lease(lease_lost)?;
         let _guard = self
             .write_mutex
             .lock()
             .map_err(|_| SearchError::Internal("write mutex poisoned".to_owned()))?;
         let _lock = self.acquire_rebuild_lock()?;
+        Self::check_lease(lease_lost)?;
         let snapshot = self.loaded.load_full();
         let Some(epoch) = snapshot.as_ref().as_ref() else {
             return Ok(0);
         };
         let mut dirty_manifest = self.verify_disk_epoch_matches(epoch.manifest.epoch)?;
-        dirty_manifest.clean_shutdown = false;
-        self.write_manifest_atomic(&dirty_manifest)?;
-
         let mut writer =
             create_bounded_writer(&epoch.index, self.config.effective_writer_heap_bytes())?;
         for key in keys {
             let term = Term::from_field_text(epoch.fields.doc_key, &key.encode_doc_key());
             writer.delete_term(term);
         }
+        Self::check_lease(lease_lost)?;
+        dirty_manifest.clean_shutdown = false;
+        self.write_manifest_atomic(&dirty_manifest)?;
         writer
             .commit()
             .map_err(|e| SearchError::Io(format!("tantivy delete commit: {e}")))?;
-        self.publish_reloaded_generation_locked(epoch, dirty_manifest.generation)?;
+        self.publish_reloaded_generation_locked(epoch, dirty_manifest.generation, lease_lost)?;
         Ok(keys.len())
     }
 
-    fn commit_generation_sync(&self) -> Result<u64, SearchError> {
+    fn commit_generation_sync(&self, lease_lost: Option<&AtomicBool>) -> Result<u64, SearchError> {
+        Self::check_lease(lease_lost)?;
         let _guard = self
             .write_mutex
             .lock()
             .map_err(|_| SearchError::Internal("write mutex poisoned".to_owned()))?;
         let _lock = self.acquire_rebuild_lock()?;
+        Self::check_lease(lease_lost)?;
         let snapshot = self.loaded.load_full();
         let Some(epoch) = snapshot.as_ref().as_ref() else {
             return Err(SearchError::Unavailable("no active epoch".to_owned()));
         };
         let disk = self.verify_disk_epoch_matches(epoch.manifest.epoch)?;
-        self.publish_reloaded_generation_locked(epoch, disk.generation)
+        self.publish_reloaded_generation_locked(epoch, disk.generation, lease_lost)
     }
 
     /// Atomically publish a new `(reader, generation)` pair into `ArcSwap` + `CURRENT`
@@ -669,6 +693,7 @@ impl SharedState {
         &self,
         epoch: &LoadedEpoch,
         disk_gen: u64,
+        lease_lost: Option<&AtomicBool>,
     ) -> Result<u64, SearchError> {
         let next_gen = epoch.manifest.generation.max(disk_gen).saturating_add(1);
         let mut updated = epoch.manifest.clone();
@@ -681,6 +706,7 @@ impl SharedState {
             self.config.zh_dict_path.clone(),
             Arc::clone(&self.active_epochs),
         )?;
+        Self::check_lease(lease_lost)?;
         self.write_manifest_atomic(&updated)?;
         self.loaded.store(Arc::new(Some(reloaded)));
         self.clear_degraded();
@@ -1215,35 +1241,62 @@ impl SearchIndexer for TantivySearchEngine {
         &'a self,
         docs: &'a [IndexDocument],
     ) -> BoxFuture<'a, Result<usize, SearchError>> {
-        if let Err(err) = validate_batch_bounds(docs) {
-            return Box::pin(async move { Err(err) });
-        }
-        let state = Arc::clone(&self.state);
-        let owned_docs = docs.to_vec();
-        Box::pin(async move {
-            tokio::task::spawn_blocking(move || state.upsert_batch_sync(&owned_docs))
-                .await
-                .map_err(|e| SearchError::Internal(format!("indexer upsert join error: {e}")))?
-        })
+        self.upsert_batch_checked(docs, None)
     }
 
     fn delete_batch<'a>(
         &'a self,
         keys: &'a [DocumentKey],
     ) -> BoxFuture<'a, Result<usize, SearchError>> {
-        let state = Arc::clone(&self.state);
-        let owned_keys = keys.to_vec();
-        Box::pin(async move {
-            tokio::task::spawn_blocking(move || state.delete_batch_sync(&owned_keys))
-                .await
-                .map_err(|e| SearchError::Internal(format!("indexer delete join error: {e}")))?
-        })
+        self.delete_batch_checked(keys, None)
     }
 
     fn commit_generation<'a>(&'a self) -> BoxFuture<'a, Result<u64, SearchError>> {
+        self.commit_generation_checked(None)
+    }
+
+    fn upsert_batch_checked<'a>(
+        &'a self,
+        docs: &'a [IndexDocument],
+        lease_lost: Option<Arc<AtomicBool>>,
+    ) -> BoxFuture<'a, Result<usize, SearchError>> {
+        if let Err(err) = validate_batch_bounds(docs) {
+            return Box::pin(async move { Err(err) });
+        }
+        let state = Arc::clone(&self.state);
+        let owned_docs = docs.to_vec();
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || {
+                state.upsert_batch_sync(&owned_docs, lease_lost.as_deref())
+            })
+            .await
+            .map_err(|e| SearchError::Internal(format!("indexer upsert join error: {e}")))?
+        })
+    }
+
+    fn delete_batch_checked<'a>(
+        &'a self,
+        keys: &'a [DocumentKey],
+        lease_lost: Option<Arc<AtomicBool>>,
+    ) -> BoxFuture<'a, Result<usize, SearchError>> {
+        let state = Arc::clone(&self.state);
+        let owned_keys = keys.to_vec();
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || {
+                state.delete_batch_sync(&owned_keys, lease_lost.as_deref())
+            })
+            .await
+            .map_err(|e| SearchError::Internal(format!("indexer delete join error: {e}")))?
+        })
+    }
+
+    fn commit_generation_checked<'a>(
+        &'a self,
+        lease_lost: Option<Arc<AtomicBool>>,
+    ) -> BoxFuture<'a, Result<u64, SearchError>> {
         let state = Arc::clone(&self.state);
         Box::pin(async move {
-            tokio::task::spawn_blocking(move || state.commit_generation_sync())
+            tokio::task::spawn_blocking(move || state.commit_generation_sync(lease_lost.as_deref()))
                 .await
                 .map_err(|e| SearchError::Internal(format!("indexer commit join error: {e}")))?
         })

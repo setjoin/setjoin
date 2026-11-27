@@ -3408,6 +3408,18 @@
       "rls_posture": "enforced",
       "read_contracts": []
     },
+    "search_extracted_text": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "search_index_outbox": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
     "search_index_watermarks": {
       "owner": "foundation",
       "security_class": "system_only",

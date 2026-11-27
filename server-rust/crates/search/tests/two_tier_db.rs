@@ -12,11 +12,15 @@
 //! 5. Strict `pg_dump` / `PGDATA` exclusion proof (asserts `pg_dump` exits 0 with non-empty SQL
 //!    and zero Tantivy index files/paths).
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{Duration, Utc};
+use hmac::{Hmac, Mac};
+use setjoin_authz::legacy_jwt::LegacyKeys;
+use setjoin_authz::policy_gate::{GateCredential, GateRequest, PolicyGate, ProtocolSurface};
 use setjoin_authz::principals::TxFactory;
+use setjoin_authz::token::KeySource;
 use setjoin_conformance::db_gate::{resolve as resolve_db_gate, DbGate};
-use setjoin_contracts::ids::ActorId;
-use setjoin_pg::AppPool;
+use setjoin_pg::{AppPool, ScopedExecutor};
 use setjoin_search::{
     execute_overfetch_page, probe_pg_capabilities_client, reauthorize_chat_candidates,
     reauthorize_drive_candidates, reauthorize_mail_candidates, tier1_chat_candidates,
@@ -24,8 +28,11 @@ use setjoin_search::{
     IndexDocument, MailReauthFilter, NormalizedQuery, ScopeHint, SearchConfig, SearchError,
     SearchTier, SearchVisibility, TantivySearchEngine,
 };
+use sha2::Sha256;
+use std::net::{IpAddr, Ipv4Addr};
 use std::process::Command;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
 use tempfile::TempDir;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::NoTls;
@@ -577,19 +584,74 @@ async fn live_db_two_tier_security_isolation_xinchuang_and_pg_dump_exclusion() {
         .try_get(0)
         .expect("id");
 
-    // 4. Open AppPool as setjoin_app (NOBYPASSRLS) via TxFactory and mint Tenant A principals.
+    // 4. Open AppPool as setjoin_app (NOBYPASSRLS) via PolicyGate + TxFactory and mint Tenant A principals.
+    struct TestKeys(LegacyKeys);
+    impl KeySource for TestKeys {
+        async fn key(&self, _kid: &str) -> Option<setjoin_authz::es256::VerifyingKey> {
+            None
+        }
+        fn legacy_keys(&self) -> Option<&LegacyKeys> {
+            Some(&self.0)
+        }
+    }
+    const JWT_SECRET: &[u8] = b"search-two-tier-test-hs256-key-32b!";
+    const ISSUER: &str = "https://auth.search556.test";
     let app_pool = AppPool::from_dsn(&app_dsn, 4).expect("AppPool as setjoin_app");
+    let app_exec = ScopedExecutor::from_dsn(&app_dsn, 4).expect("ScopedExecutor as setjoin_app");
     let factory = TxFactory::new(app_pool);
-    let actor_a = ActorId::new(user_a).expect("actor A");
-    let mb_principal_a = factory
-        .mint_capability_primary_mailbox(actor_a, &email_a, "127.0.0.1")
+    let keys = Arc::new(TestKeys(
+        LegacyKeys::new(JWT_SECRET, &["hs256-test"], None).expect("legacy keys"),
+    ));
+    let gate = PolicyGate::new(app_exec, keys, ISSUER).with_tx_factory(factory.clone());
+    let now_s = Utc::now().timestamp();
+    let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"HS256","typ":"JWT","kid":"hs256-test"}"#);
+    let payload = URL_SAFE_NO_PAD.encode(
+        serde_json::json!({
+            "iss": ISSUER,
+            "aud": "mailserver-gateway",
+            "typ": "access",
+            "uid": user_a,
+            "email": email_a,
+            "iat": now_s - 5,
+            "exp": now_s + 300,
+        })
+        .to_string(),
+    );
+    let signing_input = format!("{header}.{payload}");
+    let mut mac = Hmac::<Sha256>::new_from_slice(JWT_SECRET).expect("hmac");
+    mac.update(signing_input.as_bytes());
+    let sig = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+    let jwt_a = format!("{signing_input}.{sig}");
+    let adm_a = gate
+        .admit(&GateRequest {
+            surface: ProtocolSurface::Http,
+            credential: GateCredential::Jwt {
+                token: &jwt_a,
+                from_cookie: false,
+            },
+            client_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            user_agent: "search-test",
+            scheme: "https",
+            method: "GET",
+            path: "/api/search",
+            headers: None,
+            body: &[],
+            tls_active: true,
+            require_tls: false,
+            production: false,
+            allowed_origin_host: "",
+            required_app: None,
+            drive_path: false,
+            now_secs: None,
+        })
+        .await
+        .expect("admit tenant A");
+    let mb_principal_a = adm_a
+        .mint_primary_mailbox(&factory)
         .await
         .expect("mint mailbox A");
     let read_cap_a = mb_principal_a.require_read().expect("read cap A");
-    let user_principal_a = factory
-        .mint_capability_user(actor_a, &email_a, "127.0.0.1")
-        .await
-        .expect("mint user A");
+    let user_principal_a = adm_a.mint_user(&factory).await.expect("mint user A");
 
     // 4a. Tier-1 Mail search WITHOUT pg_bigm (CJK + S/MIME C7 + ComplianceOnly rejection).
     {

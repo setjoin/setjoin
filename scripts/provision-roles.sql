@@ -310,7 +310,15 @@ BEGIN
         ('public.blob_is_held_or_retained(text,integer)'),
         ('public.blob_gc_mark(integer,integer,integer)'),
         ('public.blob_gc_claim_purging(text,integer,integer,integer)'),
-        ('public.blob_gc_record_worm_lock(text,timestamptz,text)')
+        ('public.blob_gc_record_worm_lock(text,timestamptz,text)'),
+        -- #557 (V291): content-addressed search extraction GC sweep, monotonic outbox/watermark helpers, and outbox trigger.
+        ('public.search_scheduled_action_doc_id(uuid)'),
+        ('public.search_extracted_text_gc_sweep(integer,integer)'),
+        ('public.search_outbox_enqueue(text,text,bigint,bigint,bigint,timestamptz,text,uuid)'),
+        ('public.search_outbox_claim_batch(text,bigint,integer)'),
+        ('public.search_outbox_mark_processed(bigint[])'),
+        ('public.search_watermark_advance(text,bigint,bigint,bigint,text)'),
+        ('public.search_index_outbox_trg_fn()')
       ) AS exact_worker(signature)
      WHERE to_regprocedure(signature) IS NOT NULL
   LOOP
@@ -475,17 +483,44 @@ BEGIN
   END;
 END $$;
 
--- V290 (#556): two-tier search freshness staging tables are worker-only
--- (ENABLE + FORCE RLS, zero policies, owned by setjoin_owner). Restated here
--- so the blanket GRANT ON ALL TABLES above does not re-widen setjoin_app.
+-- V290/V291 (#556/#557): two-tier search freshness staging, extraction cache,
+-- and monotonic outbox tables are worker-only (ENABLE + FORCE RLS, zero policies,
+-- owned by setjoin_owner). Restated here so the blanket GRANT ON ALL TABLES above
+-- does not re-widen setjoin_app.
 DO $$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['search_dirty_keys', 'search_index_watermarks'] LOOP
+  FOREACH t IN ARRAY ARRAY[
+    'search_dirty_keys',
+    'search_index_watermarks',
+    'search_extracted_text',
+    'search_index_outbox'
+  ] LOOP
     IF to_regclass('public.' || t) IS NOT NULL THEN
       EXECUTE format('ALTER TABLE public.%I OWNER TO setjoin_owner', t);
       EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC, setjoin_app, setjoin_worker', t);
       EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO setjoin_worker', t);
     END IF;
   END LOOP;
+  IF to_regclass('public.search_index_outbox_seq_seq') IS NOT NULL THEN
+    ALTER SEQUENCE public.search_index_outbox_seq_seq OWNER TO setjoin_owner;
+    REVOKE ALL ON SEQUENCE public.search_index_outbox_seq_seq FROM PUBLIC, setjoin_app, setjoin_worker;
+    GRANT USAGE, SELECT ON SEQUENCE public.search_index_outbox_seq_seq TO setjoin_worker;
+  END IF;
+  IF to_regprocedure('public.search_index_outbox_trg_fn()') IS NOT NULL THEN
+    DECLARE
+      v_had_create boolean := false;
+    BEGIN
+      SELECT has_schema_privilege('setjoin_worker', 'public', 'CREATE') INTO v_had_create;
+      IF NOT v_had_create THEN
+        GRANT CREATE ON SCHEMA public TO setjoin_worker;
+      END IF;
+      ALTER FUNCTION public.search_index_outbox_trg_fn() OWNER TO setjoin_worker;
+      IF NOT v_had_create THEN
+        REVOKE CREATE ON SCHEMA public FROM setjoin_worker;
+      END IF;
+      REVOKE ALL ON FUNCTION public.search_index_outbox_trg_fn() FROM PUBLIC, setjoin_app;
+      GRANT EXECUTE ON FUNCTION public.search_index_outbox_trg_fn() TO setjoin_worker;
+    END;
+  END IF;
 END $$;

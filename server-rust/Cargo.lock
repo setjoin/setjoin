@@ -7179,11 +7179,17 @@ name = "setjoin-search"
 version = "0.0.0"
 dependencies = [
  "arc-swap",
+ "base64 0.22.1",
  "chrono",
+ "encoding_rs",
+ "flate2",
  "hex",
  "hmac 0.12.1",
  "jieba-rs",
+ "mail-parser",
+ "quick-xml",
  "ring",
+ "scraper",
  "serde",
  "serde_json",
  "setjoin-authz",
@@ -7195,6 +7201,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-postgres",
+ "zip",
 ]
 
 [[package]]

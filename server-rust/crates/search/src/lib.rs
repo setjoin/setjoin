@@ -13,7 +13,9 @@
 //!   `reauthorize_drive_candidates`) + bounded overfetch pagination (`<= 1500` candidates).
 
 pub mod config;
+pub mod extract;
 pub mod model;
+pub mod pipeline;
 pub mod reauth;
 pub mod tantivy_engine;
 pub mod tier1_pg;
@@ -26,11 +28,26 @@ pub use config::{
     MAX_DOC_BODY_BYTES, MAX_INFLIGHT_BYTES, MAX_INFLIGHT_DOCS, MAX_WRITER_HEAP_BYTES,
     MIN_WRITER_HEAP_BYTES,
 };
+pub use extract::{
+    decode_text_bytes, extract_bytes, extract_html_text, truncate_utf8_owned, ExtractionResult,
+    ExtractionStatus, ExtractionStoragePlane, EXTRACTOR_VERSION, MAX_EXTRACTED_TEXT_BYTES,
+    MAX_EXTRACT_INPUT_BYTES, MAX_ZIP_COMPRESSION_RATIO, MAX_ZIP_DECOMPRESSED_BYTES,
+    MAX_ZIP_ENTRIES,
+};
 pub use model::{
     BoxFuture, CandidateBatch, CandidateQuery, CursorBinding, DocCorpus, DocumentKey, EngineHealth,
     IndexDocument, NormalizedQuery, OpaqueCursor, QueryValidationError, ScopeHint, SearchEngine,
     SearchError, SearchIndexer, SearchTier, SearchVisibility, MAX_CANDIDATE_LIMIT,
     MAX_CURSOR_OFFSET, MAX_CURSOR_TOKEN_BYTES, MAX_QUERY_BYTES, MAX_QUERY_TERMS, MAX_SCOPE_IDS,
+};
+pub use pipeline::{
+    chat_revision_doc_id, enqueue_outbox, ensure_search_watermarks_initialized,
+    has_unprocessed_outbox_rows, normalize_blob_object_key, scheduled_action_doc_id,
+    unprocessed_counts_by_corpus, ContentExtractionService, ContentExtractor,
+    DefaultContentExtractor, ExtractCacheOutcome, ExtractionSingleFlight, IndexBatchSummary,
+    ObjectByteReader, SearchExtractPayload, SearchIndexBatchPayload, SearchIndexPipeline,
+    SearchPipelineDb, SingleFlightGuard, DEFAULT_INDEX_BATCH_LIMIT, WORK_KIND_SEARCH_EXTRACT,
+    WORK_KIND_SEARCH_INDEX_BATCH,
 };
 pub use reauth::{
     execute_overfetch_page, overfetch_limit, reauthorize_chat_candidates,

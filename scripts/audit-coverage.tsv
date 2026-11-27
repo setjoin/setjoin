@@ -1209,6 +1209,13 @@ work_queue.sql	work_queue_require_worker	READ_ONLY	-	pure read path checking BYP
 work_queue.sql	work_queue_stats	READ_ONLY	-	pure scalar stats read path (guard re-derives no DML)
 work_queue.sql	work_release	EXEMPT	-	fenced graceful shutdown lease handoff decrementing attempts; operational transport
 work_queue.sql	work_truncate_utf8	READ_ONLY	-	pure IMMUTABLE UTF-8 byte-safe truncation helper (guard re-derives no DML)
+search_extraction.sql	search_extracted_text_gc_sweep	EXEMPT	-	background search extraction cache GC sweep; not an authority decision
+search_extraction.sql	search_index_outbox_trg_fn	EXEMPT	-	background search indexing outbox trigger gated on active search_index_watermarks; operational indexing transport
+search_extraction.sql	search_outbox_claim_batch	READ_ONLY	-	pure read path scanning search_index_outbox (guard re-derives no DML)
+search_extraction.sql	search_outbox_enqueue	EXEMPT	-	background search indexing outbox append; operational indexing transport
+search_extraction.sql	search_outbox_mark_processed	EXEMPT	-	background search outbox processed-at settlement; operational indexing transport
+search_extraction.sql	search_scheduled_action_doc_id	READ_ONLY	-	pure IMMUTABLE deterministic negative doc-id hash helper (guard re-derives no DML)
+search_extraction.sql	search_watermark_advance	EXEMPT	-	background monotonic search index watermark advance; operational indexing transport
 worker_schedules.sql	worker_schedule_claim	EXEMPT	-	SKIP LOCKED periodic schedule lease acquisition; operational transport
 worker_schedules.sql	worker_schedule_complete	EXEMPT	-	fenced periodic schedule completion and next_due_at advance; operational transport
 worker_schedules.sql	worker_schedule_heartbeat	EXEMPT	-	fenced periodic schedule lease heartbeat; operational transport

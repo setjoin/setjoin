@@ -113,6 +113,7 @@ pub struct BlobGcMetrics {
     pub sweep_circuit_breaker_trips_total: AtomicU64,
     pub staging_swept_total: AtomicU64,
     pub orphaned_raw_reaped_total: AtomicU64,
+    pub extracted_text_swept_total: AtomicU64,
 }
 
 impl BlobGcMetrics {
@@ -187,6 +188,11 @@ impl BlobGcMetrics {
                 "Orphaned raw message blobs permanently reaped under advisory lock.",
                 self.orphaned_raw_reaped_total.load(Ordering::Relaxed),
             ),
+            (
+                "setjoin_blob_gc_extracted_text_swept_total",
+                "Orphaned search_extracted_text cache rows swept by Mark-and-Sweep GC.",
+                self.extracted_text_swept_total.load(Ordering::Relaxed),
+            ),
         ];
         let mut out = String::new();
         for (name, help, value) in rows {
@@ -212,6 +218,7 @@ pub static METRICS: BlobGcMetrics = BlobGcMetrics {
     sweep_circuit_breaker_trips_total: AtomicU64::new(0),
     staging_swept_total: AtomicU64::new(0),
     orphaned_raw_reaped_total: AtomicU64::new(0),
+    extracted_text_swept_total: AtomicU64::new(0),
 };
 
 #[derive(Clone, Debug)]
@@ -267,6 +274,7 @@ pub struct TickSummary {
     pub s3_errors: u64,
     pub staging_swept: u64,
     pub orphaned_raw_reaped: u64,
+    pub extracted_text_swept: u64,
     pub circuit_breaker_tripped: bool,
     pub budget_exhausted: bool,
 }
@@ -735,7 +743,49 @@ impl<S: ObjectStore> BlobGcWorker<S> {
             summary.staging_swept = self.sweep_abandoned_staging(conn, started).await;
         }
 
+        // Phase 5: sweep orphaned content-addressed search_extracted_text cache rows (#557).
+        if !self.should_stop(started) && !summary.circuit_breaker_tripped {
+            summary.extracted_text_swept = self
+                .sweep_orphaned_extracted_text(conn, cfg.grace_minutes, cfg.batch_size)
+                .await;
+        }
+
         Ok(summary)
+    }
+
+    /// Reclaims orphaned `public.search_extracted_text` cache rows older than
+    /// `grace_minutes` whose underlying blob / Drive file version is no longer
+    /// live-referenced (`V291` `search_extracted_text_gc_sweep`).
+    pub async fn sweep_orphaned_extracted_text(
+        &self,
+        conn: &WorkerConnection,
+        grace_minutes: i32,
+        batch_size: i32,
+    ) -> u64 {
+        let rows = match conn
+            .query(
+                "SELECT public.search_extracted_text_gc_sweep($1, $2)",
+                &[(&grace_minutes, Type::INT4), (&batch_size, Type::INT4)],
+            )
+            .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                eprintln!("blob-gc: search_extracted_text_gc_sweep failed: {e}");
+                return 0;
+            }
+        };
+        let swept = rows
+            .first()
+            .and_then(|r| r.try_get::<_, i32>(0).ok())
+            .unwrap_or(0)
+            .max(0) as u64;
+        if swept > 0 {
+            METRICS
+                .extracted_text_swept_total
+                .fetch_add(swept, Ordering::Relaxed);
+        }
+        swept
     }
 
     /// Reaps `orphaned_message_blobs` safely under `pg_advisory_xact_lock` (#551):
