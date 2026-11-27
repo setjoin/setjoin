@@ -102,7 +102,7 @@ pub async fn mfa_status(exec: &AuthDb, p: &PasswordProof) -> Result<String, Stat
 }
 pub async fn mfa_policy(exec: &AuthDb, p: &PasswordProof) -> Result<Value, StatementFailure> {
     let rows = exec
-        .read_contract(&crate::sql::LOGIN_L96, &[(&p.user, Type::INT8)])
+        .protocol_query_contract(&crate::sql::LOGIN_L96, &[(&p.user, Type::INT8)])
         .await?;
     let raw: String = rows
         .first()

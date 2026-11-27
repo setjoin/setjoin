@@ -1,6 +1,6 @@
 //! Authentication is user-scoped, including people without a mailbox. A lost
 //! COMMIT never releases bearer credentials; lookup requires current password proof.
-#[path = "../../gateway/tests/common/commit.rs"]
+#[path = "common/webauthn_commit.rs"]
 mod commit;
 mod common;
 use http_body_util::BodyExt;
@@ -45,22 +45,27 @@ async fn check(cut: commit::CommitCut) {
         .unwrap()
         .map(|r| r.get::<_, bool>(0));
     c.execute("INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false) ON CONFLICT(key) DO UPDATE SET enabled=false",&[]).await.unwrap();
-    let (dsn, task) = commit::commit_cut_proxy(db.app.as_deref().unwrap_or(&db.dsn), cut).await;
+    let worker_base = std::env::var("DB_WORKER_DSN")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| db.dsn.clone());
+    let app_base = db.app.as_deref().unwrap_or(&db.dsn);
+    let (dsn, task) =
+        commit::multiplex_commit_cut_proxy(&worker_base, cut, "rust_identity_login_mint").await;
     let mut wire = Wire(task);
     let f: Value = serde_json::from_str(include_str!(
         "../../../tests/conformance/identity-login/keys.json"
     ))
     .unwrap();
-    let exec = setjoin_pg::ScopedExecutor::from_dsn(&dsn, 1).unwrap();
-    let server = AuthServer::load(
-        exec,
-        Config::for_secret(f["secret"].as_str().unwrap().into()),
-    )
-    .await
-    .unwrap()
-    .with_threat_gate(&db.dsn)
-    .await
-    .unwrap();
+    let exec = setjoin_pg::ScopedExecutor::from_dsn(app_base, 1).unwrap();
+    let mut cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
+    cfg.worker_dsn = Some(dsn);
+    let server = AuthServer::load(exec, cfg)
+        .await
+        .unwrap()
+        .with_threat_gate(&db.dsn)
+        .await
+        .unwrap();
     let response = server
         .handle(
             Request::post("/auth/login")

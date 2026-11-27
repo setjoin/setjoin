@@ -232,8 +232,15 @@ impl AuthServer {
             .await;
         // Fresh passwordless WebAuthn enforces CA before EITHER a second-factor
         // challenge or final session issuance.
-        let ca_policy_id = match self
-            .evaluate_ca(
+        let pending_mint = super::ca::PendingMint {
+            user_id: user.user(),
+            email: user.email(),
+            amr: &["hwk"],
+            credential_fence: None,
+            identity_fence: None,
+        };
+        let ca_policy_id = match boxed(|| {
+            self.evaluate_ca(
                 ca_enabled,
                 self.ca_context(
                     user.user(),
@@ -244,16 +251,11 @@ impl AuthServer {
                     "webauthn",
                 ),
                 false,
-                Some(&super::ca::PendingMint {
-                    user_id: user.user(),
-                    email: user.email(),
-                    amr: &["hwk"],
-                    credential_fence: None,
-                    identity_fence: None,
-                }),
+                Some(&pending_mint),
                 &path,
             )
-            .await
+        })
+        .await
         {
             Ok(id) => id,
             Err(reply) => return reply,
@@ -460,7 +462,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.webauthn_register_begin_admitted(req).await;
+        let reply = boxed(|| self.webauthn_register_begin_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn webauthn_register_begin_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -597,7 +599,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.webauthn_register_finish_admitted(req).await;
+        let reply = boxed(|| self.webauthn_register_finish_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn webauthn_register_finish_admitted(&self, req: Request<Body>) -> Response<Body> {

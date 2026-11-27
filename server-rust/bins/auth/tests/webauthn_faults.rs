@@ -172,12 +172,25 @@ async fn lost_reply(kind: &str, cut: commit::CommitCut) {
         "register-finish" => "webauthn-register-finish",
         _ => unreachable!(),
     };
-    let (dsn, task) =
-        commit::commit_cut_proxy(db.app.as_deref().unwrap_or(&db.dsn), cut, command).await;
+    let work = matches!(kind, "counter" | "mint");
+    let worker_base = std::env::var("DB_WORKER_DSN")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| db.dsn.clone());
+    let app_base = db.app.as_deref().unwrap_or(&db.dsn);
+    let (dsn, task) = if work {
+        commit::multiplex_commit_cut_proxy(&worker_base, cut, command).await
+    } else {
+        commit::commit_cut_proxy(app_base, cut, command).await
+    };
     let mut wire = Wire(task);
+    let mut cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
+    if work {
+        cfg.worker_dsn = Some(dsn.clone());
+    }
     let server = AuthServer::load(
-        setjoin_pg::ScopedExecutor::from_dsn(&dsn, 1).unwrap(),
-        Config::for_secret(f["secret"].as_str().unwrap().into()),
+        setjoin_pg::ScopedExecutor::from_dsn(if work { app_base } else { &dsn }, 1).unwrap(),
+        cfg,
     )
     .await
     .unwrap()

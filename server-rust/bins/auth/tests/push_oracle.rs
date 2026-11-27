@@ -2113,7 +2113,30 @@ async fn run_push_send(kind: &str, mutant: bool) -> Result<(), Err> {
     cfg.vapid_private_key = VAPID.into();
     let operation = setjoin_identity::totp::Operation::PushSend;
     let command = "mfa-push-send";
-    let (executor, mut wire) = fault_executor(&db, kind, command).await?;
+    let (executor, mut wire) = if kind.starts_with("commit-") {
+        assert!(
+            std::env::var("GOFREE_RECORD_UPSTREAM").is_err(),
+            "faults cannot record"
+        );
+        let cut = if kind == "commit-before" {
+            commit::CommitCut::BeforeCommit
+        } else {
+            commit::CommitCut::AfterCommit
+        };
+        let worker_base = std::env::var("DB_WORKER_DSN")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| db.dsn.clone());
+        let app_base = db.app.as_deref().unwrap_or(&db.dsn);
+        let (dsn, task) = commit::multiplex_commit_cut_proxy(&worker_base, cut, command).await;
+        cfg.worker_dsn = Some(dsn);
+        (
+            setjoin_pg::ScopedExecutor::from_dsn(app_base, 4).map_err(|e| e.0)?,
+            Some(FaultWire(task)),
+        )
+    } else {
+        fault_executor(&db, kind, command).await?
+    };
     let server = auth_server(
         Arc::new(
             AuthServer::load(executor, cfg)

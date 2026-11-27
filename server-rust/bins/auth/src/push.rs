@@ -11,7 +11,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.password_grant_admitted(req).await;
+        let reply = boxed(|| self.password_grant_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn password_grant_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -211,7 +211,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.possession_totp_admitted(req).await;
+        let reply = boxed(|| self.possession_totp_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn possession_totp_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -342,7 +342,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.generate_backups_admitted(req).await;
+        let reply = boxed(|| self.generate_backups_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn generate_backups_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -500,7 +500,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.push_verify_admitted(req).await;
+        let reply = boxed(|| self.push_verify_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn push_verify_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -694,26 +694,28 @@ impl AuthServer {
         }
         let factors = push::approval_factors(&pending);
         let uri = parts.uri.path_and_query().map_or("/", |p| p.as_str());
-        self.mfa_finish(
-            pending,
-            path,
-            ip,
-            agent,
-            secure,
-            Some(factors),
-            (500, "user lookup failed"),
-            dpop_jkt,
-            setjoin_authz::device::DeviceRequest {
-                headers: &parts.headers,
-                method: parts.method.as_str(),
-                uri,
-                body: &raw,
-            },
-            risk,
-            ca_enabled,
-            dt_enabled,
-            false,
-        )
+        boxed(|| {
+            self.mfa_finish(
+                pending,
+                path,
+                ip,
+                agent,
+                secure,
+                Some(factors),
+                (500, "user lookup failed"),
+                dpop_jkt,
+                setjoin_authz::device::DeviceRequest {
+                    headers: &parts.headers,
+                    method: parts.method.as_str(),
+                    uri,
+                    body: &raw,
+                },
+                risk,
+                ca_enabled,
+                dt_enabled,
+                false,
+            )
+        })
         .await
     }
 }
@@ -728,7 +730,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.push_approve_admitted(req).await;
+        let reply = boxed(|| self.push_approve_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn push_approve_admitted(&self, req: Request<Body>) -> Response<Body> {
@@ -817,7 +819,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.push_send_admitted(req).await;
+        let reply = boxed(|| self.push_send_admitted(req)).await;
         self.threat_tail(admitted, reply).await
     }
     async fn push_send_admitted(&self, req: Request<Body>) -> Response<Body> {
