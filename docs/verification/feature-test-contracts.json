@@ -432,7 +432,7 @@
               "id": "jmap-load-bearing-rls-pgtap-result",
               "kind": "pgtap",
               "path": "mailserver/sql/tests/rls_jmap_reducers.pg",
-              "selector": "RLS LOAD-BEARING: setjoin_app desync jmap_email_query(p=A, GUC=B) → 0 ids (RLS denies what the app filter would allow)",
+              "selector": "RLS LOAD-BEARING: setjoin_app desync jmap_email_query(p=A, GUC=B) → BZ006 Account not found (V288 mailboxes FORCE RLS denies foreign account)",
               "gate": "scripts/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": ["tenant_context", "cross_tenant_denial", "non_vacuity", "exact_case_execution", "result_retention"],
@@ -441,7 +441,7 @@
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
                 "suite": "mailserver/sql/tests/rls_jmap_reducers.pg",
-                "testId": "RLS LOAD-BEARING: setjoin_app desync jmap_email_query(p=A, GUC=B) → 0 ids (RLS denies what the app filter would allow)"
+                "testId": "RLS LOAD-BEARING: setjoin_app desync jmap_email_query(p=A, GUC=B) → BZ006 Account not found (V288 mailboxes FORCE RLS denies foreign account)"
               }
             }
           ]
