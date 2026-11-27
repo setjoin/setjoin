@@ -24,6 +24,8 @@ BEGIN
                   HINT = jsonb_build_object('type', 'snooze_past', 'until', p_until)::TEXT;
     END IF;
 
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
     -- R1: resolve the message AND verify ownership in the same statement.
     SELECT received_at INTO v_received_at
     FROM messages

@@ -1343,3 +1343,160 @@ async fn async_credential_proof_keeps_the_user_fence_until_reducer_commit() {
         assert!(matches!(out,CommandOutcome::Committed(true)),"{out:?}");
     }).await;
 }
+
+#[tokio::test]
+async fn protocol_tx_admits_clears_gucs_skips_receipts_reuses_on_error_and_drops_on_timeout() {
+    with_env("protocol_tx_473", async |env: &Env| {
+        // 1. admit() refuses forbidden SQL before touching the server.
+        for bad in [
+            "SET ROLE setjoin_worker",
+            "SET LOCAL app.current_user_id = '1'",
+            "BEGIN; SELECT 1",
+        ] {
+            let err = env
+                .exec
+                .run_protocol_tx(bad, &[], |_| Ok(()))
+                .await
+                .expect_err("forbidden SQL must be refused");
+            assert_eq!(err.sqlstate, None, "{bad}: {err:?}");
+            assert!(err.message.contains("refused by executor"), "{err:?}");
+        }
+
+        // 2. Prime the single-connection pool with a scoped transaction so we prove
+        //    run_protocol_tx clears both user and mailbox GUCs inside its transaction
+        //    and writes zero rows to public.rust_operation_receipts.
+        let auth = env.a.auth();
+        let primed = env
+            .exec
+            .run(
+                &envelope(&auth),
+                &auth,
+                deadline(),
+                async |tx: &mut ScopedTx| tx.query("SELECT 1", &[]).await.map(|r| r.len()),
+            )
+            .await;
+        assert!(matches!(primed, CommandOutcome::Committed(1)), "{primed:?}");
+
+        let receipts_before: i64 = env
+            .owner
+            .query_one("SELECT count(*) FROM public.rust_operation_receipts", &[])
+            .await
+            .unwrap()
+            .get(0);
+        let (pid_ok, user_guc, mailbox_guc): (i32, String, String) = env
+            .exec
+            .run_protocol_tx(
+                "SELECT pg_backend_pid(), current_setting('app.current_user_id', true), current_setting('app.current_mailbox_id', true)",
+                &[],
+                |rows| {
+                    Ok((
+                        rows[0].get::<_, i32>(0),
+                        rows[0].get::<_, Option<String>>(1).unwrap_or_default(),
+                        rows[0].get::<_, Option<String>>(2).unwrap_or_default(),
+                    ))
+                },
+            )
+            .await
+            .expect("protocol tx commit");
+        assert_eq!(user_guc, "", "app.current_user_id must be empty inside protocol tx");
+        assert_eq!(mailbox_guc, "", "app.current_mailbox_id must be empty inside protocol tx");
+
+        let receipts_after: i64 = env
+            .owner
+            .query_one("SELECT count(*) FROM public.rust_operation_receipts", &[])
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(
+            receipts_after, receipts_before,
+            "run_protocol_tx must write zero rust_operation_receipts rows"
+        );
+
+        // 3. SQL error rolls back cleanly and reuses the pooled connection (same backend PID).
+        let sql_err = env
+            .exec
+            .run_protocol_tx("SELECT 1/0", &[], |_| Ok(()))
+            .await
+            .expect_err("division by zero must fail");
+        assert_eq!(sql_err.sqlstate.as_deref(), Some("22012"), "{sql_err:?}");
+        let pid_after_sql_err: i32 = env
+            .exec
+            .run_protocol_tx("SELECT pg_backend_pid()", &[], |rows| Ok(rows[0].get(0)))
+            .await
+            .expect("pool usable after SQL error");
+        assert_eq!(
+            pid_after_sql_err, pid_ok,
+            "SQL error must roll back cleanly and return connection to pool"
+        );
+
+        // 4. Decode error rolls back cleanly (writes do not commit) and reuses the pooled connection.
+        let decode_err = env
+            .exec
+            .run_protocol_tx(
+                "INSERT INTO mailbox_audit_log (mailbox_id, actor_user_id, action) VALUES ($1, $2, 'protocol_tx_473_rollback') RETURNING id",
+                &[(&env.a.mailbox, Type::INT8), (&env.a.user, Type::INT8)],
+                |_| -> Result<(), setjoin_pg::StatementFailure> {
+                    Err(setjoin_pg::StatementFailure {
+                        sqlstate: None,
+                        hint: None,
+                        message: "synthetic decode failure".into(),
+                    })
+                },
+            )
+            .await
+            .expect_err("decode failure must roll back");
+        assert_eq!(decode_err.message, "synthetic decode failure");
+        let leaked_rows: i64 = env
+            .owner
+            .query_one(
+                "SELECT count(*) FROM mailbox_audit_log WHERE mailbox_id = $1 AND action = 'protocol_tx_473_rollback'",
+                &[&env.a.mailbox],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(leaked_rows, 0, "decode failure must roll back the transaction");
+        let pid_after_decode_err: i32 = env
+            .exec
+            .run_protocol_tx("SELECT pg_backend_pid()", &[], |rows| Ok(rows[0].get(0)))
+            .await
+            .expect("pool usable after decode error");
+        assert_eq!(
+            pid_after_decode_err, pid_ok,
+            "decode error must roll back cleanly and return connection to pool"
+        );
+
+        // 5. Timeout discards the connection without returning it to the pool (new backend PID).
+        let short_exec = ScopedExecutor::from_dsn_with(
+            &app_dsn(&owner_dsn().unwrap()),
+            1,
+            setjoin_pg::Timeouts {
+                statement: Duration::from_millis(80),
+                ..setjoin_pg::Timeouts::default()
+            },
+        )
+        .expect("short-timeout executor");
+        let pid_before_timeout: i32 = short_exec
+            .run_protocol_tx("SELECT pg_backend_pid()", &[], |rows| Ok(rows[0].get(0)))
+            .await
+            .expect("initial probe");
+        let timeout_err = short_exec
+            .run_protocol_tx("SELECT pg_sleep(5)", &[], |_| Ok(()))
+            .await
+            .expect_err("sleeping query must time out");
+        assert!(
+            timeout_err.sqlstate.as_deref() == Some("57014")
+                || timeout_err.message.contains("timed out"),
+            "unexpected timeout error: {timeout_err:?}"
+        );
+        let pid_after_timeout: i32 = short_exec
+            .run_protocol_tx("SELECT pg_backend_pid()", &[], |rows| Ok(rows[0].get(0)))
+            .await
+            .expect("pool opens fresh backend after discarding timed-out lease");
+        assert_ne!(
+            pid_after_timeout, pid_before_timeout,
+            "timed-out connection must be dropped, never returned to the pool"
+        );
+    })
+    .await;
+}

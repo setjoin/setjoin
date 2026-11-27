@@ -1,6 +1,6 @@
 -- pgTAP: calendar_freebusy.sql — pure helper functions + expand_recurrence COUNT
 BEGIN;
-SELECT plan(15);
+SELECT plan(41);
 
 -- day_of_week_num: converts BYDAY codes to Sunday-based day numbers (0=Sun, 1=Mon, ..., 6=Sat)
 SELECT is(day_of_week_num('MO'), 1, 'MO = 1 (Sunday-based)');
@@ -49,6 +49,47 @@ SELECT is(
      'FREQ=WEEKLY;BYDAY=MO;COUNT=3',
      '2026-01-12 00:00+00'::TIMESTAMPTZ, '2026-12-31 00:00+00'::TIMESTAMPTZ)),
   2, 'COUNT counts from DTSTART: a window excluding occ #1 yields the remaining 2');
+
+-- nth_month_day: UTC computation, no rollover on impossible dates
+SELECT is(nth_month_day('1997-02-01 09:00:00+00'::TIMESTAMPTZ, 31), NULL, 'nth_month_day returns NULL for Feb 31');
+SELECT is(nth_month_day('1997-02-01 09:00:00+00'::TIMESTAMPTZ, 0), NULL, 'nth_month_day returns NULL for day 0');
+SELECT is(nth_month_day('1997-02-01 09:00:00+00'::TIMESTAMPTZ, -1), '1997-02-28 09:00:00+00'::TIMESTAMPTZ, 'nth_month_day(-1) resolves to Feb 28 in non-leap year');
+
+-- is_byweekno_match: negative BYWEEKNO support
+SELECT ok(is_byweekno_match('2020-12-30 09:00:00+00'::TIMESTAMPTZ, '-1'), 'Dec 30 2020 (ISO week 53 of 53-week year) matches BYWEEKNO=-1');
+SELECT ok(is_byweekno_match('2021-12-30 09:00:00+00'::TIMESTAMPTZ, '-1'), 'Dec 30 2021 (ISO week 52 of 52-week year) matches BYWEEKNO=-1');
+SELECT ok(NOT is_byweekno_match('2021-12-20 09:00:00+00'::TIMESTAMPTZ, '-1'), 'ISO week 51 does not match BYWEEKNO=-1');
+
+-- is_excluded: exact-instant precision (same-day different-time is NOT excluded)
+SELECT ok(is_excluded('2026-01-05 09:00:00+00'::TIMESTAMPTZ, ARRAY['2026-01-05 09:00:00+00'::TIMESTAMPTZ]), 'is_excluded matches exact instant');
+SELECT ok(NOT is_excluded('2026-01-05 09:00:00+00'::TIMESTAMPTZ, ARRAY['2026-01-05 14:00:00+00'::TIMESTAMPTZ]), 'is_excluded does not match different time on same day');
+
+-- validate_rrule: accepts NULL/empty/supported rules, rejects unsupported FREQ and BYHOUR/BYMINUTE/BYSECOND/BYEASTER
+SELECT is(validate_rrule(NULL), NULL, 'validate_rrule accepts NULL');
+SELECT is(validate_rrule(''), NULL, 'validate_rrule accepts empty string');
+SELECT is(validate_rrule('FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU;WKST=SU;COUNT=3'), NULL, 'validate_rrule accepts supported rule');
+SELECT is(validate_rrule(E'\t\r\n'), NULL, 'validate_rrule accepts ASCII whitespace-only input');
+SELECT is(validate_rrule('RRULE:FREQ=DAILY;COUNT=3'), NULL, 'validate_rrule accepts uppercase RRULE: prefix');
+SELECT is(validate_rrule('rrule:FREQ=DAILY;COUNT=3'), NULL, 'validate_rrule accepts lowercase rrule: prefix');
+SELECT isnt(validate_rrule('INTERVAL=2;COUNT=3'), NULL, 'validate_rrule rejects missing FREQ');
+SELECT is(validate_rrule('RRULE:'), 'RRULE missing required FREQ part', 'validate_rrule rejects bare RRULE:');
+SELECT is(validate_rrule('rrule:   '), 'RRULE missing required FREQ part', 'validate_rrule rejects bare rrule: with whitespace');
+SELECT is(validate_rrule('FREQ=HOURLY;FREQ=DAILY;COUNT=3'), 'Duplicate FREQ part in RRULE', 'validate_rrule rejects duplicate FREQ (HOURLY;DAILY)');
+SELECT is(validate_rrule('FREQ=DAILY;FREQ=WEEKLY'), 'Duplicate FREQ part in RRULE', 'validate_rrule rejects duplicate FREQ (DAILY;WEEKLY)');
+SELECT isnt(validate_rrule('freq=hourly;count=3'), NULL, 'validate_rrule rejects FREQ=HOURLY (case-insensitive)');
+SELECT isnt(validate_rrule('FREQ=DAILY;BYHOUR=9,17'), NULL, 'validate_rrule rejects BYHOUR');
+SELECT isnt(validate_rrule('RRULE:BYHOUR=9;FREQ=DAILY'), NULL, 'validate_rrule rejects RRULE:BYHOUR=9;FREQ=DAILY');
+SELECT isnt(validate_rrule('rrule:BYHOUR=9;FREQ=DAILY'), NULL, 'validate_rrule rejects rrule:BYHOUR=9;FREQ=DAILY');
+SELECT isnt(validate_rrule(E'FREQ=DAILY;\nBYHOUR=9'), NULL, 'validate_rrule rejects newline-prefixed BYHOUR');
+SELECT isnt(validate_rrule(E'FREQ=DAILY;\tBYHOUR=9'), NULL, 'validate_rrule rejects tab-prefixed BYHOUR');
+
+-- expand_recurrence: still returns empty (no error) on legacy/WebCal unknown FREQ rows
+SELECT is(
+  (SELECT count(*)::INT FROM expand_recurrence(
+     '2026-01-05 09:00+00'::TIMESTAMPTZ, '2026-01-05 10:00+00'::TIMESTAMPTZ,
+     'FREQ=HOURLY;COUNT=3',
+     '2026-01-01 00:00+00'::TIMESTAMPTZ, '2026-12-31 00:00+00'::TIMESTAMPTZ)),
+  0, 'expand_recurrence returns empty without error on unsupported FREQ');
 
 SELECT * FROM finish();
 ROLLBACK;

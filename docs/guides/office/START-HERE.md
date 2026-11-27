@@ -3,7 +3,7 @@
 This is the contributor and operator entry point for the Office Foundation and
 Drive History work. It describes the frozen contracts and the safe local proof;
 it is not a production-support claim. The design authority is
-[`docs/designs/office-drive-history-explorer.md`](../../designs/office-drive-history-explorer.md),
+[`docs/design/office-drive-history-explorer.md`](../../design/office-drive-history-explorer.md),
 and the executable plan is
 `retired-docs:superpowers/plans/2026-08-24-office-foundation-history-explorer.md`.
 

@@ -29,6 +29,17 @@ const VAULT_CHUNK_REFS_BACKFILL = `INSERT OR IGNORE INTO dc_manifest_chunks(node
 	SELECT m.node_id,json_extract(c.value,'$.sha256')
 	  FROM dc_manifests m,json_each(m.manifest_json,'$.chunks') c
 	 WHERE json_type(c.value,'$.sha256')='text'`;
+// Allowlist-safe companion table mapping each cached manifest node to its owning
+// Drive space (Wave 2.8, #555). Uses CREATE TABLE/INDEX rather than ALTER TABLE
+// so Electron's SQL statement allowlist (`handlers/db.ts`) accepts it verbatim.
+const VAULT_MANIFEST_SPACES_DDL = `CREATE TABLE IF NOT EXISTS dc_manifest_spaces (
+	node_id INTEGER PRIMARY KEY, space_id INTEGER NOT NULL)`;
+const VAULT_MANIFEST_SPACES_INDEX_DDL = `CREATE INDEX IF NOT EXISTS dc_manifest_spaces_space_idx
+	ON dc_manifest_spaces (space_id, node_id)`;
+const VAULT_MANIFEST_SPACES_BACKFILL = `INSERT OR IGNORE INTO dc_manifest_spaces(node_id, space_id)
+	SELECT m.node_id, n.space_id
+	  FROM dc_manifests m
+	  JOIN dc_nodes n ON n.node_id = m.node_id`;
 
 const APP = 'drive';
 
@@ -37,7 +48,17 @@ const APP = 'drive';
  *  `drive.sync.tlsUntrusted` hint instead of a generic sync-failure message. */
 export class DriveTlsError extends Error {}
 
+/**
+ * Per-OfflineDbBridge transaction mutex (#555): serializes `BEGIN ... COMMIT`
+ * across VaultStore instances sharing the single `'drive'` SQLite connection so
+ * concurrent puts/purges never trigger overlapping `BEGIN` errors.
+ */
+const vaultTxTailByDb = new WeakMap<OfflineDbBridge, Promise<void>>();
+
 export class VaultStore implements ContentStore {
+	private opened = false;
+	private openPromise: Promise<void> | null = null;
+
 	constructor(
 		private drive: DriveBridge,
 		private db: OfflineDbBridge,
@@ -48,16 +69,59 @@ export class VaultStore implements ContentStore {
 		private quotaMb: () => number | null,
 	) {}
 
+	private async withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+		const prior = vaultTxTailByDb.get(this.db) ?? Promise.resolve();
+		let release!: () => void;
+		const next = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		vaultTxTailByDb.set(this.db, next);
+		await prior;
+		try {
+			await this.db.exec(APP, 'BEGIN', []);
+			try {
+				const out = await fn();
+				await this.db.exec(APP, 'COMMIT', []);
+				return out;
+			} catch (err) {
+				await this.db.exec(APP, 'ROLLBACK', []).catch(() => {});
+				throw err;
+			}
+		} finally {
+			release();
+		}
+	}
+
 	async open(): Promise<void> {
-		await this.db.open(APP);
-		await this.db.exec(APP, VAULT_META_DDL, []);
-		await this.db.exec(APP, VAULT_PURGE_DDL, []);
-		await this.db.exec(APP, VAULT_CHUNK_REFS_DDL, []);
-		await this.db.exec(APP, VAULT_CHUNK_REFS_INDEX_DDL, []);
-		// Existing vaults predate the normalized reference index. SQLite/SQLCipher
-		// JSON1 performs one idempotent set-based backfill; subsequent opens touch
-		// only missing rows.
-		await this.db.exec(APP, VAULT_CHUNK_REFS_BACKFILL, []);
+		if (this.opened) return;
+		if (this.openPromise) return this.openPromise;
+		const run = (async () => {
+			await this.db.open(APP);
+			await this.db.exec(APP, VAULT_META_DDL, []);
+			await this.db.exec(APP, VAULT_PURGE_DDL, []);
+			await this.db.exec(APP, VAULT_CHUNK_REFS_DDL, []);
+			await this.db.exec(APP, VAULT_CHUNK_REFS_INDEX_DDL, []);
+			await this.db.exec(APP, VAULT_MANIFEST_SPACES_DDL, []);
+			await this.db.exec(APP, VAULT_MANIFEST_SPACES_INDEX_DDL, []);
+			// Existing vaults predate the normalized reference index. SQLite/SQLCipher
+			// JSON1 performs one idempotent set-based backfill; subsequent opens touch
+			// only missing rows.
+			await this.db.exec(APP, VAULT_CHUNK_REFS_BACKFILL, []);
+			// Backfill dc_manifest_spaces for pre-upgrade manifests when dc_nodes is present.
+			try {
+				await this.db.exec(APP, VAULT_MANIFEST_SPACES_BACKFILL, []);
+			} catch {
+				// Standalone vault DBs without dc_nodes table yet skip backfill cleanly.
+			}
+			this.opened = true;
+		})();
+		this.openPromise = run;
+		try {
+			await run;
+		} catch (err) {
+			this.openPromise = null;
+			throw err;
+		}
 	}
 
 	private chunkUrl(sha256: string): string {
@@ -136,13 +200,17 @@ export class VaultStore implements ContentStore {
 		for (const c of plan.chunks) {
 			if (!(await this.hasChunk(c.sha256))) await this.fetchChunk(c, this.nativeChunkUrl(c.sha256), bearer);
 		}
-		await this.db.exec(APP, 'BEGIN', []);
-		try {
+		await this.withTransaction(async () => {
 			await this.db.exec(
 				APP,
 				`INSERT OR REPLACE INTO dc_manifests (node_id, manifest_json, pinned, updated_at)
 				 VALUES (?, ?, COALESCE((SELECT pinned FROM dc_manifests WHERE node_id = ?), 0), ?)`,
 				[nodeId, JSON.stringify(plan), nodeId, Date.now()],
+			);
+			await this.db.exec(
+				APP,
+				'INSERT OR REPLACE INTO dc_manifest_spaces (node_id, space_id) VALUES (?, ?)',
+				[nodeId, this.spaceId],
 			);
 			await this.db.exec(APP, 'DELETE FROM dc_manifest_chunks WHERE node_id = ?', [nodeId]);
 			for (const c of plan.chunks) {
@@ -152,11 +220,7 @@ export class VaultStore implements ContentStore {
 					[nodeId,c.sha256],
 				);
 			}
-			await this.db.exec(APP, 'COMMIT', []);
-		} catch (err) {
-			await this.db.exec(APP, 'ROLLBACK', []).catch(() => {});
-			throw err;
-		}
+		});
 	}
 
 	/** Pin = durable offline availability: marks every chunk of `nodeId`'s
@@ -214,8 +278,7 @@ export class VaultStore implements ContentStore {
 			// the authoritative manifest.  Native chunk deletion happens after the
 			// commit and is idempotent; a crash therefore resumes from this queue
 			// instead of forgetting which unreferenced chunks must be erased.
-			await this.db.exec(APP, 'BEGIN', []);
-			try {
+			await this.withTransaction(async () => {
 				await this.db.exec(
 					APP,
 					`INSERT OR REPLACE INTO dc_purge_queue (node_id,manifest_json,updated_at)
@@ -223,12 +286,9 @@ export class VaultStore implements ContentStore {
 					[nodeId, JSON.stringify(manifest), Date.now()],
 				);
 				await this.db.exec(APP, 'DELETE FROM dc_manifests WHERE node_id = ?', [nodeId]);
+				await this.db.exec(APP, 'DELETE FROM dc_manifest_spaces WHERE node_id = ?', [nodeId]);
 				await this.db.exec(APP, 'DELETE FROM dc_manifest_chunks WHERE node_id = ?', [nodeId]);
-				await this.db.exec(APP, 'COMMIT', []);
-			} catch (err) {
-				await this.db.exec(APP, 'ROLLBACK', []).catch(() => {});
-				throw err;
-			}
+			});
 		} else {
 			manifest = await this.queuedPurgeManifest(nodeId);
 		}
@@ -250,6 +310,33 @@ export class VaultStore implements ContentStore {
 		const present = (await this.readLocalManifest(nodeId)) != null || (await this.queuedPurgeManifest(nodeId)) != null;
 		await this.remove(nodeId);
 		return present ? 'purged' : 'absent';
+	}
+
+	/** Returns all cached manifest node IDs belonging to `spaceId`. */
+	async listSpaceNodeIds(spaceId: number = this.spaceId): Promise<number[]> {
+		if (!this.opened) await this.open();
+		const rows = await this.db.query<{ node_id: number }>(
+			APP,
+			'SELECT node_id FROM dc_manifest_spaces WHERE space_id = ? ORDER BY node_id',
+			[spaceId],
+		);
+		return rows.map((r) => r.node_id);
+	}
+
+	/**
+	 * Single-space `scope_revoked` purge (#555): removes every `dc_manifests` row
+	 * and now-unreferenced `dc_chunks` belonging to `spaceId` WITHOUT touching
+	 * sibling spaces or calling `db.wipe('drive')`.
+	 */
+	async purgeSpace(spaceId: number = this.spaceId): Promise<number> {
+		if (!this.opened) await this.open();
+		const nodeIds = await this.listSpaceNodeIds(spaceId);
+		let purged = 0;
+		for (const nodeId of nodeIds) {
+			const outcome = await this.revoke(nodeId, false);
+			if (outcome === 'purged') purged += 1;
+		}
+		return purged;
 	}
 
 	private async queuedPurgeManifest(nodeId: number): Promise<Manifest | null> {

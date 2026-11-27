@@ -47,14 +47,16 @@ under the caller's credential (no row for `setjoin_app`). The only reader of
 admin view; follow-up #345. The proof URI is the one authserverd receives
 (authzgates note).
 
-Transaction: the check-in reducer and its receipt commit in one acknowledged
-transaction; COMMIT is sent only after success inside the statement deadline,
-so a client timeout never commits late. A lost COMMIT acknowledgement returns
-Go's 500 body with `x-operation-id`. Go committed each event separately. A
-mid-list failure rolls back every event in Rust. The Rust-only test
-`checkin_event_insert_failure_spends_nonce` covers HTTP 500 with the internal
-error body and no operation ID, nonce retention and replay refusal, and zero
-event rows.
+Transaction: the check-in reducer commits in one acknowledged receipt-free
+protocol transaction (`run_protocol_tx`, #473); COMMIT is sent only after
+success inside the statement deadline, so a client timeout never commits late,
+and no `rust_operation_receipts` row is written. Any commit or statement failure
+returns Go's 500 `internal error` body with no `x-operation-id` (clients retry
+with a fresh nonce). Go committed each event separately. A mid-list failure
+rolls back every event in Rust. The Rust-only tests
+`checkin_event_insert_failure_spends_nonce` and `checkin_writes_no_operation_receipt`
+cover HTTP 500 with the internal error body and no operation ID, nonce retention
+and replay refusal, zero event rows, and zero receipt writes.
 
 Accepted residuals (same as Go): a revocation landing between the proof and
 the effect does not stop that check-in (pgTAP "revoked mid-flight"); refusal

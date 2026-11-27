@@ -7,18 +7,18 @@
 // state by default (the `dataTypes` advert is advisory, a no-op on the gateway),
 // so an idle socket is free and ref-counting would only add a "closed while a
 // listener still wants it" bug. `disconnect()` is for explicit teardown (logout).
+//
+// Reconnects (#389) use exponential backoff with full random jitter (~1s base,
+// ~60s cap) and only reset the attempt counter after the socket stays up past
+// the stability threshold (15s), preventing thundering herds and flapping loops.
 import { browser } from '$app/environment';
-
-let ws: WebSocket | null = null;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let reconnectDelay = 1000;
-// True once a socket of this session has opened: the next onopen is a
-// RE-connect, whose missed-StateChange gap listeners must resync (#222). Reset
-// by disconnect() so a fresh login's first open is not mistaken for one.
-let everOpened = false;
-const MAX_RECONNECT_DELAY = 60000;
+import { ReconnectBackoff, type ReconnectBackoffOptions } from '$lib/ws/backoff';
+import { scopeKeyString, type ScopeKey } from '$lib/sync/core/types.js';
+import { validateScopeAttachList } from '$lib/sync/core/validate.js';
 
 type StateChangeHandler = (changes: Record<string, unknown>) => void;
+type ControlHandler = (payload: Record<string, unknown>) => void;
+type AtTypeHandler = (payload: Record<string, unknown>) => void;
 
 interface Listener {
 	types: string[];
@@ -36,223 +36,456 @@ export interface SubscribeOptions {
 	onReconnect?: () => void;
 }
 
-// The listener registry IS the source of truth across reconnects: open() reads
-// the union of declared types to advertise, and onmessage fans out to whoever is
-// currently registered (so a reconnect re-delivers to live listeners).
-const listeners = new Set<Listener>();
+/** Configuration for a WebSocket push hub instance (used by tests to inject RNG/clock). */
+export interface WebSocketHubOptions {
+	backoff?: ReconnectBackoffOptions;
+	/**
+	 * Whether the connected gateway accepts Wave 2.5 `ScopeAttach`/`ScopeDetach`
+	 * client frames (default `false` until Wave 2.5 `#552` advertises support so
+	 * mixed-version gateways do not receive `unknownType` errors).
+	 */
+	scopeAttachSupported?: boolean;
+}
 
-// Control-message registry: verbatim server pushes that are NOT RFC 8887
-// StateChanges. The gateway forwards these with a lowercase "type" field
-// (offline.wipe / capsChanged). Keyed by that type.
-// ponytail: Map<string, Set> is stdlib — no EventEmitter dep needed.
-type ControlHandler = (payload: Record<string, unknown>) => void;
-const controlHandlers = new Map<string, Set<ControlHandler>>();
+export interface WebSocketHub {
+	subscribe(types: string[], handler: StateChangeHandler, options?: SubscribeOptions): () => void;
+	subscribeControl(type: string, handler: ControlHandler): () => void;
+	subscribeType(atType: string, handler: AtTypeHandler): () => void;
+	subscribeEvent<T extends object>(atType: string, handler: (event: T) => void): () => void;
+	subscribeReconnect(handler: () => void): () => void;
+	subscribeConnectionState(handler: (connected: boolean) => void): () => void;
+	isConnected(): boolean;
+	setScopeAttachSupported(supported: boolean): void;
+	setAttachedScopes(scopes: readonly ScopeKey[]): void;
+	handleRawMessage(raw: string): void;
+	disconnect(): void;
+}
+
+/**
+ * Creates an isolated JMAP WebSocket push hub instance. Production callers use
+ * the module-level singleton exports below; tests can instantiate independent
+ * hubs with seeded RNGs (e.g. to simulate mass reconnects).
+ */
+export function createWebSocketHub(options: WebSocketHubOptions = {}): WebSocketHub {
+	let ws: WebSocket | null = null;
+	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	const backoff = new ReconnectBackoff(options.backoff);
+	// True once a socket of this session has opened: the next onopen is a
+	// RE-connect, whose missed-StateChange gap listeners must resync (#222). Reset
+	// by disconnect() so a fresh login's first open is not mistaken for one.
+	let everOpened = false;
+
+	// The listener registry IS the source of truth across reconnects: open() reads
+	// the union of declared types to advertise, and onmessage fans out to whoever is
+	// currently registered (so a reconnect re-delivers to live listeners).
+	const listeners = new Set<Listener>();
+
+	// Control-message registry: verbatim server pushes that are NOT RFC 8887
+	// StateChanges. The gateway forwards these with a lowercase "type" field
+	// (offline.wipe / capsChanged). Keyed by that type.
+	// ponytail: Map<string, Set> is stdlib — no EventEmitter dep needed.
+	const controlHandlers = new Map<string, Set<ControlHandler>>();
+
+	// @type-keyed registry: verbatim, non-StateChange server pushes carrying an
+	// uppercase "@type" (unlike the lowercase-"type" control messages above).
+	// Drive P4's DriveWatch envelope (`{"@type":"DriveWatch","event":{...}}` —
+	// internal/ws/handler.go's drive-watch:<uid> forward, plan Task 11/14) is the
+	// first consumer; SessionRevoked stays a one-off handled inline elsewhere and
+	// isn't rerouted through this to avoid touching working code.
+	const atTypeHandlers = new Map<string, Set<AtTypeHandler>>();
+	const reconnectListeners = new Set<() => void>();
+	const connectionStateListeners = new Set<(connected: boolean) => void>();
+	const attachedScopes = new Map<string, ScopeKey>();
+	let scopeAttachSupported = options.scopeAttachSupported ?? false;
+	let connected = false;
+
+	function notifyConnectionState(next: boolean): void {
+		if (connected === next) return;
+		connected = next;
+		for (const handler of [...connectionStateListeners]) {
+			try {
+				handler(next);
+			} catch (e) {
+				console.error('WebSocket connectionState listener error', e);
+			}
+		}
+	}
+
+	function subscribeReconnect(handler: () => void): () => void {
+		reconnectListeners.add(handler);
+		return () => reconnectListeners.delete(handler);
+	}
+
+	function subscribeConnectionState(handler: (isOpen: boolean) => void): () => void {
+		connectionStateListeners.add(handler);
+		try {
+			handler(connected);
+		} catch (e) {
+			console.error('WebSocket connectionState listener error', e);
+		}
+		return () => connectionStateListeners.delete(handler);
+	}
+
+	function isConnected(): boolean {
+		return connected;
+	}
+
+	function setScopeAttachSupported(supported: boolean): void {
+		const prev = scopeAttachSupported;
+		scopeAttachSupported = supported;
+		if (!prev && supported && attachedScopes.size > 0) {
+			sendScopeFrame('ScopeAttach', [...attachedScopes.values()]);
+		}
+	}
+
+	function sendScopeFrame(atType: 'ScopeAttach' | 'ScopeDetach', scopes: readonly ScopeKey[]): void {
+		if (!scopeAttachSupported || scopes.length === 0 || !ws || ws.readyState !== WebSocket.OPEN) return;
+		ws.send(
+			JSON.stringify({
+				'@type': atType,
+				scopes: scopes.map((s) => ({ scopeKind: s.kind, scopeId: s.id })),
+			}),
+		);
+	}
+
+	function setAttachedScopes(scopes: readonly ScopeKey[]): void {
+		const validated = validateScopeAttachList(scopes);
+		if (!validated) return;
+		const nextMap = new Map<string, ScopeKey>();
+		for (const scope of validated) {
+			nextMap.set(scopeKeyString(scope), scope);
+		}
+		const added: ScopeKey[] = [];
+		const removed: ScopeKey[] = [];
+		for (const [k, s] of nextMap) {
+			if (!attachedScopes.has(k)) added.push(s);
+		}
+		for (const [k, s] of attachedScopes) {
+			if (!nextMap.has(k)) removed.push(s);
+		}
+		attachedScopes.clear();
+		for (const [k, s] of nextMap) attachedScopes.set(k, s);
+
+		if (removed.length > 0) sendScopeFrame('ScopeDetach', removed);
+		if (added.length > 0) sendScopeFrame('ScopeAttach', added);
+	}
+
+	function subscribeControl(type: string, handler: ControlHandler): () => void {
+		let set = controlHandlers.get(type);
+		if (!set) {
+			set = new Set();
+			controlHandlers.set(type, set);
+		}
+		set.add(handler);
+		return () => set!.delete(handler);
+	}
+
+	function subscribeType(atType: string, handler: AtTypeHandler): () => void {
+		let set = atTypeHandlers.get(atType);
+		if (!set) {
+			set = new Set();
+			atTypeHandlers.set(atType, set);
+		}
+		set.add(handler);
+		return () => set!.delete(handler);
+	}
+
+	// subscribeEvent is the typed, unwrapped sibling of subscribeType: every
+	// `{"@type":<atType>,"event":{...}}` producer (ChatEvent/MeetEvent/DriveWatch/
+	// DriveAlarm) wraps its payload in an `event` field, and every consumer used
+	// to redo `payload.event as <cast>` inline (6 call sites, unchecked cast, no
+	// malformed-envelope guard). This unwraps ONCE at the hub: a missing or
+	// non-object `event` is silently dropped here instead of reaching the
+	// handler as `undefined`/garbage — this is the seam the MeetEvent bug (raw
+	// envelope cast as the event, `evt.meetingId` always undefined) shipped
+	// through. Handlers receive the already-unwrapped, typed event.
+	function subscribeEvent<T extends object>(atType: string, handler: (event: T) => void): () => void {
+		return subscribeType(atType, (payload) => {
+			const event = payload.event;
+			if (!event || typeof event !== 'object') return;
+			handler(event as T);
+		});
+	}
+
+	// dispatch fans an unwrapped type-map out to every listener whose declared types
+	// intersect the changed keys. Per-listener error isolation: a throwing handler
+	// is caught and logged so it cannot starve co-registered listeners (steady-state
+	// and on the first StateChange after a reconnect, since reconnect re-delivers
+	// from the same registry).
+	function dispatch(changes: Record<string, string>): void {
+		for (const l of listeners) {
+			if (!l.types.some((t) => t in changes)) continue;
+			try {
+				l.handler(changes);
+			} catch (e) {
+				console.error('WebSocket listener error', e);
+			}
+		}
+	}
+
+	// notifyReconnect fans a reconnect to every listener with an onReconnect hook,
+	// with the same per-listener error isolation as dispatch().
+	function notifyReconnect(): void {
+		for (const l of listeners) {
+			if (!l.onReconnect) continue;
+			try {
+				l.onReconnect();
+			} catch (e) {
+				console.error('WebSocket reconnect listener error', e);
+			}
+		}
+		for (const handler of reconnectListeners) {
+			try {
+				handler();
+			} catch (e) {
+				console.error('WebSocket reconnect listener error', e);
+			}
+		}
+	}
+
+	// handleRawMessage is the single message entry point (exported for tests). A
+	// control payload (lowercase "type") is fanned to its control handlers; an
+	// @type-keyed payload is fanned to its subscribeType handlers; an RFC 8887
+	// StateChange ("@type":"StateChange") is unwrapped + fanned to state listeners.
+	function handleRawMessage(raw: string): void {
+		let msg: { '@type'?: string; type?: string; changed?: Record<string, Record<string, string>> };
+		try {
+			msg = JSON.parse(raw);
+		} catch (e) {
+			console.error('WebSocket parse error', e);
+			return;
+		}
+		if (typeof msg.type === 'string' && msg.type === 'urn:ietf:params:jmap:error:unknownType') {
+			// Mixed-version gateway compatibility (#555): pre-#552 gateways answer
+			// unrecognized @type frames (such as ScopeAttach/ScopeDetach) with an
+			// RFC 8887 unknownType error. Latch scopeAttachSupported off silently
+			// without logging errors or reconnecting.
+			scopeAttachSupported = false;
+			return;
+		}
+		if (typeof msg.type === 'string' && controlHandlers.has(msg.type)) {
+			const payload = msg as unknown as Record<string, unknown>;
+			for (const h of controlHandlers.get(msg.type)!) {
+				try {
+					h(payload);
+				} catch (e) {
+					console.error('WebSocket control handler error', e);
+				}
+			}
+			return;
+		}
+		if (typeof msg['@type'] === 'string' && atTypeHandlers.has(msg['@type'])) {
+			const payload = msg as unknown as Record<string, unknown>;
+			for (const h of atTypeHandlers.get(msg['@type'])!) {
+				try {
+					h(payload);
+				} catch (e) {
+					console.error('WebSocket @type handler error', e);
+				}
+			}
+		}
+		if (msg['@type'] === 'StateChange' && msg.changed) {
+			dispatch(unwrapTypeMap(msg.changed));
+		}
+	}
+
+	// unionDataTypes is the deduped union of every registered listener's declared
+	// types — advertised in WebSocketPushEnable on open and re-advertised on
+	// reconnect. It gates nothing (the gateway pushes all state regardless); kept as
+	// documentation / forward-compat for the real push contract.
+	function unionDataTypes(): string[] {
+		const set = new Set<string>();
+		for (const l of listeners) {
+			for (const t of l.types) set.add(t);
+		}
+		return [...set];
+	}
+
+	function sendPushEnable(): void {
+		ws?.send(
+			JSON.stringify({
+				'@type': 'WebSocketPushEnable',
+				dataTypes: unionDataTypes()
+			})
+		);
+	}
+
+	function open(): void {
+		if (!browser || typeof location === 'undefined' || typeof WebSocket === 'undefined') return;
+		if (ws) return;
+		if (reconnectTimer !== null) {
+			clearTimeout(reconnectTimer);
+			reconnectTimer = null;
+		}
+
+		// Use relative URL so wss:// is auto-negotiated when page is served over HTTPS.
+		const socket = new WebSocket(`ws${location.protocol === 'https:' ? 's' : ''}://${location.host}/jmap/ws`);
+		ws = socket;
+
+		socket.onopen = () => {
+			if (ws !== socket) return;
+			// #389: record open time only; attempt counter resets on a later
+			// disconnect solely if the socket stayed up past the stability threshold.
+			backoff.markConnected();
+			notifyConnectionState(true);
+			// Advertise the union of every registered listener's types (re-advertised
+			// here on every (re)connect from the live registry).
+			sendPushEnable();
+			// Re-attach the live scope union on initial connect and every reconnect (#555).
+			if (scopeAttachSupported && attachedScopes.size > 0) {
+				sendScopeFrame('ScopeAttach', [...attachedScopes.values()]);
+			}
+			// #222: pushes sent while the socket was down are gone — tell every
+			// listener that opted in so it can resync from its last known state.
+			if (everOpened) notifyReconnect();
+			everOpened = true;
+			// A8: a (re)connect transition is a drain trigger for the offline
+			// action-queue (bootstrap + reconnect replay shape) — the JMAP session is
+			// reachable again. Dynamic import: a static one would close the
+			// auth → websocket → offline-client cycle. Fire-and-forget: the push
+			// channel never depends on the drain (overlapping triggers collapse on
+			// the drain's in-flight guard).
+			import('$lib/jmap/offline-client')
+				.then((m) => m.drainPendingActions())
+				.catch(() => {});
+		};
+
+		socket.onmessage = (event) => {
+			if (ws !== socket) return;
+			handleRawMessage(event.data as string);
+		};
+
+		socket.onclose = () => {
+			if (ws !== socket) return;
+			ws = null;
+			notifyConnectionState(false);
+			const delayMs = backoff.markDisconnected();
+			reconnectTimer = setTimeout(() => {
+				reconnectTimer = null;
+				open();
+			}, delayMs);
+		};
+
+		socket.onerror = () => {
+			if (ws !== socket) return;
+			// Some network conditions fire onerror without subsequent onclose.
+			// Force-close so the onclose handler triggers reconnect.
+			socket.close();
+		};
+	}
+
+	// subscribe registers a listener for the given dataTypes and returns an
+	// unsubscribe function. It opens the always-on socket on first use (self-arming;
+	// any caller may be first). A StateChange is delivered to this listener only when
+	// its changed type-map intersects `types`. Each listener is dispatched inside its
+	// own try/catch so one throwing listener never aborts the fan-out (error
+	// isolation), in steady state AND on the first StateChange after a reconnect.
+	function subscribe(
+		types: string[],
+		handler: StateChangeHandler,
+		subscribeOptions?: SubscribeOptions
+	): () => void {
+		const listener: Listener = { types, handler, onReconnect: subscribeOptions?.onReconnect };
+		listeners.add(listener);
+
+		if (browser && !ws && reconnectTimer === null) {
+			open();
+		} else if (ws && ws.readyState === WebSocket.OPEN) {
+			// Late subscriber against an already-open socket: re-advertise the union
+			// so a newly-declared dataType is documented to the server.
+			sendPushEnable();
+		}
+
+		return () => {
+			listeners.delete(listener);
+		};
+	}
+
+	// disconnect tears the socket down explicitly (e.g. logout) and clears the
+	// registry. Not called on last-unsubscribe — the hub is always-on, not
+	// ref-counted.
+	function disconnect(): void {
+		if (reconnectTimer !== null) {
+			clearTimeout(reconnectTimer);
+			reconnectTimer = null;
+		}
+		listeners.clear();
+		controlHandlers.clear();
+		atTypeHandlers.clear();
+		reconnectListeners.clear();
+		notifyConnectionState(false);
+		connectionStateListeners.clear();
+		attachedScopes.clear();
+		everOpened = false;
+		backoff.reset();
+		if (ws) {
+			// Clear `ws` before closing so a synchronous `onclose` inside close()
+			// does not schedule a zombie reconnect after explicit teardown.
+			const current = ws;
+			ws = null;
+			current.close();
+		}
+	}
+
+	return {
+		subscribe,
+		subscribeControl,
+		subscribeType,
+		subscribeEvent,
+		subscribeReconnect,
+		subscribeConnectionState,
+		isConnected,
+		setScopeAttachSupported,
+		setAttachedScopes,
+		handleRawMessage,
+		disconnect,
+	};
+}
+
+const defaultHub = createWebSocketHub();
 
 export function subscribeControl(type: string, handler: ControlHandler): () => void {
-	let set = controlHandlers.get(type);
-	if (!set) {
-		set = new Set();
-		controlHandlers.set(type, set);
-	}
-	set.add(handler);
-	return () => set!.delete(handler);
+	return defaultHub.subscribeControl(type, handler);
 }
-
-// @type-keyed registry: verbatim, non-StateChange server pushes carrying an
-// uppercase "@type" (unlike the lowercase-"type" control messages above).
-// Drive P4's DriveWatch envelope (`{"@type":"DriveWatch","event":{...}}` —
-// internal/ws/handler.go's drive-watch:<uid> forward, plan Task 11/14) is the
-// first consumer; SessionRevoked stays a one-off handled inline elsewhere and
-// isn't rerouted through this to avoid touching working code.
-type AtTypeHandler = (payload: Record<string, unknown>) => void;
-const atTypeHandlers = new Map<string, Set<AtTypeHandler>>();
 
 export function subscribeType(atType: string, handler: AtTypeHandler): () => void {
-	let set = atTypeHandlers.get(atType);
-	if (!set) {
-		set = new Set();
-		atTypeHandlers.set(atType, set);
-	}
-	set.add(handler);
-	return () => set!.delete(handler);
+	return defaultHub.subscribeType(atType, handler);
 }
 
-// subscribeEvent is the typed, unwrapped sibling of subscribeType: every
-// `{"@type":<atType>,"event":{...}}` producer (ChatEvent/MeetEvent/DriveWatch/
-// DriveAlarm) wraps its payload in an `event` field, and every consumer used
-// to redo `payload.event as <cast>` inline (6 call sites, unchecked cast, no
-// malformed-envelope guard). This unwraps ONCE at the hub: a missing or
-// non-object `event` is silently dropped here instead of reaching the
-// handler as `undefined`/garbage — this is the seam the MeetEvent bug (raw
-// envelope cast as the event, `evt.meetingId` always undefined) shipped
-// through. Handlers receive the already-unwrapped, typed event.
 export function subscribeEvent<T extends object>(atType: string, handler: (event: T) => void): () => void {
-	return subscribeType(atType, (payload) => {
-		const event = payload.event;
-		if (!event || typeof event !== 'object') return;
-		handler(event as T);
-	});
+	return defaultHub.subscribeEvent(atType, handler);
 }
 
-// __handleRawMessage is the single message entry point (exported for tests). A
-// control payload (lowercase "type") is fanned to its control handlers; an
-// @type-keyed payload is fanned to its subscribeType handlers; an RFC 8887
-// StateChange ("@type":"StateChange") is unwrapped + fanned to state listeners.
+export function subscribeReconnect(handler: () => void): () => void {
+	return defaultHub.subscribeReconnect(handler);
+}
+
+export function subscribeConnectionState(handler: (connected: boolean) => void): () => void {
+	return defaultHub.subscribeConnectionState(handler);
+}
+
+export function isConnected(): boolean {
+	return defaultHub.isConnected();
+}
+
+export function setScopeAttachSupported(supported: boolean): void {
+	defaultHub.setScopeAttachSupported(supported);
+}
+
+export function setAttachedScopes(scopes: readonly ScopeKey[]): void {
+	defaultHub.setAttachedScopes(scopes);
+}
+
 export function __handleRawMessage(raw: string): void {
-	let msg: { '@type'?: string; type?: string; changed?: Record<string, Record<string, string>> };
-	try {
-		msg = JSON.parse(raw);
-	} catch (e) {
-		console.error('WebSocket parse error', e);
-		return;
-	}
-	if (typeof msg.type === 'string' && controlHandlers.has(msg.type)) {
-		const payload = msg as unknown as Record<string, unknown>;
-		for (const h of controlHandlers.get(msg.type)!) {
-			try {
-				h(payload);
-			} catch (e) {
-				console.error('WebSocket control handler error', e);
-			}
-		}
-		return;
-	}
-	if (typeof msg['@type'] === 'string' && atTypeHandlers.has(msg['@type'])) {
-		const payload = msg as unknown as Record<string, unknown>;
-		for (const h of atTypeHandlers.get(msg['@type'])!) {
-			try {
-				h(payload);
-			} catch (e) {
-				console.error('WebSocket @type handler error', e);
-			}
-		}
-	}
-	if (msg['@type'] === 'StateChange' && msg.changed) {
-		dispatch(unwrapTypeMap(msg.changed));
-	}
+	defaultHub.handleRawMessage(raw);
 }
 
-// subscribe registers a listener for the given dataTypes and returns an
-// unsubscribe function. It opens the always-on socket on first use (self-arming;
-// any caller may be first). A StateChange is delivered to this listener only when
-// its changed type-map intersects `types`. Each listener is dispatched inside its
-// own try/catch so one throwing listener never aborts the fan-out (error
-// isolation), in steady state AND on the first StateChange after a reconnect.
 export function subscribe(
 	types: string[],
 	handler: StateChangeHandler,
 	options?: SubscribeOptions
 ): () => void {
-	const listener: Listener = { types, handler, onReconnect: options?.onReconnect };
-	listeners.add(listener);
-
-	if (browser && !ws) {
-		open();
-	} else if (ws && ws.readyState === WebSocket.OPEN) {
-		// Late subscriber against an already-open socket: re-advertise the union
-		// so a newly-declared dataType is documented to the server.
-		sendPushEnable();
-	}
-
-	return () => {
-		listeners.delete(listener);
-	};
-}
-
-// unionDataTypes is the deduped union of every registered listener's declared
-// types — advertised in WebSocketPushEnable on open and re-advertised on
-// reconnect. It gates nothing (the gateway pushes all state regardless); kept as
-// documentation / forward-compat for the real push contract.
-function unionDataTypes(): string[] {
-	const set = new Set<string>();
-	for (const l of listeners) {
-		for (const t of l.types) set.add(t);
-	}
-	return [...set];
-}
-
-function sendPushEnable(): void {
-	ws?.send(
-		JSON.stringify({
-			'@type': 'WebSocketPushEnable',
-			dataTypes: unionDataTypes()
-		})
-	);
-}
-
-function open(): void {
-	if (!browser) return;
-	if (ws) return;
-
-	// Use relative URL so wss:// is auto-negotiated when page is served over HTTPS.
-	ws = new WebSocket(`ws${location.protocol === 'https:' ? 's' : ''}://${location.host}/jmap/ws`);
-
-	ws.onopen = () => {
-		reconnectDelay = 1000;
-		// Advertise the union of every registered listener's types (re-advertised
-		// here on every (re)connect from the live registry).
-		sendPushEnable();
-		// #222: pushes sent while the socket was down are gone — tell every
-		// listener that opted in so it can resync from its last known state.
-		if (everOpened) notifyReconnect();
-		everOpened = true;
-		// A8: a (re)connect transition is a drain trigger for the offline
-		// action-queue (bootstrap + reconnect replay shape) — the JMAP session is
-		// reachable again. Dynamic import: a static one would close the
-		// auth → websocket → offline-client cycle. Fire-and-forget: the push
-		// channel never depends on the drain (overlapping triggers collapse on
-		// the drain's in-flight guard).
-		import('$lib/jmap/offline-client')
-			.then((m) => m.drainPendingActions())
-			.catch(() => {});
-	};
-
-	ws.onmessage = (event) => {
-		__handleRawMessage(event.data as string);
-	};
-
-	ws.onclose = () => {
-		ws = null;
-		reconnectTimer = setTimeout(() => {
-			reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
-			open();
-		}, reconnectDelay);
-	};
-
-	ws.onerror = () => {
-		// Some network conditions fire onerror without subsequent onclose.
-		// Force-close so the onclose handler triggers reconnect.
-		ws?.close();
-	};
-}
-
-// dispatch fans an unwrapped type-map out to every listener whose declared types
-// intersect the changed keys. Per-listener error isolation: a throwing handler
-// is caught and logged so it cannot starve co-registered listeners (steady-state
-// and on the first StateChange after a reconnect, since reconnect re-delivers
-// from the same registry).
-function dispatch(changes: Record<string, string>): void {
-	for (const l of listeners) {
-		if (!l.types.some((t) => t in changes)) continue;
-		try {
-			l.handler(changes);
-		} catch (e) {
-			console.error('WebSocket listener error', e);
-		}
-	}
-}
-
-// notifyReconnect fans a reconnect to every listener with an onReconnect hook,
-// with the same per-listener error isolation as dispatch().
-function notifyReconnect(): void {
-	for (const l of listeners) {
-		if (!l.onReconnect) continue;
-		try {
-			l.onReconnect();
-		} catch (e) {
-			console.error('WebSocket reconnect listener error', e);
-		}
-	}
+	return defaultHub.subscribe(types, handler, options);
 }
 
 // unwrapTypeMap resolves the per-account TYPE map from a RFC 8887 StateChange
@@ -273,19 +506,6 @@ export function unwrapTypeMap(
 	return changed[ids[0]] ?? {};
 }
 
-// disconnect tears the socket down explicitly (e.g. logout) and clears the
-// registry. Not called on last-unsubscribe — the hub is always-on, not
-// ref-counted.
 export function disconnect(): void {
-	if (reconnectTimer) {
-		clearTimeout(reconnectTimer);
-		reconnectTimer = null;
-	}
-	listeners.clear();
-	controlHandlers.clear();
-	everOpened = false;
-	if (ws) {
-		ws.close();
-		ws = null;
-	}
+	defaultHub.disconnect();
 }

@@ -110,6 +110,7 @@ fn task_spec(name: &str) -> Option<(Schedule, u64)> {
         "purge-expired-tokens" => (cron(0, Some(4), None, Some(0)), 30),
         "purge-saml-assertions" => (cron(15, Some(4), None, Some(1)), 30),
         "create-monthly-partitions" => (cron(0, Some(0), Some(25), None), 60),
+        "prune-rust-operation-receipts" => (every(3600), 30),
         _ => return None,
     };
     Some((schedule, seconds))
@@ -120,6 +121,7 @@ fn task_spec(name: &str) -> Option<(Schedule, u64)> {
 pub fn go_task_spec(name: &str) -> Option<(String, u64)> {
     let (schedule, seconds) = task_spec(name)?;
     let text = match schedule {
+        Schedule::Every(d) if d.as_secs() % 3600 == 0 => format!("@every {}h", d.as_secs() / 3600),
         Schedule::Every(d) if d.as_secs() % 60 == 0 => format!("@every {}m", d.as_secs() / 60),
         Schedule::Every(d) => format!("@every {}s", d.as_secs()),
         Schedule::Cron(fields) => fields
@@ -169,6 +171,34 @@ impl CronScheduler {
         }
     }
 
+    /// Register a cron task under its per-task advisory lock, returning `Ok(false)`
+    /// when another Rust scheduler already holds `cron-task:<name>` instead of
+    /// failing. Configuration and database errors still return `Err`.
+    pub async fn try_register_transferred(
+        &mut self,
+        name: &str,
+        action: Action,
+    ) -> Result<bool, WorkerError> {
+        let Some(db) = self.per_task.clone() else {
+            return Err("register_transferred needs a per_task scheduler".into());
+        };
+        self.register(name, action)?;
+        match db.try_cron_task_lock(name).await {
+            Ok(Some(lease)) => {
+                self.tasks.last_mut().expect("just registered").lease = Some(lease);
+                Ok(true)
+            }
+            Ok(None) => {
+                self.tasks.pop();
+                Ok(false)
+            }
+            Err(error) => {
+                self.tasks.pop();
+                Err(error)
+            }
+        }
+    }
+
     /// Register a cron task under its per-task advisory lock.
     pub async fn register_transferred(
         &mut self,
@@ -176,23 +206,10 @@ impl CronScheduler {
         action: Action,
         _go_workers_off: &str,
     ) -> Result<(), WorkerError> {
-        let Some(db) = self.per_task.clone() else {
-            return Err("register_transferred needs a per_task scheduler".into());
-        };
-        self.register(name, action)?;
-        let lease = db
-            .try_cron_task_lock(name)
-            .await?
-            .ok_or_else(|| format!("cron task {name} is already held by another Rust scheduler"));
-        match lease {
-            Ok(lease) => {
-                self.tasks.last_mut().expect("just registered").lease = Some(lease);
-                Ok(())
-            }
-            Err(error) => {
-                self.tasks.pop();
-                Err(error.into())
-            }
+        if self.try_register_transferred(name, action).await? {
+            Ok(())
+        } else {
+            Err(format!("cron task {name} is already held by another Rust scheduler").into())
         }
     }
 

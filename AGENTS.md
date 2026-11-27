@@ -47,9 +47,7 @@ Read [execution and cleanup](docs/guides/TASK_EXECUTION_AND_CLEANUP.md) before b
 
 ## Agent skills
 
-- **Issue tracker:** GitHub issues via `gh` (`docs/agents/issue-tracker.md`).
-- **Triage labels:** five canonical roles (`docs/agents/triage-labels.md`).
-- **Domain docs:** single-context (`CONTEXT.md` + `docs/adr/`, `docs/agents/domain.md`).
+- **Issue tracker, triage labels & domain docs:** GitHub issues via `gh`, five canonical triage roles, and single-context `CONTEXT.md` + `docs/adr/` rules ([skills.md](docs/agents/skills.md)).
 
 ## Child DOX Index
 
@@ -59,4 +57,4 @@ Read [execution and cleanup](docs/guides/TASK_EXECUTION_AND_CLEANUP.md) before b
 - `clients/AGENTS.md` — desktop, mobile, HarmonyOS, and shared client Rust crates.
 - `docs/AGENTS.md` — documentation taxonomy and owners.
 
-Excluded: `node_modules/`, generated `build/`.
+Excluded: `node_modules/`, generated `build/`, `clients/harmonyos/refs/`.

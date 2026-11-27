@@ -24,6 +24,7 @@ BEGIN
         RAISE EXCEPTION 'profile payload must be an object'
             USING ERRCODE='BZ228';
     END IF;
+    PERFORM admin_authority_fence();
     SELECT l.user_id INTO v_user_id
       FROM user_identity_links l
       JOIN identity_sources s ON s.id=l.source_id

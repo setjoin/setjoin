@@ -152,6 +152,17 @@ pub async fn create(
         auth,
         deadline,
         async move |tx| {
+            // Canonical lock order: users -> mailboxes -> messages (before processed_sizes updates).
+            tx.execute(
+                "SELECT 1 FROM users WHERE id = $1 FOR KEY SHARE",
+                &[(&actor, Type::INT8)],
+            )
+            .await?;
+            tx.execute(
+                "SELECT 1 FROM mailboxes WHERE id = $1 FOR UPDATE",
+                &[(&mailbox, Type::INT8)],
+            )
+            .await?;
             let mut orig_sizes: Vec<(String, i64, String, i64)> = Vec::new();
             for item in processed_sizes {
                 let rows = tx

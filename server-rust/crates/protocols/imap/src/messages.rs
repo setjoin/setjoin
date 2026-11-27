@@ -727,6 +727,13 @@ async fn store_in_tx(
     }
     // \Deleted is the expunge mark (messages.is_deleted); the reducer's keyword
     // path does not own it. Ownership is re-asserted in the same WHERE (R3).
+    if !delete_ids.is_empty() || !restore_ids.is_empty() {
+        tx.execute(
+            "SELECT 1 FROM mailboxes WHERE id = $1 FOR KEY SHARE",
+            &[(&mailbox, Type::INT8)],
+        )
+        .await?;
+    }
     for (ids, value, operation) in [
         (&delete_ids, true, "destroyed"),
         (&restore_ids, false, "created"),

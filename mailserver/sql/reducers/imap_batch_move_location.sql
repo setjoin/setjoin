@@ -53,6 +53,8 @@ BEGIN
         RETURN;
     END IF;
 
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
     -- Resolve the destination tag once, in the owning mailbox (mirrors
     -- tag_message's BZ019 posture; a foreign mailbox resolves nothing).
     SELECT id INTO v_dest_tag_id

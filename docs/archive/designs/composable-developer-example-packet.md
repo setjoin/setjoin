@@ -2,7 +2,7 @@
 
 Date: 2026-09-07. Status: proposed CP7/E7 documentation input; no executable sample, public schema, qualified runtime, timing result or implementation approval is supplied here.
 Owner: CP7 DX amendment, with the first qualified example delivered by its E2 or domain-beta owner.
-Authorities: DX contract, [extension design](extension-control-plane-public-system-apps.md), restricted WebApp authoring, [scope/manifest map](composable-scope-and-manifest-map.md), [error contract](composable-errors-and-threat-cases.md).
+Authorities: DX contract, [extension design](../../design/extension-control-plane-public-system-apps.md), restricted WebApp authoring, [scope/manifest map](composable-scope-and-manifest-map.md), [error contract](composable-errors-and-threat-cases.md).
 
 ## Scope and evidence boundary
 

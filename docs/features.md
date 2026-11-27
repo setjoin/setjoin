@@ -6,7 +6,7 @@ Merged from `docs/phases.md`, `docs/design/operations/competitive-roadmap.md`, a
 
 These marks describe implementation inventory, not production maturity. The target
 first-release GA/Beta/Experimental boundary is defined in
-`docs/designs/release-maturity-and-first-ga-boundary.md`; no ✅ item inherits GA,
+`docs/design/release-maturity-and-first-ga-boundary.md`; no ✅ item inherits GA,
 support, certification or production enablement from this catalog.
 
 ---

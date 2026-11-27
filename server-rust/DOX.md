@@ -362,14 +362,22 @@ Tests: `cron_handover` (no double run, guard, lock loss, executable startup);
 
 `bins/gateway/src/cron_catalog.rs` holds all 31 frozen Go statements (`AllTasks()`
 order) copied verbatim, with the `system_config` COALESCE arguments and the inline
-`prune-bulk-role-jobs` DELETE, each run through `run_cron_statement`; Chat's two keep
-their `chat_workers` callbacks. Schedules and timeouts are `workers::task_spec`
+`prune-bulk-role-jobs` DELETE, each run through `run_cron_statement` (Chat's two keep
+their `chat_workers` callbacks), plus the Rust-only retention task
+`prune-rust-operation-receipts` (#473, `@every 1h`, 30 s timeout, `Credential::Worker`,
+running `prune_rust_operation_receipts(5000)` in bounded per-batch transactions up to
+20 batches / 20 s soft budget with `SET LOCAL statement_timeout` bounded to
+`1..=10_000` ms). When `RUST_WORKERS_ON` enables any `cron:*` task and does not
+explicitly list `prune-rust-operation-receipts`, the gateway auto-registers it with
+non-fatal lock-contention skip (still failing on DB/config errors); explicitly listing
+it remains fail-fast. Schedules and timeouts are `workers::task_spec`
 (`go_task_spec` renders Go's spelling). Credential per task: worker DSN, except
 `refresh-antiphish-contact-graph` and `create-monthly-partitions` on `DB_OWNER_DSN`
 (falls back to the worker/request DSN; Go itself runs every task on its worker pool).
-`RUST_WORKERS_ON=cron:<task>` now accepts every Go task name. Tests: `cron_catalog`
-(parses Go's `tasks.go`: names, statements, schedules, timeouts; startup guard for all
-31; credential split) and `cron_catalog_recorded` (29 seed-plus-one-tick goldens in
+`RUST_WORKERS_ON=cron:<task>` accepts every Go task name and `prune-rust-operation-receipts`. Tests: `cron_catalog`
+(parses Go's `tasks.go`: 31 Go tasks + 1 Rust-only task; names, statements, schedules,
+timeouts; startup guard; credential split; multi-batch receipt drain and
+auto-registration lock-contention skip) and `cron_catalog_recorded` (29 seed-plus-one-tick goldens in
 `tests/conformance/cron/goldens/`: rows, `admin_audit_log` rows and NOTIFY events,
 including Go with `GO_WORKERS_OFF=cron:<task>` doing nothing). Re-record: delete a
 golden, `GOFREE_RECORD_CRON=<task|all> GOFREE_GO_SOURCE=<sha>` (needs docker, the

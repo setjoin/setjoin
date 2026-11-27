@@ -1,9 +1,82 @@
 -- Free/busy queries, conflict detection, and resource booking.
 
+-- Validate an RFC 5545 RRULE string at input boundaries.
+-- Returns NULL when p_rrule is NULL/empty or uses only supported date-level parts;
+-- returns a human-readable error message when FREQ is missing/duplicate/unsupported
+-- or when unsupported sub-day / Easter parts (BYHOUR, BYMINUTE, BYSECOND, BYEASTER) appear.
+CREATE OR REPLACE FUNCTION validate_rrule(
+    p_rrule TEXT
+) RETURNS TEXT AS $$
+DECLARE
+    v_trimmed   TEXT;
+    v_parts     TEXT[];
+    v_part      TEXT;
+    v_eq_pos    INT;
+    v_key       TEXT;
+    v_val       TEXT;
+    v_freq      TEXT;
+    v_seen_freq BOOLEAN := FALSE;
+BEGIN
+    IF p_rrule IS NULL THEN
+        RETURN NULL;
+    END IF;
+    v_trimmed := btrim(p_rrule, E' \t\r\n');
+    IF v_trimmed = '' THEN
+        RETURN NULL;
+    END IF;
+
+    -- Strip optional leading case-insensitive "RRULE:" prefix. A bare "RRULE:"
+    -- (nothing left after stripping) falls through to missing-FREQ rejection.
+    IF upper(left(v_trimmed, 6)) = 'RRULE:' THEN
+        v_trimmed := btrim(substring(v_trimmed FROM 7), E' \t\r\n');
+    END IF;
+
+    v_parts := string_to_array(v_trimmed, ';');
+    FOREACH v_part IN ARRAY v_parts
+    LOOP
+        v_part := btrim(v_part, E' \t\r\n');
+        IF v_part = '' THEN
+            CONTINUE;
+        END IF;
+        v_eq_pos := position('=' IN v_part);
+        IF v_eq_pos > 0 THEN
+            v_key := upper(btrim(substring(v_part FROM 1 FOR v_eq_pos - 1), E' \t\r\n'));
+            v_val := upper(btrim(substring(v_part FROM v_eq_pos + 1), E' \t\r\n'));
+        ELSE
+            v_key := upper(v_part);
+            v_val := '';
+        END IF;
+
+        IF v_key = 'FREQ' THEN
+            IF v_seen_freq THEN
+                RETURN 'Duplicate FREQ part in RRULE';
+            END IF;
+            v_seen_freq := TRUE;
+            v_freq := v_val;
+        ELSIF v_key IN ('BYHOUR', 'BYMINUTE', 'BYSECOND', 'BYEASTER') THEN
+            RETURN 'Unsupported RRULE part: ' || v_key ||
+                   ' (only DAILY, WEEKLY, MONTHLY, YEARLY date-level rules are supported)';
+        END IF;
+    END LOOP;
+
+    IF v_freq IS NULL OR v_freq = '' THEN
+        RETURN 'RRULE missing required FREQ part';
+    END IF;
+
+    IF v_freq NOT IN ('DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY') THEN
+        RETURN 'Unsupported RRULE frequency: ' || v_freq ||
+               ' (supported: DAILY, WEEKLY, MONTHLY, YEARLY)';
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 -- Expand a recurring event's occurrences within a date range.
--- Handles FREQ (DAILY/WEEKLY/MONTHLY/YEARLY), INTERVAL, UNTIL, COUNT,
--- and BY* rule parts: BYDAY, BYMONTHDAY, BYYEARDAY, BYMONTH, BYWEEKNO, WKST.
--- Also handles RDATE (additional dates) and EXDATE (excluded dates).
+-- Handles FREQ (DAILY/WEEKLY/MONTHLY/YEARLY), INTERVAL, UNTIL (DATE and DATE-TIME,
+-- inclusive per RFC 5545), COUNT, and BY* rule parts: BYDAY, BYMONTHDAY, BYYEARDAY,
+-- BYMONTH, BYWEEKNO (positive and negative), WKST.
+-- Also handles RDATE (additional dates) and EXDATE (exact-instant excluded dates).
 -- BYSETPOS filtering is handled by the expand_recurrence_bysetpos wrapper.
 -- RECURRENCE-ID exceptions are handled at the caller level (calendar_free_busy).
 CREATE OR REPLACE FUNCTION expand_recurrence(
@@ -17,63 +90,144 @@ CREATE OR REPLACE FUNCTION expand_recurrence(
     p_max_count   INT DEFAULT 366
 ) RETURNS TABLE(occ_start TIMESTAMPTZ, occ_end TIMESTAMPTZ) AS $$
 DECLARE
-    v_freq       TEXT;
-    v_interval   INT := 1;
-    v_until      TIMESTAMPTZ;
-    v_count      INT;
-    v_duration   INTERVAL := p_end_at - p_start_at;
-    v_current    TIMESTAMPTZ := p_start_at;
-    v_i          INT := 0;
-    v_emitted    INT := 0;   -- RFC 5545 COUNT: number of generated occurrences, not steps
-    v_step       INTERVAL;
-    v_byday      TEXT;
-    v_bymonthday TEXT;
-    v_byyearday  TEXT;
-    v_bymonth    TEXT;
-    v_byweekno   TEXT;
-    v_wkst       TEXT := 'MO';
-    v_dow        INT;
-    v_daynum     INT;
-    v_monthnum   INT;
-    v_yearday    INT;
-    v_candidate  TIMESTAMPTZ;
-    v_days       TEXT[];
-    v_day        TEXT;
-    v_pos        INT;
-    v_target_dow INT;
-    v_nth_day    TIMESTAMPTZ;
+    v_rrule          TEXT;
+    v_freq           TEXT;
+    v_interval       INT := 1;
+    v_until_raw      TEXT;
+    v_until          TIMESTAMPTZ;
+    v_count          INT;
+    v_duration       INTERVAL := p_end_at - p_start_at;
+    v_start_utc      TIMESTAMP := p_start_at AT TIME ZONE 'UTC';
+    v_start_date     DATE := date_trunc('day', v_start_utc)::DATE;
+    v_start_year     INT := EXTRACT(YEAR FROM v_start_utc)::INT;
+    v_start_month    INT := EXTRACT(MONTH FROM v_start_utc)::INT;
+    v_start_day      INT := EXTRACT(DAY FROM v_start_utc)::INT;
+    v_start_dow      INT := EXTRACT(DOW FROM v_start_utc)::INT;
+    v_time_part      INTERVAL := v_start_utc - date_trunc('day', v_start_utc);
+    v_i              INT := 0;
+    v_step_idx       INT := 0;
+    v_emitted        INT := 0;   -- RFC 5545 COUNT: number of generated occurrences, not steps
+    v_empty_steps    INT := 0;
+    v_done           BOOLEAN := FALSE;
+    v_byday          TEXT;
+    v_bymonthday     TEXT;
+    v_byyearday      TEXT;
+    v_bymonth        TEXT;
+    v_byweekno       TEXT;
+    v_wkst           TEXT := 'MO';
+    v_wkst_dow       INT;
+    v_bymonth_arr    INT[];
+    v_bymonthday_arr INT[];
+    v_byyearday_arr  INT[];
+    v_byday_arr      TEXT[];
+    v_base_week      DATE;
+    v_week_start     DATE;
+    v_period_start   TIMESTAMPTZ;
+    v_year           INT;
+    v_month          INT;
+    v_total_months   INT;
+    v_year_start     DATE;
+    v_year_days      INT;
+    v_jan1_dow       INT;
+    v_dec31_dow      INT;
+    v_months         INT[];
+    v_m              INT;
+    v_m_first        DATE;
+    v_m_days         INT;
+    v_m_first_dow    INT;
+    v_m_ref          TIMESTAMPTZ;
+    v_d              INT;
+    v_day            INT;
+    v_cand_date      DATE;
+    v_cand_year      INT;
+    v_cand_month     INT;
+    v_cand_day       INT;
+    v_cand_doy       INT;
+    v_cand_mdays     INT;
+    v_cand_ydays     INT;
+    v_candidate      TIMESTAMPTZ;
+    v_candidates     TIMESTAMPTZ[];
+    v_tok            TEXT;
+    v_pos            INT;
+    v_target_dow     INT;
+    v_offset         INT;
+    v_nth_day        TIMESTAMPTZ;
+    v_period_had_hit BOOLEAN;
+    v_max_mdays      CONSTANT INT[] := ARRAY[31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    v_possible       BOOLEAN;
+    v_next_month     DATE;
 BEGIN
     IF p_rrule IS NULL THEN RETURN; END IF;
 
-    -- Parse core RRULE parts
-    v_freq := upper(substring(p_rrule FROM 'FREQ=(\w+)'));
-    v_interval := COALESCE(substring(p_rrule FROM 'INTERVAL=(\d+)')::INT, 1);
-    v_until := substring(p_rrule FROM 'UNTIL=(\d+T\d+)')::TIMESTAMPTZ;
-    v_count := substring(p_rrule FROM 'COUNT=(\d+)')::INT;
-    v_byday := substring(p_rrule FROM 'BYDAY=([^;]+)');
-    v_bymonthday := substring(p_rrule FROM 'BYMONTHDAY=([^;]+)');
-    v_byyearday := substring(p_rrule FROM 'BYYEARDAY=([^;]+)');
-    v_bymonth := substring(p_rrule FROM 'BYMONTH=([^;]+)');
-    v_byweekno := substring(p_rrule FROM 'BYWEEKNO=([^;]+)');
-    v_wkst := COALESCE(substring(p_rrule FROM 'WKST=(\w+)'), 'MO');
+    v_rrule := upper(btrim(p_rrule, E' \t\r\n'));
+    IF left(v_rrule, 6) = 'RRULE:' THEN
+        v_rrule := btrim(substring(v_rrule FROM 7), E' \t\r\n');
+    END IF;
+
+    -- Parse core RRULE parts (case-insensitive via v_rrule).
+    v_freq := substring(v_rrule FROM 'FREQ=(\w+)');
+    v_interval := COALESCE(substring(v_rrule FROM 'INTERVAL=(\d+)')::INT, 1);
+    IF v_interval < 1 THEN v_interval := 1; END IF;
+
+    -- Parse UNTIL in either DATE (YYYYMMDD) or DATE-TIME (YYYYMMDDTHHMMSS[Z]) form
+    -- in UTC regardless of session timezone (anchored to segment boundaries so
+    -- malformed values like UNTIL=19970905T0900 are not partially matched).
+    v_until_raw := substring(v_rrule FROM '(?:^|;)UNTIL=(\d{8}(?:T\d{6}Z?)?)(?:;|$)');
+    IF v_until_raw IS NOT NULL THEN
+        IF length(v_until_raw) = 8 THEN
+            v_until_raw := v_until_raw || 'T000000Z';
+        ELSIF right(v_until_raw, 1) != 'Z' THEN
+            v_until_raw := v_until_raw || 'Z';
+        END IF;
+        v_until := v_until_raw::TIMESTAMPTZ;
+    END IF;
+
+    v_count := substring(v_rrule FROM 'COUNT=(\d+)')::INT;
+    v_byday := substring(v_rrule FROM 'BYDAY=([^;]+)');
+    v_bymonthday := substring(v_rrule FROM 'BYMONTHDAY=([^;]+)');
+    v_byyearday := substring(v_rrule FROM 'BYYEARDAY=([^;]+)');
+    v_bymonth := substring(v_rrule FROM 'BYMONTH=([^;]+)');
+    v_byweekno := substring(v_rrule FROM 'BYWEEKNO=([^;]+)');
+    v_wkst := COALESCE(substring(v_rrule FROM 'WKST=([A-Z]{2})'), 'MO');
+    v_wkst_dow := day_of_week_num(v_wkst);
 
     IF v_count IS NULL THEN v_count := p_max_count; END IF;
 
-    CASE v_freq
-        WHEN 'DAILY'   THEN v_step := make_interval(days => v_interval);
-        WHEN 'WEEKLY'  THEN v_step := make_interval(days => 7 * v_interval);
-        WHEN 'MONTHLY' THEN v_step := make_interval(months => v_interval);
-        WHEN 'YEARLY'  THEN v_step := make_interval(years => v_interval);
-        ELSE RETURN;
-    END CASE;
+    IF v_freq NOT IN ('DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY') THEN
+        RETURN;
+    END IF;
 
-    -- RDATE: emit explicit recurrence dates
+    -- Pre-parse BY* lists into typed arrays.
+    IF v_bymonth IS NOT NULL AND v_bymonth != '' THEN
+        SELECT array_agg(btrim(x)::INT) INTO v_bymonth_arr
+        FROM unnest(string_to_array(v_bymonth, ',')) AS x
+        WHERE btrim(x) ~ '^[+-]?\d+$';
+    END IF;
+    IF v_bymonthday IS NOT NULL AND v_bymonthday != '' THEN
+        SELECT array_agg(btrim(x)::INT) INTO v_bymonthday_arr
+        FROM unnest(string_to_array(v_bymonthday, ',')) AS x
+        WHERE btrim(x) ~ '^[+-]?\d+$';
+    END IF;
+    IF v_byyearday IS NOT NULL AND v_byyearday != '' THEN
+        SELECT array_agg(btrim(x)::INT) INTO v_byyearday_arr
+        FROM unnest(string_to_array(v_byyearday, ',')) AS x
+        WHERE btrim(x) ~ '^[+-]?\d+$';
+    END IF;
+    IF v_byday IS NOT NULL AND v_byday != '' THEN
+        SELECT array_agg(btrim(x)) INTO v_byday_arr
+        FROM unnest(string_to_array(v_byday, ',')) AS x
+        WHERE btrim(x) != '';
+    END IF;
+
+    -- RDATE: emit explicit recurrence dates (inclusive UNTIL, half-open range_end).
     IF p_rdate IS NOT NULL AND array_length(p_rdate, 1) > 0 THEN
         FOR v_i IN 1..array_length(p_rdate, 1)
         LOOP
             v_candidate := p_rdate[v_i];
-            IF v_candidate >= p_range_start AND v_candidate < p_range_end
-               AND (v_until IS NULL OR v_candidate < v_until)
+            IF (v_candidate >= p_range_start OR v_candidate + v_duration > p_range_start)
+               AND v_candidate < p_range_end
+               AND (v_until IS NULL OR v_candidate <= v_until)
+               AND NOT is_excluded(v_candidate, p_exdate)
                AND is_byweekno_match(v_candidate, v_byweekno)
             THEN
                 occ_start := v_candidate;
@@ -83,144 +237,452 @@ BEGIN
         END LOOP;
     END IF;
 
-    v_i := 0;
-    v_current := p_start_at;
-
-    -- Expand by FREQ step, applying BY* filters.
-    -- COUNT (RFC 5545 §3.3.10) limits the number of GENERATED occurrences from DTSTART,
-    -- not the number of FREQ steps: a WEEKLY+BYDAY=MO,WE,FR step generates 3 occurrences,
-    -- a MONTHLY+BYMONTHDAY step one per listed day, etc. We therefore terminate on
-    -- v_emitted (occurrences generated from DTSTART, counted BEFORE the query-window /
-    -- EXDATE filters so windowed queries still honour COUNT) rather than the old v_i
-    -- step counter, which over-generated up to N×COUNT occurrences for multi-emit rules.
-    -- Termination is still guaranteed: v_current advances by v_step each step, so the
-    -- EXIT-on-window below always fires for unbounded rules; v_until bounds UNTIL rules.
-    WHILE v_emitted < v_count AND v_current < COALESCE(v_until, 'infinity'::TIMESTAMPTZ)
-    LOOP
-        IF v_freq = 'WEEKLY' AND v_byday IS NOT NULL AND v_byday != '' THEN
-            -- BYDAY for WEEKLY: only emit days specified in BYDAY
-            v_days := string_to_array(upper(v_byday), ',');
-            FOREACH v_day IN ARRAY v_days
-            LOOP
-                v_target_dow := day_of_week_num(v_day, v_wkst);
-                -- Adjust from v_current to the correct day of the week
-                v_dow := EXTRACT(DOW FROM v_current AT TIME ZONE 'UTC')::INT;
-                v_candidate := v_current + make_interval(days => (v_target_dow - v_dow + 7) % 7);
-                v_emitted := v_emitted + 1;   -- generated occurrence (counts toward COUNT)
-                IF v_candidate >= p_range_start AND v_candidate < p_range_end
-                   AND v_candidate < COALESCE(v_until, 'infinity'::TIMESTAMPTZ)
-                THEN
-                    occ_start := v_candidate;
-                    occ_end := v_candidate + v_duration;
-                    IF NOT is_excluded(v_candidate, p_exdate) AND is_byweekno_match(v_candidate, v_byweekno) THEN
-                        RETURN NEXT;
-                    END IF;
+    -- Short-circuit statically impossible BYMONTH / BYMONTHDAY / BYYEARDAY combinations
+    -- (e.g. BYMONTH=2;BYMONTHDAY=31) so unbounded DAILY/WEEKLY/MONTHLY/YEARLY rules
+    -- cannot spin when p_range_end = 'infinity'.
+    IF v_bymonth_arr IS NOT NULL THEN
+        v_possible := FALSE;
+        FOREACH v_m IN ARRAY v_bymonth_arr LOOP
+            IF v_m >= 1 AND v_m <= 12 THEN
+                IF v_bymonthday_arr IS NULL THEN
+                    v_possible := TRUE;
+                    EXIT;
                 END IF;
-                EXIT WHEN v_emitted >= v_count;
-            END LOOP;
-        ELSIF v_freq = 'MONTHLY' AND v_bymonthday IS NOT NULL AND v_bymonthday != '' THEN
-            -- BYMONTHDAY for MONTHLY: each specified day of the month
-            v_days := string_to_array(v_bymonthday, ',');
-            FOREACH v_day IN ARRAY v_days
-            LOOP
-                v_daynum := v_day::INT;
-                v_candidate := nth_month_day(v_current, v_daynum);
-                v_emitted := v_emitted + 1;   -- generated occurrence (counts toward COUNT)
-                IF v_candidate >= p_range_start AND v_candidate < p_range_end
-                   AND v_candidate < COALESCE(v_until, 'infinity'::TIMESTAMPTZ)
-                THEN
-                    -- If BYDAY also specified, check DOW filter
-                    IF v_byday IS NULL OR v_byday = '' OR day_in_byday(v_candidate, v_byday, v_wkst) THEN
-                        occ_start := v_candidate;
-                        occ_end := v_candidate + v_duration;
-                        IF NOT is_excluded(v_candidate, p_exdate) AND is_byweekno_match(v_candidate, v_byweekno) THEN
-                            RETURN NEXT;
+                FOREACH v_d IN ARRAY v_bymonthday_arr LOOP
+                    IF v_d != 0 AND abs(v_d) <= v_max_mdays[v_m] THEN
+                        v_possible := TRUE;
+                        EXIT;
+                    END IF;
+                END LOOP;
+                EXIT WHEN v_possible;
+            END IF;
+        END LOOP;
+        IF NOT v_possible THEN RETURN; END IF;
+    ELSIF v_bymonthday_arr IS NOT NULL THEN
+        v_possible := FALSE;
+        FOREACH v_d IN ARRAY v_bymonthday_arr LOOP
+            IF v_d != 0 AND abs(v_d) <= 31 THEN
+                v_possible := TRUE;
+                EXIT;
+            END IF;
+        END LOOP;
+        IF NOT v_possible THEN RETURN; END IF;
+    END IF;
+
+    IF v_byyearday_arr IS NOT NULL THEN
+        v_possible := FALSE;
+        FOREACH v_d IN ARRAY v_byyearday_arr LOOP
+            IF v_d != 0 AND abs(v_d) <= 366 THEN
+                v_possible := TRUE;
+                EXIT;
+            END IF;
+        END LOOP;
+        IF NOT v_possible THEN RETURN; END IF;
+    END IF;
+
+    -- Anchor WEEKLY expansion to the WKST day of DTSTART's week.
+    v_base_week := v_start_date - ((v_start_dow - v_wkst_dow + 7) % 7);
+
+    -- Expand period by period. Every period collects valid UTC candidates,
+    -- deduplicates and sorts chronologically, then applies >= p_start_at,
+    -- <= v_until, COUNT (v_emitted), window overlap, and EXDATE.
+    WHILE v_emitted < v_count AND NOT v_done
+    LOOP
+        v_candidates := ARRAY[]::TIMESTAMPTZ[];
+
+        IF v_freq = 'YEARLY' THEN
+            v_year := v_start_year + v_step_idx * v_interval;
+            EXIT WHEN v_year > 9999;
+            v_period_start := make_timestamp(v_year, 1, 1, 0, 0, 0) AT TIME ZONE 'UTC';
+            EXIT WHEN v_period_start > COALESCE(v_until, 'infinity'::TIMESTAMPTZ);
+            EXIT WHEN v_period_start >= p_range_end;
+
+            v_year_start := make_date(v_year, 1, 1);
+            v_year_days := (make_date(v_year + 1, 1, 1) - v_year_start);
+
+            IF v_byyearday_arr IS NOT NULL THEN
+                FOREACH v_d IN ARRAY v_byyearday_arr LOOP
+                    IF v_d > 0 AND v_d <= v_year_days THEN
+                        v_cand_date := v_year_start + (v_d - 1);
+                    ELSIF v_d < 0 AND -v_d <= v_year_days THEN
+                        v_cand_date := v_year_start + (v_year_days + v_d);
+                    ELSE
+                        CONTINUE;
+                    END IF;
+                    v_cand_month := EXTRACT(MONTH FROM v_cand_date)::INT;
+                    IF v_bymonth_arr IS NOT NULL AND NOT (v_cand_month = ANY(v_bymonth_arr)) THEN
+                        CONTINUE;
+                    END IF;
+                    IF v_bymonthday_arr IS NOT NULL THEN
+                        v_cand_day := EXTRACT(DAY FROM v_cand_date)::INT;
+                        v_cand_mdays := EXTRACT(DAY FROM (make_date(v_year, v_cand_month, 1) + INTERVAL '1 month' - INTERVAL '1 day'))::INT;
+                        IF NOT (v_cand_day = ANY(v_bymonthday_arr) OR (v_cand_day - v_cand_mdays - 1) = ANY(v_bymonthday_arr)) THEN
+                            CONTINUE;
+                        END IF;
+                    END IF;
+                    v_candidate := (v_cand_date::TIMESTAMP + v_time_part) AT TIME ZONE 'UTC';
+                    IF (v_byday_arr IS NULL OR day_in_byday(v_candidate, v_byday, v_wkst))
+                       AND is_byweekno_match(v_candidate, v_byweekno)
+                    THEN
+                        v_candidates := array_append(v_candidates, v_candidate);
+                    END IF;
+                END LOOP;
+            ELSIF v_bymonth_arr IS NOT NULL OR v_bymonthday_arr IS NOT NULL THEN
+                v_months := COALESCE(v_bymonth_arr, ARRAY[v_start_month]);
+                FOREACH v_m IN ARRAY v_months LOOP
+                    IF v_m < 1 OR v_m > 12 THEN CONTINUE; END IF;
+                    v_m_first := make_date(v_year, v_m, 1);
+                    v_m_days := EXTRACT(DAY FROM (v_m_first + INTERVAL '1 month' - INTERVAL '1 day'))::INT;
+                    v_m_ref := (make_timestamp(v_year, v_m, 1, 0, 0, 0) + v_time_part) AT TIME ZONE 'UTC';
+
+                    IF v_bymonthday_arr IS NOT NULL THEN
+                        FOREACH v_d IN ARRAY v_bymonthday_arr LOOP
+                            v_candidate := nth_month_day(v_m_ref, v_d);
+                            IF v_candidate IS NULL THEN CONTINUE; END IF;
+                            IF (v_byday_arr IS NULL OR day_in_byday(v_candidate, v_byday, v_wkst))
+                               AND is_byweekno_match(v_candidate, v_byweekno)
+                            THEN
+                                v_candidates := array_append(v_candidates, v_candidate);
+                            END IF;
+                        END LOOP;
+                    ELSIF v_byday_arr IS NOT NULL THEN
+                        v_m_first_dow := EXTRACT(DOW FROM v_m_first)::INT;
+                        FOREACH v_tok IN ARRAY v_byday_arr LOOP
+                            v_pos := positional_week(v_tok);
+                            v_target_dow := day_of_week_num(v_tok, v_wkst);
+                            IF v_pos = 0 THEN
+                                v_day := 1 + ((v_target_dow - v_m_first_dow + 7) % 7);
+                                WHILE v_day <= v_m_days LOOP
+                                    v_candidate := (make_timestamp(v_year, v_m, v_day, 0, 0, 0) + v_time_part) AT TIME ZONE 'UTC';
+                                    IF is_byweekno_match(v_candidate, v_byweekno) THEN
+                                        v_candidates := array_append(v_candidates, v_candidate);
+                                    END IF;
+                                    v_day := v_day + 7;
+                                END LOOP;
+                            ELSE
+                                v_nth_day := nth_day_of_week_in_month(v_m_ref, v_pos, v_target_dow);
+                                IF v_nth_day IS NOT NULL AND is_byweekno_match(v_nth_day, v_byweekno) THEN
+                                    v_candidates := array_append(v_candidates, v_nth_day);
+                                END IF;
+                            END IF;
+                        END LOOP;
+                    ELSE
+                        IF v_start_day <= v_m_days THEN
+                            v_candidate := (make_timestamp(v_year, v_m, v_start_day, 0, 0, 0) + v_time_part) AT TIME ZONE 'UTC';
+                            IF is_byweekno_match(v_candidate, v_byweekno) THEN
+                                v_candidates := array_append(v_candidates, v_candidate);
+                            END IF;
+                        END IF;
+                    END IF;
+                END LOOP;
+            ELSIF v_byday_arr IS NOT NULL THEN
+                v_jan1_dow := EXTRACT(DOW FROM v_year_start)::INT;
+                v_dec31_dow := EXTRACT(DOW FROM make_date(v_year, 12, 31))::INT;
+                FOREACH v_tok IN ARRAY v_byday_arr LOOP
+                    v_pos := positional_week(v_tok);
+                    v_target_dow := day_of_week_num(v_tok, v_wkst);
+                    IF v_pos = 0 THEN
+                        v_offset := (v_target_dow - v_jan1_dow + 7) % 7;
+                        WHILE v_offset < v_year_days LOOP
+                            v_cand_date := v_year_start + v_offset;
+                            v_candidate := (v_cand_date::TIMESTAMP + v_time_part) AT TIME ZONE 'UTC';
+                            IF is_byweekno_match(v_candidate, v_byweekno) THEN
+                                v_candidates := array_append(v_candidates, v_candidate);
+                            END IF;
+                            v_offset := v_offset + 7;
+                        END LOOP;
+                    ELSIF v_pos > 0 THEN
+                        v_offset := ((v_target_dow - v_jan1_dow + 7) % 7) + (v_pos - 1) * 7;
+                        IF v_offset >= 0 AND v_offset < v_year_days THEN
+                            v_candidate := ((v_year_start + v_offset)::TIMESTAMP + v_time_part) AT TIME ZONE 'UTC';
+                            IF is_byweekno_match(v_candidate, v_byweekno) THEN
+                                v_candidates := array_append(v_candidates, v_candidate);
+                            END IF;
+                        END IF;
+                    ELSE
+                        v_offset := (v_year_days - 1) - ((v_dec31_dow - v_target_dow + 7) % 7) + (v_pos + 1) * 7;
+                        IF v_offset >= 0 AND v_offset < v_year_days THEN
+                            v_candidate := ((v_year_start + v_offset)::TIMESTAMP + v_time_part) AT TIME ZONE 'UTC';
+                            IF is_byweekno_match(v_candidate, v_byweekno) THEN
+                                v_candidates := array_append(v_candidates, v_candidate);
+                            END IF;
+                        END IF;
+                    END IF;
+                END LOOP;
+            ELSIF v_byweekno IS NOT NULL AND v_byweekno != '' THEN
+                v_jan1_dow := EXTRACT(DOW FROM v_year_start)::INT;
+                v_offset := (v_start_dow - v_jan1_dow + 7) % 7;
+                WHILE v_offset < v_year_days LOOP
+                    v_candidate := ((v_year_start + v_offset)::TIMESTAMP + v_time_part) AT TIME ZONE 'UTC';
+                    IF is_byweekno_match(v_candidate, v_byweekno) THEN
+                        v_candidates := array_append(v_candidates, v_candidate);
+                    END IF;
+                    v_offset := v_offset + 7;
+                END LOOP;
+            ELSE
+                v_m_days := EXTRACT(DAY FROM (make_date(v_year, v_start_month, 1) + INTERVAL '1 month' - INTERVAL '1 day'))::INT;
+                IF v_start_day <= v_m_days THEN
+                    v_candidate := (make_timestamp(v_year, v_start_month, v_start_day, 0, 0, 0) + v_time_part) AT TIME ZONE 'UTC';
+                    v_candidates := array_append(v_candidates, v_candidate);
+                END IF;
+            END IF;
+
+        ELSIF v_freq = 'MONTHLY' THEN
+            -- Derive (year, month) from step index so day-31 anchors never drift (Jan 31 -> Mar 31).
+            v_total_months := (v_start_year * 12 + (v_start_month - 1)) + v_step_idx * v_interval;
+            v_year := v_total_months / 12;
+            v_month := (v_total_months % 12) + 1;
+            EXIT WHEN v_year > 9999;
+            v_period_start := make_timestamp(v_year, v_month, 1, 0, 0, 0) AT TIME ZONE 'UTC';
+            EXIT WHEN v_period_start > COALESCE(v_until, 'infinity'::TIMESTAMPTZ);
+            EXIT WHEN v_period_start >= p_range_end;
+
+            IF v_bymonth_arr IS NULL OR (v_month = ANY(v_bymonth_arr)) THEN
+                v_m_first := make_date(v_year, v_month, 1);
+                v_m_days := EXTRACT(DAY FROM (v_m_first + INTERVAL '1 month' - INTERVAL '1 day'))::INT;
+                v_m_ref := (make_timestamp(v_year, v_month, 1, 0, 0, 0) + v_time_part) AT TIME ZONE 'UTC';
+
+                IF v_bymonthday_arr IS NOT NULL THEN
+                    FOREACH v_d IN ARRAY v_bymonthday_arr LOOP
+                        v_candidate := nth_month_day(v_m_ref, v_d);
+                        IF v_candidate IS NULL THEN CONTINUE; END IF;
+                        IF v_byday_arr IS NOT NULL AND NOT day_in_byday(v_candidate, v_byday, v_wkst) THEN
+                            CONTINUE;
+                        END IF;
+                        IF v_byyearday_arr IS NOT NULL THEN
+                            v_cand_date := (v_candidate AT TIME ZONE 'UTC')::DATE;
+                            v_cand_doy := EXTRACT(DOY FROM v_cand_date)::INT;
+                            v_cand_ydays := (make_date(v_year + 1, 1, 1) - make_date(v_year, 1, 1));
+                            IF NOT (v_cand_doy = ANY(v_byyearday_arr) OR (v_cand_doy - v_cand_ydays - 1) = ANY(v_byyearday_arr)) THEN
+                                CONTINUE;
+                            END IF;
+                        END IF;
+                        IF is_byweekno_match(v_candidate, v_byweekno) THEN
+                            v_candidates := array_append(v_candidates, v_candidate);
+                        END IF;
+                    END LOOP;
+                ELSIF v_byday_arr IS NOT NULL THEN
+                    v_m_first_dow := EXTRACT(DOW FROM v_m_first)::INT;
+                    FOREACH v_tok IN ARRAY v_byday_arr LOOP
+                        v_pos := positional_week(v_tok);
+                        v_target_dow := day_of_week_num(v_tok, v_wkst);
+                        IF v_pos = 0 THEN
+                            -- Unqualified weekday (e.g. BYDAY=TU,TH): emit all matching days in month.
+                            v_day := 1 + ((v_target_dow - v_m_first_dow + 7) % 7);
+                            WHILE v_day <= v_m_days LOOP
+                                v_candidate := (make_timestamp(v_year, v_month, v_day, 0, 0, 0) + v_time_part) AT TIME ZONE 'UTC';
+                                IF is_byweekno_match(v_candidate, v_byweekno) THEN
+                                    IF v_byyearday_arr IS NULL THEN
+                                        v_candidates := array_append(v_candidates, v_candidate);
+                                    ELSE
+                                        v_cand_date := make_date(v_year, v_month, v_day);
+                                        v_cand_doy := EXTRACT(DOY FROM v_cand_date)::INT;
+                                        v_cand_ydays := (make_date(v_year + 1, 1, 1) - make_date(v_year, 1, 1));
+                                        IF v_cand_doy = ANY(v_byyearday_arr) OR (v_cand_doy - v_cand_ydays - 1) = ANY(v_byyearday_arr) THEN
+                                            v_candidates := array_append(v_candidates, v_candidate);
+                                        END IF;
+                                    END IF;
+                                END IF;
+                                v_day := v_day + 7;
+                            END LOOP;
+                        ELSE
+                            v_nth_day := nth_day_of_week_in_month(v_m_ref, v_pos, v_target_dow);
+                            IF v_nth_day IS NOT NULL AND is_byweekno_match(v_nth_day, v_byweekno) THEN
+                                IF v_byyearday_arr IS NULL THEN
+                                    v_candidates := array_append(v_candidates, v_nth_day);
+                                ELSE
+                                    v_cand_date := (v_nth_day AT TIME ZONE 'UTC')::DATE;
+                                    v_cand_doy := EXTRACT(DOY FROM v_cand_date)::INT;
+                                    v_cand_ydays := (make_date(v_year + 1, 1, 1) - make_date(v_year, 1, 1));
+                                    IF v_cand_doy = ANY(v_byyearday_arr) OR (v_cand_doy - v_cand_ydays - 1) = ANY(v_byyearday_arr) THEN
+                                        v_candidates := array_append(v_candidates, v_nth_day);
+                                    END IF;
+                                END IF;
+                            END IF;
+                        END IF;
+                    END LOOP;
+                ELSE
+                    IF v_start_day <= v_m_days THEN
+                        v_candidate := (make_timestamp(v_year, v_month, v_start_day, 0, 0, 0) + v_time_part) AT TIME ZONE 'UTC';
+                        IF is_byweekno_match(v_candidate, v_byweekno) THEN
+                            IF v_byyearday_arr IS NULL THEN
+                                v_candidates := array_append(v_candidates, v_candidate);
+                            ELSE
+                                v_cand_date := make_date(v_year, v_month, v_start_day);
+                                v_cand_doy := EXTRACT(DOY FROM v_cand_date)::INT;
+                                v_cand_ydays := (make_date(v_year + 1, 1, 1) - make_date(v_year, 1, 1));
+                                IF v_cand_doy = ANY(v_byyearday_arr) OR (v_cand_doy - v_cand_ydays - 1) = ANY(v_byyearday_arr) THEN
+                                    v_candidates := array_append(v_candidates, v_candidate);
+                                END IF;
+                            END IF;
                         END IF;
                     END IF;
                 END IF;
-                EXIT WHEN v_emitted >= v_count;
-            END LOOP;
-        ELSIF v_freq = 'MONTHLY' AND v_byday IS NOT NULL AND v_byday != '' THEN
-            -- BYDAY for MONTHLY (positional): e.g., "2TU" = second Tuesday, "-1SU" = last Sunday
-            v_days := string_to_array(upper(v_byday), ',');
-            FOREACH v_day IN ARRAY v_days
-            LOOP
-                v_pos := positional_week(v_day);
-                v_target_dow := day_of_week_num(v_day, v_wkst);
-                v_nth_day := nth_day_of_week_in_month(v_current, v_pos, v_target_dow);
-                v_emitted := v_emitted + 1;   -- generated occurrence (counts toward COUNT)
-                IF v_nth_day >= p_range_start AND v_nth_day < p_range_end
-                   AND v_nth_day < COALESCE(v_until, 'infinity'::TIMESTAMPTZ)
+            END IF;
+
+        ELSIF v_freq = 'WEEKLY' THEN
+            v_week_start := v_base_week + (v_step_idx * 7 * v_interval);
+            v_year := EXTRACT(YEAR FROM v_week_start)::INT;
+            EXIT WHEN v_year > 9999;
+            v_period_start := (v_week_start::TIMESTAMP) AT TIME ZONE 'UTC';
+            EXIT WHEN v_period_start > COALESCE(v_until, 'infinity'::TIMESTAMPTZ);
+            EXIT WHEN v_period_start >= p_range_end;
+
+            IF v_byday_arr IS NOT NULL THEN
+                FOREACH v_tok IN ARRAY v_byday_arr LOOP
+                    v_target_dow := day_of_week_num(v_tok, v_wkst);
+                    v_cand_date := v_week_start + ((v_target_dow - v_wkst_dow + 7) % 7);
+                    v_cand_year := EXTRACT(YEAR FROM v_cand_date)::INT;
+                    IF v_cand_year > 9999 THEN CONTINUE; END IF;
+                    v_cand_month := EXTRACT(MONTH FROM v_cand_date)::INT;
+                    IF v_bymonth_arr IS NOT NULL AND NOT (v_cand_month = ANY(v_bymonth_arr)) THEN
+                        CONTINUE;
+                    END IF;
+                    IF v_bymonthday_arr IS NOT NULL THEN
+                        v_cand_day := EXTRACT(DAY FROM v_cand_date)::INT;
+                        v_cand_mdays := EXTRACT(DAY FROM (make_date(v_cand_year, v_cand_month, 1) + INTERVAL '1 month' - INTERVAL '1 day'))::INT;
+                        IF NOT (v_cand_day = ANY(v_bymonthday_arr) OR (v_cand_day - v_cand_mdays - 1) = ANY(v_bymonthday_arr)) THEN
+                            CONTINUE;
+                        END IF;
+                    END IF;
+                    IF v_byyearday_arr IS NOT NULL THEN
+                        v_cand_doy := EXTRACT(DOY FROM v_cand_date)::INT;
+                        v_cand_ydays := (make_date(v_cand_year + 1, 1, 1) - make_date(v_cand_year, 1, 1));
+                        IF NOT (v_cand_doy = ANY(v_byyearday_arr) OR (v_cand_doy - v_cand_ydays - 1) = ANY(v_byyearday_arr)) THEN
+                            CONTINUE;
+                        END IF;
+                    END IF;
+                    v_candidate := (v_cand_date::TIMESTAMP + v_time_part) AT TIME ZONE 'UTC';
+                    IF is_byweekno_match(v_candidate, v_byweekno) THEN
+                        v_candidates := array_append(v_candidates, v_candidate);
+                    END IF;
+                END LOOP;
+            ELSE
+                v_cand_date := v_start_date + (v_step_idx * 7 * v_interval);
+                v_cand_year := EXTRACT(YEAR FROM v_cand_date)::INT;
+                EXIT WHEN v_cand_year > 9999;
+                v_cand_month := EXTRACT(MONTH FROM v_cand_date)::INT;
+                v_candidate := (v_cand_date::TIMESTAMP + v_time_part) AT TIME ZONE 'UTC';
+                IF (v_bymonth_arr IS NULL OR v_cand_month = ANY(v_bymonth_arr))
+                   AND is_byweekno_match(v_candidate, v_byweekno)
                 THEN
-                    occ_start := v_nth_day;
-                    occ_end := v_nth_day + v_duration;
-                    IF NOT is_excluded(v_nth_day, p_exdate) AND is_byweekno_match(v_nth_day, v_byweekno) THEN
-                        RETURN NEXT;
+                    v_possible := TRUE;
+                    IF v_bymonthday_arr IS NOT NULL THEN
+                        v_cand_day := EXTRACT(DAY FROM v_cand_date)::INT;
+                        v_cand_mdays := EXTRACT(DAY FROM (make_date(v_cand_year, v_cand_month, 1) + INTERVAL '1 month' - INTERVAL '1 day'))::INT;
+                        IF NOT (v_cand_day = ANY(v_bymonthday_arr) OR (v_cand_day - v_cand_mdays - 1) = ANY(v_bymonthday_arr)) THEN
+                            v_possible := FALSE;
+                        END IF;
+                    END IF;
+                    IF v_possible AND v_byyearday_arr IS NOT NULL THEN
+                        v_cand_doy := EXTRACT(DOY FROM v_cand_date)::INT;
+                        v_cand_ydays := (make_date(v_cand_year + 1, 1, 1) - make_date(v_cand_year, 1, 1));
+                        IF NOT (v_cand_doy = ANY(v_byyearday_arr) OR (v_cand_doy - v_cand_ydays - 1) = ANY(v_byyearday_arr)) THEN
+                            v_possible := FALSE;
+                        END IF;
+                    END IF;
+                    IF v_possible THEN
+                        v_candidates := array_append(v_candidates, v_candidate);
                     END IF;
                 END IF;
-                EXIT WHEN v_emitted >= v_count;
-            END LOOP;
-        ELSIF v_freq = 'YEARLY' AND v_bymonth IS NOT NULL AND v_bymonth != '' THEN
-            -- BYMONTH for YEARLY: each specified month
-            v_days := string_to_array(v_bymonth, ',');
-            FOREACH v_day IN ARRAY v_days
-            LOOP
-                v_monthnum := v_day::INT;
-                v_candidate := date_trunc('year', v_current) + make_interval(months => v_monthnum - 1);
-                v_candidate := v_candidate + (v_current - date_trunc('year', v_current));
-                v_emitted := v_emitted + 1;   -- generated occurrence (counts toward COUNT)
-                IF v_candidate >= p_range_start AND v_candidate < p_range_end
-                   AND v_candidate < COALESCE(v_until, 'infinity'::TIMESTAMPTZ)
-                THEN
-                    occ_start := v_candidate;
-                    occ_end := v_candidate + v_duration;
-                    IF NOT is_excluded(v_candidate, p_exdate) AND is_byweekno_match(v_candidate, v_byweekno) THEN
-                        RETURN NEXT;
-                    END IF;
-                END IF;
-                EXIT WHEN v_emitted >= v_count;
-            END LOOP;
-        ELSIF v_freq = 'YEARLY' AND v_byyearday IS NOT NULL AND v_byyearday != '' THEN
-            -- BYYEARDAY for YEARLY: each specified day of the year
-            v_days := string_to_array(v_byyearday, ',');
-            FOREACH v_day IN ARRAY v_days
-            LOOP
-                v_yearday := v_day::INT;
-                v_candidate := date_trunc('year', v_current) + make_interval(days => v_yearday - 1);
-                v_candidate := v_candidate + (v_current - date_trunc('day', v_current));
-                v_emitted := v_emitted + 1;   -- generated occurrence (counts toward COUNT)
-                IF v_candidate >= p_range_start AND v_candidate < p_range_end
-                   AND v_candidate < COALESCE(v_until, 'infinity'::TIMESTAMPTZ)
-                THEN
-                    occ_start := v_candidate;
-                    occ_end := v_candidate + v_duration;
-                    IF NOT is_excluded(v_candidate, p_exdate) AND is_byweekno_match(v_candidate, v_byweekno) THEN
-                        RETURN NEXT;
-                    END IF;
-                END IF;
-                EXIT WHEN v_emitted >= v_count;
-            END LOOP;
+            END IF;
+
         ELSE
-            -- Simple step-based expansion, with optional BYDAY filter (e.g. DAILY+BYDAY).
-            -- One occurrence per FREQ step (counts toward COUNT, as the old step counter did).
-            v_emitted := v_emitted + 1;
-            IF v_current + v_duration > p_range_start AND v_current < p_range_end
-               AND (v_byday IS NULL OR v_byday = '' OR day_in_byday(v_current, v_byday, v_wkst))
-            THEN
-                occ_start := v_current;
-                occ_end := v_current + v_duration;
-                IF NOT is_excluded(v_current, p_exdate) AND is_byweekno_match(v_current, v_byweekno) THEN
-                    RETURN NEXT;
+            -- DAILY: apply ALL BY* filters BEFORE incrementing v_emitted.
+            v_cand_date := v_start_date + (v_step_idx * v_interval);
+            v_cand_year := EXTRACT(YEAR FROM v_cand_date)::INT;
+            EXIT WHEN v_cand_year > 9999;
+            v_period_start := (v_cand_date::TIMESTAMP + v_time_part) AT TIME ZONE 'UTC';
+            EXIT WHEN v_period_start > COALESCE(v_until, 'infinity'::TIMESTAMPTZ);
+            EXIT WHEN v_period_start >= p_range_end;
+
+            v_cand_month := EXTRACT(MONTH FROM v_cand_date)::INT;
+            IF v_bymonth_arr IS NOT NULL AND NOT (v_cand_month = ANY(v_bymonth_arr)) THEN
+                IF v_interval = 1 THEN
+                    v_next_month := (make_date(v_cand_year, v_cand_month, 1) + INTERVAL '1 month')::DATE;
+                    v_empty_steps := v_empty_steps + (v_next_month - v_cand_date);
+                    v_step_idx := v_next_month - v_start_date;
+                    EXIT WHEN v_empty_steps > 146100;
+                    CONTINUE;
                 END IF;
+                v_empty_steps := v_empty_steps + 1;
+                v_step_idx := v_step_idx + 1;
+                EXIT WHEN v_empty_steps > 146100;
+                CONTINUE;
+            END IF;
+
+            v_possible := TRUE;
+            IF v_bymonthday_arr IS NOT NULL THEN
+                v_cand_day := EXTRACT(DAY FROM v_cand_date)::INT;
+                v_cand_mdays := EXTRACT(DAY FROM (make_date(v_cand_year, v_cand_month, 1) + INTERVAL '1 month' - INTERVAL '1 day'))::INT;
+                IF NOT (v_cand_day = ANY(v_bymonthday_arr) OR (v_cand_day - v_cand_mdays - 1) = ANY(v_bymonthday_arr)) THEN
+                    v_possible := FALSE;
+                END IF;
+            END IF;
+            IF v_possible AND v_byyearday_arr IS NOT NULL THEN
+                v_cand_doy := EXTRACT(DOY FROM v_cand_date)::INT;
+                v_cand_ydays := (make_date(v_cand_year + 1, 1, 1) - make_date(v_cand_year, 1, 1));
+                IF NOT (v_cand_doy = ANY(v_byyearday_arr) OR (v_cand_doy - v_cand_ydays - 1) = ANY(v_byyearday_arr)) THEN
+                    v_possible := FALSE;
+                END IF;
+            END IF;
+            IF v_possible AND v_byday_arr IS NOT NULL AND NOT day_in_byday(v_period_start, v_byday, v_wkst) THEN
+                v_possible := FALSE;
+            END IF;
+            IF v_possible AND NOT is_byweekno_match(v_period_start, v_byweekno) THEN
+                v_possible := FALSE;
+            END IF;
+            IF v_possible THEN
+                v_candidates := ARRAY[v_period_start];
             END IF;
         END IF;
 
-        -- Advance to the next FREQ step. Termination is guaranteed because v_emitted
-        -- reaches v_count, v_until is hit (WHILE guard), or the early-exit below fires.
-        v_current := v_current + v_step;
+        -- Deduplicate and sort period candidates chronologically, then filter & emit.
+        v_period_had_hit := FALSE;
+        IF array_length(v_candidates, 1) IS NOT NULL AND array_length(v_candidates, 1) > 0 THEN
+            IF array_length(v_candidates, 1) > 1 THEN
+                SELECT array_agg(DISTINCT ts ORDER BY ts) INTO v_candidates
+                FROM unnest(v_candidates) AS ts
+                WHERE ts IS NOT NULL;
+            END IF;
 
-        -- Early exit once v_current is past the query window: nothing more to emit.
-        EXIT WHEN v_current > p_range_end;
+            IF v_candidates IS NOT NULL AND array_length(v_candidates, 1) > 0 THEN
+                FOREACH v_candidate IN ARRAY v_candidates LOOP
+                    IF v_candidate IS NULL THEN CONTINUE; END IF;
+                    IF v_candidate < p_start_at THEN CONTINUE; END IF;
+                    IF v_until IS NOT NULL AND v_candidate > v_until THEN
+                        v_done := TRUE;
+                        EXIT;
+                    END IF;
+                    IF v_candidate >= p_range_end THEN
+                        v_done := TRUE;
+                        EXIT;
+                    END IF;
+
+                    v_period_had_hit := TRUE;
+                    v_emitted := v_emitted + 1;
+
+                    IF v_candidate >= p_range_start OR v_candidate + v_duration > p_range_start THEN
+                        IF NOT is_excluded(v_candidate, p_exdate) THEN
+                            occ_start := v_candidate;
+                            occ_end := v_candidate + v_duration;
+                            RETURN NEXT;
+                        END IF;
+                    END IF;
+
+                    EXIT WHEN v_emitted >= v_count;
+                END LOOP;
+            END IF;
+        END IF;
+
+        IF v_period_had_hit THEN
+            v_empty_steps := 0;
+        ELSE
+            v_empty_steps := v_empty_steps + 1;
+            EXIT WHEN v_freq = 'DAILY' AND v_empty_steps > 146100;
+        END IF;
+
+        v_step_idx := v_step_idx + 1;
     END LOOP;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
@@ -249,7 +711,7 @@ DECLARE
     v_idx      INT;
     v_total    INT := 0;
 BEGIN
-    v_bysetpos := substring(p_rrule FROM 'BYSETPOS=([^;]+)');
+    v_bysetpos := substring(upper(p_rrule) FROM 'BYSETPOS=([^;]+)');
     IF v_bysetpos IS NULL OR v_bysetpos = '' THEN
         -- No BYSETPOS: passthrough to base expander
         RETURN QUERY SELECT * FROM expand_recurrence(p_start_at, p_end_at, p_rrule,
@@ -314,54 +776,40 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
--- Helper: find the Nth occurrence of a day-of-week within a month.
--- p_pos: -1 = last, 1 = first, 2 = second, etc.
+-- Helper: find the Nth occurrence of a day-of-week within a month (UTC).
+-- p_pos: -1 = last, 1 = first, 2 = second, etc.; 0 or out-of-range returns NULL.
 CREATE OR REPLACE FUNCTION nth_day_of_week_in_month(
     p_ref    TIMESTAMPTZ,
     p_pos    INT,
     p_dow    INT
 ) RETURNS TIMESTAMPTZ AS $$
 DECLARE
-    v_first_day TIMESTAMPTZ;
-    v_last_day  TIMESTAMPTZ;
-    v_candidate  TIMESTAMPTZ;
-    v_day_dow    INT;
+    v_utc           TIMESTAMP := p_ref AT TIME ZONE 'UTC';
+    v_year          INT := EXTRACT(YEAR FROM v_utc)::INT;
+    v_month         INT := EXTRACT(MONTH FROM v_utc)::INT;
+    v_time_part     INTERVAL := v_utc - date_trunc('day', v_utc);
+    v_first_day     DATE := make_date(v_year, v_month, 1);
+    v_last_day      DATE := (v_first_day + INTERVAL '1 month' - INTERVAL '1 day')::DATE;
+    v_days_in_month INT := EXTRACT(DAY FROM v_last_day)::INT;
+    v_first_dow     INT := EXTRACT(DOW FROM v_first_day)::INT;
+    v_last_dow      INT := EXTRACT(DOW FROM v_last_day)::INT;
+    v_day           INT;
 BEGIN
-    v_first_day := date_trunc('month', p_ref);
-    v_last_day := v_first_day + interval '1 month' - interval '1 day';
-
-    IF p_pos > 0 THEN
-        -- Find the p_pos-th occurrence of p_dow in the month
-        v_candidate := v_first_day;
-        WHILE v_candidate <= v_last_day
-        LOOP
-            v_day_dow := EXTRACT(DOW FROM v_candidate AT TIME ZONE 'UTC')::INT;
-            IF v_day_dow = p_dow THEN
-                p_pos := p_pos - 1;
-                IF p_pos = 0 THEN
-                    RETURN v_candidate + (p_ref - date_trunc('day', p_ref));
-                END IF;
-            END IF;
-            v_candidate := v_candidate + interval '1 day';
-        END LOOP;
-    ELSE
-        -- Find the |p_pos|-th from the end
-        p_pos := -p_pos;
-        v_candidate := v_last_day;
-        WHILE v_candidate >= v_first_day
-        LOOP
-            v_day_dow := EXTRACT(DOW FROM v_candidate AT TIME ZONE 'UTC')::INT;
-            IF v_day_dow = p_dow THEN
-                p_pos := p_pos - 1;
-                IF p_pos = 0 THEN
-                    RETURN v_candidate + (p_ref - date_trunc('day', p_ref));
-                END IF;
-            END IF;
-            v_candidate := v_candidate - interval '1 day';
-        END LOOP;
+    IF p_pos IS NULL OR p_pos = 0 THEN
+        RETURN NULL;
     END IF;
 
-    RETURN NULL;
+    IF p_pos > 0 THEN
+        v_day := 1 + ((p_dow - v_first_dow + 7) % 7) + (p_pos - 1) * 7;
+    ELSE
+        v_day := v_days_in_month - ((v_last_dow - p_dow + 7) % 7) + (p_pos + 1) * 7;
+    END IF;
+
+    IF v_day < 1 OR v_day > v_days_in_month THEN
+        RETURN NULL;
+    END IF;
+
+    RETURN (make_timestamp(v_year, v_month, v_day, 0, 0, 0) + v_time_part) AT TIME ZONE 'UTC';
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
@@ -388,29 +836,39 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
--- Helper: compute the Nth day of a month (handles negative numbers for from-end).
+-- Helper: compute the Nth day of a month in UTC (negative counts from end of month).
+-- Returns NULL when p_day_num = 0 or |p_day_num| exceeds the month's day count (no rollover).
 CREATE OR REPLACE FUNCTION nth_month_day(
     p_ref     TIMESTAMPTZ,
     p_day_num INT
 ) RETURNS TIMESTAMPTZ AS $$
 DECLARE
-    v_first_day TIMESTAMPTZ;
-    v_last_day  TIMESTAMPTZ;
-    v_time_part TIME;
+    v_utc           TIMESTAMP := p_ref AT TIME ZONE 'UTC';
+    v_year          INT := EXTRACT(YEAR FROM v_utc)::INT;
+    v_month         INT := EXTRACT(MONTH FROM v_utc)::INT;
+    v_time_part     INTERVAL := v_utc - date_trunc('day', v_utc);
+    v_days_in_month INT := EXTRACT(DAY FROM (make_date(v_year, v_month, 1) + INTERVAL '1 month' - INTERVAL '1 day'))::INT;
+    v_day           INT;
 BEGIN
-    v_time_part := p_ref::TIME;
-    IF p_day_num > 0 THEN
-        v_first_day := date_trunc('month', p_ref) + make_interval(days => p_day_num - 1);
-        RETURN v_first_day + v_time_part;
-    ELSE
-        -- Negative: count from end of month
-        v_last_day := date_trunc('month', p_ref) + interval '1 month' - interval '1 day';
-        RETURN v_last_day + make_interval(days => p_day_num + 1) + v_time_part;
+    IF p_day_num IS NULL OR p_day_num = 0 THEN
+        RETURN NULL;
     END IF;
+
+    IF p_day_num > 0 THEN
+        v_day := p_day_num;
+    ELSE
+        v_day := v_days_in_month + p_day_num + 1;
+    END IF;
+
+    IF v_day < 1 OR v_day > v_days_in_month THEN
+        RETURN NULL;
+    END IF;
+
+    RETURN (make_timestamp(v_year, v_month, v_day, 0, 0, 0) + v_time_part) AT TIME ZONE 'UTC';
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
--- Helper: check if a date is in the EXDATE exclusion list.
+-- Helper: check if an exact instant is in the EXDATE exclusion list.
 CREATE OR REPLACE FUNCTION is_excluded(
     p_ts     TIMESTAMPTZ,
     p_exdate TIMESTAMPTZ[]
@@ -423,7 +881,7 @@ BEGIN
     END IF;
     FOR v_i IN 1..array_length(p_exdate, 1)
     LOOP
-        IF date_trunc('day', p_exdate[v_i]) = date_trunc('day', p_ts) THEN
+        IF p_exdate[v_i] = p_ts THEN
             RETURN TRUE;
         END IF;
     END LOOP;
@@ -431,23 +889,38 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
--- Helper: check if a date's ISO week number is in a BYWEEKNO list.
+-- Helper: check if a date's ISO week number is in a BYWEEKNO list (supports negative values).
 CREATE OR REPLACE FUNCTION is_byweekno_match(
     p_ts       TIMESTAMPTZ,
     p_byweekno TEXT
 ) RETURNS BOOL AS $$
 DECLARE
-    v_week  INT;
-    v_weeks TEXT[];
-    v_w     TEXT;
+    v_utc           TIMESTAMP := p_ts AT TIME ZONE 'UTC';
+    v_week          INT;
+    v_isoyear       INT;
+    v_weeks_in_year INT;
+    v_weeks         TEXT[];
+    v_w             TEXT;
+    v_target        INT;
 BEGIN
     IF p_byweekno IS NULL OR p_byweekno = '' THEN
         RETURN TRUE;
     END IF;
-    v_week := EXTRACT(WEEK FROM p_ts AT TIME ZONE 'UTC')::INT;
+    v_week := EXTRACT(WEEK FROM v_utc)::INT;
+    v_isoyear := EXTRACT(ISOYEAR FROM v_utc)::INT;
+    -- Dec 28 always falls in the last ISO week (52 or 53) of its ISO week-year.
+    v_weeks_in_year := EXTRACT(WEEK FROM make_date(v_isoyear, 12, 28))::INT;
     v_weeks := string_to_array(p_byweekno, ',');
     FOREACH v_w IN ARRAY v_weeks LOOP
-        IF NULLIF(TRIM(v_w), '')::INT = v_week THEN
+        v_w := btrim(v_w);
+        IF v_w !~ '^[+-]?\d+$' THEN
+            CONTINUE;
+        END IF;
+        v_target := v_w::INT;
+        IF v_target < 0 THEN
+            v_target := v_weeks_in_year + v_target + 1;
+        END IF;
+        IF v_target = v_week THEN
             RETURN TRUE;
         END IF;
     END LOOP;
@@ -827,10 +1300,12 @@ CREATE OR REPLACE FUNCTION calendar_book_resource(
   p_owner_mailbox_id     BIGINT DEFAULT NULL
 ) RETURNS JSONB AS $$
 DECLARE
-  v_cal        RECORD;
-  v_event      RECORD;
-  v_booking_id BIGINT;
-  v_conflicts  BIGINT[];
+  v_cal          RECORD;
+  v_event        RECORD;
+  v_event_cal_id BIGINT;
+  v_event_mbox   BIGINT;
+  v_booking_id   BIGINT;
+  v_conflicts    BIGINT[];
 BEGIN
   SELECT * INTO v_cal FROM calendars WHERE id = p_resource_calendar_id
     AND (p_owner_mailbox_id IS NULL OR mailbox_id = p_owner_mailbox_id);
@@ -852,11 +1327,44 @@ BEGIN
     RETURN jsonb_build_object('type', 'forbidden', 'description', 'Cannot book a personal calendar as a resource');
   END IF;
 
-  SELECT ce.*, c.mailbox_id INTO v_event
+  SELECT ce.calendar_id, c.mailbox_id INTO v_event_cal_id, v_event_mbox
   FROM calendar_events ce
   JOIN calendars c ON c.id = ce.calendar_id
   WHERE ce.id = p_event_id
     AND (p_owner_mailbox_id IS NULL OR c.mailbox_id = p_owner_mailbox_id);
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('type', 'notFound', 'description', 'Event not found');
+  END IF;
+
+  -- Canonical lock order: all distinct mailboxes (sorted) -> both calendars (sorted) -> event.
+  PERFORM 1 FROM mailboxes
+  WHERE id IN (p_mailbox_id, v_cal.mailbox_id, v_event_mbox)
+  ORDER BY id FOR KEY SHARE;
+
+  PERFORM 1 FROM calendars
+  WHERE id IN (p_resource_calendar_id, v_event_cal_id)
+  ORDER BY id FOR NO KEY UPDATE;
+
+  -- Re-check resource calendar, caller mailbox, and event under lock (TOCTOU safe).
+  SELECT * INTO v_cal FROM calendars WHERE id = p_resource_calendar_id
+    AND (p_owner_mailbox_id IS NULL OR mailbox_id = p_owner_mailbox_id);
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('type', 'notFound', 'description', 'Resource calendar not found');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM mailboxes WHERE id = p_mailbox_id) THEN
+    RAISE EXCEPTION 'Calendar not found' USING ERRCODE = 'BZ001';
+  END IF;
+
+  IF v_cal.resource_type = 'personal' THEN
+    RETURN jsonb_build_object('type', 'forbidden', 'description', 'Cannot book a personal calendar as a resource');
+  END IF;
+
+  SELECT ce.* INTO v_event
+  FROM calendar_events ce
+  WHERE ce.id = p_event_id AND ce.calendar_id = v_event_cal_id
+  FOR SHARE;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('type', 'notFound', 'description', 'Event not found');

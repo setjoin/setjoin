@@ -40,6 +40,8 @@ BEGIN
             HINT = jsonb_build_object('type', 'missing_mailbox')::TEXT;
   END IF;
 
+  PERFORM 1 FROM addressbooks WHERE mailbox_id = p_mailbox_id ORDER BY id FOR NO KEY UPDATE;
+
   UPDATE addressbooks SET jmap_state = jmap_state + 1
   WHERE mailbox_id = p_mailbox_id;
 

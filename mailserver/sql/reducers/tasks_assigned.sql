@@ -62,11 +62,31 @@ CREATE OR REPLACE FUNCTION task_assignee_set_status(
   p_status  TEXT
 ) RETURNS JSONB AS $$
 DECLARE
-  v_row tasks%ROWTYPE;
+  v_row        tasks%ROWTYPE;
+  v_mailbox_id BIGINT;
+  v_list_id    BIGINT;
 BEGIN
   IF p_status IS NULL OR p_status NOT IN ('needs-action', 'in-progress', 'completed', 'cancelled') THEN
     RAISE EXCEPTION 'invalid task status %', p_status
       USING ERRCODE = 'BZ133', HINT = '{"type":"invalidArguments","detail":"invalid status"}';
+  END IF;
+
+  SELECT mailbox_id, list_id INTO v_mailbox_id, v_list_id
+  FROM tasks
+  WHERE id = p_task_id
+    AND assignee_user_id = p_user_id
+    AND (list_id IS NULL OR task_list_role(list_id, p_user_id) IS NOT NULL);
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'task not found or not assigned to caller'
+      USING ERRCODE = 'BZ132', HINT = '{"type":"notFound"}';
+  END IF;
+
+  -- Canonical lock order: users -> mailboxes -> task_lists -> tasks -> task_activity -> journal.
+  PERFORM 1 FROM users WHERE id = p_user_id FOR KEY SHARE;
+  PERFORM 1 FROM mailboxes WHERE id = v_mailbox_id FOR KEY SHARE;
+  IF v_list_id IS NOT NULL THEN
+    PERFORM 1 FROM task_lists WHERE id = v_list_id FOR NO KEY UPDATE;
   END IF;
 
   UPDATE tasks SET

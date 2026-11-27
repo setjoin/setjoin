@@ -64,7 +64,7 @@ composition is the default; hot replacement is a separately qualified capability
 Existing feature completion and GA/Beta/Experimental labels remain separate. New
 claims need exact source-bound evidence, supported platform/provider combinations,
 known limitations and an accountable release decision. See [feature inventory](features.md)
-and [release maturity](designs/release-maturity-and-first-ga-boundary.md).
+and [release maturity](design/release-maturity-and-first-ga-boundary.md).
 
 ## Delivery and comparison material
 
@@ -86,5 +86,5 @@ from choosing this architecture.
 - [DeepSeek Harness safety notice](https://github.com/deepseek-ai/deepseek-harness/blob/master/SAFETY.md),
   inspected 2026-09-06: developer-preview and isolation limitations. Its architecture
   is a reference, not Setjoin certification or a production-security proof.
-- [Setjoin Extension Control Plane](designs/extension-control-plane-public-system-apps.md)
+- [Setjoin Extension Control Plane](design/extension-control-plane-public-system-apps.md)
   remains the detailed product/trust contract.

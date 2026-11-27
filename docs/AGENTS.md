@@ -36,15 +36,11 @@ Follow the known source path and relevant owner sections; search for unknown ent
 - API error shape: `standards/API_ERROR_SHAPE.md`
 - Conditional-access break glass: `standards/CONDITIONAL_ACCESS_BREAK_GLASS.md`
 - Push ECIES wire contract: `standards/PUSH_ECIES_CONTRACT.md`
-- Current active queue: GitHub issues on `setjoin/setjoin` (`agents/issue-tracker.md`)
-- Agent governance and transfer receipt: `agents/agent-governance-handoff.md`
-- Agent harness context and feedback: `agents/HARNESS_CONTEXT_AND_FEEDBACK.md`
+- Agent skills (GitHub issue tracker, triage labels, domain docs): `agents/skills.md`
+- Agent governance, harness context/feedback, planning pipeline, skill maintenance, and subagent workflow: `agents/subagent-workflow.md`
 - Program status directory: `agents/PROGRAM_STATUS.md`
-- Skill maintenance and controlled overlays: `agents/SKILL_MAINTENANCE.md`
 - Verification command catalog: `guides/VERIFICATION_COMMANDS.md`
 - Execution/cleanup: `guides/TASK_EXECUTION_AND_CLEANUP.md`
-- Planning stage contracts: `agents/planning-review-pipeline.md`
-- Subagent workflow rules: `agents/subagent-workflow.md`
 
 Protocol work must read the matching `ref/protocols/*.md` and raw RFC before code changes. Do not rely on model memory for normative protocol behavior.
 

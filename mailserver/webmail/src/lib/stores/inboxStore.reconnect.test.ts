@@ -202,6 +202,31 @@ describe('InboxStore — resync after a WebSocket reconnect (#222)', () => {
 		await vi.advanceTimersByTimeAsync(300);
 		expect(emailQuery).toHaveBeenCalledTimes(2);
 	});
+
+	it('resumes via Email/changes from the last known state even after multi-attempt jittered backoff (#389)', async () => {
+		const s = await connectedStore();
+		expect(isSeen(s)).toBe(false);
+
+		// Simulate 3 consecutive failed reconnect attempts (socket closes before opening),
+		// exercising exponential backoff across attempt 0 (<=1s), 1 (<=2s), and 2 (<=4s).
+		sock().close();
+		await vi.advanceTimersByTimeAsync(1000);
+		sock().close();
+		await vi.advanceTimersByTimeAsync(2000);
+		sock().close();
+		// Change happens while disconnected across the extended outage.
+		seen = true;
+		serverState = '8';
+		await vi.advanceTimersByTimeAsync(4000);
+
+		// Fourth socket finally connects and stays open.
+		sock().onopen?.();
+		await vi.advanceTimersByTimeAsync(300);
+
+		expect(emailChanges).toHaveBeenCalledOnce();
+		expect(emailChanges.mock.calls[0][0]).toBe('5');
+		expect(isSeen(s)).toBe(true);
+	});
 });
 
 describe('InboxStore — push skip covers every state the inbox depends on (#225)', () => {

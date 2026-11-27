@@ -1,6 +1,6 @@
 -- pgTAP: calendar_recurrence.sql — occurrence/following/series recurring-event edit.
 BEGIN;
-SELECT plan(34);
+SELECT plan(38);
 
 -- ============================================================
 -- V109: master-lookup partial index (CalDAV getEventByUID determinism).
@@ -334,6 +334,33 @@ SELECT is(
     '{"excluded":true}'::jsonb))->'invitePayload'->>'method',
   'CANCEL',
   'excluded:true (delete-this) enqueues a CANCEL-method invite payload'
+);
+
+-- ============================================================
+-- #465: scope='series' rejects unsupported RRULE cleanly
+-- ============================================================
+SELECT is(
+  (jmap_calendar_event_set_occurrence(7101, 7501, '2026-08-03 09:00:00+00'::timestamptz, 'series',
+    '{"recurrenceRule":"FREQ=HOURLY;COUNT=5"}'::jsonb))->>'type',
+  'invalidArguments',
+  'scope=series rejects FREQ=HOURLY with invalidArguments'
+);
+SELECT is(
+  (jmap_calendar_event_set_occurrence(7101, 7501, '2026-08-03 09:00:00+00'::timestamptz, 'series',
+    '{"recurrenceRule":"FREQ=DAILY;BYSECOND=0"}'::jsonb))->>'type',
+  'invalidArguments',
+  'scope=series rejects BYSECOND with invalidArguments'
+);
+SELECT is(
+  (SELECT rrule FROM calendar_events WHERE id = 7501),
+  'FREQ=WEEKLY',
+  'rejected scope=series RRULE leaves master rrule unchanged'
+);
+SELECT is(
+  (jmap_calendar_event_set_occurrence(7101, 7501, '2026-08-03 09:00:00+00'::timestamptz, 'series',
+    '{"recurrenceRule":"FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE"}'::jsonb))->>'ok',
+  'true',
+  'scope=series accepts valid RRULE update'
 );
 
 SELECT * FROM finish();

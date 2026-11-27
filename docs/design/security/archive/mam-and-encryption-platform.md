@@ -8,7 +8,7 @@ Status: Design (implementation plan written — 36 tasks in docs/plans/archive/2
 > helpers, the advertised `storage-migrate --encrypt`/rekey commands do not
 > exist, and the installer does not detect disk encryption or configure S3
 > SSE/KMS. Current storage-extension and encryption decisions are recorded in
-> `docs/designs/extension-control-plane-public-system-apps.md`; release claims
+> `docs/design/extension-control-plane-public-system-apps.md`; release claims
 > must be derived from source-bound verification, not this archived proposal.
 
 ## Goal

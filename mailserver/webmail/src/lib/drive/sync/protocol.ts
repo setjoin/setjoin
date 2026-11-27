@@ -171,7 +171,7 @@ export class DriveHttp {
 	 * that route — zero server change, and `changed:[]`/`hasMore:false` are
 	 * correct by construction (no diff was computed, none happened).
 	 */
-	async changes(spaceId: number, since: string | null, max = 500): Promise<ChangesResult> {
+	async changes(spaceId: number, since: string | null, max = 500, maxPages = 20): Promise<ChangesResult> {
 		if (since === null) {
 			const spaces = await this.spaces();
 			const space = spaces.find((s) => s.id === spaceId);
@@ -182,8 +182,8 @@ export class DriveHttp {
 		let cursor = since;
 		const changed: DriveChange[] = [];
 		let hasMore = false;
-		const MAX_PAGES = 20; // circuit breaker — a single call never loops forever
-		for (let page = 0; page < MAX_PAGES; page++) {
+		const pageLimit = Math.max(1, Math.min(20, Math.floor(maxPages))); // circuit breaker — bounded per step
+		for (let page = 0; page < pageLimit; page++) {
 			const res = await this.fetchFn(this.url(`/changes?space=${spaceId}&since=${cursor}&max=${max}`));
 			if (!res.ok) {
 				let body: ProblemBody = {};

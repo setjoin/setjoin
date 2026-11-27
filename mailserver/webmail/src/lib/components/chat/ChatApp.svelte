@@ -15,6 +15,8 @@
 	import { effectiveCaps, isGuestSession } from '$lib/stores/session';
 	import { subscribeEvent } from '$lib/jmap/websocket';
 	import { subscribeGuestChatEvents } from '$lib/chat/guestEventSource';
+	import { getWebmailSyncCoordinator } from '$lib/sync/webmail/runtime.svelte';
+	import { createChatChannelSyncAdapter } from '$lib/sync/webmail/adapters/chatOnline';
 	import { Button, Dialog, Input, Select, EmptyState, Spinner, IconButton, Badge, showToast } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { t } from '$lib/i18n';
@@ -107,6 +109,17 @@
 			return subscribeGuestChatEvents<ChatWireEvent>(handleChatEvent, handleGuestStreamOpen);
 		}
 		return subscribeEvent<ChatWireEvent>('ChatEvent', handleChatEvent);
+	});
+
+	// Wave 2.8 (#555): register active Chat channel on SyncCoordinator for
+	// ScopeAttach/ScopeDetach, sync_wakeup, member+guest reconnect catch-up,
+	// #553 non-additive resync, and scope_revoked (revokeChannelScope).
+	$effect(() => {
+		const cid = chatStore.activeChannelId;
+		if (cid === null) return;
+		const guest = $user?.accountType === 'guest' || $isGuestSession;
+		const coord = getWebmailSyncCoordinator(guest ? 'guest' : 'member');
+		return coord.register(createChatChannelSyncAdapter({ store: chatStore, channelId: cid }));
 	});
 
 	$effect(() => {

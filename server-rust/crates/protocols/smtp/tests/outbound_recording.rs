@@ -10,6 +10,11 @@ fn outbound_receipt_pins_go_sources_stimuli_and_observations() {
         serde_json::from_str(include_str!("../oracle/outbound-recording.json")).unwrap();
     let verify = |files: &Value| {
         for (file, digest) in files.as_object().unwrap() {
+            // Go sources and Go recorders were deleted in #142 (ARCH-031);
+            // immutable recorded fixtures, stimuli, and goldens remain pinned.
+            if file.ends_with(".go") {
+                continue;
+            }
             let bytes = std::fs::read(root.join(file)).unwrap();
             assert_eq!(
                 format!("{:x}", Sha256::digest(bytes)),
