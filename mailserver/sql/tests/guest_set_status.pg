@@ -288,8 +288,8 @@ SELECT is( (SELECT count(*) FROM chat_channel_members m JOIN users u ON u.id = m
              WHERE u.email = 'gss-guest@ext.example')::int, 0,
   'disable: chat-membership grant rows DELETED (P9 clean slate)');
 SELECT ok( EXISTS (SELECT 1 FROM notify_intents
-             WHERE payload LIKE '%member_removed%'
-               AND payload LIKE '%' || (SELECT id FROM chat_channels WHERE name = 'gss-chan')::text || '%'),
+             WHERE channel = 'sync'
+               AND payload = 'channel:' || (SELECT id FROM chat_channels WHERE name = 'gss-chan')::text || ':0'),
   'disable: rides the existing removal shape — notify_chat_state(member_removed) fired per channel');
 SELECT is((SELECT count(*)::int FROM meeting_join_requests
             WHERE meeting_id = :gss_meeting_id AND user_id = :gss_guest_id

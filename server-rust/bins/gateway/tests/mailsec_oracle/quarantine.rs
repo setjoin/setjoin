@@ -326,3 +326,87 @@ pub async fn snapshot(
     }
     Ok(json!({"quarantine":quarantine,"mailboxes":mailboxes}))
 }
+
+/// Wave 2.7 (#554) deterministic expectation normalization for immutable frozen-Go
+/// quarantine goldens (never copies from `actual`):
+/// - `release_quarantine_tags` retired the hot-path `'resync'` sentinel and now emits
+///   precise `{"datatype":"email","op":"updated"}` journal rows.
+/// - `rust_mailsec_quarantine_reject` now records `{"datatype":"email","op":"destroyed"}`,
+///   bumps `mailboxes.jmap_email_state`, and emits `tag:<mailbox>` `state_change` notify
+///   so JMAP/IMAP QRESYNC clients observe rejected quarantine messages immediately.
+pub fn normalize_wave27_expected(action: &str, label: &str, doc: &mut Value) {
+    let apply_release_phase = |effects: &mut Value, phase: &str| {
+        if let Some(entries) = effects
+            .pointer_mut(&format!("/0/{phase}/mailboxes/0/journal"))
+            .and_then(Value::as_array_mut)
+        {
+            for row in entries {
+                if row["datatype"] == "email" && row["op"] == "resync" {
+                    row["op"] = json!("updated");
+                }
+            }
+        }
+    };
+    let apply_reject_phase = |effects: &mut Value, phase: &str, count: i64| {
+        if let Some(mb) = effects
+            .pointer_mut(&format!("/0/{phase}/mailboxes/0"))
+            .and_then(Value::as_object_mut)
+        {
+            mb.insert(
+                "journal".into(),
+                json!([{"datatype": "email", "n": count, "op": "destroyed"}]),
+            );
+            if let Some(st) = mb
+                .get_mut("state")
+                .and_then(Value::as_array_mut)
+                .and_then(|arr| arr.first_mut())
+                .and_then(Value::as_object_mut)
+            {
+                st.insert("email_state".into(), json!(count));
+            }
+        }
+    };
+    let is_obs = doc.get("observation").is_some();
+    let effects = if is_obs {
+        &mut doc["observation"]["effects"]
+    } else {
+        &mut doc["effects"]
+    };
+    match (action, label) {
+        ("admin-release" | "user-release", "success") => {
+            apply_release_phase(effects, "after");
+        }
+        ("admin-release" | "user-release", "repeat") => {
+            apply_release_phase(effects, "before");
+            apply_release_phase(effects, "after");
+        }
+        ("admin-reject", "success") | ("user-reject", "success" | "rejected-again") => {
+            apply_reject_phase(effects, "after", 1);
+            if is_obs {
+                if let Some(notify) = doc["observation"]["notify"].as_array_mut() {
+                    notify.push(json!({
+                        "channel": "tag:<mailbox-actor>",
+                        "payload": {"event": "state_change", "state": 1, "tag_id": null}
+                    }));
+                }
+            }
+        }
+        ("admin-reject", "repeat") => {
+            apply_reject_phase(effects, "before", 1);
+            apply_reject_phase(effects, "after", 1);
+        }
+        ("user-reject", "repeat") => {
+            apply_reject_phase(effects, "before", 1);
+            apply_reject_phase(effects, "after", 2);
+            if is_obs {
+                if let Some(notify) = doc["observation"]["notify"].as_array_mut() {
+                    notify.push(json!({
+                        "channel": "tag:<mailbox-actor>",
+                        "payload": {"event": "state_change", "state": 2, "tag_id": null}
+                    }));
+                }
+            }
+        }
+        _ => {}
+    }
+}

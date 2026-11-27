@@ -130,6 +130,7 @@ async fn test_imap_container_session_commands() {
     assert!(text("copy_again").starts_with("[\"NO\""), "{got}");
     assert!(text("copy_again").contains("[CANNOT]"), "{got}");
     assert_eq!(got["move"], serde_json::json!(["OK", "MOVE completed"]));
+    assert_eq!(got["move_expunge"], serde_json::json!(["2"]), "{got}");
     assert_eq!(got["uid_copy"], serde_json::json!(["OK"]));
     assert_eq!(got["expunge"], serde_json::json!(["OK", "1", "2"]), "{got}");
     assert_eq!(got["idle_continuation"], "zz1 + idling");

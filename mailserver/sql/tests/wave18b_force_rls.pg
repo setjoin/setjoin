@@ -163,8 +163,8 @@ BEGIN
   VALUES (v_u_b, 'imap', v_mb_b) RETURNING id INTO v_mj_b;
 
   -- Parent messages + blob for message_attachments / read_receipts / vote_responses / quarantined_messages
-  INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
-  VALUES (repeat('d', 64), 'blobs/d', 32, 'text/plain', 0) ON CONFLICT DO NOTHING;
+  INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
+  VALUES (repeat('d', 64), 'blobs/d', 32, 'text/plain') ON CONFLICT DO NOTHING;
   INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, size_bytes, thread_id, raw_ref, received_at)
   VALUES (v_mb_a, v_fld_a, '<w18b-msg-a@mk.test>', 'Alice Msg', 'a@mk.test', '[]'::jsonb, 10, 'thr-w18b-a', 'raw/w18b-a', v_rcv)
   RETURNING id INTO v_msg_a;

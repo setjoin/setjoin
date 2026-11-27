@@ -1055,11 +1055,12 @@ impl Submission {
             c.reply(554, "5.3.0 Internal error").await?;
             return Ok(false);
         }
-        // Lock-safe raw_ref publish protocol (#551): serialize with prefixed orphan
-        // cleanup on the raw_ref advisory lock before committing queue/message rows.
+        // Lock-safe raw_ref publish protocol (#551): take a shared advisory lock so
+        // concurrent publishers of the same raw_ref do not serialize on each other
+        // while still mutually excluding the orphan cleaner's exclusive lock.
         if conn
             .query(
-                "SELECT pg_catalog.pg_advisory_xact_lock(public.blob_gc_lock_key($1))",
+                "SELECT pg_catalog.pg_advisory_xact_lock_shared(public.blob_gc_lock_key($1))",
                 &[(&raw_ref, Type::TEXT)],
             )
             .await

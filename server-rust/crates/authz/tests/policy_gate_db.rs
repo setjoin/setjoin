@@ -15,6 +15,45 @@
 //!    revocation/CAE, `device_lockdown`, CA `block`/`step_up`, app entitlements,
 //!    mailbox lifecycle, and `revalidate_push_session`).
 
+/// Wave 2.1 (#548): `app_notify` writes `notify_intents` unconditionally.
+/// Unit tests without a running `NotifyIntentDrain` worker use this macro to
+/// flush queued `group_membership_changed` intents with `id > since_id` into
+/// `pg_notify` without adding a direct `tokio-postgres` dev-dependency.
+macro_rules! flush_group_membership_intents {
+    ($owner:expr, $since_id:expr) => {{
+        let rows = $owner
+            .query(
+                "WITH batch AS ( \
+                   DELETE FROM public.notify_intents \
+                    WHERE id IN ( \
+                        SELECT id FROM public.notify_intents \
+                         WHERE channel = 'group_membership_changed' AND id > $1 \
+                         ORDER BY id \
+                         FOR UPDATE SKIP LOCKED \
+                    ) \
+                    RETURNING id, payload \
+                 ) \
+                 SELECT id, payload FROM batch ORDER BY id",
+                &[&$since_id],
+            )
+            .await
+            .unwrap();
+        let mut last_id: i64 = $since_id;
+        for row in rows {
+            last_id = row.get(0);
+            let payload: String = row.get(1);
+            $owner
+                .execute(
+                    "SELECT pg_notify('group_membership_changed', $1)",
+                    &[&payload],
+                )
+                .await
+                .unwrap();
+        }
+        last_id
+    }};
+}
+
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
 use hyper::{
@@ -543,6 +582,18 @@ async fn group_resolver_all_three_namespaces_under_force_rls_and_listen_invalida
     assert_eq!(resolver.resolve(a2.user).await.unwrap().ca_groups.len(), 0);
     assert_eq!(resolver.cached_len(), 2);
 
+    // Wave 2.1 (#548): app_notify unconditionally writes notify_intents; record
+    // cursor before mutations and flush the emitted intents for ListenHub/LISTEN.
+    let mut since_intent_id: i64 = owner
+        .query_one(
+            "SELECT COALESCE(MAX(id), 0)::bigint FROM public.notify_intents \
+              WHERE channel = 'group_membership_changed'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+
     // Delete CA group membership -> V285 emits {"source":"user_group_members","user_id":a1.user}
     owner
         .execute(
@@ -551,6 +602,7 @@ async fn group_resolver_all_three_namespaces_under_force_rls_and_listen_invalida
         )
         .await
         .unwrap();
+    since_intent_id = flush_group_membership_intents!(&owner, since_intent_id);
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(
         resolver.resolve(a1.user).await.unwrap().ca_groups.len(),
@@ -568,6 +620,7 @@ async fn group_resolver_all_three_namespaces_under_force_rls_and_listen_invalida
         )
         .await
         .unwrap();
+    let _ = flush_group_membership_intents!(&owner, since_intent_id);
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(
         resolver.cached_len(),
@@ -2309,6 +2362,15 @@ async fn phase546a_tx_factory_pool_separation_rbac_proof_effect_helpers_and_list
     assert!(!m0.has_ca_group(CaGroupId::new(grp_id).unwrap()));
     let cached_before = groups.cached_len();
     assert!(cached_before >= 1);
+    let since_intent_id: i64 = owner
+        .query_one(
+            "SELECT COALESCE(MAX(id), 0)::bigint FROM public.notify_intents \
+              WHERE channel = 'group_membership_changed'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
     owner
         .execute(
             "INSERT INTO user_group_members (group_id, user_id) VALUES ($1, $2)",
@@ -2316,6 +2378,7 @@ async fn phase546a_tx_factory_pool_separation_rbac_proof_effect_helpers_and_list
         )
         .await
         .unwrap();
+    let _ = flush_group_membership_intents!(&owner, since_intent_id);
     let wait_until = Instant::now() + Duration::from_secs(5);
     while Instant::now() < wait_until && groups.cached_len() >= cached_before {
         tokio::time::sleep(Duration::from_millis(25)).await;

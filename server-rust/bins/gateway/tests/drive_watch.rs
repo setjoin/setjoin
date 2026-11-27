@@ -120,7 +120,40 @@ async fn run(case: &str) -> Result<(), BoxError> {
         let lock = json!({"spaceId":space,"kind":"lock","nodeId":root}).to_string();
         match case {
             "change" => {
+                let since_drive_id: i64 = c
+                    .query_one(
+                        "SELECT COALESCE(MAX(id), 0)::bigint FROM public.notify_intents WHERE channel = 'drive'",
+                        &[],
+                    )
+                    .await?
+                    .get(0);
                 c.query_one("SELECT drive_node_create($1,$2,$3,'file','new.txt')", &[&owner.user, &space, &root]).await?;
+                // Wave 2.1 (#548): drive_notify_change writes app_notify('drive', ...) into
+                // notify_intents; flush into pg_notify since this test runs DriveWatch standalone
+                // without NotifyIntentDrain.
+                if !recording {
+                    let flushed = c
+                        .query(
+                            "WITH batch AS ( \
+                               DELETE FROM public.notify_intents \
+                                WHERE id IN ( \
+                                    SELECT id FROM public.notify_intents \
+                                     WHERE channel = 'drive' AND id > $1 \
+                                     ORDER BY id \
+                                     FOR UPDATE SKIP LOCKED \
+                                ) \
+                                RETURNING id, payload \
+                             ) \
+                             SELECT payload FROM batch ORDER BY id",
+                            &[&since_drive_id],
+                        )
+                        .await?;
+                    for row in flushed {
+                        let payload: String = row.get(0);
+                        c.execute("SELECT pg_notify('drive', $1)", &[&payload])
+                            .await?;
+                    }
+                }
             }
             "lock" => {
                 c.execute("SELECT pg_notify('drive',$1)", &[&lock]).await?;

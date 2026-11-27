@@ -1380,13 +1380,16 @@ impl SyncWakeupHub {
         let user_id = actor.get();
         let mut out = AuthorizedBatch::default();
 
-        // Query 1: Mailbox scopes (at most 1 batched query with = ANY($2::bigint[]))
+        // Query 1: Mailbox scopes (at most 1 batched query with = ANY($2::bigint[])).
+        // Uses `self.worker` (matching `check_live_scope_access`) because Wave 1.8
+        // FORCE RLS on `mailboxes` intentionally hides mailbox rows from users who
+        // hold only a `calendar_acls` share (not `mailbox_delegates`); `$1 = user_id`
+        // binds every ownership/delegate/ACL predicate to the authenticated actor.
         if !mailbox_reqs.is_empty() && !is_guest {
             let ids: Vec<i64> = mailbox_reqs.iter().map(|(id, _)| *id).collect();
             let rows = self
-                .exec
-                .read_user_scoped(
-                    actor,
+                .worker
+                .read(
                     "SELECT m.id, \
                             (m.user_id = $1) AS is_owner, \
                             COALESCE(m.enabled, false) \

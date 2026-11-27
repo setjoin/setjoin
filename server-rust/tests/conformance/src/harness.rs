@@ -150,16 +150,16 @@ const SENTINEL: &str = "conformance-oracle-sentinel";
 
 impl Listener {
     /// Flush any pending `notify_intents` rows emitted for this channel AFTER
-    /// `Db::listen()` into `pg_notify` (preserving `ORDER BY id` and
-    /// deduplication, matching `NotifyIntentDrain`), then collect every payload
-    /// delivered before the sentinel.
+    /// `Db::listen()` into `pg_notify` (preserving `ORDER BY id` without
+    /// collapsing identical payloads emitted across separate transactions),
+    /// then collect every payload delivered before the sentinel.
     ///
     /// With Wave 2.1 (#548) retiring `feature.notify_decouple` so `app_notify`
     /// unconditionally writes `notify_intents`, this keeps all ~95 in-process
     /// conformance `Db::listen` + `Listener::drain` suites working without
     /// spawning a background drainer or adding any production test GUC.
     pub async fn drain(&mut self, writer: &Client) -> Result<Vec<String>, BoxError> {
-        writer
+        let rows = writer
             .query_typed(
                 "WITH batch AS ( \
                    DELETE FROM notify_intents \
@@ -169,16 +169,30 @@ impl Listener {
                          ORDER BY id \
                          FOR UPDATE SKIP LOCKED \
                     ) \
-                    RETURNING id, channel, payload \
+                    RETURNING id, payload \
                  ) \
-                 SELECT pg_notify(channel, payload) \
-                   FROM (SELECT channel, payload FROM batch GROUP BY channel, payload ORDER BY MIN(id)) deduped",
+                 SELECT payload FROM batch ORDER BY id",
                 &[
                     (&self.channel, tokio_postgres::types::Type::TEXT),
                     (&self.since_id, tokio_postgres::types::Type::INT8),
                 ],
             )
             .await?;
+        // Emit each row in its own autocommit statement so PostgreSQL does not
+        // collapse identical (channel, payload) notifications produced by
+        // separate transactions (e.g. `*_repeat` conformance cases).
+        for row in rows {
+            let payload: String = row.get(0);
+            writer
+                .query_typed(
+                    "SELECT pg_notify($1, $2)",
+                    &[
+                        (&self.channel, tokio_postgres::types::Type::TEXT),
+                        (&payload, tokio_postgres::types::Type::TEXT),
+                    ],
+                )
+                .await?;
+        }
         self.drain_raw(writer).await
     }
 

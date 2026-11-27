@@ -163,12 +163,12 @@ BEGIN
   VALUES (v_mb_b, 'event', v_ev_b, now(), 'Bob Rem') RETURNING id INTO v_rem_b;
 
   -- 11 & 12. blobs + blob_user_usage + blob_user_charges
-  INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
-  VALUES (repeat('a', 64), 'blobs/a', 100, 'text/plain', 0) ON CONFLICT DO NOTHING;
-  INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
-  VALUES (repeat('b', 64), 'blobs/b', 200, 'text/plain', 0) ON CONFLICT DO NOTHING;
-  INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
-  VALUES (repeat('c', 64), 'blobs/c', 64, 'text/plain', 0) ON CONFLICT DO NOTHING;
+  INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
+  VALUES (repeat('a', 64), 'blobs/a', 100, 'text/plain') ON CONFLICT DO NOTHING;
+  INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
+  VALUES (repeat('b', 64), 'blobs/b', 200, 'text/plain') ON CONFLICT DO NOTHING;
+  INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
+  VALUES (repeat('c', 64), 'blobs/c', 64, 'text/plain') ON CONFLICT DO NOTHING;
   INSERT INTO blob_user_usage (user_id, charged_bytes) VALUES (v_u_a, 0) ON CONFLICT DO NOTHING;
   INSERT INTO blob_user_usage (user_id, charged_bytes) VALUES (v_u_b, 0) ON CONFLICT DO NOTHING;
   INSERT INTO blob_user_charges (blob_sha256, user_id, size_bytes) VALUES (repeat('a', 64), v_u_a, 100);

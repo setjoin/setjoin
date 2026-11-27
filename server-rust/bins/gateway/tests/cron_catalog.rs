@@ -25,7 +25,10 @@ fn catalog_tasks_have_unique_names_non_empty_sql_and_valid_specs() {
     for (name, sql, _) in CATALOG {
         assert!(!name.is_empty(), "cron task name must not be empty");
         assert!(names.insert(*name), "duplicate cron task name: {name}");
-        assert!(!sql.trim().is_empty(), "{name}: SQL statement must not be empty");
+        assert!(
+            !sql.trim().is_empty(),
+            "{name}: SQL statement must not be empty"
+        );
         let (schedule, seconds) =
             go_task_spec(name).unwrap_or_else(|| panic!("{name}: missing cron task spec"));
         assert!(!schedule.trim().is_empty(), "{name}: empty schedule");
@@ -54,12 +57,13 @@ fn only_the_two_schema_owner_statements_use_the_owner_credential() {
         .filter(|(.., c)| *c == Credential::Owner)
         .map(|(n, ..)| *n)
         .collect();
+    // Per scripts/provision-roles.sql and Wave 2 (#549), antiphish_contact_graph
+    // is owned by setjoin_worker, so only create-monthly-partitions requires
+    // Credential::Owner (DEPLOY-004).
+    assert_eq!(owner, ["create-monthly-partitions"]);
     assert_eq!(
-        owner,
-        [
-            "refresh-antiphish-contact-graph",
-            "create-monthly-partitions"
-        ]
+        credential("refresh-antiphish-contact-graph"),
+        Some(Credential::Worker)
     );
     assert_eq!(credential("prune-greylist"), Some(Credential::Worker));
     assert_eq!(credential(PRUNE_RECEIPTS_TASK), Some(Credential::Worker));
@@ -316,10 +320,9 @@ async fn auto_registration_skips_prune_receipts_on_lock_contention_while_explici
 
     // 2. Explicit listing in RUST_WORKERS_ON still fails fast on lock contention.
     let mut explicit_sched = CronScheduler::per_task(worker.clone());
-    let explicit_err =
-        register_cron_tasks(&mut explicit_sched, &[PRUNE_RECEIPTS_TASK], &dbs, "")
-            .await
-            .expect_err("explicit prune-rust-operation-receipts must fail fast on lock contention");
+    let explicit_err = register_cron_tasks(&mut explicit_sched, &[PRUNE_RECEIPTS_TASK], &dbs, "")
+        .await
+        .expect_err("explicit prune-rust-operation-receipts must fail fast on lock contention");
     assert!(
         explicit_err.contains("already held"),
         "expected already-held error, got: {explicit_err}"

@@ -16,7 +16,7 @@
 //!   `EXPUNGE` omits `[HIGHESTMODSEQ ...]`; `STATUS (HIGHESTMODSEQ)` activates `CONDSTORE`;
 //!   and `QRESYNC` 4th-arg `seq-match-data` validates strictly and bounds lower vanished UIDs.
 mod common;
-use common::{executor, serial};
+use common::{executor, serial, worker_executor};
 use setjoin_imap::{Server, ThreatPolicy, WebhookPolicy};
 use std::{sync::Arc, time::Duration};
 use tokio::{
@@ -233,7 +233,8 @@ async fn cross_protocol_imap_condstore_qresync_and_jmap_changes_stay_in_single_c
 async fn run_sync_scenario(db: &setjoin_conformance::harness::Db, owner: &tokio_postgres::Client) {
     // 0. RFC 7162 §3.1.2 empty-mailbox HIGHESTMODSEQ 1 -> first delivery MODSEQ 2 (> 1!).
     seed_empty_fixture(owner).await;
-    let srv = Server::new(executor(db), ThreatPolicy::Unwired, WebhookPolicy::Unwired);
+    let srv = Server::new(executor(db), ThreatPolicy::Unwired, WebhookPolicy::Unwired)
+        .with_auth_db(worker_executor(db));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (stop, rx) = watch::channel(false);
@@ -642,7 +643,8 @@ async fn run_edge_scenario(db: &setjoin_conformance::harness::Db, owner: &tokio_
         .unwrap()
         .get(0);
 
-    let srv = Server::new(executor(db), ThreatPolicy::Unwired, WebhookPolicy::Unwired);
+    let srv = Server::new(executor(db), ThreatPolicy::Unwired, WebhookPolicy::Unwired)
+        .with_auth_db(worker_executor(db));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (stop, rx) = watch::channel(false);

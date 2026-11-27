@@ -298,6 +298,25 @@ fn accept_recording(value: &mut Value) {
                         {
                             row["imap_uid_validity"] = json!("<uid-validity>");
                         }
+                        // Wave 2.4 (#551) V293 retired blobs.ref_count; Wave 2.7 (#554) V296
+                        // aligned imap_modseq onto single-currency jmap_email_state + 1 and
+                        // added imap_uid + populated collection_id on email journal rows.
+                        if matches!(table.as_str(), "messages" | "message_tags" | "tags") {
+                            if let Some(obj) = row.as_object_mut() {
+                                obj.remove("imap_modseq");
+                            }
+                        } else if table == "blobs" {
+                            if let Some(obj) = row.as_object_mut() {
+                                obj.remove("ref_count");
+                            }
+                        } else if table == "jmap_changes_journal" {
+                            if let Some(obj) = row.as_object_mut() {
+                                if obj.get("datatype").and_then(Value::as_str) == Some("email") {
+                                    obj.remove("imap_uid");
+                                    obj.insert("collection_id".into(), Value::Null);
+                                }
+                            }
+                        }
                         for (ordinal, (id, _)) in fixture_messages.iter().enumerate() {
                             for key in if table == "messages" {
                                 vec!["id"]

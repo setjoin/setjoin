@@ -427,10 +427,11 @@ impl Delivery {
             blobs.put(&raw_ref, data).await?
         }
         conn.batch("BEGIN").await?;
-        // Lock-safe raw_ref publish protocol (#551): serialize with prefixed orphan
-        // cleanup on the raw_ref advisory lock before committing message rows.
+        // Lock-safe raw_ref publish protocol (#551): take a shared advisory lock so
+        // concurrent multi-recipient deliveries of the same raw_ref run in parallel
+        // while still mutually excluding the orphan cleaner's exclusive lock.
         conn.query(
-            "SELECT pg_catalog.pg_advisory_xact_lock(public.blob_gc_lock_key($1))",
+            "SELECT pg_catalog.pg_advisory_xact_lock_shared(public.blob_gc_lock_key($1))",
             &[(&raw_ref, Type::TEXT)],
         )
         .await?;

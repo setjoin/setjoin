@@ -40,7 +40,7 @@ SELECT is((SELECT op FROM jmap_changes_journal WHERE mailbox_id=99201 AND dataty
 --    best-effort SKIPPED, not raised — the calendar mutation would survive. ────
 GRANT INSERT, SELECT, UPDATE ON jmap_changes_journal, jmap_entity_state TO setjoin_app;
 GRANT EXECUTE ON FUNCTION journal_op(bigint,text,bigint,text,bigint,text),
-                          append_change(bigint,text,bigint,bigint,text,bigint,text),
+                          append_change(bigint,text,bigint,bigint,text,bigint,text,bigint),
                           bump_entity_state(bigint,text) TO setjoin_app;
 SET LOCAL ROLE setjoin_app;
 SELECT set_config('app.current_mailbox_id', '99201', true);   -- acting as mailbox A
