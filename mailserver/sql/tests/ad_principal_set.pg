@@ -97,11 +97,13 @@ UPDATE admin_role_groups
    SET permissions = ARRAY['directory.read','identity.write']
  WHERE id = 95761;
 SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '95761', true);
 SELECT is(
   ad_principal_set(95761, 95762, 'eng-new@REALM', 'eng-old@LEGACY.REALM', NULL),
   'applied',
   'identity.write + reach on one current assignment commits through setjoin_app'
 );
+SELECT set_config('app.current_user_id', '', true);
 RESET ROLE;
 SELECT is(
   (SELECT krb5_principal FROM users WHERE id = 95762),

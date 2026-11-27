@@ -450,8 +450,8 @@ SELECT is(
       now() + interval '2 hours'
     )->0->'intervals'
   ),
-  1,
-  'calendar_free_busy returns Alice busy block to Carol under setjoin_app FORCE RLS'
+  3,
+  'calendar_free_busy returns Alice busy blocks to Carol under setjoin_app FORCE RLS'
 );
 
 -- ── 9) OOO approval delegation resolution under setjoin_app as unrelated requester ─
@@ -563,120 +563,165 @@ SELECT throws_ok(
 
 -- ── 10) Positive same-tenant INSERT/UPDATE/DELETE ALLOW-flow proofs (all 16) ─
 -- Executed as Alice (u_a, mb_a) under SET LOCAL ROLE setjoin_app!
+-- Each multi-step flow runs distinct INSERT -> UPDATE -> DELETE statements
+-- (separate command snapshots) inside a DO block under setjoin_app.
 SELECT set_config('app.current_user_id', (SELECT v::text FROM _w18a WHERE k = 'u_a'), true);
 SELECT set_config('app.current_mailbox_id', (SELECT v::text FROM _w18a WHERE k = 'mb_a'), true);
 
 -- 1. calendars ALLOW
-WITH ins AS (
-  INSERT INTO calendars (mailbox_id, name, color, is_default)
-  VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'Alice Allow Cal', '#aaaaaa', false)
-  RETURNING id
-), upd AS (
-  UPDATE calendars SET name = 'Alice Allow Cal v2' WHERE id IN (SELECT id FROM ins) RETURNING id
-), del AS (
-  DELETE FROM calendars WHERE id IN (SELECT id FROM upd) RETURNING id
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW calendars: setjoin_app INSERT/UPDATE/DELETE own calendar succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO calendars (mailbox_id, name, color, is_default)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'Alice Allow Cal', '#aaaaaa', false)
+    RETURNING id INTO v_id;
+    UPDATE calendars SET name = 'Alice Allow Cal v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'calendars UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM calendars WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'calendars DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW calendars: setjoin_app INSERT/UPDATE/DELETE own calendar succeeds');
 
 -- 2. calendar_acls ALLOW
-WITH ins AS (
-  INSERT INTO calendar_acls (calendar_id, user_id, permission)
-  VALUES ((SELECT v FROM _w18a WHERE k = 'cal_a'), (SELECT v FROM _w18a WHERE k = 'u_b'), 'read')
-  RETURNING calendar_id, user_id
-), upd AS (
-  UPDATE calendar_acls SET permission = 'write'
-   WHERE (calendar_id, user_id) IN (SELECT calendar_id, user_id FROM ins)
-  RETURNING calendar_id, user_id
-), del AS (
-  DELETE FROM calendar_acls
-   WHERE (calendar_id, user_id) IN (SELECT calendar_id, user_id FROM upd)
-  RETURNING calendar_id
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW calendar_acls: setjoin_app INSERT/UPDATE/DELETE own calendar ACL succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_cal bigint; v_usr bigint; v_cnt int;
+  BEGIN
+    SELECT v INTO v_cal FROM _w18a WHERE k = 'cal_a';
+    SELECT v INTO v_usr FROM _w18a WHERE k = 'u_b';
+    INSERT INTO calendar_acls (calendar_id, user_id, permission)
+    VALUES (v_cal, v_usr, 'read');
+    UPDATE calendar_acls SET permission = 'write'
+     WHERE calendar_id = v_cal AND user_id = v_usr;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'calendar_acls UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM calendar_acls WHERE calendar_id = v_cal AND user_id = v_usr;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'calendar_acls DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW calendar_acls: setjoin_app INSERT/UPDATE/DELETE own calendar ACL succeeds');
 
 -- 3. calendar_events ALLOW
-WITH ins AS (
-  INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at)
-  VALUES ((SELECT v FROM _w18a WHERE k = 'cal_a'), 'w18a-allow-ev', 'Allow Event', now(), now() + interval '1 hour')
-  RETURNING id
-), upd AS (
-  UPDATE calendar_events SET title = 'Allow Event v2' WHERE id IN (SELECT id FROM ins) RETURNING id
-), del AS (
-  DELETE FROM calendar_events WHERE id IN (SELECT id FROM upd) RETURNING id
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW calendar_events: setjoin_app INSERT/UPDATE/DELETE own event succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'cal_a'), 'w18a-allow-ev', 'Allow Event', now(), now() + interval '1 hour')
+    RETURNING id INTO v_id;
+    UPDATE calendar_events SET title = 'Allow Event v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'calendar_events UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM calendar_events WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'calendar_events DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW calendar_events: setjoin_app INSERT/UPDATE/DELETE own event succeeds');
 
 -- 4. event_attendees ALLOW
-WITH ins AS (
-  INSERT INTO event_attendees (event_id, email, name)
-  VALUES ((SELECT v FROM _w18a WHERE k = 'ev_a'), 'allow-att@mk.test', 'Allow Attendee')
-  RETURNING id
-), upd AS (
-  UPDATE event_attendees SET name = 'Allow Attendee v2' WHERE id IN (SELECT id FROM ins) RETURNING id
-), del AS (
-  DELETE FROM event_attendees WHERE id IN (SELECT id FROM upd) RETURNING id
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW event_attendees: setjoin_app INSERT/UPDATE/DELETE own attendee succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO event_attendees (event_id, email, name)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'ev_a'), 'allow-att@mk.test', 'Allow Attendee')
+    RETURNING id INTO v_id;
+    UPDATE event_attendees SET name = 'Allow Attendee v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'event_attendees UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM event_attendees WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'event_attendees DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW event_attendees: setjoin_app INSERT/UPDATE/DELETE own attendee succeeds');
 
 -- 5. addressbooks ALLOW
-WITH ins AS (
-  INSERT INTO addressbooks (mailbox_id, name, is_default)
-  VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'Alice Allow AB', false)
-  RETURNING id
-), upd AS (
-  UPDATE addressbooks SET name = 'Alice Allow AB v2' WHERE id IN (SELECT id FROM ins) RETURNING id
-), del AS (
-  DELETE FROM addressbooks WHERE id IN (SELECT id FROM upd) RETURNING id
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW addressbooks: setjoin_app INSERT/UPDATE/DELETE own addressbook succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO addressbooks (mailbox_id, name, is_default)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'Alice Allow AB', false)
+    RETURNING id INTO v_id;
+    UPDATE addressbooks SET name = 'Alice Allow AB v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'addressbooks UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM addressbooks WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'addressbooks DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW addressbooks: setjoin_app INSERT/UPDATE/DELETE own addressbook succeeds');
 
 -- 6. contacts ALLOW
-WITH ins AS (
-  INSERT INTO contacts (addressbook_id, vcard_uid, display_name)
-  VALUES ((SELECT v FROM _w18a WHERE k = 'ab_a'), 'w18a-allow-ct', 'Allow Contact')
-  RETURNING id
-), upd AS (
-  UPDATE contacts SET display_name = 'Allow Contact v2' WHERE id IN (SELECT id FROM ins) RETURNING id
-), del AS (
-  DELETE FROM contacts WHERE id IN (SELECT id FROM upd) RETURNING id
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW contacts: setjoin_app INSERT/UPDATE/DELETE own contact succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO contacts (addressbook_id, vcard_uid, display_name)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'ab_a'), 'w18a-allow-ct', 'Allow Contact')
+    RETURNING id INTO v_id;
+    UPDATE contacts SET display_name = 'Allow Contact v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'contacts UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM contacts WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'contacts DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW contacts: setjoin_app INSERT/UPDATE/DELETE own contact succeeds');
 
 -- 7. contact_groups ALLOW
-WITH ins AS (
-  INSERT INTO contact_groups (mailbox_id, name)
-  VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'Alice Allow Group')
-  RETURNING id
-), upd AS (
-  UPDATE contact_groups SET name = 'Alice Allow Group v2' WHERE id IN (SELECT id FROM ins) RETURNING id
-), del AS (
-  DELETE FROM contact_groups WHERE id IN (SELECT id FROM upd) RETURNING id
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW contact_groups: setjoin_app INSERT/UPDATE/DELETE own group succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO contact_groups (mailbox_id, name)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'Alice Allow Group')
+    RETURNING id INTO v_id;
+    UPDATE contact_groups SET name = 'Alice Allow Group v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'contact_groups UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM contact_groups WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'contact_groups DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW contact_groups: setjoin_app INSERT/UPDATE/DELETE own group succeeds');
 
 -- 8. contact_group_members ALLOW
-WITH ins AS (
-  INSERT INTO contact_group_members (group_id, email)
-  VALUES ((SELECT v FROM _w18a WHERE k = 'cg_a'), 'allow-member@mk.test')
-  RETURNING id
-), upd AS (
-  UPDATE contact_group_members SET email = 'allow-member-v2@mk.test' WHERE id IN (SELECT id FROM ins) RETURNING id
-), del AS (
-  DELETE FROM contact_group_members WHERE id IN (SELECT id FROM upd) RETURNING id
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW contact_group_members: setjoin_app INSERT/UPDATE/DELETE own member succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO contact_group_members (group_id, email)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'cg_a'), 'allow-member@mk.test')
+    RETURNING id INTO v_id;
+    UPDATE contact_group_members SET email = 'allow-member-v2@mk.test' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'contact_group_members UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM contact_group_members WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'contact_group_members DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW contact_group_members: setjoin_app INSERT/UPDATE/DELETE own member succeeds');
 
 -- 9. reminders ALLOW
-WITH ins AS (
-  INSERT INTO reminders (mailbox_id, source_type, source_id, fire_at, title)
-  VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'event', (SELECT v FROM _w18a WHERE k = 'ev_a'), now() + interval '1 hour', 'Allow Reminder')
-  RETURNING id
-), upd AS (
-  UPDATE reminders SET title = 'Allow Reminder v2' WHERE id IN (SELECT id FROM ins) RETURNING id
-), del AS (
-  DELETE FROM reminders WHERE id IN (SELECT id FROM upd) RETURNING id
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW reminders: setjoin_app INSERT/UPDATE/DELETE own reminder succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO reminders (mailbox_id, source_type, source_id, fire_at, title)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'event', (SELECT v FROM _w18a WHERE k = 'ev_a'), now() + interval '1 hour', 'Allow Reminder')
+    RETURNING id INTO v_id;
+    UPDATE reminders SET title = 'Allow Reminder v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'reminders UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM reminders WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'reminders DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW reminders: setjoin_app INSERT/UPDATE/DELETE own reminder succeeds');
 
 -- 10. blob_user_usage ALLOW
 WITH upd AS (
@@ -685,44 +730,56 @@ WITH upd AS (
 SELECT is((SELECT charged_bytes::int FROM upd), 256, 'ALLOW blob_user_usage: setjoin_app UPDATE own usage succeeds');
 
 -- 11. blob_user_charges ALLOW
-WITH ins AS (
-  INSERT INTO blob_user_charges (blob_sha256, user_id, size_bytes)
-  VALUES (repeat('c', 64), (SELECT v FROM _w18a WHERE k = 'u_a'), 64)
-  RETURNING blob_sha256, user_id
-), upd AS (
-  UPDATE blob_user_charges SET size_bytes = 96
-   WHERE (blob_sha256, user_id) IN (SELECT blob_sha256, user_id FROM ins)
-  RETURNING blob_sha256, user_id
-), del AS (
-  DELETE FROM blob_user_charges
-   WHERE (blob_sha256, user_id) IN (SELECT blob_sha256, user_id FROM upd)
-  RETURNING blob_sha256
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW blob_user_charges: setjoin_app INSERT/UPDATE/DELETE own charge succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_usr bigint; v_sha text := repeat('c', 64); v_cnt int;
+  BEGIN
+    SELECT v INTO v_usr FROM _w18a WHERE k = 'u_a';
+    INSERT INTO blob_user_charges (blob_sha256, user_id, size_bytes)
+    VALUES (v_sha, v_usr, 64);
+    UPDATE blob_user_charges SET size_bytes = 96
+     WHERE blob_sha256 = v_sha AND user_id = v_usr;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'blob_user_charges UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM blob_user_charges WHERE blob_sha256 = v_sha AND user_id = v_usr;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'blob_user_charges DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW blob_user_charges: setjoin_app INSERT/UPDATE/DELETE own charge succeeds');
 
 -- 12. approval_delegations ALLOW
-WITH ins AS (
-  INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
-  VALUES ((SELECT v FROM _w18a WHERE k = 'u_a'), (SELECT v FROM _w18a WHERE k = 'u_b'), now() + interval '2 days', now() + interval '3 days')
-  RETURNING id
-), upd AS (
-  UPDATE approval_delegations SET ends_at = now() + interval '4 days' WHERE id IN (SELECT id FROM ins) RETURNING id
-), del AS (
-  DELETE FROM approval_delegations WHERE id IN (SELECT id FROM upd) RETURNING id
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW approval_delegations: setjoin_app INSERT/UPDATE/DELETE own delegation succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'u_a'), (SELECT v FROM _w18a WHERE k = 'u_b'), now() + interval '2 days', now() + interval '3 days')
+    RETURNING id INTO v_id;
+    UPDATE approval_delegations SET ends_at = now() + interval '4 days' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'approval_delegations UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM approval_delegations WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'approval_delegations DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW approval_delegations: setjoin_app INSERT/UPDATE/DELETE own delegation succeeds');
 
 -- 13. user_signatures ALLOW
-WITH ins AS (
-  INSERT INTO user_signatures (user_id, alias_email, signature_text)
-  VALUES ((SELECT v FROM _w18a WHERE k = 'u_a'), 'allow-alias@mk.test', 'Allow Sig')
-  RETURNING id
-), upd AS (
-  UPDATE user_signatures SET signature_text = 'Allow Sig v2' WHERE id IN (SELECT id FROM ins) RETURNING id
-), del AS (
-  DELETE FROM user_signatures WHERE id IN (SELECT id FROM upd) RETURNING id
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW user_signatures: setjoin_app INSERT/UPDATE/DELETE own signature succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO user_signatures (user_id, alias_email, signature_text)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'u_a'), 'allow-alias@mk.test', 'Allow Sig')
+    RETURNING id INTO v_id;
+    UPDATE user_signatures SET signature_text = 'Allow Sig v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'user_signatures UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM user_signatures WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'user_signatures DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW user_signatures: setjoin_app INSERT/UPDATE/DELETE own signature succeeds');
 
 -- 14. vacation_settings ALLOW
 WITH upd AS (
@@ -731,28 +788,36 @@ WITH upd AS (
 SELECT is((SELECT subject FROM upd), 'Allow OOO v2', 'ALLOW vacation_settings: setjoin_app UPDATE own settings succeeds');
 
 -- 15. vacation_replies ALLOW
-WITH ins AS (
-  INSERT INTO vacation_replies (mailbox_id, sender_email)
-  VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'allow-reply@mk.test')
-  RETURNING mailbox_id, sender_email
-), del AS (
-  DELETE FROM vacation_replies
-   WHERE (mailbox_id, sender_email) IN (SELECT mailbox_id, sender_email FROM ins)
-  RETURNING mailbox_id
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW vacation_replies: setjoin_app INSERT/DELETE own reply succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_mb bigint; v_cnt int;
+  BEGIN
+    SELECT v INTO v_mb FROM _w18a WHERE k = 'mb_a';
+    INSERT INTO vacation_replies (mailbox_id, sender_email, vacation_start)
+    VALUES (v_mb, 'allow-reply@mk.test', CURRENT_DATE);
+    DELETE FROM vacation_replies
+     WHERE mailbox_id = v_mb AND sender_email = 'allow-reply@mk.test' AND vacation_start = CURRENT_DATE;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'vacation_replies DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW vacation_replies: setjoin_app INSERT/DELETE own reply succeeds');
 
 -- 16. email_templates ALLOW
-WITH ins AS (
-  INSERT INTO email_templates (mailbox_id, name, subject, body_html)
-  VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'Allow Template', 'Subj', '<p>Hi</p>')
-  RETURNING id
-), upd AS (
-  UPDATE email_templates SET name = 'Allow Template v2' WHERE id IN (SELECT id FROM ins) RETURNING id
-), del AS (
-  DELETE FROM email_templates WHERE id IN (SELECT id FROM upd) RETURNING id
-)
-SELECT is((SELECT count(*)::int FROM del), 1, 'ALLOW email_templates: setjoin_app INSERT/UPDATE/DELETE own template succeeds');
+SELECT lives_ok($$
+  DO $p$
+  DECLARE v_id bigint; v_cnt int;
+  BEGIN
+    INSERT INTO email_templates (mailbox_id, name, subject, body_html)
+    VALUES ((SELECT v FROM _w18a WHERE k = 'mb_a'), 'Allow Template', 'Subj', '<p>Hi</p>')
+    RETURNING id INTO v_id;
+    UPDATE email_templates SET name = 'Allow Template v2' WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'email_templates UPDATE affected % rows', v_cnt; END IF;
+    DELETE FROM email_templates WHERE id = v_id;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'email_templates DELETE affected % rows', v_cnt; END IF;
+  END $p$;
+$$, 'ALLOW email_templates: setjoin_app INSERT/UPDATE/DELETE own template succeeds');
 
 SELECT * FROM finish();
 ROLLBACK;
