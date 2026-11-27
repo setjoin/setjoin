@@ -628,14 +628,8 @@ async fn run_inner(route: &str, case: &str, mutant: bool) -> Result<(), BoxError
      if !unexpected.is_empty() {
          return Err(format!("/notify unexpected O(members) chat:<uid> fanout under #552: {unexpected:?}").into());
      }
-     let mut expected_unique = Vec::new();
-     for b in &expected_bells {
-         if !expected_unique.contains(b) {
-             expected_unique.push(b.clone());
-         }
-     }
-     if sync_bells != expected_unique {
-         return Err(format!("/notify sync bells mismatch for channel {channel}: got {sync_bells:?}, expected {expected_unique:?}").into());
+     if sync_bells != expected_bells {
+         return Err(format!("/notify sync bells mismatch for channel {channel}: got {sync_bells:?}, expected {expected_bells:?}").into());
      }
      expected["observation"]["notify"] = expected_notify
          .iter()
