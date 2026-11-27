@@ -834,8 +834,8 @@ mod tests {
         let tasks = catalog_tasks("UTC");
         assert_eq!(
             tasks.len(),
-            30,
-            "all 30 non-dispatch catalog tasks registered"
+            31,
+            "all 31 non-dispatch catalog tasks registered"
         );
         for task in &tasks {
             assert!(

@@ -16,8 +16,13 @@ SELECT throws_ok($$SELECT rust_device_enroll_transition(current_setting('app.cur
     'BZ095', NULL, 'the existing illegal-transition refusal is preserved');
 UPDATE devices SET enroll_state = 'enrolled', approved_by = NULL, approved_at = NULL WHERE id = 980001;
 SET LOCAL ROLE setjoin_app;
+-- V289 (#546e) dropped legacy open devices_admin_read SELECT policy; without
+-- app.current_user_id, device_enroll_transition fails closed on its initial
+-- SELECT as BZ095 device_not_found instead of leaking existence and failing
+-- later on device_enroll_events INSERT with 42501 (see conformance
+-- devices/divergences.json transition-rls-own).
 SELECT throws_ok($$SELECT rust_device_enroll_transition(current_setting('app.current_user_id')::bigint, 980001, 'approved', 'app pool', true)$$,
-    '42501', NULL, 'even the admin own-device transition fails without Go user scope');
+    'BZ095', 'Device 980001 not found', 'even the admin own-device transition fails closed without Go user scope');
 SELECT is((SELECT enroll_state FROM devices WHERE id = 980001), 'enrolled', 'the rejected transition leaves the device unchanged');
 SELECT lives_ok($$SELECT device_enroll_transition(current_setting('app.current_user_id')::bigint, 980001, 'approved', 'scoped call')$$,
     'the caller can still make its scoped call after the wrapper refusal');

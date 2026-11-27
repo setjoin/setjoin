@@ -477,7 +477,8 @@ pub async fn run_subsystems(
 
     // Auth-only mode (`--subsystems=auth`): bind standalone auth listener or Slot::Auth.
     if subsystems.auth && !subsystems.http && !subsystems.protocols && !subsystems.workers {
-        let mut auth = init_in_process_auth(false, listen_hub.as_ref(), boot_posture.clone()).await?;
+        let mut auth =
+            init_in_process_auth(false, listen_hub.as_ref(), boot_posture.clone()).await?;
         let auth_runtime_task = auth.auth_runtime.take().map(|tasks| {
             let stop = shutdown.clone();
             tokio::spawn(async move {
