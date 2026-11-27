@@ -348,6 +348,29 @@ def observe(binary, dsn, recording, variant="worker", preserve=True):
                 for method, key in s3.requests
                 if "/" in key and not key.endswith("/")
             ]
+            # Wave 2 (#551) lazily fetches backup/backup-manifest.json once before
+            # manifest commit when skipping verified blobs so bare vs prefixed
+            # primary_keys layouts survive incremental runs; frozen Go predates
+            # primary_keys and never issued that read.
+            if state["blobs_skipped"] > 0:
+                commit_idx = next(
+                    (
+                        i
+                        for i, r in enumerate(requests)
+                        if r == ["PUT", "backup/backup-manifest.json"]
+                    ),
+                    len(requests),
+                )
+                pre_manifest_gets = [
+                    i
+                    for i, r in enumerate(requests[:commit_idx])
+                    if r == ["GET", "backup/backup-manifest.json"]
+                ]
+                assert len(pre_manifest_gets) <= 1, (
+                    "incremental skip must fetch previous manifest at most once"
+                )
+                if pre_manifest_gets:
+                    requests.pop(pre_manifest_gets[0])
             if variant == "worker-replica":
                 for key, data in s3.objects.copy().items():
                     if key.startswith("backup/"):

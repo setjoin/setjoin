@@ -478,6 +478,15 @@ mod tests {
         assert!(!initial.has_ca_group(CaGroupId::new(group_id).unwrap()));
         assert!(runtime.group_resolver().cached_len() >= 1);
 
+        let since_intent_id: i64 = owner
+            .query_one(
+                "SELECT COALESCE(MAX(id), 0)::bigint FROM public.notify_intents \
+                  WHERE channel = 'group_membership_changed'",
+                &[],
+            )
+            .await
+            .unwrap()
+            .get(0);
         owner
             .execute(
                 "INSERT INTO user_group_members (group_id, user_id) VALUES ($1, $2)",
@@ -485,6 +494,35 @@ mod tests {
             )
             .await
             .unwrap();
+        // Wave 2.1 (#548): app_notify writes notify_intents; flush the queued
+        // group_membership_changed intent since this unit test does not spawn NotifyIntentDrain.
+        let flushed = owner
+            .query(
+                "WITH batch AS ( \
+                   DELETE FROM public.notify_intents \
+                    WHERE id IN ( \
+                        SELECT id FROM public.notify_intents \
+                         WHERE channel = 'group_membership_changed' AND id > $1 \
+                         ORDER BY id \
+                         FOR UPDATE SKIP LOCKED \
+                    ) \
+                    RETURNING id, payload \
+                 ) \
+                 SELECT payload FROM batch ORDER BY id",
+                &[&since_intent_id],
+            )
+            .await
+            .unwrap();
+        for row in flushed {
+            let payload: String = row.get(0);
+            owner
+                .execute(
+                    "SELECT pg_notify('group_membership_changed', $1)",
+                    &[&payload],
+                )
+                .await
+                .unwrap();
+        }
 
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut invalidated = false;

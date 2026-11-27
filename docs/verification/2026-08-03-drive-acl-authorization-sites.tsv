@@ -13,4 +13,6 @@ mailserver/sql/reducers/drive_member_revoke.sql	compatibility_writer	0	1	0	A6
 mailserver/sql/reducers/drive_scope_helper.sql	root_adapter	9	2	0	A2
 mailserver/sql/reducers/drive_share_approval_decide.sql	compatibility_writer	0	2	0	A5
 mailserver/sql/reducers/drive_space_create.sql	root_adapter	0	2	0	A3
+mailserver/sql/reducers/guest_account.sql	roster_projection	0	2	0	A6
 mailserver/sql/reducers/meeting_space_ensure.sql	bound_source	0	1	0	A2
+mailserver/sql/reducers/scope_revocations.sql	outer_cap	1	1	0	A6

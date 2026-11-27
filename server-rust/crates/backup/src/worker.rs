@@ -331,13 +331,7 @@ impl Engine {
                 size,
             });
         }
-        let prev_manifest = crate::restore::download_manifest(&self.backup).await.ok();
-        let prev_hashes: Option<BTreeSet<String>> = prev_manifest
-            .as_ref()
-            .map(|m| m.blob_manifest.hashes.iter().cloned().collect());
-        let prev_primary_keys = prev_manifest
-            .as_ref()
-            .map(|m| &m.blob_manifest.primary_keys);
+        let mut prev_manifest: Option<Option<(BTreeSet<String>, BTreeMap<String, String>)>> = None;
         let mut copied = 0i32;
         let mut skipped = 0i32;
         let mut errors = vec![];
@@ -365,11 +359,26 @@ impl Engine {
                 .is_ok_and(|s| s as i64 == blob.size)
                 && verify(&self.backup, blob).await.is_ok()
             {
+                let prev = match &prev_manifest {
+                    Some(cached) => cached.as_ref(),
+                    None => {
+                        let loaded = crate::restore::download_manifest(&self.backup)
+                            .await
+                            .ok()
+                            .map(|m| {
+                                let hashes: BTreeSet<String> =
+                                    m.blob_manifest.hashes.into_iter().collect();
+                                (hashes, m.blob_manifest.primary_keys)
+                            });
+                        prev_manifest = Some(loaded);
+                        prev_manifest.as_ref().and_then(Option::as_ref)
+                    }
+                };
                 if resolve_incremental_bare_key(
                     &blob.hash,
                     &preferred_src,
-                    prev_hashes.as_ref(),
-                    prev_primary_keys,
+                    prev.map(|(h, _)| h),
+                    prev.map(|(_, k)| k),
                 ) {
                     primary_keys.insert(blob.hash.clone(), blob.hash.clone());
                 }
@@ -378,35 +387,48 @@ impl Engine {
             }
             // Resolve primary object key from minio_ref (supporting both bare `<sha>`
             // objects stored by blobs.rs/mailbox_io.rs and `blobs/<sha>` legacy keys).
-            let source_key = if preferred_src != dest_key {
-                if self.primary.head(&preferred_src).await.is_ok() {
+            let alt_src = if preferred_src != dest_key {
+                dest_key.clone()
+            } else {
+                blob.hash.clone()
+            };
+            let copy_res = if self.backup.needs_source_metadata() {
+                // minio-go obtains source object metadata before streaming a copy.
+                let source_key = if self.primary.head(&preferred_src).await.is_ok() {
                     preferred_src
-                } else if self.primary.head(&dest_key).await.is_ok() {
-                    dest_key.clone()
+                } else if self.primary.head(&alt_src).await.is_ok() {
+                    alt_src
                 } else {
                     preferred_src
-                }
-            } else if self.primary.head(&dest_key).await.is_ok() {
-                dest_key.clone()
-            } else if self.primary.head(&blob.hash).await.is_ok() {
-                blob.hash.clone()
+                };
+                self.backup
+                    .copy_from_key(&self.primary, &source_key, &dest_key, blob.size as u64)
+                    .await
+                    .map(|()| source_key)
             } else {
-                // minio-go obtains source object metadata before streaming a copy.
-                if self.backup.needs_source_metadata() {
-                    let _ = self.primary.head(&dest_key).await;
+                match self
+                    .backup
+                    .copy_from_key(&self.primary, &preferred_src, &dest_key, blob.size as u64)
+                    .await
+                {
+                    Ok(()) => Ok(preferred_src),
+                    Err(primary_err) => self
+                        .backup
+                        .copy_from_key(&self.primary, &alt_src, &dest_key, blob.size as u64)
+                        .await
+                        .map(|()| alt_src)
+                        .map_err(|_| primary_err),
                 }
-                dest_key.clone()
+            };
+            let source_key = match copy_res {
+                Ok(key) => key,
+                Err(e) => {
+                    errors.push(format!("blob {}: copy/close: {e}", blob.hash));
+                    continue;
+                }
             };
             if source_key == blob.hash {
                 primary_keys.insert(blob.hash.clone(), blob.hash.clone());
-            }
-            if let Err(e) = self
-                .backup
-                .copy_from_key(&self.primary, &source_key, &dest_key, blob.size as u64)
-                .await
-            {
-                errors.push(format!("blob {}: copy/close: {e}", blob.hash));
-                continue;
             }
             if let Err(e) = verify(&self.backup, blob).await {
                 errors.push(format!(

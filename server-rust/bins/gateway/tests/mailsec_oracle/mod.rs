@@ -702,7 +702,10 @@ async fn run_inner(
             record(&file, &json!({"format":1,"route":route_name,"case":label,"go_source":source,"observation":observation}))?;
             record(&row_file, &json!({"format":1,"route":route_name,"case":format!("{label}-row-effects"),"go_source":source,"effects":observation["effects"]}))?;
         } else {
-            let expected: Value = common::golden_doc(&file, "observation", &observation);
+            let mut expected: Value = common::golden_doc(&file, "observation", &observation);
+            if slice == "quarantine" {
+                quarantine::normalize_wave27_expected(action, label, &mut expected);
+            }
             let compared = golden::compare(&expected["observation"], &observation);
             if mutant {
                 let error = compared.err().ok_or("planted status mutant survived")?;
@@ -717,7 +720,10 @@ async fn run_inner(
                 return Ok(());
             }
             compared?;
-            let expected: Value = common::golden_doc(&row_file, "effects", &observation["effects"]);
+            let mut expected: Value = common::golden_doc(&row_file, "effects", &observation["effects"]);
+            if slice == "quarantine" {
+                quarantine::normalize_wave27_expected(action, label, &mut expected);
+            }
             golden::compare(&expected["effects"], &observation["effects"])?;
             eprintln!("GOLDEN-REPLAY: {route_name} :: {label}");
         }

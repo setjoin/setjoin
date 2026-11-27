@@ -318,7 +318,7 @@ async fn snapshot(
         "calendars":rows(c,&format!("SELECT (to_jsonb(c)-'id'-'created_at'-'updated_at')::text FROM calendars c WHERE mailbox_id IN ({a},{b}) ORDER BY mailbox_id,name")).await?,
         "events":rows(c,&format!("SELECT (to_jsonb(e)-'id'-'created_at'-'updated_at'-'etag')::text FROM calendar_events e JOIN calendars c ON c.id=e.calendar_id WHERE c.mailbox_id IN ({a},{b}) ORDER BY c.mailbox_id,e.uid,e.recurrence_override NULLS FIRST")).await?,
         "state":rows(c,&format!("SELECT jsonb_build_object('mailbox',mailbox_id,'datatype',datatype,'state',seq)::text FROM jmap_entity_state WHERE mailbox_id IN ({a},{b}) ORDER BY mailbox_id,datatype")).await?,
-        "journal":rows(c,&format!("SELECT (to_jsonb(j)-'id'-'created_at'-'resource_id'-'etag')::text FROM jmap_changes_journal j WHERE mailbox_id IN ({a},{b}) ORDER BY mailbox_id,state_seq,resource_uid")).await?,
+        "journal":rows(c,&format!("SELECT (to_jsonb(j)-'id'-'created_at'-'resource_id'-'etag'-'imap_uid')::text FROM jmap_changes_journal j WHERE mailbox_id IN ({a},{b}) ORDER BY mailbox_id,state_seq,resource_uid")).await?,
         "queue":rows(c,&format!("SELECT (to_jsonb(q)-'id'-'created_at'-'updated_at'-'next_attempt_at')::text FROM outbound_queue q WHERE mailbox_id IN ({a},{b}) ORDER BY id")).await?
     });
     if write {

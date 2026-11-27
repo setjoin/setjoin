@@ -275,6 +275,7 @@ async fn run_unfurl(case: &str) -> Result<(), BoxError> {
         .as_i64()
         .ok_or("message ID")?;
     let mut listener = db.listen(&format!("chat:{}", account.user)).await?;
+    let mut sync_listener = db.listen("sync").await?;
     let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
     let seen = requests.clone();
     let inert = matches!(case, "pending" | "error");
@@ -438,6 +439,7 @@ async fn run_unfurl(case: &str) -> Result<(), BoxError> {
   let raw:String=owner.query_one("SELECT jsonb_build_object('payload',payload,'seq',seq,'changeSeq',(SELECT change_seq FROM chat_channels WHERE id=$2))::text FROM chat_messages WHERE id=$1 AND channel_id=$2",&[&message,&channel]).await?.get(0);
   let preview=owner.query_opt("SELECT jsonb_build_object('status',status,'title',title,'description',description,'image',image_blob_sha256)::text FROM chat_link_previews WHERE url_hash=$1",&[&hash]).await?.map(|r|serde_json::from_str::<Value>(r.get::<_,&str>(0))).transpose()?;
   let mut notify=listener.drain(&owner).await?.into_iter().map(|raw|serde_json::from_str::<Value>(&raw)).collect::<Result<Vec<_>,_>>()?;
+  let sync_bells=sync_listener.drain(&owner).await?;
   for n in &mut notify{if n["channelId"]==channel{n["channelId"]="<channel>".into();}if n["messageId"]==message{n["messageId"]="<message>".into();}}
   let mut row:Value=serde_json::from_str(&raw)?;if let Some(link)=row.pointer_mut("/payload/preview/url"){*link="<url>".into();}
   let mut http=requests.lock().unwrap().clone();
@@ -454,6 +456,25 @@ async fn run_unfurl(case: &str) -> Result<(), BoxError> {
   }else{
    let mut golden:Value=serde_json::from_slice(&std::fs::read(path)?)?;
    if let Some(obj)=golden["observation"].get_mut("blob").and_then(Value::as_object_mut){obj.remove("refCount");}
+   // Wave 2.5 (#552) recorded divergence: notify_chat_state emits O(1) 'sync'
+   // bells (channel:<id>:0 for unfurl enrichment with NULL seq) instead of
+   // O(members) chat:<uid> fan-out. Verify the O(1) sync bell strictly while
+   // keeping immutable frozen-Go goldens untouched.
+   let expected_notify_count = golden["observation"]["notify"].as_array().map(Vec::len).unwrap_or(0);
+   let channel_prefix = format!("channel:{channel}:");
+   let matching_bells: Vec<&String> = sync_bells.iter().filter(|b| b.starts_with(&channel_prefix)).collect();
+   if expected_notify_count > 0 {
+    if !observed["notify"].as_array().is_some_and(Vec::is_empty) {
+     return Err(format!("/notify unexpected O(members) chat:<uid> fanout under #552: {}", observed["notify"]).into());
+    }
+    let expected_bell = format!("channel:{channel}:0");
+    if matching_bells.len() != expected_notify_count || matching_bells.iter().any(|b| **b != expected_bell) {
+     return Err(format!("/notify sync bells mismatch for channel {channel}: got {sync_bells:?}, expected {expected_notify_count}x {expected_bell:?}").into());
+    }
+    golden["observation"]["notify"] = json!([]);
+   } else if !matching_bells.is_empty() {
+    return Err(format!("/notify unexpected sync bell(s) for channel {channel}: {matching_bells:?}").into());
+   }
    setjoin_conformance::golden::compare(&golden["observation"],&observed)?;
   }
   Ok::<_,BoxError>(())

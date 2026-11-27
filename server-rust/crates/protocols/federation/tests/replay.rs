@@ -271,7 +271,47 @@ async fn run_case(
                 }
                 results.push(r);
             }
-            "sql" => exec_all(owner, s["sql"].as_str().unwrap()).await,
+            "sql" => {
+                let since_id: i64 = owner
+                    .query_one(
+                        "SELECT COALESCE(MAX(id), 0)::bigint FROM public.notify_intents",
+                        &[],
+                    )
+                    .await
+                    .unwrap()
+                    .get(0);
+                exec_all(owner, s["sql"].as_str().unwrap()).await;
+                // Wave 2.1 (#548): app_notify writes notify_intents; flush federation
+                // intents emitted by this SQL step since replay runs Service standalone
+                // without NotifyIntentDrain.
+                let rows = owner
+                    .query(
+                        "WITH batch AS ( \
+                           DELETE FROM public.notify_intents \
+                            WHERE id IN ( \
+                                SELECT id FROM public.notify_intents \
+                                 WHERE id > $1 \
+                                   AND (channel = 'federation_allowlist_changed' \
+                                        OR channel LIKE 'federation_outbox:%') \
+                                 ORDER BY id \
+                                 FOR UPDATE SKIP LOCKED \
+                            ) \
+                            RETURNING id, channel, payload \
+                         ) \
+                         SELECT channel, payload FROM batch ORDER BY id",
+                        &[&since_id],
+                    )
+                    .await
+                    .unwrap();
+                for row in rows {
+                    let ch: String = row.get(0);
+                    let payload: String = row.get(1);
+                    owner
+                        .execute("SELECT pg_notify($1, $2)", &[&ch, &payload])
+                        .await
+                        .unwrap();
+                }
+            }
             "sleep" => tokio::time::sleep(Duration::from_millis(s["ms"].as_u64().unwrap())).await,
             "reconnect" => {
                 peers.remove(&0);

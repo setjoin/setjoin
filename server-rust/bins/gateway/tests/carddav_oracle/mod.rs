@@ -58,7 +58,7 @@ async fn snapshot(c: &tokio_postgres::Client, a: i64, b: i64) -> Result<Value, B
         "books":rows(c,&format!("SELECT (to_jsonb(ab)-'created_at'-'updated_at')::text FROM addressbooks ab WHERE mailbox_id IN ({a},{b}) ORDER BY id")).await?,
         "contacts":rows(c,&format!("SELECT (to_jsonb(c)-'created_at'-'updated_at'-'etag')::text FROM contacts c WHERE addressbook_id IN ({BOOK},{OTHER}) ORDER BY id")).await?,
         "state":rows(c,&format!("SELECT to_jsonb(s)::text FROM jmap_entity_state s WHERE mailbox_id IN ({a},{b}) ORDER BY mailbox_id,datatype")).await?,
-        "journal":rows(c,&format!("SELECT (to_jsonb(j)-'id'-'created_at')::text FROM jmap_changes_journal j WHERE mailbox_id IN ({a},{b}) ORDER BY mailbox_id,state_seq,resource_uid")).await?,
+        "journal":rows(c,&format!("SELECT (to_jsonb(j)-'id'-'created_at'-'imap_uid')::text FROM jmap_changes_journal j WHERE mailbox_id IN ({a},{b}) ORDER BY mailbox_id,state_seq,resource_uid")).await?,
         "visibility":rows(c,&format!("SELECT (to_jsonb(j)-'first_seen_at')::text FROM gal_visibility_journal j WHERE mailbox_id IN ({a},{b}) ORDER BY mailbox_id,user_id")).await?
     }))
 }

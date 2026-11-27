@@ -1994,12 +1994,16 @@ async fn supervisor_empty_cron_blob_cleanup_schedule_and_consumers() -> Result<(
         false,
         Some(store.clone()),
     )?;
+    let task_names: Vec<&str> = tasks.iter().map(|t| t.spec.task_name.as_str()).collect();
     assert_eq!(
-        tasks.len(),
-        1,
-        "production builder must register blob-cleanup even when cron:* list is empty"
+        task_names,
+        vec![
+            "prune-scope-revocations",
+            "prune-chat-changes",
+            task_name,
+        ],
+        "production builder must register Wave 2 maintenance tasks and blob-cleanup even when cron:* list is empty"
     );
-    assert_eq!(tasks[0].spec.task_name, task_name);
     let runner = setjoin_gateway::supervisor::schedule::ScheduleRunner::new(
         tasks,
         setjoin_gateway::supervisor::schedule::ScheduleRunnerConfig {

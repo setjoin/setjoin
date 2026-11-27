@@ -158,7 +158,11 @@ async fn scenario(
     let peer_service = make_service(peer_domain, &db.direct, &db.dsn, resolver);
 
     let ctx = CancellationToken::new();
-    let local_run = tokio::spawn(local_service.clone().run_with_listener(ctx.clone(), local_ln));
+    let local_run = tokio::spawn(
+        local_service
+            .clone()
+            .run_with_listener(ctx.clone(), local_ln),
+    );
     let peer_run = tokio::spawn(peer_service.clone().run_with_listener(ctx.clone(), peer_ln));
 
     let mut typing_fixture = None;
@@ -205,7 +209,8 @@ async fn scenario(
             )
             .await
             .unwrap();
-        let mut notifications = db.listen(&format!("chat:{}", recipient.user)).await.unwrap();
+        let mut legacy_notifications = db.listen(&format!("chat:{}", recipient.user)).await.unwrap();
+        let mut notifications = db.listen("chat_ephemeral").await.unwrap();
         local_service
             .send_typing(
                 &ctx,
@@ -225,6 +230,12 @@ async fn scenario(
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+        // Wave 2.5 (#552): notify_chat_state('typing') emits O(1) on 'chat_ephemeral'
+        // instead of O(members) chat:<uid> fanout.
+        assert!(
+            legacy_notifications.drain(owner).await.unwrap().is_empty(),
+            "Wave 2.5 #552: typing must not emit legacy chat:<uid> fanout"
+        );
         let mut actual: Vec<Value> = seen
             .iter()
             .map(|v| serde_json::from_str(v).unwrap())

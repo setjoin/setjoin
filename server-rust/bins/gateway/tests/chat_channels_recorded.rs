@@ -1685,11 +1685,22 @@ async fn run_inner(route: &str, case: &str, mutant: bool, no_notify: bool) -> Re
                         .into());
                     }
                     if expected_typing {
-                        if ephemeral_events.len() != 1
-                            || ephemeral_events[0]["event"].as_str() != Some("typing")
+                        let expected_typing_count = expected_notify
+                            .iter()
+                            .filter(|e| {
+                                is_chat_state_event(e)
+                                    && e["recipient"].as_str() == Some("actor")
+                                    && e["payload"]["event"].as_str() == Some("typing")
+                            })
+                            .count()
+                            .max(1);
+                        if ephemeral_events.len() != expected_typing_count
+                            || ephemeral_events
+                                .iter()
+                                .any(|e| e["event"].as_str() != Some("typing"))
                         {
                             return Err(format!(
-                                "/notify expected exactly 1 O(1) chat_ephemeral typing event, got {ephemeral_events:?}"
+                                "/notify expected exactly {expected_typing_count} O(1) chat_ephemeral typing event(s), got {ephemeral_events:?}"
                             )
                             .into());
                         }
@@ -1720,26 +1731,18 @@ async fn run_inner(route: &str, case: &str, mutant: bool, no_notify: bool) -> Re
                             })
                             .collect();
                         if !expected_bells.is_empty() {
-                            // NotifyIntentDrain / Db::listen::drain dedupes identical
-                            // (channel, payload) rows within a single drain batch.
-                            let mut expected_unique = Vec::new();
-                            for b in &expected_bells {
-                                if !expected_unique.contains(b) {
-                                    expected_unique.push(b.clone());
-                                }
-                            }
                             let matching: Vec<&String> = sync_bells
                                 .iter()
                                 .filter(|b| b.starts_with(&format!("channel:{channel}:")))
                                 .collect();
-                            if matching.len() != expected_unique.len()
+                            if matching.len() != expected_bells.len()
                                 || matching
                                     .iter()
-                                    .zip(expected_unique.iter())
+                                    .zip(expected_bells.iter())
                                     .any(|(got, want)| *got != want)
                             {
                                 return Err(format!(
-                                    "/notify sync bells mismatch for channel {channel}: got {sync_bells:?}, expected {expected_unique:?}"
+                                    "/notify sync bells mismatch for channel {channel}: got {sync_bells:?}, expected {expected_bells:?}"
                                 )
                                 .into());
                             }

@@ -281,7 +281,8 @@ pub async fn run(action: &str, label: &str, mutant: &str) -> Result<(), BoxError
          let present:bool=owner.query_one("SELECT EXISTS(SELECT 1 FROM rust_operation_receipts WHERE operation_id=$1::text::uuid AND family='F04')",&[&operation]).await?.get(0);
          if present!=committed{return Err("COMMIT receipt disagrees with actual cut".into());}
          if committed{
-          let expected:Value=serde_json::from_slice(&std::fs::read(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../tests/conformance/retention-audit/goldens/{action}-success.json")))?)?;
+          let mut expected:Value=serde_json::from_slice(&std::fs::read(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../tests/conformance/retention-audit/goldens/{action}-success.json")))?)?;
+          normalize_wave27_purge_expected(action,"success",&mut expected["observation"]);
           for key in ["effects","audit","notify"]{golden::compare(&expected["observation"][key],&observation[key])?;}
          }else{
           golden::compare(&observation["effects"][0]["before"],&observation["effects"][0]["after"])?;
@@ -291,7 +292,7 @@ pub async fn run(action: &str, label: &str, mutant: &str) -> Result<(), BoxError
         }
         if mutant.starts_with("commit-"){return Err("COMMIT cut was not armed".into());}
         let file=std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../tests/conformance/retention-audit/goldens/{action}-{label}.json"));
-        if recording&&std::env::var("GOFREE_VERIFY_GO").as_deref()!=Ok("1"){if label=="success"{assert!((200..300).contains(&status),"{raw}");}golden::record(&file,&json!({"format":1,"route":format!("{method} {path}"),"case":label,"go_source":std::env::var("GOFREE_GO_SOURCE")?,"observation":observation}))?;}else{let expected:Value=common::golden_doc(&file,"observation",&observation);golden::compare(&expected["observation"],&observation)?;eprintln!("GOLDEN-REPLAY: {method} {path} :: {label}");}
+        if recording&&std::env::var("GOFREE_VERIFY_GO").as_deref()!=Ok("1"){if label=="success"{assert!((200..300).contains(&status),"{raw}");}golden::record(&file,&json!({"format":1,"route":format!("{method} {path}"),"case":label,"go_source":std::env::var("GOFREE_GO_SOURCE")?,"observation":observation}))?;}else{let mut expected:Value=common::golden_doc(&file,"observation",&observation);normalize_wave27_purge_expected(action,label,&mut expected["observation"]);golden::compare(&expected["observation"],&observation)?;eprintln!("GOLDEN-REPLAY: {method} {path} :: {label}");}
         let _=mutant;
         Ok::<_,BoxError>(())
     }.await;
@@ -414,7 +415,7 @@ fn content_ids(v: &mut Value, key: &str, a: &fixture::Account, b: &fixture::Acco
                 content_ids(
                     x,
                     if k == "entity_id" {
-                        if datatype == "Email" {
+                        if datatype.eq_ignore_ascii_case("email") {
                             "entity_email"
                         } else {
                             "entity_tag"
@@ -431,6 +432,79 @@ fn content_ids(v: &mut Value, key: &str, a: &fixture::Account, b: &fixture::Acco
             for x in xs {
                 content_ids(x, key, a, b)
             }
+        }
+        _ => {}
+    }
+}
+
+/// Wave 2.7 (#554) deterministic expectation normalization for immutable frozen-Go
+/// compliance content-purge goldens (never copies from `actual`):
+/// `content_purge_messages` now emits precise `{"datatype":"email","op":"destroyed"}`
+/// journal rows, bumps `mailboxes.jmap_email_state`, and pushes `tag:<mailbox>`
+/// `state_change` notifications so JMAP/IMAP QRESYNC clients see purged UIDs.
+fn normalize_wave27_purge_expected(action: &str, label: &str, obs: &mut Value) {
+    if action != "purge" {
+        return;
+    }
+    let apply_phase = |obs: &mut Value, phase: &str, purged: &[(&str, &str)]| {
+        if let Some(content) = obs
+            .pointer_mut(&format!("/effects/0/{phase}/content"))
+            .and_then(Value::as_object_mut)
+        {
+            let journal: Vec<Value> = purged
+                .iter()
+                .map(|(mb, msg)| {
+                    json!({
+                        "datatype": "email",
+                        "entity_id": msg,
+                        "mailbox_id": mb,
+                        "op": "destroyed",
+                        "state_seq": 1
+                    })
+                })
+                .collect();
+            content.insert("journal".into(), Value::Array(journal));
+            if let Some(states) = content
+                .get_mut("mailbox_state")
+                .and_then(Value::as_array_mut)
+            {
+                for st in states {
+                    if let Some(mb) = st["mailbox_id"].as_str() {
+                        if purged.iter().any(|(pmb, _)| *pmb == mb) {
+                            st["email"] = json!(1);
+                        }
+                    }
+                }
+            }
+        }
+    };
+    let push_notify = |obs: &mut Value, purged: &[(&str, &str)]| {
+        if let Some(notify) = obs.get_mut("notify").and_then(Value::as_array_mut) {
+            for (mb, _) in purged {
+                notify.push(json!({
+                    "channel": format!("tag:{mb}"),
+                    "payload": {"event": "state_change", "state": 1, "tag_id": null}
+                }));
+            }
+        }
+    };
+    let both = [
+        ("<mailbox-a>", "<message-a>"),
+        ("<mailbox-b>", "<message-c>"),
+    ];
+    let only_a = [("<mailbox-a>", "<message-a>")];
+    match label {
+        "success" | "mailbox-held" => {
+            apply_phase(obs, "after", &both);
+            push_notify(obs, &both);
+        }
+        "repeat" => {
+            apply_phase(obs, "before", &both);
+            apply_phase(obs, "after", &both);
+        }
+        "duplicates" | "unicode-reason" => {
+            apply_phase(obs, "after", &only_a);
+            push_notify(obs, &only_a);
         }
         _ => {}
     }

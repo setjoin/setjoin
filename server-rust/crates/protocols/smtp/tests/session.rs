@@ -184,6 +184,15 @@ async fn replay_cases_locked(corpus: &str, only: Option<&str>) {
             }
         }
         let mut notifications = if case["capture"] == true || case["imip_notify"] == true {
+            let since_intent_id: i64 = owner
+                .query_one(
+                    "SELECT COALESCE(MAX(id), 0)::bigint FROM public.notify_intents",
+                    &[],
+                )
+                .await
+                .unwrap()
+                .get(0);
+            let mut channels: Vec<String> = Vec::new();
             let n = setjoin_pg::workers::DirectListener::connect(
                 &db.dsn,
                 if case["capture"] == true {
@@ -195,15 +204,25 @@ async fn replay_cases_locked(corpus: &str, only: Option<&str>) {
             .await
             .unwrap();
             if case["capture"] == true {
+                channels.extend([
+                    "tag:9348021".to_string(),
+                    "tag:9348022".to_string(),
+                    "tag:9348023".to_string(),
+                ]);
                 n.listen("tag:9348022").await.unwrap();
                 n.listen("tag:9348023").await.unwrap();
             }
             if case["imip_notify"] == true {
+                channels.extend([
+                    "calendar:9348021".to_string(),
+                    "calendar:9348022".to_string(),
+                    "calendar:9348023".to_string(),
+                ]);
                 n.listen("calendar:9348021").await.unwrap();
                 n.listen("calendar:9348022").await.unwrap();
                 n.listen("calendar:9348023").await.unwrap();
             }
-            Some(n)
+            Some((n, channels, since_intent_id))
         } else {
             None
         };
@@ -398,7 +417,36 @@ async fn replay_cases_locked(corpus: &str, only: Option<&str>) {
                     "unrecorded trailing bytes"
                 );
             }
-            if let Some(notifications) = &mut notifications {
+            if let Some((notifications, channels, since_intent_id)) = &mut notifications {
+                // Wave 2.1 (#548): app_notify writes notify_intents; flush intents
+                // emitted during this session since the test runs Server standalone
+                // without NotifyIntentDrain. Emit one autocommit statement per row
+                // so PostgreSQL never collapses distinct-txn identical notifications.
+                let rows = owner
+                    .query(
+                        "WITH batch AS ( \
+                           DELETE FROM public.notify_intents \
+                            WHERE id IN ( \
+                                SELECT id FROM public.notify_intents \
+                                 WHERE id > $1 AND channel = ANY($2::text[]) \
+                                 ORDER BY id \
+                                 FOR UPDATE SKIP LOCKED \
+                            ) \
+                            RETURNING id, channel, payload \
+                         ) \
+                         SELECT channel, payload FROM batch ORDER BY id",
+                        &[&*since_intent_id, &*channels],
+                    )
+                    .await
+                    .unwrap();
+                for row in rows {
+                    let ch: String = row.get(0);
+                    let payload: String = row.get(1);
+                    owner
+                        .execute("SELECT pg_notify($1, $2)", &[&ch, &payload])
+                        .await
+                        .unwrap();
+                }
                 let mut got = Vec::new();
                 while let Ok(Some(n)) =
                     tokio::time::timeout(Duration::from_millis(200), notifications.recv()).await
@@ -576,6 +624,36 @@ async fn replay_cases_locked(corpus: &str, only: Option<&str>) {
                             .sort_by_key(serde_json::Value::to_string);
                     }
                 }
+                if !writing {
+                    // Wave 2.7 (#554): quarantine_message now passes (p_message_id, 'updated')
+                    // to notify_state_change instead of a coarse 'resync' sentinel so IMAP
+                    // CONDSTORE/QRESYNC gets precise email journal rows. Project that
+                    // deterministic expectation onto quarantined mailboxes without altering
+                    // immutable frozen-Go goldens.
+                    let quarantined_mailboxes: std::collections::BTreeSet<i64> = expected["tags"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|t| {
+                            t["name"] == "Quarantined" && t["jmap_state"].as_i64().unwrap_or(0) > 0
+                        })
+                        .filter_map(|t| t["mailbox_id"].as_i64())
+                        .collect();
+                    if !quarantined_mailboxes.is_empty() {
+                        if let Some(journal) = expected["journal"].as_array_mut() {
+                            for entry in journal {
+                                if entry["datatype"] == "email"
+                                    && entry["op"] == "resync"
+                                    && entry["mailbox_id"]
+                                        .as_i64()
+                                        .is_some_and(|mb| quarantined_mailboxes.contains(&mb))
+                                {
+                                    entry["op"] = serde_json::json!("updated");
+                                }
+                            }
+                        }
+                    }
+                }
                 if writing {
                     observed["effects"] = got;
                 } else {
@@ -603,7 +681,7 @@ async fn replay_cases_locked(corpus: &str, only: Option<&str>) {
                 .await
                 .unwrap();
         }
-        if let Some(n) = notifications.take() {
+        if let Some((n, _, _)) = notifications.take() {
             n.close().await.unwrap();
         }
         owner
