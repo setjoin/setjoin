@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Exhaustive classification of all blob, SHA-256, and object-reference columns across mailserver/sql/dbschema/V*.sql (Issue #550).",
+  "description": "Exhaustive classification of all blob, SHA-256, and object-reference columns across sql/dbschema/V*.sql (Issue #550).",
   "live_roots": [
     {
       "table": "message_attachments",

@@ -15,7 +15,7 @@ import subprocess
 import sys
 
 repo = Path(__file__).resolve().parents[2]
-root = repo / "server-rust"
+root = repo / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 os.environ.setdefault("GOFREE_AIRGAP_FIXTURE_ROOT", "/dev/shm")

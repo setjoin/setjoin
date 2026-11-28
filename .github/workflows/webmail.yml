@@ -5,9 +5,9 @@ name: Webmail
 on:
   push:
     branches: [main]
-    paths: ['mailserver/webmail/**', '.github/workflows/webmail.yml']
+    paths: ['webmail/**', '.github/workflows/webmail.yml']
   pull_request:
-    paths: ['mailserver/webmail/**', '.github/workflows/webmail.yml']
+    paths: ['webmail/**', '.github/workflows/webmail.yml']
   workflow_dispatch:
 
 permissions:
@@ -29,20 +29,20 @@ jobs:
         with:
           node-version: '26'
           cache: 'npm'
-          cache-dependency-path: mailserver/webmail/package-lock.json
+          cache-dependency-path: webmail/package-lock.json
       - name: Install dependencies
-        working-directory: mailserver/webmail
+        working-directory: webmail
         run: npm ci
       - name: svelte-check + tsc (0 errors / 0 warnings)
-        working-directory: mailserver/webmail
+        working-directory: webmail
         run: npm run check
       - name: Vitest coverage ratchet
-        working-directory: mailserver/webmail
+        working-directory: webmail
         run: npm run test:coverage
       - name: Verify named Vitest evidence
         if: always()
         env:
-          TEST_EVIDENCE_OUTPUT: mailserver/webmail/test-results/test-evidence.json
+          TEST_EVIDENCE_OUTPUT: webmail/test-results/test-evidence.json
         run: bash scripts/guards/check-test-evidence-results.sh --verify vitest-json
       - name: Enforce changed-code coverage
         if: always()
@@ -56,7 +56,7 @@ jobs:
           name: webmail-evidence-${{ github.run_attempt }}
           if-no-files-found: warn
           path: |
-            mailserver/webmail/test-results/vitest.json
-            mailserver/webmail/test-results/test-evidence.json
-            mailserver/webmail/test-results/changed-coverage.json
-            mailserver/webmail/coverage/coverage-summary.json
+            webmail/test-results/vitest.json
+            webmail/test-results/test-evidence.json
+            webmail/test-results/changed-coverage.json
+            webmail/coverage/coverage-summary.json

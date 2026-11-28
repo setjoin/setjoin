@@ -27,7 +27,7 @@ source "$(dirname "$0")/../_base.sh"
 
 # REDUCERS_DIR may be overridden (used by the guard's own self-test); defaults to
 # the repo's reducer tree.
-REDUCERS="${REDUCERS_DIR:-$ROOT/mailserver/sql/reducers}"
+REDUCERS="${REDUCERS_DIR:-$ROOT/sql/reducers}"
 
 # The ONE file allowed to call the built-in pg_notify — it is the wrapper.
 WRAPPER_FILE="app_notify.sql"

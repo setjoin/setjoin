@@ -15,7 +15,7 @@ Status: Partial — code shipped (unverified-against-0/0 due to pre-existing deb
 ## Context / Problem
 
 The webmail has a mature, canonical "Liquid Glass" design system in
-`mailserver/webmail/src/lib/theme/tokens.css` (aurora wallpaper, glass surfaces,
+`webmail/src/lib/theme/tokens.css` (aurora wallpaper, glass surfaces,
 OLED-black dark mode, per-app accents, macOS spring easing). But the portal
 surfaces had drifted off it:
 
@@ -57,7 +57,7 @@ Then redesign only the genuine "portal-core" surfaces directly on canonical toke
 
 ## What shipped (on disk, verified clean in svelte-check)
 
-- `mailserver/webmail/src/lib/theme/compat.css` — **new** legacy→canonical token
+- `webmail/src/lib/theme/compat.css` — **new** legacy→canonical token
   bridge (surfaces, hairlines, grays→`--fg-*`, radii, font sizes, weights,
   spacing, shadows, motion, named/state colors, `--c-*` family, banner tokens).
   Imported from `global.css` after `tokens.css`.
@@ -84,7 +84,7 @@ Then redesign only the genuine "portal-core" surfaces directly on canonical toke
 
 ## Verification
 
-`cd mailserver/webmail && npm run check` → **12 errors, 8 warnings**, ALL
+`cd webmail && npm run check` → **12 errors, 8 warnings**, ALL
 **pre-existing and unrelated** to this work (confirmed: every erroring file is
 unmodified vs HEAD):
 

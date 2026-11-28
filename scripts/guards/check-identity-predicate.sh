@@ -13,7 +13,7 @@
 # auth logs you in, mail can't find your mailbox (silent lockout / orphan). The
 # two twins:
 #
-#   - mailserver/sql/reducers/resolve_identity.sql        (the reducer twin)
+#   - sql/reducers/resolve_identity.sql        (the reducer twin)
 #   - authserver/internal/connector/connector.go:ResolveIdentitySQL (the Go twin)
 #
 # This is a DEFINITION guard (it compares the RULE TEXT), not result-set sampling
@@ -41,8 +41,8 @@
 # ──────────────────────────────────────────────────────────────────────────
 source "$(dirname "$0")/../_base.sh"
 
-REDUCER_FILE="${REDUCER_FILE:-$ROOT/mailserver/sql/reducers/resolve_identity.sql}"
-CONNECTOR_FILE="${CONNECTOR_FILE:-$ROOT/server-rust/crates/domains/identity/src/sql.rs}"
+REDUCER_FILE="${REDUCER_FILE:-$ROOT/sql/reducers/resolve_identity.sql}"
+CONNECTOR_FILE="${CONNECTOR_FILE:-$ROOT/server/crates/domains/identity/src/sql.rs}"
 
 echo "==> identity-predicate definition guard (resolve_identity twins, ADR-004)"
 

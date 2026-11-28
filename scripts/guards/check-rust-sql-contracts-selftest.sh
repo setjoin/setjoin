@@ -32,16 +32,16 @@ fi
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/sql-contracts-selftest.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
-if ! "$CARGO" fetch --manifest-path "$ROOT/server-rust/Cargo.toml" --locked --offline >/dev/null 2>&1; then
-  "$CARGO" fetch --manifest-path "$ROOT/server-rust/Cargo.toml" --locked
+if ! "$CARGO" fetch --manifest-path "$ROOT/server/Cargo.toml" --locked --offline >/dev/null 2>&1; then
+  "$CARGO" fetch --manifest-path "$ROOT/server/Cargo.toml" --locked
 fi
 
 "$CARGO" build --locked --offline \
-  --manifest-path "$ROOT/server-rust/Cargo.toml" \
+  --manifest-path "$ROOT/server/Cargo.toml" \
   -p setjoin-sql-contracts \
   --bin verify-sql-contracts >/dev/null
 
-TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/server-rust/target}"
+TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/server/target}"
 BIN="$TARGET_DIR/debug/verify-sql-contracts"
 if [[ ! -x "$BIN" ]]; then
   echo "✗ check-rust-sql-contracts-selftest: verifier binary missing at $BIN" >&2
@@ -215,11 +215,11 @@ assert_mutant_fails "5c. worker-only function under setjoin_app" "42501" "lockou
 # Helper: build a clean throwaway workspace for static scanner negative mutants 6-8
 make_static_fixture() {
   local dir="$1"
-  mkdir -p "$dir/server-rust/crates/sql-catalog/src" \
-    "$dir/server-rust/tests/sql-contracts/src" \
-    "$dir/server-rust/crates/domains/sample/src" \
+  mkdir -p "$dir/server/crates/sql-catalog/src" \
+    "$dir/server/tests/sql-contracts/src" \
+    "$dir/server/crates/domains/sample/src" \
     "$dir/config"
-  cat >"$dir/server-rust/crates/sql-catalog/Cargo.toml" <<'TOML'
+  cat >"$dir/server/crates/sql-catalog/Cargo.toml" <<'TOML'
 [package]
 name = "setjoin-sql-catalog"
 version = "0.0.0"
@@ -228,14 +228,14 @@ edition = "2021"
 [dependencies]
 tokio-postgres = "0.7.18"
 TOML
-  cat >"$dir/server-rust/tests/sql-contracts/Cargo.toml" <<'TOML'
+  cat >"$dir/server/tests/sql-contracts/Cargo.toml" <<'TOML'
 [package]
 name = "setjoin-sql-contracts"
 version = "0.0.0"
 edition = "2021"
 TOML
   printf '# clean lockfile\n[[package]]\nname = "tokio-postgres"\nversion = "0.7.18"\n' \
-    >"$dir/server-rust/Cargo.lock"
+    >"$dir/server/Cargo.lock"
   cat >"$dir/config/sql-contracts-legacy-ratchet.json" <<'JSON'
 {
   "catalog_enforced_crates": ["sample"],
@@ -243,12 +243,12 @@ TOML
   "uncataloged_sql": {}
 }
 JSON
-  printf 'pub fn ok() {}\n' >"$dir/server-rust/crates/domains/sample/src/lib.rs"
+  printf 'pub fn ok() {}\n' >"$dir/server/crates/domains/sample/src/lib.rs"
 }
 
 # Mutant 6: Unverified runtime format! SQL interpolation (SQL_INTERPOLATION_FORBIDDEN)
 make_static_fixture "$TMP/m6"
-cat >"$TMP/m6/server-rust/crates/domains/sample/src/lib.rs" <<'RS'
+cat >"$TMP/m6/server/crates/domains/sample/src/lib.rs" <<'RS'
 pub fn bad(col: &str) -> String {
     format!("SELECT {col} FROM users WHERE id = $1")
 }
@@ -258,7 +258,7 @@ assert_mutant_fails "6a. runtime format! SQL interpolation" "SQL_INTERPOLATION_F
 
 # Mutant 6b: Nested concat! inside runtime format! SQL interpolation
 make_static_fixture "$TMP/m6b"
-cat >"$TMP/m6b/server-rust/crates/domains/sample/src/lib.rs" <<'RS'
+cat >"$TMP/m6b/server/crates/domains/sample/src/lib.rs" <<'RS'
 pub fn bad_concat(col: &str) -> String {
     format!(concat!("SELECT ", "{col} FROM users WHERE id = $1"))
 }
@@ -268,7 +268,7 @@ assert_mutant_fails "6b. format!(concat!(...)) SQL interpolation" "SQL_INTERPOLA
 
 # Mutant 7a: Uncataloged raw SQL literal after '\\', '\'', and '"' char literals (UNCATALOGED_SQL)
 make_static_fixture "$TMP/m7"
-cat >"$TMP/m7/server-rust/crates/domains/sample/src/lib.rs" <<'RS'
+cat >"$TMP/m7/server/crates/domains/sample/src/lib.rs" <<'RS'
 pub fn bad() -> &'static str {
     let _bs = '\\';
     let _sq = '\'';
@@ -281,7 +281,7 @@ assert_mutant_fails "7a. uncataloged raw SQL literal (char literals)" "UNCATALOG
 
 # Mutant 7b: Uncataloged SQL inside #[cfg(not(test))] must NOT be skipped
 make_static_fixture "$TMP/m7b"
-cat >"$TMP/m7b/server-rust/crates/domains/sample/src/lib.rs" <<'RS'
+cat >"$TMP/m7b/server/crates/domains/sample/src/lib.rs" <<'RS'
 #[cfg(not(test))]
 pub fn prod_only() -> &'static str {
     "WITH RECURSIVE t(id) AS (SELECT id FROM users WHERE id = $1) SELECT id FROM t"
@@ -292,20 +292,20 @@ assert_mutant_fails "7b. #[cfg(not(test))] WITH RECURSIVE SQL" "UNCATALOGED_SQL"
 
 # Mutant 8a: proc-macro = true in crates/sql-catalog/Cargo.toml (PROC_MACRO_FORBIDDEN)
 make_static_fixture "$TMP/m8a"
-printf '\n[lib]\nproc-macro = true\n' >>"$TMP/m8a/server-rust/crates/sql-catalog/Cargo.toml"
+printf '\n[lib]\nproc-macro = true\n' >>"$TMP/m8a/server/crates/sql-catalog/Cargo.toml"
 assert_mutant_fails "8a. proc-macro=true injection" "PROC_MACRO_FORBIDDEN" "" \
   python3 "$ROOT/scripts/guards/check-rust-sql-contracts.py" --root "$TMP/m8a"
 
 # Mutant 8b: sqlx-macros in Cargo.lock (PROC_MACRO_FORBIDDEN)
 make_static_fixture "$TMP/m8b"
 printf '\n[[package]]\nname = "sqlx-macros"\nversion = "0.8.0"\n' \
-  >>"$TMP/m8b/server-rust/Cargo.lock"
+  >>"$TMP/m8b/server/Cargo.lock"
 assert_mutant_fails "8b. sqlx-macros Cargo.lock injection" "PROC_MACRO_FORBIDDEN" "" \
   python3 "$ROOT/scripts/guards/check-rust-sql-contracts.py" --root "$TMP/m8b"
 
 # Mutant 9a: Forged ReducerWritesCoreAudit outside crates/domains/*/src/sql.rs
 make_static_fixture "$TMP/m9a"
-cat >"$TMP/m9a/server-rust/crates/domains/sample/src/lib.rs" <<'RS'
+cat >"$TMP/m9a/server/crates/domains/sample/src/lib.rs" <<'RS'
 use setjoin_sql_catalog::SqlAuditPosture;
 pub const FORGED: SqlAuditPosture = SqlAuditPosture::ReducerWritesCoreAudit;
 RS
@@ -314,15 +314,15 @@ assert_mutant_fails "9a. forged ReducerWritesCoreAudit outside sql.rs" "AUDIT_PO
 
 # Mutant 9b: CTE-wrapped inline DML + audited reducer in src/sql.rs
 make_static_fixture "$TMP/m9b"
-mkdir -p "$TMP/m9b/mailserver/sql/reducers"
-cat >"$TMP/m9b/mailserver/sql/reducers/rust_admin_role_delete.sql" <<'SQL'
+mkdir -p "$TMP/m9b/sql/reducers"
+cat >"$TMP/m9b/sql/reducers/rust_admin_role_delete.sql" <<'SQL'
 CREATE OR REPLACE FUNCTION rust_admin_role_delete(p_actor bigint) RETURNS void AS $$
 BEGIN
   PERFORM audit_write(p_actor, 'role_delete', 'role_group', 1, NULL, NULL, NULL, '', 'core');
 END;
 $$ LANGUAGE plpgsql;
 SQL
-cat >"$TMP/m9b/server-rust/crates/domains/sample/src/sql.rs" <<'RS'
+cat >"$TMP/m9b/server/crates/domains/sample/src/sql.rs" <<'RS'
 use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
 pub const CTE_SMUGGLE: SqlContract = SqlContract {
     id: "sample.cte_smuggle",
@@ -340,15 +340,15 @@ assert_mutant_fails "9b. CTE-wrapped DML + ReducerWritesCoreAudit" "AUDIT_POSTUR
 
 # Mutant 9c: 'routine'-only reducer marked ReducerWritesCoreAudit
 make_static_fixture "$TMP/m9c"
-mkdir -p "$TMP/m9c/mailserver/sql/reducers"
-cat >"$TMP/m9c/mailserver/sql/reducers/rust_admin_routine_only.sql" <<'SQL'
+mkdir -p "$TMP/m9c/sql/reducers"
+cat >"$TMP/m9c/sql/reducers/rust_admin_routine_only.sql" <<'SQL'
 CREATE OR REPLACE FUNCTION rust_admin_routine_only(p_actor bigint) RETURNS void AS $$
 BEGIN
   PERFORM audit_write(p_actor, 'routine_only', 'role_group', 1, NULL, NULL, NULL, '', 'routine');
 END;
 $$ LANGUAGE plpgsql;
 SQL
-cat >"$TMP/m9c/server-rust/crates/domains/sample/src/sql.rs" <<'RS'
+cat >"$TMP/m9c/server/crates/domains/sample/src/sql.rs" <<'RS'
 use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
 pub const ROUTINE_ONLY: SqlContract = SqlContract {
     id: "sample.routine_only",
@@ -366,8 +366,8 @@ assert_mutant_fails "9c. routine-only reducer marked ReducerWritesCoreAudit" "AU
 
 # Mutant 9d: EXCEPTION WHEN OTHERS wrapping core audit_write
 make_static_fixture "$TMP/m9d"
-mkdir -p "$TMP/m9d/mailserver/sql/reducers"
-cat >"$TMP/m9d/mailserver/sql/reducers/rust_admin_swallow.sql" <<'SQL'
+mkdir -p "$TMP/m9d/sql/reducers"
+cat >"$TMP/m9d/sql/reducers/rust_admin_swallow.sql" <<'SQL'
 CREATE OR REPLACE FUNCTION rust_admin_swallow(p_actor bigint) RETURNS void AS $$
 BEGIN
   BEGIN
@@ -377,7 +377,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 SQL
-cat >"$TMP/m9d/server-rust/crates/domains/sample/src/sql.rs" <<'RS'
+cat >"$TMP/m9d/server/crates/domains/sample/src/sql.rs" <<'RS'
 use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
 pub const SWALLOWED_AUDIT: SqlContract = SqlContract {
     id: "sample.swallowed_audit",
@@ -395,15 +395,15 @@ assert_mutant_fails "9d. EXCEPTION WHEN OTHERS wrapping audit_write" "AUDIT_POST
 
 # Mutant 9e: Non-$1 first argument (R2 p_actor bypass via $2 or literal)
 make_static_fixture "$TMP/m9e1"
-mkdir -p "$TMP/m9e1/mailserver/sql/reducers"
-cat >"$TMP/m9e1/mailserver/sql/reducers/rust_admin_role_delete.sql" <<'SQL'
+mkdir -p "$TMP/m9e1/sql/reducers"
+cat >"$TMP/m9e1/sql/reducers/rust_admin_role_delete.sql" <<'SQL'
 CREATE OR REPLACE FUNCTION rust_admin_role_delete(p_actor bigint, p_id bigint) RETURNS void AS $$
 BEGIN
   PERFORM audit_write(p_actor, 'role_delete', 'role_group', p_id, NULL, NULL, NULL, '', 'core');
 END;
 $$ LANGUAGE plpgsql;
 SQL
-cat >"$TMP/m9e1/server-rust/crates/domains/sample/src/sql.rs" <<'RS'
+cat >"$TMP/m9e1/server/crates/domains/sample/src/sql.rs" <<'RS'
 use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
 pub const SWAPPED_ACTOR: SqlContract = SqlContract {
     id: "sample.swapped_actor",
@@ -420,10 +420,10 @@ assert_mutant_fails '9e1. swapped $2 actor arg on ReducerWritesCoreAudit' "AUDIT
   python3 "$ROOT/scripts/guards/check-rust-sql-contracts.py" --root "$TMP/m9e1"
 
 make_static_fixture "$TMP/m9e2"
-mkdir -p "$TMP/m9e2/mailserver/sql/reducers"
-cp "$TMP/m9e1/mailserver/sql/reducers/rust_admin_role_delete.sql" \
-  "$TMP/m9e2/mailserver/sql/reducers/rust_admin_role_delete.sql"
-cat >"$TMP/m9e2/server-rust/crates/domains/sample/src/sql.rs" <<'RS'
+mkdir -p "$TMP/m9e2/sql/reducers"
+cp "$TMP/m9e1/sql/reducers/rust_admin_role_delete.sql" \
+  "$TMP/m9e2/sql/reducers/rust_admin_role_delete.sql"
+cat >"$TMP/m9e2/server/crates/domains/sample/src/sql.rs" <<'RS'
 use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
 pub const LITERAL_ACTOR: SqlContract = SqlContract {
     id: "sample.literal_actor",

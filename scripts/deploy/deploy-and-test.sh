@@ -59,7 +59,7 @@ sudo env LISTEN_ADDR=:8443 DB_DSN="$APP" DB_WORKER_DSN="$WORKER" DB_OWNER_DSN="$
   JWT_SECRET="$JW" INTERNAL_API_KEY="$AP" \
   TLS_CERT=/tmp/certs/cert.pem TLS_KEY=/tmp/certs/key.pem \
   MINIO_ACCESS_KEY=t MINIO_SECRET_KEY=t S3_ACCESS_KEY=t S3_SECRET_KEY=t \
-  WEBSITE_DIR=$HOME/setjoin/mailserver/webmail/build \
+  WEBSITE_DIR=$HOME/setjoin/webmail/build \
   HTTP_MODE=serve AUTHSERVER_URL=http://127.0.0.1:8444 \
   nohup /tmp/gwd >> /tmp/gw.log 2>&1 &
 sleep 5

@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-06-19
-**Source:** Webmail architecture review (`/improve-codebase-architecture` over `mailserver/webmail/src/`) → candidate **collection-store** → adversarial validate/refute (with measurement) + `/grill-with-docs` 2026-06-19.
+**Source:** Webmail architecture review (`/improve-codebase-architecture` over `webmail/src/`) → candidate **collection-store** → adversarial validate/refute (with measurement) + `/grill-with-docs` 2026-06-19.
 
 ## Context
 
@@ -19,7 +19,7 @@ A factory over the divergent bodies is a **shallow module** (interface ≈ imple
 
 **Do not build a collection-store / CRUD factory.** Per-app `openCreate`/`openEdit`/validation/`save`/`refresh`/`delete` stay **per-app permanently** — the divergence is intrinsic (no shared form fields; calendar's two-phase scope save; contacts' array validation; tasks' undo-toast). The stores stay as thin JMAP wrappers.
 
-The **only admissible residue** (hygiene-tier, optional, not scheduled): if the ~12-line modal triad is ever judged worth a shared helper, extract **view-state only** — a `createModalController<T>()` **rune helper** in `mailserver/webmail/src/lib/utils/` (NOT a store; Svelte-5 `$state` per CLAUDE.md) returning `{ showModal, mode, editing }` + `openDetail(x)`/`close()`. It is gated **after** `retired-docs:superpowers/plans/archive/2026-06-18-wire-task-contact-push-reactivity.md` lands, because that plan rewrites the same `onMount`/`onDestroy`/refresh hunks **and** introduces a genuinely-duplicated `subscribe→refresh→unsubscribe` consumer triad across the same three apps — a **better extraction target** (a behavior contract, error-prone to hand-repeat) than the view-only modal triad. At ~12 lines, local clarity plausibly beats DRY; this is severity-hygiene, not worth-doing-now.
+The **only admissible residue** (hygiene-tier, optional, not scheduled): if the ~12-line modal triad is ever judged worth a shared helper, extract **view-state only** — a `createModalController<T>()` **rune helper** in `webmail/src/lib/utils/` (NOT a store; Svelte-5 `$state` per CLAUDE.md) returning `{ showModal, mode, editing }` + `openDetail(x)`/`close()`. It is gated **after** `retired-docs:superpowers/plans/archive/2026-06-18-wire-task-contact-push-reactivity.md` lands, because that plan rewrites the same `onMount`/`onDestroy`/refresh hunks **and** introduces a genuinely-duplicated `subscribe→refresh→unsubscribe` consumer triad across the same three apps — a **better extraction target** (a behavior contract, error-prone to hand-repeat) than the view-only modal triad. At ~12 lines, local clarity plausibly beats DRY; this is severity-hygiene, not worth-doing-now.
 
 ## Considered options
 

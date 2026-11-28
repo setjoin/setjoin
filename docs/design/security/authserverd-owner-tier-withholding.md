@@ -17,12 +17,12 @@ The C8 implementation split the privileged DB tiers out of `config.env` into
 `/etc/setjoin/db-credentials.d/db-credentials.env` (0600 root:root, root-controlled ancestor
 `/etc/setjoin` — r3 namespace posture):
 
-- `mailserver/deploy/scripts/install.sh:120-121` defines `DB_CRED_DIR`/`DB_CRED_FILE`;
+- `deploy/scripts/install.sh:120-121` defines `DB_CRED_DIR`/`DB_CRED_FILE`;
   `install.sh:783-785, 797-798` render the three privileged keys
   (`DB_WORKER_DSN`, `DB_OWNER_DSN`, `DB_DIRECT_OWNER_DSN`) exclusively into that file.
 - **Both** internet-facing units currently receive the **full** file (all three keys):
-  - `mailserver/deploy/authserver.service.template:73` — `EnvironmentFile={{DB_CREDENTIALS_FILE}}`
-  - `mailserver/deploy/mailserver.service.template:85` — same
+  - `deploy/authserver.service.template:73` — `EnvironmentFile={{DB_CREDENTIALS_FILE}}`
+  - `deploy/mailserver.service.template:85` — same
 
 systemd parses `EnvironmentFile=` manager-side as root, so both units' processes carry the
 owner-tier DSN in their environment for their entire lifetime.

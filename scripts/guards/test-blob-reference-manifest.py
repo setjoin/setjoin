@@ -138,8 +138,8 @@ def main() -> int:
     # 1. Pristine repo HEAD must pass cleanly.
     errors, stats = guard.validate(
         REPO_ROOT / "config" / "blob-reference-manifest.json",
-        REPO_ROOT / "mailserver" / "sql" / "dbschema",
-        REPO_ROOT / "mailserver" / "sql" / "reducers" / "blob_gc.sql",
+        REPO_ROOT / "sql" / "dbschema",
+        REPO_ROOT / "sql" / "reducers" / "blob_gc.sql",
     )
     assert not errors, f"pristine repo failed: {errors}"
     assert stats["live_roots"] >= 14, f"expected >= 14 live_roots, got {stats}"

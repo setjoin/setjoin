@@ -14,8 +14,8 @@ go test ./mailserver/internal/migration ./mailserver/internal/imap
 bash scripts/load-test-schema.sh
 pg_prove -h "${PGHOST:-127.0.0.1}" -p "${PGPORT:-5432}" \
   -U "${PGUSER:-mail}" -d "${PGDATABASE:-mailserver_test}" \
-  mailserver/sql/tests/migration_source_identity.pg \
-  mailserver/sql/tests/imap_membership_uid.pg
+  sql/tests/migration_source_identity.pg \
+  sql/tests/imap_membership_uid.pg
 
 if [[ "$mode" == full ]]; then
   go test -race ./mailserver/internal/migration ./mailserver/internal/imap

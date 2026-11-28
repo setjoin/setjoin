@@ -5,137 +5,137 @@
   "legacy_write_migration_ceiling": 0,
   "r1_r3_allowlist": [
     {
-      "file": "server-rust/crates/domains/admin-identity/src/sql.rs",
+      "file": "server/crates/domains/admin-identity/src/sql.rs",
       "table": "users",
       "reason": "Admin identity-v2 operational summary and department member counts across org (AdminReadTx on WorkerPool)."
     },
     {
-      "file": "server-rust/crates/domains/approvals/src/sql.rs",
+      "file": "server/crates/domains/approvals/src/sql.rs",
       "table": "approval_requests",
       "reason": "Internal approver notification lookup by already-authorized approval request id."
     },
     {
-      "file": "server-rust/crates/domains/approvals/src/sql.rs",
+      "file": "server/crates/domains/approvals/src/sql.rs",
       "table": "drive_access_request_details",
       "reason": "Approval detail projection fragment joined inside approval_requests scoped query."
     },
     {
-      "file": "server-rust/crates/domains/calendar/src/sql.rs",
+      "file": "server/crates/domains/calendar/src/sql.rs",
       "table": "vt_timezone",
       "reason": "CalDAV VTIMEZONE fragment composed with caller-scoped calendar_id predicate."
     },
     {
-      "file": "server-rust/crates/domains/compliance/src/sql.rs",
+      "file": "server/crates/domains/compliance/src/sql.rs",
       "table": "chat_channels",
       "reason": "Compliance admin chat oversight listing held, GxP, and retention-configured channels across org (AdminSensitiveRead on WorkerPool)."
     },
     {
-      "file": "server-rust/crates/domains/compliance/src/sql.rs",
+      "file": "server/crates/domains/compliance/src/sql.rs",
       "table": "messages",
       "reason": "Compliance admin eDiscovery message export by selected search-result message IDs (AdminSensitiveRead on WorkerPool)."
     },
     {
-      "file": "server-rust/crates/domains/conditional-access/src/sql.rs",
+      "file": "server/crates/domains/conditional-access/src/sql.rs",
       "table": "users",
       "reason": "Admin Conditional Access what-if console lookup of target user by email (AdminReadTx on WorkerPool)."
     },
     {
-      "file": "server-rust/crates/domains/devices/src/sql.rs",
+      "file": "server/crates/domains/devices/src/sql.rs",
       "table": "devices",
       "reason": "Admin device lockdown target user_id resolution passed into admin_can_reach_perm."
     },
     {
-      "file": "server-rust/crates/domains/devices/src/sql.rs",
+      "file": "server/crates/domains/devices/src/sql.rs",
       "table": "user_devices",
       "reason": "Admin offline command target user_id resolution passed into admin_can_reach_perm."
     },
     {
-      "file": "server-rust/crates/domains/drive/src/sql.rs",
+      "file": "server/crates/domains/drive/src/sql.rs",
       "table": "drive_audit_alarms",
       "reason": "Admin Drive audit alarm listing gated by SQL drive_has_admin_perm($1, 'drive.manage')."
     },
     {
-      "file": "server-rust/crates/domains/drive/src/sql.rs",
+      "file": "server/crates/domains/drive/src/sql.rs",
       "table": "drive_spaces",
       "reason": "Drive space admin/classification lookup gated by space ACL / admin permission check."
     },
     {
-      "file": "server-rust/crates/domains/guests/src/sql.rs",
+      "file": "server/crates/domains/guests/src/sql.rs",
       "table": "users",
       "reason": "Guest admin sponsor transfer search filtered by SQL guest_admin_can_transfer_to($1, $2, u.id)."
     },
     {
-      "file": "server-rust/crates/domains/identity/src/sql.rs",
+      "file": "server/crates/domains/identity/src/sql.rs",
       "table": "oauth_tokens",
       "reason": "Pre-auth bearer/refresh token introspection lookup by cryptographic token_hash on AuthDb WorkerPool."
     },
     {
-      "file": "server-rust/crates/domains/identity/src/sql.rs",
+      "file": "server/crates/domains/identity/src/sql.rs",
       "table": "oidc_auth_requests",
       "reason": "Pre-auth OIDC authorization request/code redemption lookup by opaque flow id or single-use code_hash on AuthDb WorkerPool."
     },
     {
-      "file": "server-rust/crates/domains/identity/src/sql.rs",
+      "file": "server/crates/domains/identity/src/sql.rs",
       "table": "oidc_tokens",
       "reason": "Pre-auth OIDC refresh/introspect token lookup by cryptographic hash/id and literal WHERE false no-op update on AuthDb WorkerPool."
     },
     {
-      "file": "server-rust/crates/domains/identity/src/sql.rs",
+      "file": "server/crates/domains/identity/src/sql.rs",
       "table": "users",
       "reason": "Pre-auth password/WebAuthn/SAML/OIDC/SCIM credential & external-subject lookup on users via AuthDb WorkerPool."
     },
     {
-      "file": "server-rust/crates/domains/jmap/src/sql.rs",
+      "file": "server/crates/domains/jmap/src/sql.rs",
       "table": "messages",
       "reason": "list_sql! macro injects m.mailbox_id = $1 predicate via list_sql!(@where)."
     },
     {
-      "file": "server-rust/crates/domains/mail-security/src/sql.rs",
+      "file": "server/crates/domains/mail-security/src/sql.rs",
       "table": "messages",
       "reason": "Admin quarantine message preview lookup gated by admin_can_reach_perm."
     },
     {
-      "file": "server-rust/crates/domains/mail-security/src/sql.rs",
+      "file": "server/crates/domains/mail-security/src/sql.rs",
       "table": "quarantined_messages",
       "reason": "Admin quarantine dashboard counts and preview gated by admin permission."
     },
     {
-      "file": "server-rust/crates/domains/mail-security/src/sql.rs",
+      "file": "server/crates/domains/mail-security/src/sql.rs",
       "table": "user_spam_model",
       "reason": "Admin fleet-wide spam model health statistics."
     },
     {
-      "file": "server-rust/crates/domains/mailboxes/src/sql.rs",
+      "file": "server/crates/domains/mailboxes/src/sql.rs",
       "table": "migration_jobs",
       "reason": "Admin migration job list/get/delete with admin permission and dynamic scope."
     },
     {
-      "file": "server-rust/crates/domains/meet/src/sql.rs",
+      "file": "server/crates/domains/meet/src/sql.rs",
       "table": "meetings",
       "reason": "Meeting room/lobby/recording lookup by meeting id after participant/host authorization."
     },
     {
-      "file": "server-rust/crates/domains/platform/src/sql.rs",
+      "file": "server/crates/domains/platform/src/sql.rs",
       "table": "messages",
       "reason": "Admin platform health monitor 24h message volume/size aggregates (AdminReadTx on WorkerPool)."
     },
     {
-      "file": "server-rust/crates/domains/platform/src/sql.rs",
+      "file": "server/crates/domains/platform/src/sql.rs",
       "table": "quarantined_messages",
       "reason": "Admin platform health monitor quarantine backlog/virus counts (AdminReadTx on WorkerPool)."
     },
     {
-      "file": "server-rust/crates/domains/rules/src/sql.rs",
+      "file": "server/crates/domains/rules/src/sql.rs",
       "table": "rules",
       "reason": "Admin transport rules listing/inspection/dry-run gated by admin permission."
     },
     {
-      "file": "server-rust/crates/domains/static/src/sql.rs",
+      "file": "server/crates/domains/static/src/sql.rs",
       "table": "approval_requests",
       "reason": "Prometheus metrics aggregate count of pending approval_requests."
     },
     {
-      "file": "server-rust/crates/domains/static/src/sql.rs",
+      "file": "server/crates/domains/static/src/sql.rs",
       "table": "users",
       "reason": "First-run bootstrap setup check counting total users."
     }

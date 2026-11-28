@@ -117,7 +117,7 @@
     {
       "case_id": "ARCH-R3-R6-CHAT-RECONCILE",
       "workstream": "R6",
-      "owner": "mailserver/webmail/chat",
+      "owner": "webmail/chat",
       "command": "bash scripts/ci/verify-architecture-r3.sh chat-reconcile",
       "required_environment": "node-vitest-supported-host",
       "mutation_boundary": "ignored-test-evidence-only",
@@ -128,7 +128,7 @@
     {
       "case_id": "ARCH-R3-R7-COMPOSE-STATE",
       "workstream": "R7",
-      "owner": "mailserver/webmail/compose",
+      "owner": "webmail/compose",
       "command": "bash scripts/ci/verify-architecture-r3.sh compose-state",
       "required_environment": "node-vitest-supported-host",
       "mutation_boundary": "ignored-test-evidence-only",

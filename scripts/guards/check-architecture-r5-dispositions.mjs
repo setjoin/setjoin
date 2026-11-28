@@ -76,11 +76,11 @@ function validateExchange(entry) {
   }
 }
 function validateCalendar(entry) {
-  if (entry.disposition !== 'no-change' || entry.ownerPath !== 'mailserver/webmail/src/lib/stores/calendarActionStore.svelte.ts') boundary(`${entry.caseId}: invalid Calendar disposition/owner`);
+  if (entry.disposition !== 'no-change' || entry.ownerPath !== 'webmail/src/lib/stores/calendarActionStore.svelte.ts') boundary(`${entry.caseId}: invalid Calendar disposition/owner`);
   if (entry.threshold.minimumDistinctTransitions !== 2 || entry.threshold.minimumOutsideOwnerProductionSitesPerTransition !== 2 || entry.threshold.redTestRequired !== true) boundary(`${entry.caseId}: threshold weakened`);
   if (!Array.isArray(entry.transitions) || JSON.stringify(entry.transitions.map((row) => row.id)) !== JSON.stringify(calendarTransitionIds)) boundary(`${entry.caseId}: incomplete transition inventory`);
   const qualifying = [];
-  const testText = fs.readFileSync(path.join(root, 'mailserver/webmail/src/lib/stores/calendarActionStore.svelte.test.ts'), 'utf8');
+  const testText = fs.readFileSync(path.join(root, 'webmail/src/lib/stores/calendarActionStore.svelte.test.ts'), 'utf8');
   for (const row of entry.transitions) {
     if (row.stateChanging !== true || !Array.isArray(row.productionSites) || !Array.isArray(row.redTestIds)) boundary(`${row.id}: incomplete transition evidence`);
     unique(row.productionSites, `${row.id}.productionSites`);
@@ -148,9 +148,9 @@ try {
     expectFailure(() => validate(mutant, caseIds[1]), 'E_ARCH_R5_DISPOSITION', 'Exchange completion overclaim');
     mutant = clone(original);
     const calendar = findCase(mutant, caseIds[3]);
-    calendar.transitions[0].productionSites.push('mailserver/webmail/src/lib/components/CalendarApp.svelte:827');
+    calendar.transitions[0].productionSites.push('webmail/src/lib/components/CalendarApp.svelte:827');
     calendar.transitions[0].qualifies = true;
-    calendar.transitions[1].productionSites.push('mailserver/webmail/src/lib/components/CalendarApp.svelte:827');
+    calendar.transitions[1].productionSites.push('webmail/src/lib/components/CalendarApp.svelte:827');
     calendar.transitions[1].qualifies = true;
     calendar.qualifyingTransitionIds.push('create', 'update');
     expectFailure(() => validate(mutant, caseIds[3]), 'E_ARCH_R5_DISPOSITION', 'Calendar threshold reached under no-change');

@@ -14,7 +14,7 @@ if [ "$MODE" != "marketplace" ]; then
         (cd "$ROOT/mailserver" && \
             go test -tags e2e -run '^TestLinkProtectE2E_TokenFlow$' -count=1 -timeout 120s ./internal/smtp/...)
     else
-        bash "$ROOT/mailserver/deploy/test.sh" "$MODE"
+        bash "$ROOT/deploy/test.sh" "$MODE"
     fi
     exit 0
 fi

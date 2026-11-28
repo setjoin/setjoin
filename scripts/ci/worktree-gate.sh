@@ -50,7 +50,7 @@ DB_NAME="$DB" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_USER="$DB_USER" \
   bash "$ROOT/scripts/load-test-schema.sh"
 
 echo "==> 3/3 pgTAP ($DB)"
-pg_prove -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB" "$ROOT/mailserver/sql/tests/"*.pg
-pg_prove -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB" "$ROOT/authserver/sql/tests/"*.pg
+pg_prove -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB" "$ROOT/sql/tests/"*.pg
+pg_prove -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB" "$ROOT/sql/auth/tests/"*.pg
 
 echo "==> worktree-gate: green against $DB"

@@ -2,8 +2,8 @@
 """Fail if OpenAPI proc-macro crates or attributes enter domain, contract, or pg crates.
 
 Enforces the #561 edge-only plain-serde DTO architecture:
-  - Scans `server-rust/crates/domains/*`, `server-rust/crates/contracts/*`, and
-    `server-rust/crates/pg/*` (`Cargo.toml` and `*.rs`).
+  - Scans `server/crates/domains/*`, `server/crates/contracts/*`, and
+    `server/crates/pg/*` (`Cargo.toml` and `*.rs`).
   - Fails if any banned crate name or derive/attribute symbol appears outside
     comments.
 """
@@ -165,7 +165,7 @@ def main() -> int:
     parser.add_argument(
         "--root",
         type=pathlib.Path,
-        default=pathlib.Path(__file__).resolve().parents[2] / "server-rust",
+        default=pathlib.Path(__file__).resolve().parents[2] / "server",
         help="Path to server-rust workspace root",
     )
     args = parser.parse_args()

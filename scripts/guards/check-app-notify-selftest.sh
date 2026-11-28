@@ -27,7 +27,7 @@ mkdir -p "$TMP/reducers"
 
 # Seed the real wrapper so the allowlist resolves as in prod (it legitimately
 # calls the built-in pg_notify and must NOT trip the guard).
-cp "$ROOT/mailserver/sql/reducers/app_notify.sql" "$TMP/reducers/" 2>/dev/null || true
+cp "$ROOT/sql/reducers/app_notify.sql" "$TMP/reducers/" 2>/dev/null || true
 
 # A clean, routed reducer (calls app_notify, never pg_notify directly).
 cat > "$TMP/reducers/clean.sql" <<'SQL'

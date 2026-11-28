@@ -108,8 +108,8 @@ Some limits come from server config, not hardcoded:
 
 ```bash
 # Find forms missing maxlength
-grep -rn "<input\|<textarea" mailserver/webmail/src/routes/ | grep -v "maxlength\|disabled\|readonly\|hidden\|type=.checkbox\|type=.radio\|type=.file\|type=.submit"
+grep -rn "<input\|<textarea" webmail/src/routes/ | grep -v "maxlength\|disabled\|readonly\|hidden\|type=.checkbox\|type=.radio\|type=.file\|type=.submit"
 
 # Find forms without validation import
-grep -L "from '\$lib/validation'" mailserver/webmail/src/routes/*/+page.svelte mailserver/webmail/src/lib/components/*.svelte
+grep -L "from '\$lib/validation'" webmail/src/routes/*/+page.svelte webmail/src/lib/components/*.svelte
 ```

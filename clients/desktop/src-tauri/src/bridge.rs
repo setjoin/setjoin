@@ -2,7 +2,7 @@
 //!
 //! Each `#[tauri::command]` wraps one native capability that the webmail's
 //! `window.setjoinNative` facade (see `bridge_js.rs`) invokes. The contract
-//! shape is owned by `mailserver/webmail/src/lib/native/types.ts`
+//! shape is owned by `webmail/src/lib/native/types.ts`
 //! (`SetjoinNativeBridge`); the command names here must match the `invoke()`
 //! calls in `bridge_js::bridge_init_js()`.
 //!
@@ -611,7 +611,7 @@ mod tests {
     use super::*;
 
     /// Mirror of `NATIVE_CAPABILITIES` in
-    /// `mailserver/webmail/src/lib/native/types.ts`. If C0 adds a capability,
+    /// `webmail/src/lib/native/types.ts`. If C0 adds a capability,
     /// this list must be updated in lock-step — the parity test below proves
     /// the desktop set is a strict subset of the contract.
     const C0_NATIVE_CAPABILITIES: &[&str] = &[

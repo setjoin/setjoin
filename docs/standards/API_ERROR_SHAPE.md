@@ -28,7 +28,7 @@ clients — anything served under `/api` or a pinned JSON prefix, see
 ## The published contract
 
 The wire shape is documented once, formally, at
-`mailserver/api/openapi.yaml` → `#/components/schemas/Problem`. That schema
+`api/openapi.yaml` → `#/components/schemas/Problem`. That schema
 is what clients (and this doc) should treat as canonical; this file explains
 the Go-side plumbing that produces it.
 

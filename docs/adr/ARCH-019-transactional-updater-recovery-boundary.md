@@ -12,7 +12,7 @@ Setjoin currently has two incomplete server-update paths. The gateway's
 `mailserver/internal/admin/admin_upgrade.go` can copy over its own executable,
 while the newer Admin Portal server-update screen calls upload and history
 routes that are not registered by `mailserverd`. The real deployment path is
-`mailserver/deploy/scripts/upgrade.sh`, which stops services, copies artifacts,
+`deploy/scripts/upgrade.sh`, which stops services, copies artifacts,
 runs migrations, probes readiness, and copies the previous binaries back on a
 failure. None of these paths provides a crash-resumable transaction, a signed
 multi-artifact release contract, or evidence that the backup used by the

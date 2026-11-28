@@ -14,12 +14,12 @@ Every endpoint here is verified against the real handlers:
 
 | Surface                | Source of truth                                  |
 |------------------------|--------------------------------------------------|
-| `/api/discover`        | `server-rust/crates/domains/static`              |
-| `/auth/login`          | `server-rust/bins/auth/src` (`Login`)            |
-| `/.well-known/jmap`, `/jmap` | `server-rust/bins/gateway/src/jmap` (`Session`, `Request`) |
-| `/caldav/`             | `server-rust/crates/protocols/dav`               |
-| `/carddav/`            | `server-rust/crates/protocols/dav`               |
-| route wiring           | `server-rust/bins/gateway/src/main.rs`           |
+| `/api/discover`        | `server/crates/domains/static`              |
+| `/auth/login`          | `server/bins/auth/src` (`Login`)            |
+| `/.well-known/jmap`, `/jmap` | `server/bins/gateway/src/jmap` (`Session`, `Request`) |
+| `/caldav/`             | `server/crates/protocols/dav`               |
+| `/carddav/`            | `server/crates/protocols/dav`               |
+| route wiring           | `server/bins/gateway/src/main.rs`           |
 
 For identity-source automation, use the admin-only full OpenAPI document and
 the bounded examples in
@@ -373,4 +373,4 @@ curl -s -X PROPFIND "$BASE/carddav/" -H "Authorization: Bearer $TOKEN" \
   (`urn:ietf:params:jmap:error:*`); per-method failures appear as an `["error",
   {...}, callId]` entry in `methodResponses`.
 - **Feature toggles:** CalDAV/CardDAV are gated by `feature.caldav` /
-  `feature.carddav` and per-user app entitlement (see `mailserver/AGENTS.md`).
+  `feature.carddav` and per-user app entitlement (see `server/AGENTS.md`).

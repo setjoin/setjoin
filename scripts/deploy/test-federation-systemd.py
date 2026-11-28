@@ -17,7 +17,7 @@ import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
-ORACLE = ROOT / "server-rust/crates/protocols/federation/oracle"
+ORACLE = ROOT / "server/crates/protocols/federation/oracle"
 
 
 def run(*args, **kwargs):
@@ -73,8 +73,8 @@ def verify_unbindable_socket(binary):
                        GATEWAY_LISTEN=f"{http[0]}:{http[1]}", FEDERATION_ENABLED="true",
                        FEDERATION_LISTEN_ADDR=f"127.0.0.1:{occupied.getsockname()[1]}")
             run("bash", "-c", 'source "$1"; render_gateway_unit "$2" "$3"', "render",
-                str(ROOT / "mailserver/deploy/scripts/lib-livekit.sh"),
-                str(ROOT / "mailserver/deploy/setjoin-gateway.service.template"),
+                str(ROOT / "deploy/scripts/lib-livekit.sh"),
+                str(ROOT / "deploy/setjoin-gateway.service.template"),
                 str(directory / "setjoin-gateway.service"), env=env)
             installed = []
             try:

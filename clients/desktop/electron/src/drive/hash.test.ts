@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CHUNK_SIZE, SHA256_EMPTY } from '../../../../../mailserver/webmail/src/lib/drive/sync/types.js';
+import { CHUNK_SIZE, SHA256_EMPTY } from '../../../../../webmail/src/lib/drive/sync/types.js';
 import { hashFile, readChunk } from './hash.js';
 
 describe('hashFile', () => {

@@ -25,7 +25,7 @@ asarUnpack:
 # (`napi build --platform --release` in clients/rust/desktop-native) before
 # packaging on each target arch — the release CI job does this per platform.
 extraResources:
-  - from: ../../../mailserver/webmail/build
+  - from: ../../../webmail/build
     to: webmail
   - from: ../../rust/desktop-native
     to: desktop-native

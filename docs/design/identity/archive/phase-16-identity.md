@@ -12,7 +12,7 @@ New endpoint in `admin_ad.go`. Returns:
 Queries `identity_sync_log` for last run + `sync_conflicts` for unresolved count. Register route in `main.go`.
 
 ### Frontend: Identity page 3-tab redesign (~80 lines)
-**File:** `mailserver/webmail/src/routes/admin/identity/+page.svelte`
+**File:** `webmail/src/routes/admin/identity/+page.svelte`
 
 Three tabs: **Auth Methods** (existing), **Active Directory** (new), **LDAP** (grayed out).
 
@@ -25,7 +25,7 @@ Three tabs: **Auth Methods** (existing), **Active Directory** (new), **LDAP** (g
 - Collapsible Advanced section: attribute mapping table (read-only for now)
 
 ### Admin client additions (~15 lines)
-**File:** `mailserver/webmail/src/lib/admin/client.ts`
+**File:** `webmail/src/lib/admin/client.ts`
 - `adminADHealth()` — calls `GET /admin/ad/health`
 - Existing: `adminADConfig()`, `adminADSetConfig()`, `adminADTestConnection()`, `adminADSync()`, `adminADSyncLog()`
 
@@ -125,5 +125,5 @@ Field policy shown in the attribute mapping Advanced section. Per-field toggle: 
 ```bash
 cd authserver && go build ./... && go test ./...
 cd mailserver/gateway && go build ./... && go test ./...
-cd mailserver/webmail && npm run check  # 0 errors, 0 warnings
+cd webmail && npm run check  # 0 errors, 0 warnings
 ```

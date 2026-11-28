@@ -3,7 +3,7 @@
 # check-queue-contract.sh — queue failure-contract ratchet (F4).
 #
 # For every CREATE TABLE matching *_queue|*_jobs across the dbschema corpus
-# (baseline + forward migrations), assert the failure contract (mailserver/sql/
+# (baseline + forward migrations), assert the failure contract (sql/
 # AGENTS.md → Queue failure contract): attempt_count, next_attempt_at, last_error,
 # and a status column. A table NOT on the waiver ALLOWLIST that is missing any
 # contract column FAILS the build. Also asserts the shared retry reducer
@@ -21,8 +21,8 @@
 # ──────────────────────────────────────────────────────────────────────────
 source "$(dirname "$0")/../_base.sh"
 
-DBSCHEMA_DIR="${DBSCHEMA_DIR:-$ROOT/mailserver/sql/dbschema}"
-REDUCERS_DIR="${REDUCERS_DIR:-$ROOT/mailserver/sql/reducers}"
+DBSCHEMA_DIR="${DBSCHEMA_DIR:-$ROOT/sql/dbschema}"
+REDUCERS_DIR="${REDUCERS_DIR:-$ROOT/sql/reducers}"
 
 # ── Waiver ALLOWLIST (one bare table name per line; see AGENTS.md for the why) ──
 #   outbound_queue     — read-contract only; Go-side backoff, terminal 'bounced'.
@@ -99,7 +99,7 @@ for t in $tables; do
     fail=1
     echo ""
     echo "  CONTRACT VIOLATION: table '$t' is missing:$missing"
-    echo "  → add the column(s) (see mailserver/sql/AGENTS.md → Queue failure"
+    echo "  → add the column(s) (see sql/AGENTS.md → Queue failure"
     echo "    contract) or, if genuinely exempt, add '$t' to ALLOWLIST in"
     echo "    scripts/guards/check-queue-contract.sh with a one-line reason."
   fi

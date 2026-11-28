@@ -55,7 +55,7 @@ E2E_SMTP_SUBMISSION_PORT="$SMTP_SUBMISSION_PORT" \
 E2E_IMAP_PORT="$IMAP_PORT" \
 E2E_DB_NAME="$DB_NAME" \
 E2E_CONTROL_SOCKET="$CONTROL_SOCKET" \
-bash "$ROOT/mailserver/webmail/e2e/scripts/start-test-stack.sh" >"$STACK_LOG" 2>&1 &
+bash "$ROOT/webmail/e2e/scripts/start-test-stack.sh" >"$STACK_LOG" 2>&1 &
 STACK_PID=$!
 
 for _ in $(seq 1 "$READY_TIMEOUT_SEC"); do
@@ -76,7 +76,7 @@ curl -fsS "$BASE/setup/status" | grep -q '"initialized":false' || {
   exit 1
 }
 
-(cd "$ROOT/mailserver/webmail" && \
+(cd "$ROOT/webmail" && \
   E2E_ONBOARDING=1 E2E_BASE_URL="$BASE" MAILCTL_BIN="$MAILCTL_BIN" \
   PGPASSWORD="${E2E_PGPASSWORD:-mail}" DB_DIRECT_OWNER_DSN="$OWNER_DSN" \
   SETJOIN_CONTROL_SOCKET="$CONTROL_SOCKET" \

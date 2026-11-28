@@ -35,8 +35,8 @@ SMTP Inbound
 | `mailserver/internal/user/newsletter.go` | Unsubscribe handler — `POST /messages/{emailId}/unsubscribe` |
 | `mailserver/internal/user/newsletter_test.go` | 6 tests: URL parsing (4 cases), unauth, missing emailId |
 | `mailserver/internal/smtp/inbound.go` | SMTP detection — `listUnsubscribe` + `isNewsletter` fields |
-| `mailserver/sql/migrations/V052__newsletter_unsubscribe.sql` | `list_unsubscribe` column on messages table |
-| `mailserver/webmail/src/lib/components/NewsletterBundle.svelte` | Collapsible bundle UI with per-sender unsubscribe |
+| `sql/migrations/V052__newsletter_unsubscribe.sql` | `list_unsubscribe` column on messages table |
+| `webmail/src/lib/components/NewsletterBundle.svelte` | Collapsible bundle UI with per-sender unsubscribe |
 
 ## RFC 8058 One-Click Unsubscribe Flow
 

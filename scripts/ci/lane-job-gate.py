@@ -30,7 +30,7 @@ CACHE_JOBS = {"plan", "build", "coverage-build"}
 QUEUE_POLL_S = 60
 QUEUE_SETTLE_S = 120
 QUEUE_CAP_S = 5400
-# The ruleset's merge_queue max_entries_to_build (server-rust/DOX.md, rollout R2). A batch holds at most this many
+# The ruleset's merge_queue max_entries_to_build (server/DOX.md, rollout R2). A batch holds at most this many
 # entries, so a later entry is at most QUEUE_MAX_BATCH commits above ours. The fetch depth is one more: the tip plus
 # its QUEUE_MAX_BATCH ancestors.
 QUEUE_MAX_BATCH = 5

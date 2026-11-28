@@ -4,9 +4,9 @@
 # webmail/src/lib/nav/navConfig.ts. Behavioral coverage lives beside the module.
 source "$(dirname "$0")/../_base.sh"
 
-CATALOG="${APP_CATALOG_FILE:-$ROOT/mailserver/webmail/src/lib/nav/navConfig.ts}"
-SESSION="${APP_SESSION_FILE:-$ROOT/mailserver/webmail/src/lib/stores/session.ts}"
-LAYOUT="${APP_LAYOUT_FILE:-$ROOT/mailserver/webmail/src/routes/+layout.svelte}"
+CATALOG="${APP_CATALOG_FILE:-$ROOT/webmail/src/lib/nav/navConfig.ts}"
+SESSION="${APP_SESSION_FILE:-$ROOT/webmail/src/lib/stores/session.ts}"
+LAYOUT="${APP_LAYOUT_FILE:-$ROOT/webmail/src/routes/+layout.svelte}"
 
 usage() {
   echo "usage: check-app-catalog.sh [--self-test|--help]"
@@ -56,7 +56,7 @@ check_contract() {
 
 run_behavior() {
   (
-    cd "$ROOT/mailserver/webmail"
+    cd "$ROOT/webmail"
     npx vitest run src/lib/nav/navConfig.test.ts src/routes/layout.test.ts
   )
 }

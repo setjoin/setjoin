@@ -5,8 +5,8 @@
 #
 # WHAT THIS IS. From a completely clean throwaway Docker container, drives
 # the REAL operator path with no human in the loop: build → provision DB →
-# mailserver/deploy/scripts/install.sh → assert /ready → rebuild →
-# mailserver/deploy/scripts/upgrade.sh → assert /ready → a genuine rollback
+# deploy/scripts/install.sh → assert /ready → rebuild →
+# deploy/scripts/upgrade.sh → assert /ready → a genuine rollback
 # exercise (a broken binary forces upgrade.sh's rollback path, then health is
 # re-asserted). It does NOT reimplement install/upgrade logic — it drives the
 # real scripts, same as an operator would (ponytail: the installer already
@@ -18,7 +18,7 @@
 # direct-daemon smoke would never have caught (missing
 # `Environment=CONFIG_PATH`, wrong `ReadWritePaths`, a MinIO-only
 # `ExecStartPre` that blocked forever under SeaweedFS — see
-# mailserver/deploy/mailserver.service history). So this script uses a
+# deploy/mailserver.service history). So this script uses a
 # SYSTEMD-CAPABLE base image (`ubuntu:24.04` + `systemd`/`systemd-sysv`,
 # `CMD ["/sbin/init"]`) run `--privileged` with the host cgroup mounted —
 # proven to boot systemd cleanly on this box (cgroup v2, Docker 29). That is
@@ -356,7 +356,7 @@ docker exec "$C" bash -c 'rm -rf /root/setjoin && cp -a /mnt/repo-src /root/setj
 if [ "$PRELOAD_HOST_EGRESS" = "1" ]; then
   EGRESS_IMAGE="$(
     # shellcheck disable=SC1091 # ROOT is resolved from this checked-out script.
-    source "$ROOT/mailserver/deploy/scripts/lib-livekit.sh"
+    source "$ROOT/deploy/scripts/lib-livekit.sh"
     printf '%s' "$EGRESS_IMAGE"
   )"
   if docker image inspect "$EGRESS_IMAGE" >/dev/null 2>&1; then
@@ -395,7 +395,7 @@ echo ">> build mailserverd + authserverd"
 bash scripts/ci/build.sh
 
 echo ">> build webmail"
-( cd mailserver/webmail && npm ci --no-audit --no-fund && npm run build )
+( cd webmail && npm ci --no-audit --no-fund && npm run build )
 
 echo ">> start postgres, provision the password-authenticated 'mail' superuser role"
 service postgresql start
@@ -437,7 +437,7 @@ export ADMIN_PASSWORD='Sm0ke-Test-Passw0rd!1'
 # ever honor ambient env.
 export S3_ACCESS_KEY="$SMOKE_S3_USER"
 export S3_SECRET_KEY="$SMOKE_S3_PASS"
-bash mailserver/deploy/scripts/install.sh
+bash deploy/scripts/install.sh
 
 echo ">> assert /ready — real HTTPS listener first, :80 fallback (never trust"
 echo "   a bare :80 301 as healthy — the exact class the G1 upgrade.sh fix closed)"
@@ -533,8 +533,8 @@ echo ">> build a fresh mailserverd + mailctl (same commit — see header's hones
 echo ">> run upgrade.sh"
 if [ -L /opt/setjoin/current ]; then
   before="$(readlink /opt/setjoin/current)"
-  if output="$(bash mailserver/deploy/scripts/upgrade.sh /tmp/mailserverd.new /tmp/mailctl.new \
-      /root/setjoin/mailserver/webmail/build 2>&1)"; then
+  if output="$(bash deploy/scripts/upgrade.sh /tmp/mailserverd.new /tmp/mailctl.new \
+      /root/setjoin/webmail/build 2>&1)"; then
     echo "IMMUTABLE_LAYOUT_FAIL — retired positional upgrade unexpectedly succeeded"
     exit 1
   fi
@@ -549,8 +549,8 @@ if [ -L /opt/setjoin/current ]; then
   printf '%s\n' "$before" > /tmp/setjoin-immutable-current
   echo "Retired positional upgrade refused without changing current: OK"
 else
-bash mailserver/deploy/scripts/upgrade.sh /tmp/mailserverd.new /tmp/mailctl.new \
-  /root/setjoin/mailserver/webmail/build
+bash deploy/scripts/upgrade.sh /tmp/mailserverd.new /tmp/mailctl.new \
+  /root/setjoin/webmail/build
 fi
 
 echo ">> assert /ready after upgrade"
@@ -592,11 +592,11 @@ echo ">> install a deliberately broken 'new binary' (exits 1 immediately)"
 printf '#!/bin/sh\nexit 1\n' > /tmp/mailserverd.broken
 chmod +x /tmp/mailserverd.broken
 rm -rf /tmp/webmail.broken
-cp -a /root/setjoin/mailserver/webmail/build /tmp/webmail.broken
+cp -a /root/setjoin/webmail/build /tmp/webmail.broken
 printf 'must-be-rolled-back\n' > /tmp/webmail.broken/rollback-probe.txt
 
 echo ">> run upgrade.sh with the broken binary — it MUST fail and roll back"
-if bash mailserver/deploy/scripts/upgrade.sh /tmp/mailserverd.broken "" /tmp/webmail.broken; then
+if bash deploy/scripts/upgrade.sh /tmp/mailserverd.broken "" /tmp/webmail.broken; then
   echo "ROLLBACK_EXERCISE_FAIL — upgrade.sh reported success with a broken binary (should have failed + rolled back)"
   exit 1
 fi

@@ -2,7 +2,7 @@
 # ──────────────────────────────────────────────────────────────────────────
 # gen-xinchuang-doc.sh — single-source renderer for the Xinchuang matrix.
 #
-# Every per-engine verdict cell in mailserver/sql/xinchuang/README.md is
+# Every per-engine verdict cell in sql/xinchuang/README.md is
 # GENERATED from two machine sources plus the reducer sources themselves:
 #
 #   compatibility_matrix.csv  per-function, per-engine FUNCTIONAL verdicts.
@@ -22,7 +22,7 @@
 #       status cell is parsed into that same pair at validation. Validation
 #       and rendering share one parser, so a cell the validator accepts can
 #       never render as `untested`.
-#   mailserver/sql/reducers/*.sql  the live function universe. Counting unit
+#   sql/reducers/*.sql  the live function universe. Counting unit
 #       is the function NAME; declaration counts are reported separately and
 #       overloads are never attested by name-level coverage (r2.3).
 #
@@ -65,8 +65,8 @@ set -uo pipefail
 export LC_ALL=C
 
 ROOT="${XINCHUANG_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
-XDIR="$ROOT/mailserver/sql/xinchuang"
-REDUCERS_DIR="${XINCHUANG_REDUCERS_DIR:-$ROOT/mailserver/sql/reducers}"
+XDIR="$ROOT/sql/xinchuang"
+REDUCERS_DIR="${XINCHUANG_REDUCERS_DIR:-$ROOT/sql/reducers}"
 MATRIX_CSV="${XINCHUANG_MATRIX_CSV:-$XDIR/compatibility_matrix.csv}"
 CAPS_CSV="${XINCHUANG_CAPS_CSV:-$XDIR/engine_capabilities.csv}"
 README="${XINCHUANG_README:-$XDIR/README.md}"
@@ -676,7 +676,7 @@ render_block() { # $1 = destination
     echo
     echo "## Functional coverage"
     echo
-    echo "Counting unit: the function NAME. Live universe extracted from \`mailserver/sql/reducers/*.sql\`:"
+    echo "Counting unit: the function NAME. Live universe extracted from \`sql/reducers/*.sql\`:"
     echo
     echo "- Reducer files: $FILE_COUNT · declarations: $DECL_COUNT · unique names: $UNIVERSE_COUNT"
     echo "- Represented in \`compatibility_matrix.csv\`: $CSV_NAME_COUNT names ($CSV_ROW_COUNT rows) — representation is not attestation"

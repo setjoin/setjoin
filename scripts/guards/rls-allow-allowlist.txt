@@ -28,7 +28,7 @@
 #   <table>\t<STATUS>\t<file>\t<substring>\t<reason>
 #   · <table>     — exact table name.
 #   · <STATUS>    — COVERED | PENDING.
-#   · <file>      — for COVERED: the basename of the mailserver/sql/tests/*.pg
+#   · <file>      — for COVERED: the basename of the sql/tests/*.pg
 #                   file carrying the proof. For PENDING: "-".
 #   · <substring> — for COVERED: a unique, stable substring of the file's own
 #                   success assertion (the pgTAP description is a good pick —
@@ -39,7 +39,7 @@
 #                   name the bug and point at the owning file/reducer).
 #
 # The guard verifies, for every COVERED row: <file> exists under
-# mailserver/sql/tests/, contains <substring>, AND contains a SET [LOCAL]
+# sql/tests/, contains <substring>, AND contains a SET [LOCAL]
 # ROLE line — a deleted/gutted/renamed test re-fails the guard.
 #
 # PENDING rows do NOT fail the guard (that is how a fresh gap is seeded
@@ -71,7 +71,7 @@ jmap_changes_journal	COVERED	journal_op.pg	same-mailbox write journaled under se
 messages	COVERED	rls_smtp_delivery.pg	setjoin_app WITH recipient''s own GUC: INSERT succeeds	recipient's own GUC admits the delivery INSERT as setjoin_app (proven alongside the cross-tenant/wrong-GUC denials).
 ca_signin_log	COVERED	ca_signin_log.pg	setjoin_app (NOBYPASSRLS) can INSERT via ca_signin_log_app_insert RLS policy	ca_signin_log_append() INSERTs a telemetry row as setjoin_app.
 
-# ── NEW as-setjoin_app flow proofs (mailserver/sql/tests/rls_allow_backfill.pg,
+# ── NEW as-setjoin_app flow proofs (sql/tests/rls_allow_backfill.pg,
 # arch review #A4). ──────────────────────────────────────────────────────────
 message_tags	COVERED	rls_allow_backfill.pg	tag_message: app role tags its own message under setjoin_app (message_tags ALLOW)	tag_message() INSERTs as setjoin_app under the owning mailbox's GUC, row read back.
 jmap_entity_state	COVERED	rls_allow_backfill.pg	bump_entity_state: first bump returns seq=1 as setjoin_app (jmap_entity_state ALLOW)	bump_entity_state() upserts as setjoin_app under the owning mailbox's GUC, row read back.

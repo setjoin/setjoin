@@ -13,9 +13,9 @@
 # coverage-claims-need-a-machine-guard; the RLS-W3 manual sweep missed ~17 files).
 #
 # WHAT IT DOES. Scans:
-#   · mailserver/sql/reducers/*.sql          — PL/pgSQL reducers
-#   · mailserver/sql/dbschema/V019__dengbao_sod.sql
-#   · mailserver/sql/dbschema/V024__sod_exclusion_perm_span.sql
+#   · sql/reducers/*.sql          — PL/pgSQL reducers
+#   · sql/dbschema/V019__dengbao_sod.sql
+#   · sql/dbschema/V024__sod_exclusion_perm_span.sql
 #   · shared/permissions/resolver.go
 #   · authserver/internal/handlers/auth.go
 #   · authserver/internal/handlers/session.go
@@ -218,9 +218,9 @@ if [ -n "${JIT_SCAN_SQL_FILES+x}" ]; then
 else
   # Default: all reducer SQL files + ALL V0*.sql schema migrations (catches trigger
   # logic in any migration, not just the two SoD ones originally named).
-  SQL_FILES="$(find "$ROOT/mailserver/sql/reducers" -name '*.sql' -type f \
+  SQL_FILES="$(find "$ROOT/sql/reducers" -name '*.sql' -type f \
     | LC_ALL=C sort | tr '\n' ' ') \
-    $(find "$ROOT/mailserver/sql/dbschema" -name 'V0*.sql' -type f \
+    $(find "$ROOT/sql/dbschema" -name 'V0*.sql' -type f \
     | LC_ALL=C sort | tr '\n' ' ')"
 fi
 

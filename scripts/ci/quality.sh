@@ -41,7 +41,7 @@ has_psscriptanalyzer() {
 shell_files() {
   git -C "$ROOT" ls-files '*.sh' | while IFS= read -r file; do
     case "$file" in
-      docs/ref/* | docs/examples/* | mailserver/deploy/generated/*) continue ;;
+      docs/ref/* | docs/examples/* | deploy/generated/*) continue ;;
       *) printf '%s\n' "$ROOT/$file" ;;
     esac
   done

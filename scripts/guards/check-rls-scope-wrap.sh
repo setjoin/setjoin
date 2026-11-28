@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────────
 # check-rls-scope-wrap.sh — W4 native-RLS Go-leg guard (the flip blocker's
-# other half: mailserver/sql/dbschema/V134__meet_chat_write_policies.sql
+# other half: sql/dbschema/V134__meet_chat_write_policies.sql
 # proved the write policies as setjoin_app in pgTAP, but internal/chat and
 # internal/meet never SET the app.current_user_id GUC — so under the
 # flipped runtime (setjoin_app, NOBYPASSRLS) every chat/meet route would

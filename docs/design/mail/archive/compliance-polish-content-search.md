@@ -18,12 +18,12 @@ Archive mailbox provisioning was never implemented. The `mailboxes.type` CHECK c
 
 ### Schema changes
 
-**`mailserver/sql/schema/004_mailboxes.sql`**
+**`sql/schema/004_mailboxes.sql`**
 - Line 8: Remove `'archive'` from CHECK constraint: `CHECK (type IN ('personal','shared','resource','distribution','journal'))`
 - Line 2: Update comment to remove "archive"
 - Lines 33-34: Remove `archive_after_days` column entirely
 
-**New migration** at `mailserver/sql/migrations/V<NEXT>__remove_archive_mailbox.sql`:
+**New migration** at `sql/migrations/V<NEXT>__remove_archive_mailbox.sql`:
 ```sql
 -- Safety: no code ever created rows with type='archive', so this is DDL-only
 ALTER TABLE mailboxes DROP CONSTRAINT IF EXISTS mailboxes_type_check;
@@ -34,7 +34,7 @@ ALTER TABLE mailboxes DROP COLUMN IF EXISTS archive_after_days;
 
 ### Reducer changes
 
-**`mailserver/sql/reducers/retention.sql`** lines 42-45:
+**`sql/reducers/retention.sql`** lines 42-45:
 - Replace the multi-line comment about Phase 14.1 with a concise one-liner: `-- Only 'delete' action is processed; 'hold' is a no-op.`
 
 ### Go handler changes
@@ -52,7 +52,7 @@ ALTER TABLE mailboxes DROP COLUMN IF EXISTS archive_after_days;
 
 ### Frontend change
 
-**`mailserver/webmail/src/routes/admin/mailboxes/+page.svelte`** line 248:
+**`webmail/src/routes/admin/mailboxes/+page.svelte`** line 248:
 - Remove `"e.g. archive"` placeholder text
 
 ---
@@ -81,7 +81,7 @@ All in `mailserver/gateway/internal/handlers/admin_ediscovery.go`:
 
 ### Frontend Restyle
 
-**`mailserver/webmail/src/routes/admin/ediscovery/+page.svelte`** — rewrite to follow the retention page pattern (zero scoped `<style>`, all global classes).
+**`webmail/src/routes/admin/ediscovery/+page.svelte`** — rewrite to follow the retention page pattern (zero scoped `<style>`, all global classes).
 
 Target structure:
 ```html
@@ -200,7 +200,7 @@ mux.Handle("POST /admin/content-search/delete",  adminLimit(requireAdmin(content
 
 ### New PL/pgSQL Reducer
 
-**`mailserver/sql/reducers/content_purge.sql`**:
+**`sql/reducers/content_purge.sql`**:
 
 ```sql
 CREATE OR REPLACE FUNCTION content_purge_messages(
@@ -214,7 +214,7 @@ Hard-deletes messages by ID across mailboxes. Messages under `litigation_hold` a
 
 ### Frontend
 
-**New file: `mailserver/webmail/src/routes/admin/content-search/+page.svelte`**
+**New file: `webmail/src/routes/admin/content-search/+page.svelte`**
 
 Follows the identical Prism design pattern as the restyled eDiscovery page — zero scoped `<style>`, all global classes. Key differences from eDiscovery:
 - Search is synchronous (no polling); results display immediately
@@ -228,7 +228,7 @@ Follows the identical Prism design pattern as the restyled eDiscovery page — z
 
 ### Admin Layout
 
-Add nav entry in [admin/+layout.svelte](mailserver/webmail/src/routes/admin/+layout.svelte):
+Add nav entry in [admin/+layout.svelte](webmail/src/routes/admin/+layout.svelte):
 ```ts
 { label: 'Content Search', path: '/admin/content-search', icon: '🔎', role: 'super_admin' },
 ```
@@ -248,18 +248,18 @@ Add nav entry in [admin/+layout.svelte](mailserver/webmail/src/routes/admin/+lay
 
 | Action | File |
 |--------|------|
-| **Modify** | `mailserver/sql/schema/004_mailboxes.sql` |
-| **Create** | `mailserver/sql/migrations/V<NEXT>__remove_archive_mailbox.sql` |
-| **Modify** | `mailserver/sql/reducers/retention.sql` |
+| **Modify** | `sql/schema/004_mailboxes.sql` |
+| **Create** | `sql/migrations/V<NEXT>__remove_archive_mailbox.sql` |
+| **Modify** | `sql/reducers/retention.sql` |
 | **Modify** | `mailserver/gateway/internal/handlers/admin_retention.go` |
 | **Modify** | `mailserver/gateway/internal/handlers/admin_ediscovery.go` |
-| **Modify** | `mailserver/webmail/src/routes/admin/ediscovery/+page.svelte` |
-| **Modify** | `mailserver/webmail/src/routes/admin/mailboxes/+page.svelte` |
+| **Modify** | `webmail/src/routes/admin/ediscovery/+page.svelte` |
+| **Modify** | `webmail/src/routes/admin/mailboxes/+page.svelte` |
 | **Create** | `mailserver/gateway/internal/handlers/admin_content_search.go` |
-| **Create** | `mailserver/sql/reducers/content_purge.sql` |
+| **Create** | `sql/reducers/content_purge.sql` |
 | **Modify** | `mailserver/gateway/cmd/gateway/main.go` |
-| **Create** | `mailserver/webmail/src/routes/admin/content-search/+page.svelte` |
-| **Modify** | `mailserver/webmail/src/routes/admin/+layout.svelte` |
+| **Create** | `webmail/src/routes/admin/content-search/+page.svelte` |
+| **Modify** | `webmail/src/routes/admin/+layout.svelte` |
 | **Modify** | `docs/phases.md` |
 | **Modify** | `CLAUDE.md` |
 | **Modify** | `docs/specs/COMPETITIVE_ANALYSIS.md` |

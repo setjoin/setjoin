@@ -27,10 +27,10 @@
 source "$(dirname "$0")/../_base.sh"
 
 PINNED_FILE="$ROOT/scripts/api-pinned-prefixes.txt"
-INVENTORY="${ROUTE_INVENTORY_FILE:-$ROOT/server-rust/bins/gateway/data/route-inventory.json}"
+INVENTORY="${ROUTE_INVENTORY_FILE:-$ROOT/server/bins/gateway/data/route-inventory.json}"
 INVENTORY_READER="$ROOT/scripts/guards/route-inventory-json.mjs"
-ROUTES_DIR="$ROOT/mailserver/webmail/src/routes"
-WEBMAIL_SRC="$ROOT/mailserver/webmail/src"
+ROUTES_DIR="$ROOT/webmail/src/routes"
+WEBMAIL_SRC="$ROOT/webmail/src"
 
 pinned_from_file() { grep -vE '^\s*#|^\s*$' "$PINNED_FILE" | awk '{print $1}' | sort -u; }
 

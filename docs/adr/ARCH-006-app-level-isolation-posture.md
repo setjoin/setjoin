@@ -10,7 +10,7 @@ Three shipped documents described per-user isolation (R4) three different ways, 
 
 - `docs/standards/DATABASE_SECURITY.md` R4 prescribes **native PostgreSQL RLS** (`ENABLE`/`FORCE ROW LEVEL SECURITY` + per-action `CREATE POLICY` keyed on `current_setting('app.current_user_id', true)`, with a per-request transaction-scoped `set_config` gateway injection).
 - `mailserver/AGENTS.md:98` claimed "RLS enforced + FORCE'd on all user-data tables."
-- `mailserver/sql/AGENTS.md:42` said the truth: isolation is enforced via **`p_mailbox_id` parameter propagation in reducers**, not native RLS.
+- `sql/AGENTS.md:42` said the truth: isolation is enforced via **`p_mailbox_id` parameter propagation in reducers**, not native RLS.
 
 Measured reality (2026-06-18): **zero** tables `ENABLE ROW LEVEL SECURITY`, **zero** `CREATE POLICY`, and **zero** Go calls inject per-user DB context (`set_config('app.current_user_id'|…)` — the only `set_config` is the session-scoped, same-for-every-user `app.encryption_key`). The native-RLS pattern in the standard is **aspirational, not implemented**.
 

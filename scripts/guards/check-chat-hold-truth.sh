@@ -40,7 +40,7 @@ allow='chat_channel_set_hold\.sql|V126__chat_compliance\.sql|V127__chat_oversigh
 # beginning with the bare column) — safe against the sanctioned alias, which
 # always appears as `AS legal_hold` mid-line, never at line start.
 hits=$(grep -rn --include='*.sql' 'legal_hold' \
-         mailserver/sql/reducers 2>/dev/null \
+         sql/reducers 2>/dev/null \
        | sed 's/legal_hold_reason//g' \
        | grep -E '(c\.legal_hold\b|chat_channels\.legal_hold\b|WHERE[[:space:]]+legal_hold\b|SET[[:space:]]+legal_hold\b|legal_hold[[:space:]]*=|SELECT[^;]*[,(][[:space:]]*legal_hold\b|SELECT[[:space:]]+legal_hold\b|^[^:]*:[0-9]+:[[:space:]]*`?legal_hold\b)' \
        | grep -Ev "$allow" || true)

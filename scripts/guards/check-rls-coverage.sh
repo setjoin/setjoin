@@ -66,7 +66,7 @@ ALLOWLIST_FILE="${RLS_ALLOWLIST_FILE:-$(dirname "$0")/rls-coverage-allowlist.txt
 # V114/V140/V158/V181/V199/V201/V217/V246/V254/V259… joined — a FORCE'd table
 # missing from a hand list means its app-pool sites are unguarded and
 # fail-closed-blind at the flip. So the set is now extracted at guard runtime
-# from `mailserver/sql/dbschema/V*.sql`. The extraction is performed ONCE per
+# from `sql/dbschema/V*.sql`. The extraction is performed ONCE per
 # invocation and cached in FORCE_TABLES below — never across invocations, so a
 # migration edit is picked up by the next run with no invalidation step.
 #
@@ -104,7 +104,7 @@ ALLOWLIST_FILE="${RLS_ALLOWLIST_FILE:-$(dirname "$0")/rls-coverage-allowlist.txt
 # mailboxes vs mailbox_delegates, device_id vs device_events) still do NOT match.
 # RLS_PRINT_TABLE_SET=1 prints the derived set (one name per line, sorted) and
 # exits — the self-test asserts it against independently maintained fixtures.
-SCHEMA_DIR="${RLS_SCHEMA_DIR:-$ROOT/mailserver/sql/dbschema}"
+SCHEMA_DIR="${RLS_SCHEMA_DIR:-$ROOT/sql/dbschema}"
 
 # Migrations in VERSION order (numeric — C string sort would put V100 < V99),
 # because a later NO FORCE/FORCE must override an earlier FORCE/NO FORCE.
@@ -449,7 +449,7 @@ while IFS=$'\t' read -r loc low sql; do
   if is_classified "$base" "$low"; then
     continue
   fi
-  report "[RLS] ${loc}  FORCE'd-table app-pool site NOT classified for RLS coverage (set derived from mailserver/sql/dbschema V*.sql):"
+  report "[RLS] ${loc}  FORCE'd-table app-pool site NOT classified for RLS coverage (set derived from sql/dbschema V*.sql):"
   report "      $(printf '%s' "$sql" | cut -c1-150)"
   report "      → classify it in scripts/guards/rls-coverage-allowlist.txt as WRAPPED (inside a CallScoped/withScope/inline scoped tx),"
   report "        BYPASS (handler constructed on workerPool — name the main.go line), or AUDITED-XTENANT (cross-tenant on bypass, with a reason)."

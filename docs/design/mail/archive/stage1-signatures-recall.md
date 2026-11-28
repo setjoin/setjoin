@@ -19,12 +19,12 @@ Allow different signatures per send-as alias, and let users recall unread intern
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `mailserver/sql/reducers/recall.sql` | Create (~120 lines) | `recall_message()` reducer: find unread internal copies by message_id, move to Trash, insert recall notice, return per-recipient status |
+| `sql/reducers/recall.sql` | Create (~120 lines) | `recall_message()` reducer: find unread internal copies by message_id, move to Trash, insert recall notice, return per-recipient status |
 | `mailserver/gateway/internal/jmap/handler.go` | Modify (~40 lines) | Register `EmailSubmission/recall` method; parse args, call reducer, return result |
-| `mailserver/sql/reducers/jmap_identity.sql` | Modify (~30 lines) | Extend `jmap_identity_get()` to return per-alias `signature` and `replyTo` from `aliases` table |
-| `mailserver/webmail/src/lib/types/jmap.ts` | Modify (~10 lines) | Add `signature` and `replyTo` fields to `Identity` interface |
-| `mailserver/webmail/src/routes/mail/compose/+page.svelte` | Modify (~30 lines) | Signature dropdown scoped to selected send-as alias; recall button on sent messages (visible only for internal recipients, unread) |
-| `mailserver/sql/migrations/V026__recall.sql` | Create (~20 lines) | `message_recalls` UNLOGGED table (message_id PK, recalled_by, recalled_at, copy_count); feature toggle seeds |
+| `sql/reducers/jmap_identity.sql` | Modify (~30 lines) | Extend `jmap_identity_get()` to return per-alias `signature` and `replyTo` from `aliases` table |
+| `webmail/src/lib/types/jmap.ts` | Modify (~10 lines) | Add `signature` and `replyTo` fields to `Identity` interface |
+| `webmail/src/routes/mail/compose/+page.svelte` | Modify (~30 lines) | Signature dropdown scoped to selected send-as alias; recall button on sent messages (visible only for internal recipients, unread) |
+| `sql/migrations/V026__recall.sql` | Create (~20 lines) | `message_recalls` UNLOGGED table (message_id PK, recalled_by, recalled_at, copy_count); feature toggle seeds |
 | **Total** | **~250 lines** | **6 files** |
 
 ## Key Design Decisions

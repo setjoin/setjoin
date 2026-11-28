@@ -31,7 +31,7 @@ bash scripts/ci/quality.sh security   # dependency, secret and workflow authorit
 
 | Authored surface | Convention/correctness authority | Security authority | Runner |
 | --- | --- | --- | --- |
-| Rust (`server-rust/`, `clients/`) | `rustfmt --check`, Clippy with warnings denied, family-isolation guard | `cargo deny --locked check` (RustSec advisories, licences, sources, bans) | macOS + Ubuntu |
+| Rust (`server/`, `clients/`) | `rustfmt --check`, Clippy with warnings denied, family-isolation guard | `cargo deny --locked check` (RustSec advisories, licences, sources, bans) | macOS + Ubuntu |
 | PL/pgSQL/SQL | schema load, PostgreSQL parser, project guards, pgTAP | R1-R4/RLS/reducer guards | Ubuntu + disposable PostgreSQL |
 | TypeScript/Svelte/CSS | strict TypeScript, `svelte-check`, ESLint, Stylelint | npm audit and project CSP/XSS tests | macOS + Ubuntu |
 | Electron TypeScript | TypeScript and Biome | npm audit and Electron security tests | macOS + Ubuntu/Windows packaging |
@@ -47,13 +47,13 @@ vendored reference code must not become a second lint authority.
 
 ## Rust authoring conventions
 
-Beyond the toolchain gate above, Rust server (`server-rust/`) and client (`clients/`) code follows these house rules:
+Beyond the toolchain gate above, Rust server (`server/`) and client (`clients/`) code follows these house rules:
 
 - `cargo fmt --check` and `cargo clippy --locked -- -D warnings` clean.
 - Commit `Cargo.lock` and keep `--locked` reproducible builds.
-- Enforce domain-family isolation (`scripts/guards/check-rust-family-isolation.py`) and licence/advisory policy (`cargo deny --locked check`, `server-rust/license-exception-reasons.toml`).
-- Multi-statement business logic belongs in PL/pgSQL reducers (`mailserver/sql/reducers/`, `authserver/sql/reducers/`) per [ARCH-028](../adr/ARCH-028-rust-replaces-go-reducers-stay.md) and [ARCH-031](../adr/ARCH-031-go-is-deleted.md).
-- Register every new crate or binary in `server-rust/AGENTS.md` or `clients/AGENTS.md`.
+- Enforce domain-family isolation (`scripts/guards/check-rust-family-isolation.py`) and licence/advisory policy (`cargo deny --locked check`, `server/license-exception-reasons.toml`).
+- Multi-statement business logic belongs in PL/pgSQL reducers (`sql/reducers/`, `sql/auth/reducers/`) per [ARCH-028](../adr/ARCH-028-rust-replaces-go-reducers-stay.md) and [ARCH-031](../adr/ARCH-031-go-is-deleted.md).
+- Register every new crate or binary in `server/AGENTS.md` or `clients/AGENTS.md`.
 
 ## SQL boundary
 

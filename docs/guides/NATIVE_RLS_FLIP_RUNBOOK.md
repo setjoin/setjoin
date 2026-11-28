@@ -7,7 +7,7 @@ PostgreSQL role, PostgreSQL version, RLS table posture, or ARCH-018 scope
 helpers fail verification.
 
 > **Mandatory three-role DSN shape.** The single-node installer
-> (`mailserver/deploy/scripts/install.sh`) always provisions the three-role
+> (`deploy/scripts/install.sh`) always provisions the three-role
 > DSN shape: it generates `setjoin_app`/`setjoin_worker` passwords, writes
 > `DB_DSN`/`DB_DIRECT_DSN` (the constrained `setjoin_app` runtime DSNs) into
 > `config.env`, and writes the privileged tiers — `DB_WORKER_DSN` (worker) and

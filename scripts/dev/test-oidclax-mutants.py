@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 
-root = Path(__file__).resolve().parents[2] / "server-rust"
+root = Path(__file__).resolve().parents[2] / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 TEST = "a_cross_site_idp_redirect_carrying_only_lax_cookies_completes_the_login"

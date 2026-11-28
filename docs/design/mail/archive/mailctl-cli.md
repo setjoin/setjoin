@@ -286,7 +286,7 @@ Stalwart's `apply`/`snapshot` pattern. Useful for disaster recovery and GitOps.
 | Create | `mailserver/cmd/mailctl/commands.go` | All subcommands (~30 lines each, ~350 lines total) |
 | Create | `mailserver/cmd/mailctl/auth.go` | JWT login + config.yaml read/write + env vars |
 | Create | `mailserver/cmd/mailctl/client.go` | HTTP client wrapper (auth header, JSON, error handling) |
-| Modify | `mailserver/sql/schema/019_app_passwords.sql` (or migration) | Add `label` column to `app_passwords` |
+| Modify | `sql/schema/019_app_passwords.sql` (or migration) | Add `label` column to `app_passwords` |
 | — | (no new handler) | Reuses existing `app_passwords.go` + `admin_app_passwords.go` |
 | — | (no new routes) | Reuses existing `/auth/me/app-passwords` + `/admin/users/{id}/app-passwords` |
-| Modify | `mailserver/webmail/src/routes/settings/+page.svelte` | Add `label` field to app password create form |
+| Modify | `webmail/src/routes/settings/+page.svelte` | Add `label` field to app password create form |

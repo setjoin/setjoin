@@ -14,8 +14,8 @@ Budgets: root ≤10,000 bytes, child ≤16,000, chain ≤32,000 (`scripts/guards
 
 ## Architecture invariants
 
-- **Logic where data lives:** PL/pgSQL reducers in `mailserver/sql/reducers/` and `authserver/sql/reducers/` own business logic. Rust (`server-rust/`, primary server binary `setjoin-server`) is the canonical protocol and orchestration layer after Go deletion (Go-free spec #25, [ARCH-028](docs/adr/ARCH-028-rust-replaces-go-reducers-stay.md), [ARCH-031](docs/adr/ARCH-031-go-is-deleted.md)). Rust calls reducers instead of reimplementing multi-statement logic; mutators commit data, state bumps, audit, and `pg_notify` in one transaction.
-- **Connections:** `DB_DSN` is the PgBouncer request pool (`setjoin_app`, `NOSUPERUSER NOBYPASSRLS`, owns nothing — enforced fail-closed at startup in Release N+1 `#547`); `DB_DIRECT_DSN` is `LISTEN/NOTIFY` only; `DB_WORKER_DSN` (`setjoin_worker`, `BYPASSRLS`, distinct from `DB_DSN`) serves explicit cross-tenant workers; `DB_OWNER_DSN` owns partitions/DDL (never loaded by production runtime units per DEPLOY-004). Split privileges by credential; keep `SET ROLE` off shared pools. Startup/drain: `mailserver/AGENTS.md`.
+- **Logic where data lives:** PL/pgSQL reducers in `sql/reducers/` and `sql/auth/reducers/` own business logic. Rust (`server/`, primary server binary `setjoin-server`) is the canonical protocol and orchestration layer after Go deletion (Go-free spec #25, [ARCH-028](docs/adr/ARCH-028-rust-replaces-go-reducers-stay.md), [ARCH-031](docs/adr/ARCH-031-go-is-deleted.md)). Rust calls reducers instead of reimplementing multi-statement logic; mutators commit data, state bumps, audit, and `pg_notify` in one transaction.
+- **Connections:** `DB_DSN` is the PgBouncer request pool (`setjoin_app`, `NOSUPERUSER NOBYPASSRLS`, owns nothing — enforced fail-closed at startup in Release N+1 `#547`); `DB_DIRECT_DSN` is `LISTEN/NOTIFY` only; `DB_WORKER_DSN` (`setjoin_worker`, `BYPASSRLS`, distinct from `DB_DSN`) serves explicit cross-tenant workers; `DB_OWNER_DSN` owns partitions/DDL (never loaded by production runtime units per DEPLOY-004). Split privileges by credential; keep `SET ROLE` off shared pools. Startup/drain: `server/AGENTS.md` and `deploy/AGENTS.md`.
 - **Storage:** attachments are SHA-256 content-addressed in SeaweedFS/S3; blob lifecycle is owned by Mark-and-Sweep GC (`V292`/`V293`, `config/blob-reference-manifest.json`, `blobs.ref_count` retired).
 - **Tags:** Gmail-style multi-label tags; `location` and `snooze` are exclusive groups; Archive removes `location`.
 - **Sidecars:** LiveKit, Egress, Valkey, FunASR, and native preview helpers are peripherals, never authority stores. Revocation evicts live media sessions.
@@ -31,7 +31,7 @@ Read `docs/standards/DATABASE_SECURITY.md` before touching a user-data query.
 
 ## Conventions and verification
 
-- Rust: `server-rust/AGENTS.md`; PL/pgSQL: `mailserver/sql/AGENTS.md`; Svelte: `mailserver/webmail/AGENTS.md`; static analysis and code quality: [CODE_QUALITY.md](docs/standards/CODE_QUALITY.md).
+- Rust: `server/AGENTS.md`; PL/pgSQL: `sql/AGENTS.md` (auth reducers: `sql/auth/AGENTS.md`); Svelte: `webmail/AGENTS.md`; Deployment: `deploy/AGENTS.md`; static analysis and code quality: [CODE_QUALITY.md](docs/standards/CODE_QUALITY.md).
 - Git: branch from `main`; commit/push only your branch when asked or per [subagent workflow](docs/agents/subagent-workflow.md); never push `main`; deploy only when asked; preserve unrelated dirty files.
 - Verification: run affected lanes from [Verification commands](docs/guides/VERIFICATION_COMMANDS.md) or `bash scripts/verify-all.sh list`. Missing, skipped, or flaky-after-retry cases fail; keep tests strict and fix failures you caused.
 - CI: GitHub-hosted runners only (`.github/CI-RUNNERS.md`). Only merge-queue runs `scripts/run-guards.sh`, so run standalone guards for touched areas before opening a PR. A passing known-red guard blocks until removed from `scripts/guards-known-red.txt`.
@@ -51,9 +51,10 @@ Read [execution and cleanup](docs/guides/TASK_EXECUTION_AND_CLEANUP.md) before b
 
 ## Child DOX Index
 
-- `server-rust/AGENTS.md` — canonical Rust server workspace (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`): front door, protocols, authz, domain crates, workers, licence policy, conformance gates.
-- `mailserver/AGENTS.md` — canonical SQL schema/reducers (`sql/`), SvelteKit webmail (`webmail/`), deployment templates/scripts (`deploy/`), and static OpenAPI assets (`api/`).
-- `authserver/AGENTS.md` — live auth/threat/lockout PL/pgSQL reducers and pgTAP tests (`authserver/sql/`).
+- `server/AGENTS.md` — canonical Rust server workspace (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`): front door, protocols, authz, domain crates, workers, licence policy, conformance gates.
+- `sql/AGENTS.md` — canonical PostgreSQL schema/migrations, PL/pgSQL reducers, RLS, and pgTAP tests (child: `sql/auth/AGENTS.md`).
+- `webmail/AGENTS.md` — SvelteKit webmail SPA, UI primitives, and Playwright E2E suite.
+- `deploy/AGENTS.md` — systemd unit/socket templates, installer/upgrader scripts, lifecycle controller, and monitoring assets.
 - `clients/AGENTS.md` — desktop, mobile, HarmonyOS, and shared client Rust crates.
 - `docs/AGENTS.md` — documentation taxonomy and owners.
 

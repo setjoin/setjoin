@@ -7,10 +7,10 @@
       "baseCommit": "324b4012fb8efee9060af9da503b3b280cddb9f4",
       "releasedRef": "main",
       "candidatePaths": [
-        "mailserver/webmail/src/lib/admin/client.ts",
-        "mailserver/webmail/src/lib/admin/client.test.ts",
-        "mailserver/webmail/src/lib/admin/transport.ts",
-        "mailserver/webmail/src/lib/admin/transport.test.ts"
+        "webmail/src/lib/admin/client.ts",
+        "webmail/src/lib/admin/client.test.ts",
+        "webmail/src/lib/admin/transport.ts",
+        "webmail/src/lib/admin/transport.test.ts"
       ]
     }
   },
@@ -157,7 +157,7 @@
       "candidate": "R5-5",
       "lane": "ca",
       "caseId": "R5-CA-ACTION-DISCRIMINATOR",
-      "owner": "mailserver/sql/reducers/ca_lockout_guard.sql",
+      "owner": "sql/reducers/ca_lockout_guard.sql",
       "gateClass": "merge",
       "warmEstimateSeconds": 300,
       "allowedDispositions": [
@@ -168,7 +168,7 @@
         "passDisposition": "implemented",
         "absentDisposition": null,
         "marker": {
-          "path": "mailserver/sql/tests/ca_lockout_guard.pg",
+          "path": "sql/tests/ca_lockout_guard.pg",
           "selector": "canonical type:block with no excluded admin raises BZ080"
         },
         "alternateMarker": null,
@@ -180,7 +180,7 @@
       },
       "commands": [
         "bash scripts/load-test-schema.sh",
-        "pg_prove -h 127.0.0.1 -p 5432 -U mail -d mailserver_test mailserver/sql/tests/ca_lockout_guard.pg mailserver/sql/tests/ca_policy_import.pg mailserver/sql/tests/ca_reachability_serialization.pg mailserver/sql/tests/ca_policy_promote.pg mailserver/sql/tests/ca_policy_restore.pg mailserver/sql/tests/ca_policy_restore_from_audit.pg mailserver/sql/tests/set_session_control.pg mailserver/sql/tests/admin_protection_check.pg mailserver/sql/tests/guest_set_status.pg mailserver/sql/tests/guest_provision.pg",
+        "pg_prove -h 127.0.0.1 -p 5432 -U mail -d mailserver_test sql/tests/ca_lockout_guard.pg sql/tests/ca_policy_import.pg sql/tests/ca_reachability_serialization.pg sql/tests/ca_policy_promote.pg sql/tests/ca_policy_restore.pg sql/tests/ca_policy_restore_from_audit.pg sql/tests/set_session_control.pg sql/tests/admin_protection_check.pg sql/tests/guest_set_status.pg sql/tests/guest_provision.pg",
         "cd shared && go test ./threat -run '^(TestValidatePolicyDocumentGrantDiscriminatorParity|TestDispatchInvalidGrantDiscriminatorsFailClosed|TestDispatchEmptyGrantsFailClosed|TestParseGrantsConflictingDiscriminatorsFailClosed|TestParseGrantsToleratesActionKey)$' -count=1",
         "cd mailserver && DB_DSN='postgres://mail@127.0.0.1:5432/mailserver_test?sslmode=disable' REQUIRE_DB=1 go test ./internal/admin -run '^(TestCAReachabilitySerialization|TestAdminAuthority)' -count=1"
       ],
@@ -190,7 +190,7 @@
       "candidate": "R5-6",
       "lane": "admin",
       "caseId": "R5-ADMIN-CLIENT-OWNERSHIP",
-      "owner": "mailserver/webmail/src/lib/admin",
+      "owner": "webmail/src/lib/admin",
       "gateClass": "merge",
       "warmEstimateSeconds": 300,
       "allowedDispositions": [
@@ -202,7 +202,7 @@
         "passDisposition": "implemented",
         "absentDisposition": "collision-held",
         "marker": {
-          "path": "mailserver/webmail/src/lib/admin/transport.test.ts",
+          "path": "webmail/src/lib/admin/transport.test.ts",
           "selector": "admin transport kernel"
         },
         "alternateMarker": {
@@ -217,9 +217,9 @@
       },
       "commands": [
         "bash scripts/guards/check-architecture-r5-collisions.sh admin",
-        "cd mailserver/webmail && npm exec vitest run src/lib/admin/client.test.ts src/lib/admin/transport.test.ts",
-        "cd mailserver/webmail && npm run check",
-        "cd mailserver/webmail && npm run build"
+        "cd webmail && npm exec vitest run src/lib/admin/client.test.ts src/lib/admin/transport.test.ts",
+        "cd webmail && npm run check",
+        "cd webmail && npm run build"
       ],
       "alternateCommands": [
         "bash scripts/guards/check-architecture-r5-collisions.sh admin"
@@ -229,7 +229,7 @@
       "candidate": "R5-7",
       "lane": "jmap-account",
       "caseId": "R5-JMAP-ACCOUNT-CONTEXT",
-      "owner": "mailserver/webmail/src/lib/jmap",
+      "owner": "webmail/src/lib/jmap",
       "gateClass": "merge",
       "warmEstimateSeconds": 300,
       "allowedDispositions": [
@@ -241,7 +241,7 @@
         "passDisposition": "implemented",
         "absentDisposition": "no-change",
         "marker": {
-          "path": "mailserver/webmail/src/lib/jmap/client.test.ts",
+          "path": "webmail/src/lib/jmap/client.test.ts",
           "selector": "auth generation"
         },
         "alternateMarker": {
@@ -255,8 +255,8 @@
         ]
       },
       "commands": [
-        "cd mailserver/webmail && npm exec vitest run src/lib/jmap/client.test.ts src/lib/stores/inboxStore.svelte.test.ts src/lib/stores/emailActionStore.svelte.test.ts",
-        "cd mailserver/webmail && npm run check"
+        "cd webmail && npm exec vitest run src/lib/jmap/client.test.ts src/lib/stores/inboxStore.svelte.test.ts src/lib/stores/emailActionStore.svelte.test.ts",
+        "cd webmail && npm run check"
       ],
       "alternateCommands": []
     },
@@ -336,7 +336,7 @@
       "candidate": "R5-10",
       "lane": "chat",
       "caseId": "R5-CHAT-OWNER-RECONCILIATION",
-      "owner": "mailserver/webmail/src/lib/chat",
+      "owner": "webmail/src/lib/chat",
       "gateClass": "merge",
       "warmEstimateSeconds": 120,
       "allowedDispositions": [
@@ -348,7 +348,7 @@
         "passDisposition": "implemented",
         "absentDisposition": "no-change",
         "marker": {
-          "path": "mailserver/webmail/src/lib/chat/store.svelte.test.ts",
+          "path": "webmail/src/lib/chat/store.svelte.test.ts",
           "selector": "R5_POST_R3_RED_CASE"
         },
         "alternateMarker": {
@@ -403,7 +403,7 @@
       "candidate": "R5-12",
       "lane": "compose",
       "caseId": "R5-COMPOSE-OWNER-RECONCILIATION",
-      "owner": "mailserver/webmail/src/lib/stores/composeStore.svelte.ts",
+      "owner": "webmail/src/lib/stores/composeStore.svelte.ts",
       "gateClass": "merge",
       "warmEstimateSeconds": 120,
       "allowedDispositions": [
@@ -415,7 +415,7 @@
         "passDisposition": "implemented",
         "absentDisposition": "no-change",
         "marker": {
-          "path": "mailserver/webmail/src/lib/stores/composeStore.svelte.test.ts",
+          "path": "webmail/src/lib/stores/composeStore.svelte.test.ts",
           "selector": "R5_POST_R3_RED_CASE"
         },
         "alternateMarker": {
@@ -440,7 +440,7 @@
       "candidate": "R5-13",
       "lane": "calendar",
       "caseId": "R5-CALENDAR-OWNER-RECONCILIATION",
-      "owner": "mailserver/webmail/src/lib/stores/calendarActionStore.svelte.ts",
+      "owner": "webmail/src/lib/stores/calendarActionStore.svelte.ts",
       "gateClass": "merge",
       "warmEstimateSeconds": 120,
       "allowedDispositions": [
@@ -452,7 +452,7 @@
         "passDisposition": "implemented",
         "absentDisposition": "no-change",
         "marker": {
-          "path": "mailserver/webmail/src/lib/stores/calendarActionStore.svelte.test.ts",
+          "path": "webmail/src/lib/stores/calendarActionStore.svelte.test.ts",
           "selector": "R5_CALENDAR_TWO_TRANSITIONS"
         },
         "alternateMarker": {
@@ -466,11 +466,11 @@
         ]
       },
       "commands": [
-        "cd mailserver/webmail && npm exec vitest run src/lib/stores/calendarActionStore.svelte.test.ts src/routes/calendar.test.ts"
+        "cd webmail && npm exec vitest run src/lib/stores/calendarActionStore.svelte.test.ts src/routes/calendar.test.ts"
       ],
       "alternateCommands": [
         "node scripts/guards/check-architecture-r5-dispositions.mjs calendar",
-        "cd mailserver/webmail && npm exec vitest run src/lib/stores/calendarActionStore.svelte.test.ts src/lib/components/CalendarApp.test.ts"
+        "cd webmail && npm exec vitest run src/lib/stores/calendarActionStore.svelte.test.ts src/lib/components/CalendarApp.test.ts"
       ]
     },
     {
@@ -500,7 +500,7 @@
       },
       "commands": [
         "node scripts/guards/check-architecture-r5-dispositions.mjs offline",
-        "cd mailserver/webmail && npm exec vitest run src/lib/offline/storeFacade.test.ts src/routes/settings/storage/page.test.ts"
+        "cd webmail && npm exec vitest run src/lib/offline/storeFacade.test.ts src/routes/settings/storage/page.test.ts"
       ],
       "alternateCommands": []
     }

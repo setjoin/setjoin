@@ -89,7 +89,7 @@ psql $PG_OPTS -d postgres -c "CREATE DATABASE $DB_NAME OWNER $DB_USER TEMPLATE t
 # + seed data + the schema_migrations baseline row), not a replayed migration
 # chain. The pre-collapse dual-source tree is archived under sql/_archive/.
 echo "  Loading combined baseline (V001__baseline.sql)..."
-(cd "$ROOT/mailserver/sql/dbschema" && psql $PG_OPTS -d "$DB_NAME" -v ON_ERROR_STOP=1 -f V001__baseline.sql >/dev/null)
+(cd "$ROOT/sql/dbschema" && psql $PG_OPTS -d "$DB_NAME" -v ON_ERROR_STOP=1 -f V001__baseline.sql >/dev/null)
 echo "  Baseline: OK"
 
 # ── 6. Load reducers ──────────────────────────────────────────────────────────────────────────────────────────────────────

@@ -7,8 +7,8 @@ contracts, they do not become a second source of business authority.
 
 ## Authority and rollout model
 
-- `server-rust/crates/domains/platform/src/registry_data.rs` owns the sorted feature-toggle catalog and finite authentication-provider catalog (provider-specific feature keys are derived from it); versioned registry snapshots live in `server-rust/crates/domains/platform/testdata/toggle/`.
-- `mailserver/sql/generated/feature_toggle_registry_current.sql` is generated
+- `server/crates/domains/platform/src/registry_data.rs` owns the sorted feature-toggle catalog and finite authentication-provider catalog (provider-specific feature keys are derived from it); versioned registry snapshots live in `server/crates/domains/platform/testdata/toggle/`.
+- `sql/generated/feature_toggle_registry_current.sql` is generated
   classifier input. Never edit it by hand.
 - V183 introduced the database registry state, reducer-authoritative SET,
   unknown-only DELETE, observe/enforce transitions, audit, trigger fence, and
@@ -26,8 +26,8 @@ contracts, they do not become a second source of business authority.
 ## Add or change a feature key
 
 1. Add a typed constant and exactly one default to the sorted catalog in
-   `server-rust/crates/domains/platform/src/registry_data.rs` and update the
-   versioned snapshot under `server-rust/crates/domains/platform/testdata/toggle/`.
+   `server/crates/domains/platform/src/registry_data.rs` and update the
+   versioned snapshot under `server/crates/domains/platform/testdata/toggle/`.
    Do not pass a raw key to feature checks; dynamic suffix families must first
    be reduced to a reviewed finite source.
 2. Find the next unused schema migration number. Never reuse or edit V183 (or
@@ -68,7 +68,7 @@ not resurrected by rollback.
 
 Register it through an existing reviewed middleware wrapper, update the owning
 runtime inventory test/golden, and either document the exact operation in
-`mailserver/api/openapi.yaml` or add a reviewer-approved exact pending entry.
+`api/openapi.yaml` or add a reviewer-approved exact pending entry.
 
 ```bash
 bash scripts/ci/verify-architecture-r2.sh route
@@ -81,7 +81,7 @@ rerun command, then exits successfully.
 
 ### Add an app prefix
 
-Edit only `RAIL_APPS` in `mailserver/webmail/src/lib/nav/navConfig.ts`. Use an
+Edit only `RAIL_APPS` in `webmail/src/lib/nav/navConfig.ts`. Use an
 exact segment prefix, add query/hash, near-prefix, absent-capability, Guest, and
 zero-app tests, then run:
 
@@ -112,7 +112,7 @@ bash scripts/ci/verify-architecture-r2.sh registry
 ### Add a native bridge member
 
 Change the TypeScript authority in
-`mailserver/webmail/src/lib/native/types.ts`, regenerate its deterministic
+`webmail/src/lib/native/types.ts`, regenerate its deterministic
 projection, implement the supported shell seams, and run the production
 recorder checks:
 

@@ -24,7 +24,7 @@ run_go() {
 }
 
 run_web() {
-  (cd mailserver/webmail && npm test -- --run \
+  (cd webmail && npm test -- --run \
     src/lib/stores/searchQuery.test.ts \
     src/lib/search/searchIntent.test.ts \
     src/lib/components/mail/SearchIntentRail.test.ts \
@@ -35,21 +35,21 @@ run_web() {
     src/lib/stores/composeStore.svelte.test.ts \
     src/lib/components/ComposeScreen.test.ts \
     'src/routes/admin/(system)/webhooks/webhooks.test.ts')
-  (cd mailserver/webmail && npm run check)
+  (cd webmail && npm run check)
 }
 
 run_db() {
   bash scripts/load-test-schema.sh
   pg_prove -h "${PGHOST:-127.0.0.1}" -p "${PGPORT:-5432}" \
     -U "${PGUSER:-mail}" -d "${PGDATABASE:-mailserver_test}" \
-    mailserver/sql/tests/sender_control_center.pg \
-    mailserver/sql/tests/mail_work.pg \
-    mailserver/sql/tests/mail_comments.pg \
-    mailserver/sql/tests/mail_work_notifications.pg \
-    mailserver/sql/tests/mail_work_business_time.pg \
-    mailserver/sql/tests/mail_work_digest_delivery.pg \
-    mailserver/sql/tests/mail_work_internal_actions.pg \
-    mailserver/sql/tests/mail_drafts.pg
+    sql/tests/sender_control_center.pg \
+    sql/tests/mail_work.pg \
+    sql/tests/mail_comments.pg \
+    sql/tests/mail_work_notifications.pg \
+    sql/tests/mail_work_business_time.pg \
+    sql/tests/mail_work_digest_delivery.pg \
+    sql/tests/mail_work_internal_actions.pg \
+    sql/tests/mail_drafts.pg
 
   for key in feature.mail_search_builder feature.sender_control_center feature.shared_mail_work \
     feature.shared_mail_comments feature.shared_mail_notifications feature.shared_mail_analytics \

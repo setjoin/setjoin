@@ -12,9 +12,9 @@
     }
   },
   "build": {
-    "frontendDist": "../../../mailserver/webmail/build",
-    "beforeBuildCommand": "bash src-tauri/android-integration/apply-android-integration.sh && cd ../../mailserver/webmail && npm run build",
-    "beforeDevCommand": "bash src-tauri/android-integration/apply-android-integration.sh && cd ../../mailserver/webmail && npm run dev",
+    "frontendDist": "../../../webmail/build",
+    "beforeBuildCommand": "bash src-tauri/android-integration/apply-android-integration.sh && cd ../../webmail && npm run build",
+    "beforeDevCommand": "bash src-tauri/android-integration/apply-android-integration.sh && cd ../../webmail && npm run dev",
     "devUrl": "http://localhost:5173"
   },
   "app": {

@@ -59,7 +59,7 @@ If any of these don't exist for a given area, **proceed silently** — don't fla
 │   │   └── …
 │   └── agents/
 │       └── skills.md    ← this config (issue tracker / triage labels / domain docs)
-├── mailserver/AGENTS.md ← per-area DOX
+├── server/AGENTS.md ← per-area DOX
 └── …
 ```
 

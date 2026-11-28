@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-WEBMAIL="$ROOT/mailserver/webmail"
+WEBMAIL="$ROOT/webmail"
 MODE="${1:---require}"
 
 case "$MODE" in

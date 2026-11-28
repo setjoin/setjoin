@@ -32,11 +32,11 @@ if [[ "${1:-}" == "--self-test" ]]; then
 fi
 
 check_after \
-  "$ROOT/mailserver/sql/dbschema/V156__identity_source_link_substrate.sql" \
+  "$ROOT/sql/dbschema/V156__identity_source_link_substrate.sql" \
   'ALTER TABLE public\.user_identity_links FORCE ROW LEVEL SECURITY' \
   'INSERT INTO public\.identity_link_events'
 check_after \
-  "$ROOT/mailserver/sql/dbschema/V157__identity_authority_shadow.sql" \
+  "$ROOT/sql/dbschema/V157__identity_authority_shadow.sql" \
   'ALTER TABLE public\.identity_attribute_authority FORCE ROW LEVEL SECURITY' \
   'INSERT INTO public\.identity_attribute_authority'
 

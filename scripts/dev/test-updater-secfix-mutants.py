@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-root = Path(__file__).resolve().parents[2] / "server-rust"
+root = Path(__file__).resolve().parents[2] / "server"
 cases = [
     ("adoption", "existing_managed_adoption_refuses_tampered_content", "tampered managed current was adopted"),
     ("adoption", "managed::changed_artifact_is_refused", "tampered release was adopted"),

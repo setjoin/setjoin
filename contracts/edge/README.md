@@ -2,8 +2,8 @@
 
 Schema-first TypeSpec definitions that compile to the committed OpenAPI 3.1 baseline (`contracts/edge/openapi/edge.v1.yaml`) and drive deterministic code generation for:
 
-- **Webmail TypeScript types:** `mailserver/webmail/src/lib/edge/schema.d.ts` (consumed by `openapi-fetch` via `mailserver/webmail/src/lib/edge/client.ts`).
-- **Rust edge-only DTO crate:** `server-rust/crates/edge-contract/src/generated.rs` (`setjoin-edge-contract`, plain `serde::Serialize`/`serde::Deserialize` structs/enums with zero OpenAPI proc-macros).
+- **Webmail TypeScript types:** `webmail/src/lib/edge/schema.d.ts` (consumed by `openapi-fetch` via `webmail/src/lib/edge/client.ts`).
+- **Rust edge-only DTO crate:** `server/crates/edge-contract/src/generated.rs` (`setjoin-edge-contract`, plain `serde::Serialize`/`serde::Deserialize` structs/enums with zero OpenAPI proc-macros).
 
 ## Layout
 
@@ -32,8 +32,8 @@ npm run build
 
 `npm run build` runs:
 1. `npm run compile` — compiles `main.tsp` to `openapi/edge.v1.yaml` (OpenAPI 3.1.0).
-2. `npm run gen:ts` — emits `mailserver/webmail/src/lib/edge/schema.d.ts` via `openapi-typescript`.
-3. `npm run gen:rust` — emits `server-rust/crates/edge-contract/src/generated.rs` via `scripts/gen-rust-dtos.mjs`.
+2. `npm run gen:ts` — emits `webmail/src/lib/edge/schema.d.ts` via `openapi-typescript`.
+3. `npm run gen:rust` — emits `server/crates/edge-contract/src/generated.rs` via `scripts/gen-rust-dtos.mjs`.
 
 Verify zero drift against committed artifacts:
 
@@ -57,5 +57,5 @@ All contracted HTTP edge APIs follow a **12-month compatibility window**:
 
 ## Coverage Ratchet & Proc-Macro Ban
 
-- `scripts/guards/check-edge-contract-ratchet.sh` + `config/edge-contract-ratchet.json` enforce a monotonic coverage ratchet over non-JMAP/non-DAV HTTP routes in `server-rust/bins/gateway/route-inventory.json`: no new contractable route may land without an `EdgeContract` entry, and covered routes can never regress.
-- `scripts/guards/check-openapi-proc-macro-ban.sh` enforces that OpenAPI proc-macro crates (`utoipa`, `aide`, `poem-openapi`, `schemars`, etc.) never enter `server-rust/crates/domains/*`, `server-rust/crates/contracts/*`, or `server-rust/crates/pg/*`.
+- `scripts/guards/check-edge-contract-ratchet.sh` + `config/edge-contract-ratchet.json` enforce a monotonic coverage ratchet over non-JMAP/non-DAV HTTP routes in `server/bins/gateway/route-inventory.json`: no new contractable route may land without an `EdgeContract` entry, and covered routes can never regress.
+- `scripts/guards/check-openapi-proc-macro-ban.sh` enforces that OpenAPI proc-macro crates (`utoipa`, `aide`, `poem-openapi`, `schemars`, etc.) never enter `server/crates/domains/*`, `server/crates/contracts/*`, or `server/crates/pg/*`.

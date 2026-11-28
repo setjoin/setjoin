@@ -2,8 +2,8 @@
 # check-rls-fail-closed.sh — Wave 1.9 (#547) Release N+1 fail-closed FORCE RLS guard.
 #
 # Prevents regressions back to Release N advisory/permissive behavior:
-#   1. Zero `EnforcementMode::WarnReleaseN` in `server-rust/crates/boot/src/`
-#      or any `server-rust/bins/*/src/` production binary (including future
+#   1. Zero `EnforcementMode::WarnReleaseN` in `server/crates/boot/src/`
+#      or any `server/bins/*/src/` production binary (including future
 #      `setjoind`).
 #   2. `BootPosture::bare()` in `rls_preflight.rs` stays on
 #      `EnforcementMode::FailClosedReleaseNPlus1`.
@@ -18,9 +18,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SERVER_RUST_DIR="${SERVER_RUST_DIR:-$ROOT/server-rust}"
-INSTALL_SH="${INSTALL_SH:-$ROOT/mailserver/deploy/scripts/install.sh}"
-UPGRADE_SH="${UPGRADE_SH:-$ROOT/mailserver/deploy/scripts/upgrade.sh}"
+SERVER_RUST_DIR="${SERVER_RUST_DIR:-$ROOT/server}"
+INSTALL_SH="${INSTALL_SH:-$ROOT/deploy/scripts/install.sh}"
+UPGRADE_SH="${UPGRADE_SH:-$ROOT/deploy/scripts/upgrade.sh}"
 PARALLEL_LANE_SH="${PARALLEL_LANE_SH:-$ROOT/scripts/ci/server-rust-parallel-lane.sh}"
 
 fail=0
@@ -46,7 +46,7 @@ done
 shopt -u nullglob
 
 if [ "${#scan_dirs[@]}" -lt 2 ]; then
-  report "expected server-rust/bins/*/src directories under $SERVER_RUST_DIR"
+  report "expected server/bins/*/src directories under $SERVER_RUST_DIR"
 else
   while IFS= read -r match; do
     [ -z "$match" ] && continue

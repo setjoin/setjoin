@@ -18,26 +18,26 @@ Status column:
 
 | Item | Path | License (SPDX) | Status | Source |
 |---|---|---|---|---|
-| Mozilla CA certificate bundle (curl `cacert.pem`, Mozilla data as of 2026-11-05) | `mailserver/internal/smime/cacert.pem`, `server-rust/crates/protocols/smtp/src/inbound/cacert.pem` | MPL-2.0 | upstream | https://curl.se/docs/caextract.html (from Mozilla NSS `certdata.txt`) |
-| Excalidraw 0.18.1 (npm package, built into the webmail bundle; only its fonts are vendored) | `mailserver/webmail/package.json` dependency | MIT | in tree (npm `package.json`) | https://github.com/excalidraw/excalidraw |
-| Assistant font (4 files) | `mailserver/webmail/static/excalidraw/fonts/Assistant/` | OFL-1.1 | in tree | https://github.com/hafontia/Assistant |
-| Cascadia Code font (1 file) | `mailserver/webmail/static/excalidraw/fonts/Cascadia/` | OFL-1.1 | in tree | https://github.com/microsoft/cascadia-code |
-| Comic Shanns font (4 files) | `mailserver/webmail/static/excalidraw/fonts/ComicShanns/` | MIT | in tree | https://github.com/shannpersand/comic-shanns (modified version shipped by Excalidraw) |
-| Excalifont font (7 files) | `mailserver/webmail/static/excalidraw/fonts/Excalifont/` | OFL-1.1 (expected) | to verify | https://github.com/excalidraw/excalifont |
-| Setjoin Sans Fallback font (1 file): modified Latin subset of Liberation Sans 2.1.5, converted to woff2 and renamed per the OFL Reserved Font Name clause | `mailserver/webmail/static/excalidraw/fonts/Liberation/` | OFL-1.1 | in tree (font name table, and the full upstream notice below) | https://github.com/liberationfonts/liberation-fonts (tag 2.1.5) |
-| Lilita One font (2 files) | `mailserver/webmail/static/excalidraw/fonts/Lilita/` | OFL-1.1 | in tree | https://fonts.google.com/specimen/Lilita+One |
-| Nunito font (5 files) | `mailserver/webmail/static/excalidraw/fonts/Nunito/` | OFL-1.1 | in tree | https://github.com/googlefonts/nunito |
-| Virgil font (1 file) | `mailserver/webmail/static/excalidraw/fonts/Virgil/` | OFL-1.1 | in tree | https://github.com/excalidraw/virgil |
-| Xiaolai SC font (209 files) | `mailserver/webmail/static/excalidraw/fonts/Xiaolai/` | OFL-1.1 (expected) | to verify | https://github.com/lxgw/kose-font |
-| IBM Plex Sans and IBM Plex Mono (9 files) | `mailserver/webmail/static/fonts/ibm-plex-*.woff2`, `mailserver/api/ibm-plex-sans-*.woff2` | OFL-1.1 | in tree (`mailserver/webmail/static/fonts/IBM-PLEX-OFL.txt`) | https://github.com/IBM/plex |
-| Noto Sans SC 2.004 (4 source files, 36 generated shards) | `mailserver/webmail/assets/fonts/source/`, `mailserver/webmail/static/fonts/noto-sans-sc-*.woff2` | OFL-1.1 | in tree (`mailserver/webmail/assets/fonts/source/NOTICE.md`) | https://github.com/notofonts/noto-cjk |
-| Redoc 2.5.3 standalone bundle | `mailserver/api/redoc.standalone.js` | MIT (bundled components listed in the license file) | in tree (`mailserver/api/redoc.standalone.js.LICENSE.txt`) | https://github.com/Redocly/redoc |
+| Mozilla CA certificate bundle (curl `cacert.pem`, Mozilla data as of 2026-11-05) | `mailserver/internal/smime/cacert.pem`, `server/crates/protocols/smtp/src/inbound/cacert.pem` | MPL-2.0 | upstream | https://curl.se/docs/caextract.html (from Mozilla NSS `certdata.txt`) |
+| Excalidraw 0.18.1 (npm package, built into the webmail bundle; only its fonts are vendored) | `webmail/package.json` dependency | MIT | in tree (npm `package.json`) | https://github.com/excalidraw/excalidraw |
+| Assistant font (4 files) | `webmail/static/excalidraw/fonts/Assistant/` | OFL-1.1 | in tree | https://github.com/hafontia/Assistant |
+| Cascadia Code font (1 file) | `webmail/static/excalidraw/fonts/Cascadia/` | OFL-1.1 | in tree | https://github.com/microsoft/cascadia-code |
+| Comic Shanns font (4 files) | `webmail/static/excalidraw/fonts/ComicShanns/` | MIT | in tree | https://github.com/shannpersand/comic-shanns (modified version shipped by Excalidraw) |
+| Excalifont font (7 files) | `webmail/static/excalidraw/fonts/Excalifont/` | OFL-1.1 (expected) | to verify | https://github.com/excalidraw/excalifont |
+| Setjoin Sans Fallback font (1 file): modified Latin subset of Liberation Sans 2.1.5, converted to woff2 and renamed per the OFL Reserved Font Name clause | `webmail/static/excalidraw/fonts/Liberation/` | OFL-1.1 | in tree (font name table, and the full upstream notice below) | https://github.com/liberationfonts/liberation-fonts (tag 2.1.5) |
+| Lilita One font (2 files) | `webmail/static/excalidraw/fonts/Lilita/` | OFL-1.1 | in tree | https://fonts.google.com/specimen/Lilita+One |
+| Nunito font (5 files) | `webmail/static/excalidraw/fonts/Nunito/` | OFL-1.1 | in tree | https://github.com/googlefonts/nunito |
+| Virgil font (1 file) | `webmail/static/excalidraw/fonts/Virgil/` | OFL-1.1 | in tree | https://github.com/excalidraw/virgil |
+| Xiaolai SC font (209 files) | `webmail/static/excalidraw/fonts/Xiaolai/` | OFL-1.1 (expected) | to verify | https://github.com/lxgw/kose-font |
+| IBM Plex Sans and IBM Plex Mono (9 files) | `webmail/static/fonts/ibm-plex-*.woff2`, `api/ibm-plex-sans-*.woff2` | OFL-1.1 | in tree (`webmail/static/fonts/IBM-PLEX-OFL.txt`) | https://github.com/IBM/plex |
+| Noto Sans SC 2.004 (4 source files, 36 generated shards) | `webmail/assets/fonts/source/`, `webmail/static/fonts/noto-sans-sc-*.woff2` | OFL-1.1 | in tree (`webmail/assets/fonts/source/NOTICE.md`) | https://github.com/notofonts/noto-cjk |
+| Redoc 2.5.3 standalone bundle | `api/redoc.standalone.js` | MIT (bundled components listed in the license file) | in tree (`api/redoc.standalone.js.LICENSE.txt`) | https://github.com/Redocly/redoc |
 | IETF RFCs (58 unmodified texts) | `docs/ref/rfc/*.txt`, `docs/ref/rfcs/*.txt` | LicenseRef-IETF-Trust-Legal-Provisions | in tree (each file carries its notice) | https://www.rfc-editor.org/ |
 | OpenHarmony docs, curated English security-kit subset at upstream commit `ea48936`, images removed | `clients/harmonyos/refs/openharmony-docs/` | CC-BY-4.0 (expected) | to verify | https://gitcode.com/openharmony/docs |
 | rust-security-framework at `df2c535` (reference copy) | `clients/rust/refs/ios-security-framework/` | MIT OR Apache-2.0 | in tree (`Cargo.toml`) | https://github.com/kornelski/rust-security-framework |
 | tauri-plugin-biometric 2.3.2 (reference copy) | `clients/rust/refs/tauri-plugin-biometric/` | MIT OR Apache-2.0 (expected) | to verify | https://github.com/tauri-apps/plugins-workspace/tree/v2/plugins/biometric |
-| python-dateutil RRULE test vectors (translated) | `mailserver/sql/tests/calendar_rrule_vectors.pg` | Apache-2.0 AND BSD-3-Clause | in tree (`mailserver/sql/tests/THIRD_PARTY-calendar_rrule_vectors.md`) | https://github.com/dateutil/dateutil/blob/261e29139618/tests/test_rrule.py |
-| rrule.js RRULE test vectors (adapted) | `mailserver/webmail/src/lib/calendar/rrule.test.ts` | BSD-3-Clause | in tree (`mailserver/sql/tests/THIRD_PARTY-calendar_rrule_vectors.md`) | https://github.com/jkbrzt/rrule/blob/9f2061febeeb/test/rrule.test.ts |
+| python-dateutil RRULE test vectors (translated) | `sql/tests/calendar_rrule_vectors.pg` | Apache-2.0 AND BSD-3-Clause | in tree (`sql/tests/THIRD_PARTY-calendar_rrule_vectors.md`) | https://github.com/dateutil/dateutil/blob/261e29139618/tests/test_rrule.py |
+| rrule.js RRULE test vectors (adapted) | `webmail/src/lib/calendar/rrule.test.ts` | BSD-3-Clause | in tree (`sql/tests/THIRD_PARTY-calendar_rrule_vectors.md`) | https://github.com/jkbrzt/rrule/blob/9f2061febeeb/test/rrule.test.ts |
 
 ## Copyright notices
 
@@ -53,7 +53,7 @@ Status column:
 - Xiaolai SC: Copyright (c) 2020 LXGW
 - IBM Plex: Copyright (c) 2017 IBM Corp. with Reserved Font Name "Plex"
 - Noto Sans SC: Copyright (c) 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'
-- Redoc and its bundled components: see `mailserver/api/redoc.standalone.js.LICENSE.txt`
+- Redoc and its bundled components: see `api/redoc.standalone.js.LICENSE.txt`
 - IETF RFCs: Copyright (c) IETF Trust and the persons identified as the document authors (older RFCs: Copyright (C) The Internet Society)
 - OpenHarmony docs: Copyright (c) OpenHarmony contributors
 - rust-security-framework: Copyright (c) Steven Fackler and contributors (to verify)
@@ -92,8 +92,8 @@ SOFTWARE.
 ## SIL Open Font License 1.1
 
 The full license text ships in this repository at
-`mailserver/webmail/static/fonts/IBM-PLEX-OFL.txt` (lines 8-93) and in
-`mailserver/webmail/assets/fonts/source/NOTICE.md`. It is also available at
+`webmail/static/fonts/IBM-PLEX-OFL.txt` (lines 8-93) and in
+`webmail/assets/fonts/source/NOTICE.md`. It is also available at
 https://openfontlicense.org. It applies to every font marked OFL-1.1 above,
 each with its own copyright notice and Reserved Font Names.
 
@@ -132,14 +132,14 @@ copyleft. Those under MPL-2.0 are:
 - npm: lightningcss, dompurify (MPL-2.0 OR Apache-2.0), axe-core (development
   only)
 - Rust: cssparser-macros, dtoa-short, option-ext (desktop client), plus any
-  crate `cargo deny list` reports for `server-rust/`
+  crate `cargo deny list` reports for `server/`
 
 Two npm packages use WTFPL: truncate-utf8-bytes and sanitize-filename.
 Binary releases must ship a generated notice file for these dependencies.
 
 ## Setjoin Sans Fallback (modified Liberation Sans 2.1.5)
 
-`mailserver/webmail/static/excalidraw/fonts/Liberation/LiberationSans-Regular.woff2` is a
+`webmail/static/excalidraw/fonts/Liberation/LiberationSans-Regular.woff2` is a
 **modified version** of Liberation Sans 2.1.5: a Latin subset of the upstream TTF,
 converted to woff2. The SIL Open Font License 1.1 reserves the font name "Liberation"
 for the copyright holder, so a modified version may not use it. The font family is

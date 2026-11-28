@@ -38,11 +38,11 @@ The AI client is **optional**: if no LLM backend is configured (no `AI_BACKEND_U
 | `mailserver/gateway/internal/handlers/ai.go` | **Create** | HTTP handlers: `/ai/compose`, `/ai/reply`, `/ai/tag`, `/ai/tone` — RequireAuth, SSE setup, error mapping |
 | `mailserver/gateway/internal/config/config.go` | **Modify** | Add env vars: `AI_BACKEND_URL` (default ""), `AI_BACKEND_TYPE` (ollama/llamacpp), `AI_MODEL_NAME` (default "llama3.2"), `AI_MAX_TOKENS`, `AI_TEMPERATURE` |
 | `mailserver/gateway/cmd/gateway/main.go` | **Modify** | Init AI client (if configured), register `/ai/*` routes |
-| `mailserver/webmail/src/lib/ai/` | **Create** | Frontend AI integration: `compose.ts` (SSE consumer), `reply.ts`, `tag.ts`, `tone.ts` — wrappers around fetch + EventSource |
-| `mailserver/webmail/src/lib/components/ComposeAI.svelte` | **Create** | Inline suggestion chip below compose editor; ghost text or suggestion bar |
-| `mailserver/webmail/src/lib/components/ReplyAI.svelte` | **Create** | One-click smart reply buttons (3 short suggestions above reply box) |
-| `mailserver/webmail/src/lib/components/TagSuggest.svelte` | **Create** | Tag suggestion badges in message view header, accept/reject UX |
-| `mailserver/webmail/src/lib/stores/ai.ts` | **Create** | `aiEnabled` store (derived from `/health` or config), per-feature opt-in toggles |
+| `webmail/src/lib/ai/` | **Create** | Frontend AI integration: `compose.ts` (SSE consumer), `reply.ts`, `tag.ts`, `tone.ts` — wrappers around fetch + EventSource |
+| `webmail/src/lib/components/ComposeAI.svelte` | **Create** | Inline suggestion chip below compose editor; ghost text or suggestion bar |
+| `webmail/src/lib/components/ReplyAI.svelte` | **Create** | One-click smart reply buttons (3 short suggestions above reply box) |
+| `webmail/src/lib/components/TagSuggest.svelte` | **Create** | Tag suggestion badges in message view header, accept/reject UX |
+| `webmail/src/lib/stores/ai.ts` | **Create** | `aiEnabled` store (derived from `/health` or config), per-feature opt-in toggles |
 
 ## Key Design Decisions
 

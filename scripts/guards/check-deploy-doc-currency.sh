@@ -16,7 +16,7 @@
 # class so it fails at commit time instead of at a customer's 3am upgrade.
 #
 # WHAT IT SCANS. `docs/guides/*.md` (auto-globbed — a new guide is covered for
-# free) + the operator-facing install surface under `mailserver/deploy/`:
+# free) + the operator-facing install surface under `deploy/`:
 # `deploy/scripts/*.sh`, `deploy/mailserver.service`, `deploy/config.env.sample`.
 # Deliberately OUT of scope: `deploy/docker/**` (dev/test fixtures),
 # `deploy/grafana/*.json` + `deploy/zabbix/*` (monitoring dashboards, not the
@@ -57,7 +57,7 @@
 #
 # Usage: scripts/guards/check-deploy-doc-currency.sh
 #   DOCS_DIR=<dir>            override docs/guides/*.md glob root (selftest)
-#   DEPLOY_SCRIPTS_DIR=<dir>  override mailserver/deploy/scripts (selftest)
+#   DEPLOY_SCRIPTS_DIR=<dir>  override deploy/scripts (selftest)
 #   CONFIG_ENV_SAMPLE=<file>  override config.env.sample (selftest)
 #   SERVICE_FILE=<file>       override mailserver.service (selftest)
 # Self-test: scripts/guards/check-deploy-doc-currency-selftest.sh — plants a dangling
@@ -68,24 +68,24 @@ source "$(dirname "$0")/../_base.sh"
 set +e  # every fallible step below is checked explicitly
 
 DOCS_DIR="${DOCS_DIR:-$ROOT/docs/guides}"
-DEPLOY_SCRIPTS_DIR="${DEPLOY_SCRIPTS_DIR:-$ROOT/mailserver/deploy/scripts}"
-CONFIG_ENV_SAMPLE="${CONFIG_ENV_SAMPLE:-$ROOT/mailserver/deploy/config.env.sample}"
+DEPLOY_SCRIPTS_DIR="${DEPLOY_SCRIPTS_DIR:-$ROOT/deploy/scripts}"
+CONFIG_ENV_SAMPLE="${CONFIG_ENV_SAMPLE:-$ROOT/deploy/config.env.sample}"
 # Arch review #A11 (2026-07-16): mailserver.service converged onto the
 # {{TOKEN}} render seam and was renamed mailserver.service.template
 # alongside authserver/setjoin-sfu/setjoin-valkey — this constant follows it
 # so check 2 (script/doc paths) keeps scanning its content, not silently
 # losing coverage because the old filename stopped resolving.
-SERVICE_FILE="${SERVICE_FILE:-$ROOT/mailserver/deploy/setjoin-gateway.service.template}"
+SERVICE_FILE="${SERVICE_FILE:-$ROOT/deploy/setjoin-gateway.service.template}"
 CONFIG_RUST_FILES=(
-  "$ROOT/server-rust/bins/gateway/src/main.rs"
-  "$ROOT/server-rust/bins/gateway/src/runtime/mod.rs"
-  "$ROOT/server-rust/bins/gateway/src/runtime/routes.rs"
-  "$ROOT/server-rust/bins/gateway/src/runtime/workers.rs"
-  "$ROOT/server-rust/bins/gateway/src/acme.rs"
-  "$ROOT/server-rust/bins/gateway/src/configuration/mod.rs"
-  "$ROOT/server-rust/bins/auth/src/config.rs"
-  "$ROOT/server-rust/bins/setjoind/src/lib.rs"
-  "$ROOT/server-rust/crates/domains/platform/src/config.rs"
+  "$ROOT/server/bins/gateway/src/main.rs"
+  "$ROOT/server/bins/gateway/src/runtime/mod.rs"
+  "$ROOT/server/bins/gateway/src/runtime/routes.rs"
+  "$ROOT/server/bins/gateway/src/runtime/workers.rs"
+  "$ROOT/server/bins/gateway/src/acme.rs"
+  "$ROOT/server/bins/gateway/src/configuration/mod.rs"
+  "$ROOT/server/bins/auth/src/config.rs"
+  "$ROOT/server/bins/setjoind/src/lib.rs"
+  "$ROOT/server/crates/domains/platform/src/config.rs"
 )
 
 echo "==> Deploy-doc currency guard"
@@ -143,17 +143,17 @@ declare -A DOCUMENTED_SYMBOL_SOURCE=(
   [REWIND_ATTEMPT]="$ROOT/scripts/deploy/transactional-upgrade-rehearsal.sh"
   [RUN_PREFIX]="$ROOT/scripts/deploy/unified-deployment-readiness.sh"
   [E_ROUTE_UNDOCUMENTED]="$ROOT/scripts/guards/check-openapi-coverage.sh"
-  [RAIL_APPS]="$ROOT/mailserver/webmail/src/lib/nav/navConfig.ts"
+  [RAIL_APPS]="$ROOT/webmail/src/lib/nav/navConfig.ts"
   [E_ARCH_R2_METRICS]="$ROOT/scripts/guards/check-architecture-r2-dx-metrics.sh"
   # TRUSTED_PROXY_IP (TRUSTED_PROXY_DEPLOYMENT.md): exact peer trust boundary read
-  # via std::env::var in server-rust/bins/auth/src/config.rs.
-  [TRUSTED_PROXY_IP]="$ROOT/server-rust/bins/auth/src/config.rs"
+  # via std::env::var in server/bins/auth/src/config.rs.
+  [TRUSTED_PROXY_IP]="$ROOT/server/bins/auth/src/config.rs"
   # E2E_GATEWAY_FLIP_DIR (WEBMAIL_PERFORMANCE_VERIFICATION.md): the opt-in
   # webmail rehearsal seam — restarts ONLY the gateway against a validated
   # web root (start-test-stack.sh), keeping DB/SeaweedFS/authserver sessions
   # alive. Test-harness-only variable, never daemon config; accepted only
   # while its canonical implementation source still contains it.
-  [E2E_GATEWAY_FLIP_DIR]="$ROOT/mailserver/webmail/e2e/scripts/start-test-stack.sh"
+  [E2E_GATEWAY_FLIP_DIR]="$ROOT/webmail/e2e/scripts/start-test-stack.sh"
   # LANE_ADEQUACY_JOBS / LANE_JOBS / LANE_REPLAY_TIMEOUT (VERIFICATION_COMMANDS.md):
   # test-lane concurrency and replay-timeout environment overrides consumed by the
   # server-rust oracle adequacy gate and parallel lane runner, never daemon config.
@@ -162,16 +162,16 @@ declare -A DOCUMENTED_SYMBOL_SOURCE=(
   [LANE_REPLAY_TIMEOUT]="$ROOT/scripts/guards/check-gofree-oracle-adequacy.py"
   # Edge TLS/ACME PEM exporter and certbot deploy hook variables (#559,
   # EDGE_TLS_ACME_MIGRATION.md / DNSSEC_DANE_SETUP.md).
-  [DANE_ENFORCE_KEY_PIN]="$ROOT/mailserver/deploy/scripts/export-edge-pem.sh"
-  [ALLOW_KEY_ROTATION]="$ROOT/mailserver/deploy/scripts/export-edge-pem.sh"
-  [DEST_DIR]="$ROOT/mailserver/deploy/scripts/export-edge-pem.sh"
-  [TLS_OWNER]="$ROOT/mailserver/deploy/scripts/export-edge-pem.sh"
-  [SOURCE_CERT]="$ROOT/mailserver/deploy/scripts/export-edge-pem.sh"
-  [SOURCE_KEY]="$ROOT/mailserver/deploy/scripts/export-edge-pem.sh"
-  [LOCK_FILE]="$ROOT/mailserver/deploy/scripts/export-edge-pem.sh"
-  [RENEWED_LINEAGE]="$ROOT/mailserver/deploy/certbot-deploy-hook.sh.template"
-  [EXPECTED_LINEAGE]="$ROOT/mailserver/deploy/certbot-deploy-hook.sh.template"
-  [TLS_EDGE_PROXY]="$ROOT/mailserver/deploy/scripts/lib-livekit.sh"
+  [DANE_ENFORCE_KEY_PIN]="$ROOT/deploy/scripts/export-edge-pem.sh"
+  [ALLOW_KEY_ROTATION]="$ROOT/deploy/scripts/export-edge-pem.sh"
+  [DEST_DIR]="$ROOT/deploy/scripts/export-edge-pem.sh"
+  [TLS_OWNER]="$ROOT/deploy/scripts/export-edge-pem.sh"
+  [SOURCE_CERT]="$ROOT/deploy/scripts/export-edge-pem.sh"
+  [SOURCE_KEY]="$ROOT/deploy/scripts/export-edge-pem.sh"
+  [LOCK_FILE]="$ROOT/deploy/scripts/export-edge-pem.sh"
+  [RENEWED_LINEAGE]="$ROOT/deploy/certbot-deploy-hook.sh.template"
+  [EXPECTED_LINEAGE]="$ROOT/deploy/certbot-deploy-hook.sh.template"
+  [TLS_EDGE_PROXY]="$ROOT/deploy/scripts/lib-livekit.sh"
 )
 
 # ── third-party systemd units the box also runs, not ours + OUR OWN units
@@ -184,25 +184,25 @@ declare -A DOCUMENTED_SYMBOL_SOURCE=(
 #    every setjoin-auth reference already in the repo — a pre-existing gap,
 #    not something any of these builds introduced, fixed here alongside the
 #    first one to trip it).
-# shellcheck source=../mailserver/deploy/generated/unit-catalog.sh
-source "$ROOT/mailserver/deploy/generated/unit-catalog.sh"
+# shellcheck source=../deploy/generated/unit-catalog.sh
+source "$ROOT/deploy/generated/unit-catalog.sh"
 declare -A OUR_UNIT_ALLOW=()
 for unit in "${SETJOIN_ALL_UNITS[@]}"; do
   OUR_UNIT_ALLOW["$unit"]=1
 done
-if [ -f "$ROOT/mailserver/deploy/setjoind.service.template" ]; then
+if [ -f "$ROOT/deploy/setjoind.service.template" ]; then
   OUR_UNIT_ALLOW["setjoind"]=1
   OUR_UNIT_ALLOW["setjoind.service"]=1
 fi
-for socket_tmpl in "$ROOT"/mailserver/deploy/*.socket.template; do
+for socket_tmpl in "$ROOT"/deploy/*.socket.template; do
   [ -e "$socket_tmpl" ] || continue
   OUR_UNIT_ALLOW["$(basename "$socket_tmpl" .template)"]=1
 done
-for path_tmpl in "$ROOT"/mailserver/deploy/*.path.template; do
+for path_tmpl in "$ROOT"/deploy/*.path.template; do
   [ -e "$path_tmpl" ] || continue
   OUR_UNIT_ALLOW["$(basename "$path_tmpl" .template)"]=1
 done
-if [ -f "$ROOT/mailserver/deploy/setjoin-tls-export.service.template" ]; then
+if [ -f "$ROOT/deploy/setjoin-tls-export.service.template" ]; then
   OUR_UNIT_ALLOW["setjoin-tls-export"]=1
   OUR_UNIT_ALLOW["setjoin-tls-export.service"]=1
 fi
@@ -251,14 +251,14 @@ done < <(grep -rHnoE '`[A-Z][A-Z0-9]*(_[A-Z0-9]+)+`' "${DOC_FILES[@]}")
 echo "   $n1 token(s) checked."
 
 # ── Check 2: script/doc paths ───────────────────────────────────────────────
-# Known repo top-level dirs (+ "deploy" as the mailserver/deploy shorthand
+# Known repo top-level dirs (+ "deploy" as the deploy shorthand
 # docs commonly write) a real reference's first path segment must start
 # with — this rejects noise picked up by the character class below (e.g. a
 # `$ROOT/mailserver/...` bash-variable expansion in install.sh: since `$` is
 # not a path char, the leftmost match starts at `ROOT/mailserver/...`, whose
 # first segment `ROOT` isn't a real top-level dir, so it's correctly ignored
 # rather than reported as a dangling path).
-TOP_LEVEL_ALLOW=(mailserver authserver shared mailctl clients docs scripts deploy)
+TOP_LEVEL_ALLOW=(server sql webmail api deploy clients docs scripts)
 is_top_level_allowed() {
   local seg="$1" t
   for t in "${TOP_LEVEL_ALLOW[@]}"; do [ "$seg" = "$t" ] && return 0; done
@@ -285,18 +285,17 @@ while IFS=: read -r file line rawpath; do
   seg="${p%%/*}"
   is_top_level_allowed "$seg" || continue  # not a repo-relative reference (e.g. a $VAR expansion)
   n2=$((n2 + 1))
-  if [ -e "$ROOT/$p" ] || [ -e "$ROOT/mailserver/$p" ]; then continue; fi
+  if [ -e "$ROOT/$p" ]; then continue; fi
   # Evidence guides intentionally name atomically published, ignored runtime
   # manifests. Accept only paths under a real test-results parent that Git
   # confirms is ignored; a typo outside that evidence boundary still fails.
   if [[ "$p" == */test-results/* ]]; then
     candidate="$ROOT/$p"
-    [[ "$p" == mailserver/* ]] || candidate="$ROOT/mailserver/$p"
     parent="$candidate"
     while [ ! -d "$parent" ] && [ "$parent" != "$ROOT" ]; do parent="$(dirname "$parent")"; done
     if [ -d "$parent" ] && git -C "$ROOT" check-ignore -q "$candidate"; then continue; fi
   fi
-  echo "  [DEPLOY-DOC] $file:$line: path '$p' does not resolve at \$ROOT/$p or \$ROOT/mailserver/$p" >&2
+  echo "  [DEPLOY-DOC] $file:$line: path '$p' does not resolve at \$ROOT/$p" >&2
   fail=1
 done < <(grep -rHnoE '`?[A-Za-z0-9_./-]*/[A-Za-z0-9_./-]+\.(sh|md|go|service|sql|yml|yaml|json|template)`?' \
            "${DOC_FILES[@]}" "${SCRIPT_FILES[@]}" "$SERVICE_FILE" 2>/dev/null | sort -u)

@@ -16,14 +16,14 @@ plan() {
     return 0
   fi
   git diff --name-only "$BASE...HEAD" > "$OUT/changed.txt" || { echo "quick-check plan: git diff failed" >&2; exit 1; }
-  cargo metadata --locked --no-deps --format-version 1 --manifest-path server-rust/Cargo.toml |
+  cargo metadata --locked --no-deps --format-version 1 --manifest-path server/Cargo.toml |
     python3 -c '
 import json, os, sys
 meta = json.load(sys.stdin)
 root = os.getcwd()
 dirs = {p["name"]: os.path.relpath(os.path.dirname(p["manifest_path"]), root) for p in meta["packages"]}
 changed = [l.strip() for l in open(sys.argv[1]) if l.strip()]
-if any(f in ("server-rust/Cargo.toml", "server-rust/Cargo.lock") or f.startswith("server-rust/rust-toolchain") for f in changed):
+if any(f in ("server/Cargo.toml", "server/Cargo.lock") or f.startswith("server/rust-toolchain") for f in changed):
     hit = set(dirs)
 else:
     hit = {n for n, d in dirs.items() if any(f == d or f.startswith(d + "/") for f in changed)}
@@ -57,7 +57,7 @@ run() {
   else
     echo "packages: ${pkgs[*]}"
     for p in "${pkgs[@]}"; do
-      step "cargo clippy --all-targets -p $p" bash -c 'cd server-rust && cargo clippy --locked --all-targets -p "$1"' _ "$p"
+      step "cargo clippy --all-targets -p $p" bash -c 'cd server && cargo clippy --locked --all-targets -p "$1"' _ "$p"
     done
     for p in "${pkgs[@]}"; do
       # shellcheck disable=SC2086
@@ -68,7 +68,7 @@ run() {
   step "check-agent-docs" bash scripts/guards/check-agent-docs.sh
   step "check-workflow-log-hygiene" bash scripts/guards/check-workflow-log-hygiene.sh
   step "check-table-ownership-manifest" bash scripts/guards/check-table-ownership-manifest.sh
-  mapfile -t added < <(git diff --name-only --diff-filter=A "$BASE...HEAD" -- '*.rs' 2>/dev/null)
+  mapfile -t added < <(git -c diff.renameLimit=0 diff -M --name-only --diff-filter=A "$BASE...HEAD" -- '*.rs' 2>/dev/null)
   if [ "${#added[@]}" -eq 0 ]; then
     skip "rustfmt added files" "no Rust file added"
   else

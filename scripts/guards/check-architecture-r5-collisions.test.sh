@@ -6,7 +6,7 @@ set -euo pipefail
 
 fixture="$(mktemp -d)"
 trap 'rm -rf "$fixture"' EXIT
-mkdir -p "$fixture/scripts/guards" "$fixture/scripts/lib" "$fixture/docs/verification" "$fixture/mailserver/webmail/src/lib/admin"
+mkdir -p "$fixture/scripts/guards" "$fixture/scripts/lib" "$fixture/docs/verification" "$fixture/webmail/src/lib/admin"
 cp "$ROOT/scripts/_base.sh" "$fixture/scripts/_base.sh"
 cp "$ROOT/scripts/lib/source-fingerprint.mjs" "$fixture/scripts/lib/source-fingerprint.mjs"
 cp "$ROOT/scripts/guards/check-architecture-r5-cases.mjs" "$fixture/scripts/guards/check-architecture-r5-cases.mjs"
@@ -14,7 +14,7 @@ cp "$ROOT/scripts/guards/check-architecture-r5-collisions.sh" "$fixture/scripts/
 cp "$ROOT/scripts/guards/check-architecture-r5-collisions.test.sh" "$fixture/scripts/guards/check-architecture-r5-collisions.test.sh"
 cp "$ROOT/docs/verification/architecture-r5-cases.json" "$fixture/docs/verification/architecture-r5-cases.json"
 printf 'touched-path collision hold released\n' >"$fixture/docs/architecture.md"
-printf 'baseline\n' >"$fixture/mailserver/webmail/src/lib/admin/client.ts"
+printf 'baseline\n' >"$fixture/webmail/src/lib/admin/client.ts"
 printf 'test-results/\n' >"$fixture/.gitignore"
 git -C "$fixture" init -q -b main
 git -C "$fixture" config user.name 'Architecture R5 Fixture'
@@ -59,8 +59,8 @@ mv "$archived_plan.saved" "$archived_plan"
 [[ "$marker_status" -eq 1 ]] || { echo 'E_ARCH_R5_COLLISION_TEST archived symlink marker was not refused' >&2; exit 1; }
 grep -q 'marker is not a regular file' "$fixture/test-results/symlink.out"
 
-printf 'owner release\n' >>"$fixture/mailserver/webmail/src/lib/admin/client.ts"
-git -C "$fixture" add mailserver/webmail/src/lib/admin/client.ts
+printf 'owner release\n' >>"$fixture/webmail/src/lib/admin/client.ts"
+git -C "$fixture" add webmail/src/lib/admin/client.ts
 git -C "$fixture" commit -qm 'owner release'
 before="$(node "$fixture/scripts/lib/source-fingerprint.mjs" compute --root "$fixture")"
 set +e
@@ -75,7 +75,7 @@ for field in problem cause location artifact fix rerun docs; do grep -q "^$field
 hold_receipt="$(find "$fixture/test-results/hold" -name receipt.json -print -quit)"
 node - "$hold_receipt" <<'NODE'
 const fs=require('node:fs'); const r=JSON.parse(fs.readFileSync(process.argv[2]));
-if(r.status!=='hold'||!r.intersection.includes('mailserver/webmail/src/lib/admin/client.ts'))process.exit(1);
+if(r.status!=='hold'||!r.intersection.includes('webmail/src/lib/admin/client.ts'))process.exit(1);
 NODE
 
 # One-commit public history: the registered private baseline is absent. The check

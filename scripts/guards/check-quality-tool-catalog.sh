@@ -38,7 +38,7 @@ const tracked = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8',
 const excluded = /(^|\/)(node_modules|refs|build|dist|test-results)\//;
 const extensions = new Set();
 for (const file of tracked) {
-  if (!file || excluded.test(file) || file === 'mailserver/api/redoc.standalone.js') continue;
+  if (!file || excluded.test(file) || file === 'api/redoc.standalone.js') continue;
   const base = path.basename(file);
   if (/^Dockerfile/.test(base)) extensions.add('dockerfile');
   else if (base.includes('.')) extensions.add(base.split('.').pop().toLowerCase());

@@ -29,9 +29,9 @@ echo "==> Verifying U2.5 backup/restore integrity evidence"
 bash "$ROOT/scripts/deploy/audit-backup-integrity.sh"
 
 echo "==> Testing webmail (Vitest + coverage ratchet)"
-cd "$ROOT/mailserver/webmail" && npm run test:coverage
+cd "$ROOT/webmail" && npm run test:coverage
 echo "==> Verifying named Webmail test evidence"
-cd "$ROOT" && TEST_EVIDENCE_OUTPUT="mailserver/webmail/test-results/test-evidence.json" \
+cd "$ROOT" && TEST_EVIDENCE_OUTPUT="webmail/test-results/test-evidence.json" \
   bash "$ROOT/scripts/guards/check-test-evidence-results.sh" --verify vitest-json
 echo "==> Enforcing changed Webmail coverage"
 node "$ROOT/scripts/ci/report-changed-coverage.mjs" --mode enforce
@@ -41,11 +41,11 @@ bash "$ROOT/scripts/load-test-schema.sh"
 
 echo "==> Testing PL/pgSQL reducers — mailserver (pgTAP)"
 bash "$ROOT/scripts/ci/run-pgtap-evidence.sh" test-results/pgtap/mailserver.tap \
-  -d mailserver_test "$ROOT/mailserver/sql/tests/"*.pg
+  -d mailserver_test "$ROOT/sql/tests/"*.pg
 
 echo "==> Testing PL/pgSQL reducers — authserver (pgTAP)"
 bash "$ROOT/scripts/ci/run-pgtap-evidence.sh" test-results/pgtap/authserver.tap \
-  -d mailserver_test "$ROOT/authserver/sql/tests/"*.pg
+  -d mailserver_test "$ROOT/sql/auth/tests/"*.pg
 
 echo "==> Verifying named pgTAP evidence"
 TEST_EVIDENCE_OUTPUT="test-results/pgtap/test-evidence.json" \

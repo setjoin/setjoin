@@ -7,7 +7,7 @@
       "id": "CAS-E0-SYNC-STEP-SIGNATURES",
       "introducedBy": "E0",
       "owner": "webmail-offline-sync-contract",
-      "fixture": "mailserver/webmail/src/lib/offline/sync-step-contract.fixture.json",
+      "fixture": "webmail/src/lib/offline/sync-step-contract.fixture.json",
       "lane": "core",
       "requiredState": "required",
       "timeoutSeconds": 120,
@@ -55,7 +55,7 @@
       "id": "CAS-E0-CRITICAL-ADMISSION-ABORT",
       "introducedBy": "E0",
       "owner": "webmail-optional-work-admission",
-      "fixture": "mailserver/webmail/src/lib/offline/critical-admission-abort.fixture.json",
+      "fixture": "webmail/src/lib/offline/critical-admission-abort.fixture.json",
       "lane": "core",
       "requiredState": "required",
       "timeoutSeconds": 120,
@@ -76,7 +76,7 @@
       "id": "CAS-E0-CRITICAL-PROTECTED-SLOT",
       "introducedBy": "E0",
       "owner": "webmail-optional-work-admission",
-      "fixture": "mailserver/webmail/src/lib/offline/critical-protected-slot.fixture.json",
+      "fixture": "webmail/src/lib/offline/critical-protected-slot.fixture.json",
       "lane": "core",
       "requiredState": "required",
       "timeoutSeconds": 120,
@@ -96,7 +96,7 @@
       "id": "CAS-E0-CRITICAL-QUIET-RESUME",
       "introducedBy": "E0",
       "owner": "webmail-optional-work-admission",
-      "fixture": "mailserver/webmail/src/lib/offline/critical-quiet-resume.fixture.json",
+      "fixture": "webmail/src/lib/offline/critical-quiet-resume.fixture.json",
       "lane": "core",
       "requiredState": "required",
       "timeoutSeconds": 120,
@@ -185,7 +185,7 @@
       "id": "CAS-E1-OFF-JSON",
       "introducedBy": "E0",
       "owner": "e1-policy-off-compatibility",
-      "fixture": "mailserver/webmail/e2e/fixtures/connectivity-aware-sync-off-baseline.fixture.json",
+      "fixture": "webmail/e2e/fixtures/connectivity-aware-sync-off-baseline.fixture.json",
       "lane": "quick",
       "requiredState": "required",
       "timeoutSeconds": 180,
@@ -211,7 +211,7 @@
       "id": "CAS-E1-PREV209-OLD-BINARY-POST-SCHEMA",
       "introducedBy": "E0",
       "owner": "e1-schema-compatibility",
-      "fixture": "mailserver/sql/tests/fixtures/connectivity-aware-sync-pre-v209.fixture.json",
+      "fixture": "sql/tests/fixtures/connectivity-aware-sync-pre-v209.fixture.json",
       "lane": "core",
       "requiredState": "required",
       "timeoutSeconds": 240,
@@ -379,7 +379,7 @@
       "id": "CAS-E4I-TRIGGER-STEP-BOUNDS",
       "introducedBy": "E4-I",
       "owner": "webmail-e4i-coordinator",
-      "fixture": "mailserver/webmail/src/lib/offline/e4i.triggerStepBounds.test.ts",
+      "fixture": "webmail/src/lib/offline/e4i.triggerStepBounds.test.ts",
       "fixtureDigest": "a02301b3244c5d85846ee5fb598549d6a26704943cfa5762e7d9072e0b38cf3d",
       "seed": "e4i-deterministic-clock-v1",
       "lane": "core",
@@ -392,14 +392,14 @@
       "contract": {
         "kind": "e4i-trigger-step-bounds",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/coordinator.ts:createCoordinator",
-          "mailserver/webmail/src/lib/offline/coordinator.ts:ingestTrigger",
-          "mailserver/webmail/src/lib/offline/coordinator.ts:runDueWork",
-          "mailserver/webmail/src/lib/offline/steps.ts:createSyncDeltaStep",
-          "mailserver/webmail/src/lib/offline/steps.ts:createSyncWindowStep",
-          "mailserver/webmail/src/lib/offline/steps.ts:isBoundedSyncStep",
-          "mailserver/webmail/src/lib/offline/scheduler.ts:scheduleNext",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditTriggerStepBounds"
+          "webmail/src/lib/offline/coordinator.ts:createCoordinator",
+          "webmail/src/lib/offline/coordinator.ts:ingestTrigger",
+          "webmail/src/lib/offline/coordinator.ts:runDueWork",
+          "webmail/src/lib/offline/steps.ts:createSyncDeltaStep",
+          "webmail/src/lib/offline/steps.ts:createSyncWindowStep",
+          "webmail/src/lib/offline/steps.ts:isBoundedSyncStep",
+          "webmail/src/lib/offline/scheduler.ts:scheduleNext",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditTriggerStepBounds"
         ],
         "assertions": [
           "Duplicate trigger generations coalesce onto one job keyed by coalescing key and never lose a newer trigger.",
@@ -415,7 +415,7 @@
       "id": "CAS-E4I-PERSISTENCE-RECOVERY",
       "introducedBy": "E4-I",
       "owner": "webmail-e4i-persistence",
-      "fixture": "mailserver/webmail/src/lib/offline/e4i.persistenceRecovery.test.ts",
+      "fixture": "webmail/src/lib/offline/e4i.persistenceRecovery.test.ts",
       "fixtureDigest": "741d530b67ec6158864bd38bca8d58971d54e5c14e6c175712b2c13b7f39e6e3",
       "seed": "e4i-contract-bridge-v1",
       "lane": "core",
@@ -428,16 +428,16 @@
       "contract": {
         "kind": "e4i-persistence-recovery",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/migrations.ts:MAIL_MIGRATION_MANIFEST",
-          "mailserver/webmail/src/lib/offline/migrations.ts:planMigration",
-          "mailserver/webmail/src/lib/offline/migrations.ts:applyMailMigrations",
-          "mailserver/webmail/src/lib/offline/nativeBatch.ts:admitBatch",
-          "mailserver/webmail/src/lib/offline/nativeBatch.ts:executeBatch",
-          "mailserver/webmail/src/lib/offline/jobStore.ts:createDurableJobPersistence",
-          "mailserver/webmail/src/lib/offline/jobStore.ts:createMemoryJobPersistence",
-          "mailserver/webmail/src/lib/native/types.ts:OfflineDbBridge.transactionBatch",
-          "mailserver/webmail/src/lib/native/types.ts:OfflineDbBridge.migrateStore",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditPersistenceRecovery"
+          "webmail/src/lib/offline/migrations.ts:MAIL_MIGRATION_MANIFEST",
+          "webmail/src/lib/offline/migrations.ts:planMigration",
+          "webmail/src/lib/offline/migrations.ts:applyMailMigrations",
+          "webmail/src/lib/offline/nativeBatch.ts:admitBatch",
+          "webmail/src/lib/offline/nativeBatch.ts:executeBatch",
+          "webmail/src/lib/offline/jobStore.ts:createDurableJobPersistence",
+          "webmail/src/lib/offline/jobStore.ts:createMemoryJobPersistence",
+          "webmail/src/lib/native/types.ts:OfflineDbBridge.transactionBatch",
+          "webmail/src/lib/native/types.ts:OfflineDbBridge.migrateStore",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditPersistenceRecovery"
         ],
         "assertions": [
           "A committed atomic batch exposes the page and checkpoint together after reopen; a crash before commit exposes neither.",
@@ -453,7 +453,7 @@
       "id": "CAS-E4I-TRANSFER-LIFECYCLE",
       "introducedBy": "E4-I",
       "owner": "webmail-e4i-transfer-executor",
-      "fixture": "mailserver/webmail/src/lib/offline/e4i.transferLifecycle.test.ts",
+      "fixture": "webmail/src/lib/offline/e4i.transferLifecycle.test.ts",
       "fixtureDigest": "bb442a614b564479704c084ca169a309e32091d6a4b7a1a32896a2ddcdaaabd9",
       "seed": "e4i-recording-ports-v1",
       "lane": "core",
@@ -466,13 +466,13 @@
       "contract": {
         "kind": "e4i-transfer-lifecycle",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/transferExecutor.ts:createTransferExecutor",
-          "mailserver/webmail/src/lib/offline/attachmentTransfer.ts:validateAttachmentRangeResponse",
-          "mailserver/webmail/src/lib/offline/attachmentTransfer.ts:rejectAttachmentRedirect",
-          "mailserver/webmail/src/lib/offline/transferDestination.ts:buildAttachmentTransferUrl",
-          "mailserver/webmail/src/lib/offline/transferDestination.ts:validateAttachmentTransferUrl",
-          "mailserver/webmail/src/lib/offline/criticalScope.ts:createCriticalActivityCounter",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditTransferLifecycle"
+          "webmail/src/lib/offline/transferExecutor.ts:createTransferExecutor",
+          "webmail/src/lib/offline/attachmentTransfer.ts:validateAttachmentRangeResponse",
+          "webmail/src/lib/offline/attachmentTransfer.ts:rejectAttachmentRedirect",
+          "webmail/src/lib/offline/transferDestination.ts:buildAttachmentTransferUrl",
+          "webmail/src/lib/offline/transferDestination.ts:validateAttachmentTransferUrl",
+          "webmail/src/lib/offline/criticalScope.ts:createCriticalActivityCounter",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditTransferLifecycle"
         ],
         "assertions": [
           "The bearer is memory-only for one request lifetime and a restart remints under current authorization; no persisted row retains a bearer or URL.",
@@ -488,7 +488,7 @@
       "id": "CAS-E4I-CONSUMER-PARITY",
       "introducedBy": "E4-I",
       "owner": "webmail-e4i-consumer-parity",
-      "fixture": "mailserver/webmail/src/lib/offline/e4i.consumerParity.test.ts",
+      "fixture": "webmail/src/lib/offline/e4i.consumerParity.test.ts",
       "fixtureDigest": "11e1f9b03fc9c9fb6731c6db8a01e0223bc6d13a3025e37f945376ade9d24035",
       "seed": "e4i-deterministic-clock-v1",
       "lane": "core",
@@ -501,9 +501,9 @@
       "contract": {
         "kind": "e4i-consumer-parity",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/coordinator.ts:createCoordinator.readJobResult",
-          "mailserver/webmail/src/lib/offline/statusProjection.ts:schedulerStateFromJobResult",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditConsumerParity"
+          "webmail/src/lib/offline/coordinator.ts:createCoordinator.readJobResult",
+          "webmail/src/lib/offline/statusProjection.ts:schedulerStateFromJobResult",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditConsumerParity"
         ],
         "assertions": [
           "E4 capability-specific execution and E5 projections consume the same committed, unknown, and paused results through one read seam.",
@@ -517,7 +517,7 @@
       "id": "CAS-E5-NEVER-UNKNOWN",
       "introducedBy": "E5",
       "owner": "webmail-e5-ui-accessibility",
-      "fixture": "mailserver/webmail/src/lib/offline/e5.statusSemantics.test.ts",
+      "fixture": "webmail/src/lib/offline/e5.statusSemantics.test.ts",
       "fixtureDigest": "df174e9adacc457c651489131c2f1e8c156eef4bb66e4c32563ae0eca26de869",
       "seed": "e5-status-projection-v1",
       "lane": "core",
@@ -531,11 +531,11 @@
         "kind": "e5-never-unknown",
         "featureFlag": "feature.connectivity_aware_sync",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/statusProjection.ts:schedulerStateFromJobResult",
-          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:e5SchedulerFromJobResult",
-          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:freshnessLabelKey",
-          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:e5StatusText",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5NeverUnknown"
+          "webmail/src/lib/offline/statusProjection.ts:schedulerStateFromJobResult",
+          "webmail/src/lib/offline/e5.uiProjection.ts:e5SchedulerFromJobResult",
+          "webmail/src/lib/offline/e5.uiProjection.ts:freshnessLabelKey",
+          "webmail/src/lib/offline/e5.uiProjection.ts:e5StatusText",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5NeverUnknown"
         ],
         "assertions": [
           "An unknown coordinator read maps to idle through the shared E4-I seam and is never displayed as a completion or currentness.",
@@ -549,7 +549,7 @@
       "id": "CAS-E5-TRANSFER-TERMINALS",
       "introducedBy": "E5",
       "owner": "webmail-e5-ui-accessibility",
-      "fixture": "mailserver/webmail/src/lib/offline/e5.transferTerminals.test.ts",
+      "fixture": "webmail/src/lib/offline/e5.transferTerminals.test.ts",
       "fixtureDigest": "e56720e22e0ec4cc16a75bd0ec627ebac8b581c5625bdb8500e6ef5d2fe79f10",
       "seed": "e5-transfer-display-v1",
       "lane": "core",
@@ -563,10 +563,10 @@
         "kind": "e5-transfer-terminals",
         "featureFlag": "feature.connectivity_aware_sync",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:e5TransferDisplay",
-          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:pauseReasonKey",
-          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:transferRowStateForPause",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5TransferTerminals"
+          "webmail/src/lib/offline/e5.uiProjection.ts:e5TransferDisplay",
+          "webmail/src/lib/offline/e5.uiProjection.ts:pauseReasonKey",
+          "webmail/src/lib/offline/e5.uiProjection.ts:transferRowStateForPause",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5TransferTerminals"
         ],
         "assertions": [
           "Terminal transfer expiry displays the download_expired key (\"Download expired\") with retry (newly authorized restart) and never Open/Save.",
@@ -581,7 +581,7 @@
       "id": "CAS-E5-SAVE-ALL-PARTIAL",
       "introducedBy": "E5",
       "owner": "webmail-e5-ui-accessibility",
-      "fixture": "mailserver/webmail/src/lib/offline/e5.saveAllGroup.test.ts",
+      "fixture": "webmail/src/lib/offline/e5.saveAllGroup.test.ts",
       "fixtureDigest": "6b5e70a8b7a2dc885c2af94f46106529c79f73dd2473b021a4963fdd9f7147c8",
       "seed": "e5-saveall-group-v1",
       "lane": "core",
@@ -595,9 +595,9 @@
         "kind": "e5-save-all-partial",
         "featureFlag": "feature.connectivity_aware_sync",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:summarizeSaveAll",
-          "mailserver/webmail/src/lib/offline/e5SaveAll.ts:createSaveAllGroup",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5SaveAllPartial"
+          "webmail/src/lib/offline/e5.uiProjection.ts:summarizeSaveAll",
+          "webmail/src/lib/offline/e5SaveAll.ts:createSaveAllGroup",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5SaveAllPartial"
         ],
         "assertions": [
           "Save all keeps independent child identities and reports completed/total plus failed/cancelled/expired child counts.",
@@ -611,7 +611,7 @@
       "id": "CAS-E5-SAVE-ALL-CANCEL-RETRY",
       "introducedBy": "E5",
       "owner": "webmail-e5-ui-accessibility",
-      "fixture": "mailserver/webmail/src/lib/offline/e5.saveAllGroup.test.ts",
+      "fixture": "webmail/src/lib/offline/e5.saveAllGroup.test.ts",
       "fixtureDigest": "6b5e70a8b7a2dc885c2af94f46106529c79f73dd2473b021a4963fdd9f7147c8",
       "seed": "e5-saveall-group-v1",
       "lane": "core",
@@ -625,10 +625,10 @@
         "kind": "e5-save-all-cancel-retry",
         "featureFlag": "feature.connectivity_aware_sync",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:saveAllRetryIds",
-          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:saveAllCancelPlan",
-          "mailserver/webmail/src/lib/offline/e5SaveAll.ts:createSaveAllGroup",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5SaveAllCancelRetry"
+          "webmail/src/lib/offline/e5.uiProjection.ts:saveAllRetryIds",
+          "webmail/src/lib/offline/e5.uiProjection.ts:saveAllCancelPlan",
+          "webmail/src/lib/offline/e5SaveAll.ts:createSaveAllGroup",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5SaveAllCancelRetry"
         ],
         "assertions": [
           "Cancel stops exactly the unfinished children and preserves every completed download.",
@@ -642,7 +642,7 @@
       "id": "CAS-E5-GROUP-ANNOUNCER",
       "introducedBy": "E5",
       "owner": "webmail-e5-ui-accessibility",
-      "fixture": "mailserver/webmail/src/lib/offline/e5.saveAllGroup.test.ts",
+      "fixture": "webmail/src/lib/offline/e5.saveAllGroup.test.ts",
       "fixtureDigest": "6b5e70a8b7a2dc885c2af94f46106529c79f73dd2473b021a4963fdd9f7147c8",
       "seed": "e5-saveall-group-v1",
       "lane": "core",
@@ -656,10 +656,10 @@
         "kind": "e5-group-announcer",
         "featureFlag": "feature.connectivity_aware_sync",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:groupAnnouncement",
-          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:shouldAnnounceTransferProgress",
-          "mailserver/webmail/src/lib/offline/e5ui.svelte.ts:announceSaveAllGroup",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5GroupAnnouncer"
+          "webmail/src/lib/offline/e5.uiProjection.ts:groupAnnouncement",
+          "webmail/src/lib/offline/e5.uiProjection.ts:shouldAnnounceTransferProgress",
+          "webmail/src/lib/offline/e5ui.svelte.ts:announceSaveAllGroup",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5GroupAnnouncer"
         ],
         "assertions": [
           "One accessible group announcement replaces the per-child burst: a settled batch of three children produces exactly one announcement.",
@@ -672,7 +672,7 @@
       "id": "CAS-E5-PREFERENCE-SAVE-FAILURE",
       "introducedBy": "E5",
       "owner": "webmail-e5-ui-accessibility",
-      "fixture": "mailserver/webmail/src/lib/offline/e5.settingsPreferences.test.ts",
+      "fixture": "webmail/src/lib/offline/e5.settingsPreferences.test.ts",
       "fixtureDigest": "d1f15e922104f1d25aa7467e60937d07c263818eb9cba4711c8175482f300efa",
       "seed": "e5-settings-controller-v1",
       "lane": "core",
@@ -686,11 +686,11 @@
         "kind": "e5-preference-save-failure",
         "featureFlag": "feature.connectivity_aware_sync",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/e5Settings.ts:createE5SettingsController",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreferenceSaveFailure"
+          "webmail/src/lib/offline/e5Settings.ts:createE5SettingsController",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreferenceSaveFailure"
         ],
         "assertions": [
-          "A failed save preserves the user drafts verbatim, leaves the acknowledged effective state untouched, and surfaces a remedy — it never reports success.",
+          "A failed save preserves the user drafts verbatim, leaves the acknowledged effective state untouched, and surfaces a remedy \u2014 it never reports success.",
           "Only the authoritative server response updates the acknowledged state; the client never recomputes precedence.",
           "Planted violations emit exactly \"FAIL CAS-E5-PREFERENCE-SAVE-FAILURE: preference save failure reported success or lost drafts\" with distinct finite subOracleId cause lines."
         ]
@@ -700,7 +700,7 @@
       "id": "CAS-E5-PREFERENCE-DOUBLE-SUBMIT",
       "introducedBy": "E5",
       "owner": "webmail-e5-ui-accessibility",
-      "fixture": "mailserver/webmail/src/lib/offline/e5.settingsPreferences.test.ts",
+      "fixture": "webmail/src/lib/offline/e5.settingsPreferences.test.ts",
       "fixtureDigest": "d1f15e922104f1d25aa7467e60937d07c263818eb9cba4711c8175482f300efa",
       "seed": "e5-settings-controller-v1",
       "lane": "core",
@@ -714,8 +714,8 @@
         "kind": "e5-preference-double-submit",
         "featureFlag": "feature.connectivity_aware_sync",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/e5Settings.ts:createE5SettingsController",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreferenceDoubleSubmit"
+          "webmail/src/lib/offline/e5Settings.ts:createE5SettingsController",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreferenceDoubleSubmit"
         ],
         "assertions": [
           "A pending save refuses duplicate submission without disturbing the in-flight request.",
@@ -727,7 +727,7 @@
       "id": "CAS-E5-PREFERENCE-ACCOUNT-RACE",
       "introducedBy": "E5",
       "owner": "webmail-e5-ui-accessibility",
-      "fixture": "mailserver/webmail/src/lib/offline/e5.settingsPreferences.test.ts",
+      "fixture": "webmail/src/lib/offline/e5.settingsPreferences.test.ts",
       "fixtureDigest": "d1f15e922104f1d25aa7467e60937d07c263818eb9cba4711c8175482f300efa",
       "seed": "e5-settings-controller-v1",
       "lane": "core",
@@ -741,8 +741,8 @@
         "kind": "e5-preference-account-race",
         "featureFlag": "feature.connectivity_aware_sync",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/e5Settings.ts:createE5SettingsController",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreferenceAccountRace"
+          "webmail/src/lib/offline/e5Settings.ts:createE5SettingsController",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreferenceAccountRace"
         ],
         "assertions": [
           "An account/device change invalidates the pending response: the in-flight reply resolves to a stale-binding refusal and can never update the new binding.",
@@ -755,7 +755,7 @@
       "id": "CAS-E5-PREVIEW-TARGET-RACE",
       "introducedBy": "E5",
       "owner": "webmail-e5-ui-accessibility",
-      "fixture": "mailserver/webmail/src/lib/offline/e5.adminPreview.test.ts",
+      "fixture": "webmail/src/lib/offline/e5.adminPreview.test.ts",
       "fixtureDigest": "fc24beff7a954402478f96bc66a39308bbe26a1960ba4db42b3ecd2587e62548",
       "seed": "e5-admin-preview-v1",
       "lane": "core",
@@ -769,9 +769,9 @@
         "kind": "e5-preview-target-race",
         "featureFlag": "feature.connectivity_aware_sync",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/e5AdminPreview.ts:createAdminPreviewController",
-          "mailserver/webmail/src/lib/offline/e5AdminPreview.ts:parsePreviewEnvelope",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreviewTargetRace"
+          "webmail/src/lib/offline/e5AdminPreview.ts:createAdminPreviewController",
+          "webmail/src/lib/offline/e5AdminPreview.ts:parsePreviewEnvelope",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreviewTargetRace"
         ],
         "assertions": [
           "Every preview response binds the selected target and the request generation: an old-generation response cannot replace a newer selection.",
@@ -784,7 +784,7 @@
       "id": "CAS-E5-PREVIEW-UNAVAILABLE",
       "introducedBy": "E5",
       "owner": "webmail-e5-ui-accessibility",
-      "fixture": "mailserver/webmail/src/lib/offline/e5.adminPreview.test.ts",
+      "fixture": "webmail/src/lib/offline/e5.adminPreview.test.ts",
       "fixtureDigest": "fc24beff7a954402478f96bc66a39308bbe26a1960ba4db42b3ecd2587e62548",
       "seed": "e5-admin-preview-v1",
       "lane": "core",
@@ -798,9 +798,9 @@
         "kind": "e5-preview-unavailable",
         "featureFlag": "feature.connectivity_aware_sync",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/e5AdminPreview.ts:parsePreviewProjection",
-          "mailserver/webmail/src/lib/admin/offline/OfflinePolicyPreview.svelte",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreviewUnavailable"
+          "webmail/src/lib/offline/e5AdminPreview.ts:parsePreviewProjection",
+          "webmail/src/lib/admin/offline/OfflinePolicyPreview.svelte",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreviewUnavailable"
         ],
         "assertions": [
           "Failed refreshes label retained facts stale; unavailable and unauthorized are distinct honest states, never displayed as current.",
@@ -813,7 +813,7 @@
       "id": "CAS-E5-CROSSED-NETWORK-ATTACHMENT",
       "introducedBy": "E5",
       "owner": "webmail-e5-ui-accessibility",
-      "fixture": "mailserver/webmail/src/lib/offline/e5.settingsPreferences.test.ts",
+      "fixture": "webmail/src/lib/offline/e5.settingsPreferences.test.ts",
       "fixtureDigest": "d1f15e922104f1d25aa7467e60937d07c263818eb9cba4711c8175482f300efa",
       "seed": "e5-settings-controller-v1",
       "lane": "core",
@@ -827,8 +827,8 @@
         "kind": "e5-crossed-network-attachment",
         "featureFlag": "feature.connectivity_aware_sync",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/e5Settings.ts:explainCrossedAdmission",
-          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5CrossedNetworkAttachment"
+          "webmail/src/lib/offline/e5Settings.ts:explainCrossedAdmission",
+          "webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5CrossedNetworkAttachment"
         ],
         "assertions": [
           "The four crossed combinations (refresh Never/attachments permitted, refresh permitted/attachments Never, policy/metered narrowing, Background sync Off with permissive stored preferences) each explain actual admission from server-resolved values.",
@@ -843,7 +843,7 @@
       "introducedBy": "E6",
       "owner": "verification-e6-comparison",
       "fixture": "docs/verification/connectivity-e6-profile.json",
-      "fixtureDigest": "e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516",
+      "fixtureDigest": "d8e18abc28bdfff80a628e0507dce3603379446bfa519591f613980a6e752b7f",
       "seed": "e6-profile-freeze-v1",
       "command": "node scripts/guards/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E6-PROFILE-FROZEN",
       "lane": "quick",
@@ -868,7 +868,7 @@
       "introducedBy": "E6",
       "owner": "verification-e6-comparison",
       "fixture": "docs/verification/connectivity-e6-profile.json",
-      "fixtureDigest": "e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516",
+      "fixtureDigest": "d8e18abc28bdfff80a628e0507dce3603379446bfa519591f613980a6e752b7f",
       "seed": "e6-pair-runbook-v1",
       "command": "RUN_ID=<run-id> bash scripts/ci/verify-connectivity-aware-sync.sh core --case CAS-E6-CRITICAL-SAMPLE-FLOOR",
       "lane": "core",
@@ -898,7 +898,7 @@
       "introducedBy": "E6",
       "owner": "verification-e6-comparison",
       "fixture": "docs/verification/connectivity-e6-profile.json",
-      "fixtureDigest": "e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516",
+      "fixtureDigest": "d8e18abc28bdfff80a628e0507dce3603379446bfa519591f613980a6e752b7f",
       "seed": "e6-pair-runbook-v1",
       "command": "RUN_ID=<run-id> bash scripts/ci/verify-connectivity-aware-sync.sh core --case CAS-E6-PAIRED-REGRESSION",
       "lane": "core",
@@ -935,7 +935,7 @@
       "introducedBy": "E6",
       "owner": "verification-e6-comparison",
       "fixture": "docs/verification/connectivity-e6-profile.json",
-      "fixtureDigest": "e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516",
+      "fixtureDigest": "d8e18abc28bdfff80a628e0507dce3603379446bfa519591f613980a6e752b7f",
       "seed": "e6-attempt-accounting-v1",
       "command": "RUN_ID=<run-id> bash scripts/ci/verify-connectivity-aware-sync.sh core --case CAS-E6-FAILED-REQUEST-ACCOUNTING",
       "lane": "core",
@@ -962,7 +962,7 @@
       "introducedBy": "E6",
       "owner": "verification-e6-comparison",
       "fixture": "docs/verification/connectivity-e6-profile.json",
-      "fixtureDigest": "e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516",
+      "fixtureDigest": "d8e18abc28bdfff80a628e0507dce3603379446bfa519591f613980a6e752b7f",
       "seed": "e6-saturation-v1",
       "command": "RUN_ID=<run-id> bash scripts/ci/verify-connectivity-aware-sync.sh core --case CAS-E6-CROSSPROCESS-CRITICAL-SATURATION",
       "lane": "core",
@@ -996,10 +996,10 @@
       "id": "CAS-E6-DIAGNOSTIC-BOUNDS",
       "introducedBy": "E6",
       "owner": "webmail-e6-diagnostics",
-      "fixture": "mailserver/webmail/src/lib/offline/e6Diagnostics.test.ts",
+      "fixture": "webmail/src/lib/offline/e6Diagnostics.test.ts",
       "fixtureDigest": "600f1eb3739cfe0e0e0f027bf9d173ef82bfb665fcbdeae0617113d0e45badac",
       "seed": "e6-diagnostics-bounds-v1",
-      "command": "cd mailserver/webmail && npx vitest run src/lib/offline/e6Diagnostics.test.ts -t CAS-E6-DIAGNOSTIC-BOUNDS",
+      "command": "cd webmail && npx vitest run src/lib/offline/e6Diagnostics.test.ts -t CAS-E6-DIAGNOSTIC-BOUNDS",
       "lane": "core",
       "requiredState": "required",
       "timeoutSeconds": 120,
@@ -1010,12 +1010,12 @@
       "contract": {
         "kind": "e6-diagnostic-bounds",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:createE6DiagnosticsStore",
-          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:parseE6DiagnosticRecord",
-          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:MAX_DIAGNOSTIC_RECORDS_PER_DEVICE",
-          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:MAX_DIAGNOSTIC_BYTES_PER_DEVICE",
-          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:DIAGNOSTIC_RECORD_TTL_MS",
-          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:MAX_EXPORT_BYTES"
+          "webmail/src/lib/offline/e6Diagnostics.ts:createE6DiagnosticsStore",
+          "webmail/src/lib/offline/e6Diagnostics.ts:parseE6DiagnosticRecord",
+          "webmail/src/lib/offline/e6Diagnostics.ts:MAX_DIAGNOSTIC_RECORDS_PER_DEVICE",
+          "webmail/src/lib/offline/e6Diagnostics.ts:MAX_DIAGNOSTIC_BYTES_PER_DEVICE",
+          "webmail/src/lib/offline/e6Diagnostics.ts:DIAGNOSTIC_RECORD_TTL_MS",
+          "webmail/src/lib/offline/e6Diagnostics.ts:MAX_EXPORT_BYTES"
         ],
         "assertions": [
           "The per-device diagnostics store holds at most 1,000 records and 1 MiB; whenever any limit is hit the oldest records are evicted until all limits hold.",
@@ -1035,10 +1035,10 @@
       "id": "CAS-E6-EXPORTER-FAILURE",
       "introducedBy": "E6",
       "owner": "webmail-e6-diagnostics",
-      "fixture": "mailserver/webmail/src/lib/offline/e6Diagnostics.test.ts",
+      "fixture": "webmail/src/lib/offline/e6Diagnostics.test.ts",
       "fixtureDigest": "600f1eb3739cfe0e0e0f027bf9d173ef82bfb665fcbdeae0617113d0e45badac",
       "seed": "e6-diagnostics-bounds-v1",
-      "command": "cd mailserver/webmail && npx vitest run src/lib/offline/e6Diagnostics.test.ts -t CAS-E6-EXPORTER-FAILURE",
+      "command": "cd webmail && npx vitest run src/lib/offline/e6Diagnostics.test.ts -t CAS-E6-EXPORTER-FAILURE",
       "lane": "core",
       "requiredState": "required",
       "timeoutSeconds": 120,
@@ -1049,8 +1049,8 @@
       "contract": {
         "kind": "e6-exporter-failure",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:createE6DiagnosticsExporter",
-          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:MAX_EXPORT_ATTEMPTS"
+          "webmail/src/lib/offline/e6Diagnostics.ts:createE6DiagnosticsExporter",
+          "webmail/src/lib/offline/e6Diagnostics.ts:MAX_EXPORT_ATTEMPTS"
         ],
         "assertions": [
           "An exporter failure (sync throw or rejection) is returned as a failed outcome and never propagates into a mail path.",
@@ -1066,10 +1066,10 @@
       "id": "CAS-E6-METRIC-LABEL-ALLOWLIST",
       "introducedBy": "E6",
       "owner": "webmail-e6-diagnostics",
-      "fixture": "mailserver/webmail/src/lib/offline/e6Diagnostics.test.ts",
+      "fixture": "webmail/src/lib/offline/e6Diagnostics.test.ts",
       "fixtureDigest": "600f1eb3739cfe0e0e0f027bf9d173ef82bfb665fcbdeae0617113d0e45badac",
       "seed": "e6-diagnostics-bounds-v1",
-      "command": "cd mailserver/webmail && npx vitest run src/lib/offline/e6Diagnostics.test.ts -t CAS-E6-METRIC-LABEL-ALLOWLIST",
+      "command": "cd webmail && npx vitest run src/lib/offline/e6Diagnostics.test.ts -t CAS-E6-METRIC-LABEL-ALLOWLIST",
       "lane": "core",
       "requiredState": "required",
       "timeoutSeconds": 120,
@@ -1080,9 +1080,9 @@
       "contract": {
         "kind": "e6-metric-label-allowlist",
         "symbols": [
-          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:E6_METRIC_LABELS",
-          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:isE6MetricLabel",
-          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:parseE6DiagnosticRecord"
+          "webmail/src/lib/offline/e6Diagnostics.ts:E6_METRIC_LABELS",
+          "webmail/src/lib/offline/e6Diagnostics.ts:isE6MetricLabel",
+          "webmail/src/lib/offline/e6Diagnostics.ts:parseE6DiagnosticRecord"
         ],
         "assertions": [
           "Metric labels are exactly the finite plan section 8 enum (time-to-cached-list through critical-p99); unknown labels such as job or account identifiers are rejected, never stored.",
@@ -1095,181 +1095,181 @@
       "id": "CAS-E6-SMALL-COHORT-SUPPRESSION",
       "introducedBy": "E6",
       "owner": "webmail-e6-diagnostics",
-      "fixture": "mailserver/webmail/src/lib/offline/e6Diagnostics.test.ts",
+      "fixture": "webmail/src/lib/offline/e6Diagnostics.test.ts",
       "fixtureDigest": "600f1eb3739cfe0e0e0f027bf9d173ef82bfb665fcbdeae0617113d0e45badac",
       "seed": "e6-diagnostics-bounds-v1",
-	      "command": "cd mailserver/webmail && npx vitest run src/lib/offline/e6Diagnostics.test.ts -t CAS-E6-SMALL-COHORT-SUPPRESSION",
-	      "lane": "core",
-	      "requiredState": "required",
-	      "timeoutSeconds": 120,
-	      "expectedDisposition": "planned",
-	      "retainedArtifacts": [
-	        "test-results/connectivity-aware-sync/<run-id>/e6/small-cohort-suppression.json"
-	      ],
-	      "contract": {
-	        "kind": "e6-small-cohort-suppression",
-	        "symbols": [
-	          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:releaseCrossUserBuckets",
-	          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:MIN_AGGREGATE_CONTRIBUTORS"
-	        ],
-	        "assertions": [
-	          "A cross-user bucket releases only with at least 10 DISTINCT authorized contributors; below the threshold it is suppressed as below-minimum-cohort.",
-	          "One unauthorized contribution suppresses its whole bucket (unavailable proof means omit), even when every other contributor is authorized.",
-	          "Contributor tokens are used only to count distinctness and never appear in any released bucket: released envelopes carry counts and sums only, never identity telemetry.",
-	          "Bucket keys are bounded: unknown metrics, unknown dimension values, and dimensions on non-dimensional metrics are malformed and suppressed."
-	        ],
-	        "thresholds": {
-	          "minimumAggregateContributors": 10
-	        }
-	      }
-	    },
-	    {
-	      "id": "CAS-E7-OUTCOME-CONTRACT-FROZEN",
-	      "introducedBy": "E7",
-	      "owner": "verification-e7-outcome-contract",
-	      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
-	      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
-	      "seed": "e7-outcome-contract-v1",
-	      "command": "node scripts/guards/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-OUTCOME-CONTRACT-FROZEN",
-	      "lane": "quick",
-	      "requiredState": "required",
-	      "timeoutSeconds": 60,
-	      "expectedDisposition": "planned",
-	      "retainedArtifacts": [
-	        "test-results/connectivity-aware-sync/<run-id>/e7/outcome-contract-frozen.json"
-	      ],
-	      "contract": {
-	        "kind": "e7-outcome-contract-frozen",
-	        "assertions": [
-	          "The versioned E7 useful-outcome contract document exists, parses, and validates: contractId, frozenAtUtc, freeze semantics, capability scoping, outcome bindings, the incomplete-outcome rule, the usefulness-not-safety-only distinction, the expansion rule, and the pilot scope are pinned exactly.",
-	          "Every bound outcome name is a verbatim name from the plan's Metrics and initial success criteria list; an outcome name absent from that list is rejected fail-closed.",
-	          "At least one primary foreground/reconnect usefulness outcome is bound, and every outcome names the E4-I/E5 capabilities it applies to.",
-	          "A pilot may not begin while any required outcome field (threshold, sample rule, missing-data rule, cohort, observation window, denominator, OFF comparator) is unspecified; all outcome evidence stays planned until the separately gated pilot run."
-	        ]
-	      }
-	    },
-	    {
-	      "id": "CAS-E7-USEFULNESS-NOT-SAFETY-ONLY",
-	      "introducedBy": "E7",
-	      "owner": "verification-e7-outcome-contract",
-	      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
-	      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
-	      "seed": "e7-outcome-contract-v1",
-	      "command": "node scripts/guards/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-USEFULNESS-NOT-SAFETY-ONLY",
-	      "lane": "quick",
-	      "requiredState": "required",
-	      "timeoutSeconds": 60,
-	      "expectedDisposition": "planned",
-	      "retainedArtifacts": [
-	        "test-results/connectivity-aware-sync/<run-id>/e7/usefulness-not-safety-only.json"
-	      ],
-	      "contract": {
-	        "kind": "e7-usefulness-not-safety-only",
-	        "assertions": [
-	          "Usefulness outcomes never substitute for the E6 safety/SLO gates; the contract records usefulnessOutcomesSubstituteForSafetyGates=false fail-closed.",
-	          "E6 Critical-path regression ceilings, resource budgets, and security/privacy gates remain nonwaivable; missing usefulness evidence holds only the affected expansion or claim.",
-	          "Metrics that stay E6-owned (foreground latency/CPU contention under background work) are not rebranded as pilot usefulness outcomes."
-	        ]
-	      }
-	    },
-	    {
-	      "id": "CAS-E7-INCOMPLETE-OUTCOME-NO-EXPANSION",
-	      "introducedBy": "E7",
-	      "owner": "verification-e7-outcome-contract",
-	      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
-	      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
-	      "seed": "e7-outcome-contract-v1",
-	      "command": "node scripts/guards/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-INCOMPLETE-OUTCOME-NO-EXPANSION",
-	      "lane": "quick",
-	      "requiredState": "required",
-	      "timeoutSeconds": 60,
-	      "expectedDisposition": "planned",
-	      "retainedArtifacts": [
-	        "test-results/connectivity-aware-sync/<run-id>/e7/incomplete-outcome-no-expansion.json"
-	      ],
-	      "contract": {
-	        "kind": "e7-incomplete-outcome-no-expansion",
-	        "assertions": [
-	          "A pilot with unspecified required outcome fields cannot begin: pilotMayNotBeginWithUnspecifiedFields=true fails closed.",
-	          "Every bound outcome carries threshold, sample-rule, and missing-data-rule fields, and the pilot scope carries cohort, observation-window, denominator, and OFF-comparator fields.",
-	          "A baseline-justified threshold carries its finite numeric value and basis; pending thresholds stay honestly pending-q0-baseline instead of a fabricated number.",
-	          "The retained pilot decision precedes expansion, and scope fields that are planned-until-pilot-admission keep the begin-gate engaged."
-	        ]
-	      }
-	    },
-	    {
-	      "id": "CAS-E7-CAPABILITY-SCOPED-OUTCOME",
-	      "introducedBy": "E7",
-	      "owner": "verification-e7-outcome-contract",
-	      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
-	      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
-	      "seed": "e7-outcome-contract-v1",
-	      "command": "node scripts/guards/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-CAPABILITY-SCOPED-OUTCOME",
-	      "lane": "quick",
-	      "requiredState": "required",
-	      "timeoutSeconds": 60,
-	      "expectedDisposition": "planned",
-	      "retainedArtifacts": [
-	        "test-results/connectivity-aware-sync/<run-id>/e7/capability-scoped-outcome.json"
-	      ],
-	      "contract": {
-	        "kind": "e7-capability-scoped-outcome",
-	        "assertions": [
-	          "Every outcome binding names a non-empty set of E4-I/E5 capabilities from the contract's capability registry; unscoped outcomes and unknown capabilities fail closed.",
-	          "The pilot scope binds frozen selected profiles from the E6 profile document; unknown or unfrozen profile IDs fail closed.",
-	          "Attachment prefetch stays excluded from pilot admission unless explicitly widened, and results qualify only their exact frozen profile."
-	        ]
-	      }
-	    },
-	    {
-	      "id": "CAS-E7-LOCAL-ALL-NOT-RELEASE",
-	      "introducedBy": "E7",
-	      "owner": "verification-e7-outcome-contract",
-	      "fixture": "docs/verification/connectivity-e6-profile.json",
-	      "fixtureDigest": "e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516",
-	      "seed": "e7-local-all-not-release-v1",
-	      "command": "node scripts/guards/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-LOCAL-ALL-NOT-RELEASE",
-	      "lane": "quick",
-	      "requiredState": "required",
-	      "timeoutSeconds": 60,
-	      "expectedDisposition": "planned",
-	      "retainedArtifacts": [
-	        "test-results/connectivity-aware-sync/<run-id>/e7/local-all-not-release.json"
-	      ],
-	      "contract": {
-	        "kind": "e7-local-all-not-release",
-	        "assertions": [
-	          "The all profile selection is a local deterministic aggregate, not E7 release readiness: the frozen E6 profile document keeps platform selection explicit — every platform is a frozen selected profile or explicitly unselected with freeze-before-any-results-qualify — and results qualify only their exact frozen profile, never an inferred all.",
-	          "The sustained selected-profile runtime evidence cases (CAS-E6-CRITICAL-SAMPLE-FLOOR, CAS-E6-PAIRED-REGRESSION, CAS-E6-FAILED-REQUEST-ACCOUNTING, CAS-E6-CROSSPROCESS-CRITICAL-SATURATION) stay present, requiredState required, and bound to non-empty frozen requiredProfiles; removing or downgrading one fails closed because the local aggregate cannot substitute for selected-profile runtime evidence.",
-	          "A case bound to requiredProfiles can never carry the local manifest-checker command as its runtime evidence, and all is rejected as a pseudo-profile binding: release readiness requires the selected-profile runtime evidence."
-	        ]
-	      }
-	    },
-	    {
-	      "id": "CAS-E7-CAPABILITY-EVIDENCE-BINDING",
-	      "introducedBy": "E7",
-	      "owner": "verification-e7-outcome-contract",
-	      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
-	      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
-	      "seed": "e7-capability-evidence-binding-v1",
-	      "command": "node scripts/guards/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-CAPABILITY-EVIDENCE-BINDING",
-	      "lane": "quick",
-	      "requiredState": "required",
-	      "timeoutSeconds": 60,
-	      "expectedDisposition": "planned",
-	      "retainedArtifacts": [
-	        "test-results/connectivity-aware-sync/<run-id>/e7/capability-evidence-binding.json"
-	      ],
-	      "contract": {
-	        "kind": "e7-capability-evidence-binding",
-	        "assertions": [
-	          "Capability-scoped outcomes bind only to capability evidence that exists: the frozen contract's capabilityScoping stays fail-closed — unscoped outcomes prohibited, non-empty capability sets from the registry, unknown capabilities rejected.",
-	          "Every pilot-admitted capability's owning unit (E4-I/E5) has at least one actual capability evidence binding in the manifest evidence registry; an admitted-without-evidence capability fails closed.",
-	          "A primary-usefulness outcome must bind at least one pilot-admitted capability from the registry: a capability that is not admitted to the pilot (attachment-prefetch) cannot inherit a usefulness claim."
-	        ]
-	      }
-	    }
-	  ],
+      "command": "cd webmail && npx vitest run src/lib/offline/e6Diagnostics.test.ts -t CAS-E6-SMALL-COHORT-SUPPRESSION",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e6/small-cohort-suppression.json"
+      ],
+      "contract": {
+        "kind": "e6-small-cohort-suppression",
+        "symbols": [
+          "webmail/src/lib/offline/e6Diagnostics.ts:releaseCrossUserBuckets",
+          "webmail/src/lib/offline/e6Diagnostics.ts:MIN_AGGREGATE_CONTRIBUTORS"
+        ],
+        "assertions": [
+          "A cross-user bucket releases only with at least 10 DISTINCT authorized contributors; below the threshold it is suppressed as below-minimum-cohort.",
+          "One unauthorized contribution suppresses its whole bucket (unavailable proof means omit), even when every other contributor is authorized.",
+          "Contributor tokens are used only to count distinctness and never appear in any released bucket: released envelopes carry counts and sums only, never identity telemetry.",
+          "Bucket keys are bounded: unknown metrics, unknown dimension values, and dimensions on non-dimensional metrics are malformed and suppressed."
+        ],
+        "thresholds": {
+          "minimumAggregateContributors": 10
+        }
+      }
+    },
+    {
+      "id": "CAS-E7-OUTCOME-CONTRACT-FROZEN",
+      "introducedBy": "E7",
+      "owner": "verification-e7-outcome-contract",
+      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
+      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
+      "seed": "e7-outcome-contract-v1",
+      "command": "node scripts/guards/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-OUTCOME-CONTRACT-FROZEN",
+      "lane": "quick",
+      "requiredState": "required",
+      "timeoutSeconds": 60,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e7/outcome-contract-frozen.json"
+      ],
+      "contract": {
+        "kind": "e7-outcome-contract-frozen",
+        "assertions": [
+          "The versioned E7 useful-outcome contract document exists, parses, and validates: contractId, frozenAtUtc, freeze semantics, capability scoping, outcome bindings, the incomplete-outcome rule, the usefulness-not-safety-only distinction, the expansion rule, and the pilot scope are pinned exactly.",
+          "Every bound outcome name is a verbatim name from the plan's Metrics and initial success criteria list; an outcome name absent from that list is rejected fail-closed.",
+          "At least one primary foreground/reconnect usefulness outcome is bound, and every outcome names the E4-I/E5 capabilities it applies to.",
+          "A pilot may not begin while any required outcome field (threshold, sample rule, missing-data rule, cohort, observation window, denominator, OFF comparator) is unspecified; all outcome evidence stays planned until the separately gated pilot run."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E7-USEFULNESS-NOT-SAFETY-ONLY",
+      "introducedBy": "E7",
+      "owner": "verification-e7-outcome-contract",
+      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
+      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
+      "seed": "e7-outcome-contract-v1",
+      "command": "node scripts/guards/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-USEFULNESS-NOT-SAFETY-ONLY",
+      "lane": "quick",
+      "requiredState": "required",
+      "timeoutSeconds": 60,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e7/usefulness-not-safety-only.json"
+      ],
+      "contract": {
+        "kind": "e7-usefulness-not-safety-only",
+        "assertions": [
+          "Usefulness outcomes never substitute for the E6 safety/SLO gates; the contract records usefulnessOutcomesSubstituteForSafetyGates=false fail-closed.",
+          "E6 Critical-path regression ceilings, resource budgets, and security/privacy gates remain nonwaivable; missing usefulness evidence holds only the affected expansion or claim.",
+          "Metrics that stay E6-owned (foreground latency/CPU contention under background work) are not rebranded as pilot usefulness outcomes."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E7-INCOMPLETE-OUTCOME-NO-EXPANSION",
+      "introducedBy": "E7",
+      "owner": "verification-e7-outcome-contract",
+      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
+      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
+      "seed": "e7-outcome-contract-v1",
+      "command": "node scripts/guards/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-INCOMPLETE-OUTCOME-NO-EXPANSION",
+      "lane": "quick",
+      "requiredState": "required",
+      "timeoutSeconds": 60,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e7/incomplete-outcome-no-expansion.json"
+      ],
+      "contract": {
+        "kind": "e7-incomplete-outcome-no-expansion",
+        "assertions": [
+          "A pilot with unspecified required outcome fields cannot begin: pilotMayNotBeginWithUnspecifiedFields=true fails closed.",
+          "Every bound outcome carries threshold, sample-rule, and missing-data-rule fields, and the pilot scope carries cohort, observation-window, denominator, and OFF-comparator fields.",
+          "A baseline-justified threshold carries its finite numeric value and basis; pending thresholds stay honestly pending-q0-baseline instead of a fabricated number.",
+          "The retained pilot decision precedes expansion, and scope fields that are planned-until-pilot-admission keep the begin-gate engaged."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E7-CAPABILITY-SCOPED-OUTCOME",
+      "introducedBy": "E7",
+      "owner": "verification-e7-outcome-contract",
+      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
+      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
+      "seed": "e7-outcome-contract-v1",
+      "command": "node scripts/guards/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-CAPABILITY-SCOPED-OUTCOME",
+      "lane": "quick",
+      "requiredState": "required",
+      "timeoutSeconds": 60,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e7/capability-scoped-outcome.json"
+      ],
+      "contract": {
+        "kind": "e7-capability-scoped-outcome",
+        "assertions": [
+          "Every outcome binding names a non-empty set of E4-I/E5 capabilities from the contract's capability registry; unscoped outcomes and unknown capabilities fail closed.",
+          "The pilot scope binds frozen selected profiles from the E6 profile document; unknown or unfrozen profile IDs fail closed.",
+          "Attachment prefetch stays excluded from pilot admission unless explicitly widened, and results qualify only their exact frozen profile."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E7-LOCAL-ALL-NOT-RELEASE",
+      "introducedBy": "E7",
+      "owner": "verification-e7-outcome-contract",
+      "fixture": "docs/verification/connectivity-e6-profile.json",
+      "fixtureDigest": "d8e18abc28bdfff80a628e0507dce3603379446bfa519591f613980a6e752b7f",
+      "seed": "e7-local-all-not-release-v1",
+      "command": "node scripts/guards/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-LOCAL-ALL-NOT-RELEASE",
+      "lane": "quick",
+      "requiredState": "required",
+      "timeoutSeconds": 60,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e7/local-all-not-release.json"
+      ],
+      "contract": {
+        "kind": "e7-local-all-not-release",
+        "assertions": [
+          "The all profile selection is a local deterministic aggregate, not E7 release readiness: the frozen E6 profile document keeps platform selection explicit \u2014 every platform is a frozen selected profile or explicitly unselected with freeze-before-any-results-qualify \u2014 and results qualify only their exact frozen profile, never an inferred all.",
+          "The sustained selected-profile runtime evidence cases (CAS-E6-CRITICAL-SAMPLE-FLOOR, CAS-E6-PAIRED-REGRESSION, CAS-E6-FAILED-REQUEST-ACCOUNTING, CAS-E6-CROSSPROCESS-CRITICAL-SATURATION) stay present, requiredState required, and bound to non-empty frozen requiredProfiles; removing or downgrading one fails closed because the local aggregate cannot substitute for selected-profile runtime evidence.",
+          "A case bound to requiredProfiles can never carry the local manifest-checker command as its runtime evidence, and all is rejected as a pseudo-profile binding: release readiness requires the selected-profile runtime evidence."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E7-CAPABILITY-EVIDENCE-BINDING",
+      "introducedBy": "E7",
+      "owner": "verification-e7-outcome-contract",
+      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
+      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
+      "seed": "e7-capability-evidence-binding-v1",
+      "command": "node scripts/guards/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-CAPABILITY-EVIDENCE-BINDING",
+      "lane": "quick",
+      "requiredState": "required",
+      "timeoutSeconds": 60,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e7/capability-evidence-binding.json"
+      ],
+      "contract": {
+        "kind": "e7-capability-evidence-binding",
+        "assertions": [
+          "Capability-scoped outcomes bind only to capability evidence that exists: the frozen contract's capabilityScoping stays fail-closed \u2014 unscoped outcomes prohibited, non-empty capability sets from the registry, unknown capabilities rejected.",
+          "Every pilot-admitted capability's owning unit (E4-I/E5) has at least one actual capability evidence binding in the manifest evidence registry; an admitted-without-evidence capability fails closed.",
+          "A primary-usefulness outcome must bind at least one pilot-admitted capability from the registry: a capability that is not admitted to the pilot (attachment-prefetch) cannot inherit a usefulness claim."
+        ]
+      }
+    }
+  ],
   "evidenceRegistry": [
     {
       "caseId": "CAS-E0-SYNC-STEP-SIGNATURES",

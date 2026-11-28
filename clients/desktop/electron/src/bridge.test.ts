@@ -6,7 +6,7 @@ import {
   VAULT_VERSION,
 } from "./bridge";
 
-// C0 mirror (mailserver/webmail/src/lib/native/types.ts NATIVE_CAPABILITIES).
+// C0 mirror (webmail/src/lib/native/types.ts NATIVE_CAPABILITIES).
 // Kept in lock-step; the subset test proves desktop advertises only a subset.
 const C0_NATIVE_CAPABILITIES = [
   "push",

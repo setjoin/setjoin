@@ -28,8 +28,8 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 GUARD="$ROOT/scripts/guards/check-e2e-seed-drift.sh"
-REAL_SEED="$ROOT/mailserver/webmail/e2e/fixtures/seed.sql"
-REAL_E2E_DIR="$ROOT/mailserver/webmail/e2e"
+REAL_SEED="$ROOT/webmail/e2e/fixtures/seed.sql"
+REAL_E2E_DIR="$ROOT/webmail/e2e"
 
 DB_HOST="${DB_HOST:-127.0.0.1}"
 DB_PORT="${DB_PORT:-5432}"

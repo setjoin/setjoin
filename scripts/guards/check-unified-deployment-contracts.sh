@@ -7,7 +7,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DEPLOYMENT_SCRIPTS_DIR="${DEPLOYMENT_SCRIPTS_DIR:-$ROOT/scripts/deploy}"
-UPGRADE_SCRIPT="${UPGRADE_SCRIPT:-$ROOT/mailserver/deploy/scripts/upgrade.sh}"
+UPGRADE_SCRIPT="${UPGRADE_SCRIPT:-$ROOT/deploy/scripts/upgrade.sh}"
 fail=0
 
 report() {

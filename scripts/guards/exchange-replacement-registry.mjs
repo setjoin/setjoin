@@ -16,10 +16,10 @@ const paths = {
   redaction: resolve(sourceDir, 'redaction-profiles-v1.json'),
   compatibility: resolve(sourceDir, 'compatibility-v1.json'),
   json: resolve(generatedDir, 'exchange-replacement-v1.json'),
-  sql: resolve(root, 'mailserver/sql/dbschema/V214__exchange_replacement_registry_projection.sql'),
+  sql: resolve(root, 'sql/dbschema/V214__exchange_replacement_registry_projection.sql'),
   docs: resolve(generatedDir, 'exchange-replacement-docs-v1.json')
   ,comparison: resolve(generatedDir, 'exchange-replacement-comparison-v1.md')
-  ,cli: resolve(root, 'server-rust/bins/mailctl/src/exchange_registry_v1.json')
+  ,cli: resolve(root, 'server/bins/mailctl/src/exchange_registry_v1.json')
 };
 
 const allowed = {

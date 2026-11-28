@@ -1,7 +1,7 @@
 # Transactional release and entitlement documents
 
 The release manifest schema and publisher use the shared Rust
-`server-rust/crates/release-format` contract. Frozen Go references remain in
+`server/crates/release-format` contract. Frozen Go references remain in
 `shared/release/manifest.go` and `shared/release/canonical.go`; entitlements
 remain in `shared/release/entitlement.go`. Unknown or exact-duplicate JSON keys
 are rejected;
@@ -13,9 +13,9 @@ document with `"signatures":null` (Go does not omit that field).
 bytes, matching `VerifiedManifest.Digest`; it is not the hash of the signed JSON
 file. Artifact digests still bind exact raw artifact bytes.
 
-The CI-only Rust `setjoin-release` publisher (`server-rust/bins/release`) is the
+The CI-only Rust `setjoin-release` publisher (`server/bins/release`) is the
 supported authoring path; `tools/setjoin-release` remains the frozen parity
-reference. Build with `cargo build --locked --release --manifest-path server-rust/Cargo.toml -p setjoin-release`:
+reference. Build with `cargo build --locked --release --manifest-path server/Cargo.toml -p setjoin-release`:
 
 ```text
 setjoin-release manifest build --draft manifest.draft.json --artifacts-dir release-root --output manifest.json
@@ -39,7 +39,7 @@ and an unsigned inventory (`manifest.draft.json` and `artifacts/`), hashes the
 inventory, signs with both helper key IDs, verifies signatures, compatibility,
 freshness and every artifact, then atomically promotes the signed manifest. A failed
 stage preserves an existing output. See the
-[publisher contract](../../server-rust/bins/release/DOX.md) for the gate and tests.
+[publisher contract](../../server/bins/release/DOX.md) for the gate and tests.
 The same script is available to existing release automation with positional
 arguments documented by its usage. `SETJOIN_RELEASE_BIN` may select a prebuilt
 Rust publisher; otherwise the script builds the locked Rust package itself.

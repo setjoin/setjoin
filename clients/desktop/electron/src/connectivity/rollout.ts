@@ -4,7 +4,7 @@
 //! How the connectivity flag reaches this client: the toggle lives server-side
 //! (`shared/toggle/toggle.go` FeatureConnectivityAwareSync, default OFF) and
 //! the E4-I coordinator itself lives in the webmail TypeScript layer
-//! (`mailserver/webmail/src/lib/offline/coordinator.ts`), behind that same
+//! (`webmail/src/lib/offline/coordinator.ts`), behind that same
 //! default-OFF key. The Electron MAIN process has no toggle plumbing of its
 //! own; the established client-side rollout seam is the MAM
 //! `off|observe|execute` composition contract (`mamLifecycleOwner.ts`, reused
@@ -91,7 +91,7 @@ export function statusAdmitted(mode: ConnectivitySyncRolloutMode): boolean {
 /** The field name the bridge carries the harness rollout mode under
  *  (`window.setjoinNative.connectivity.rolloutMode`). Pinned on BOTH sides of
  *  the build boundary — the webmail reads it in
- *  `mailserver/webmail/src/lib/offline/boot.ts`. */
+ *  `webmail/src/lib/offline/boot.ts`. */
 export const CONNECTIVITY_BRIDGE_ROLLOUT_FIELD = "rolloutMode";
 
 /**

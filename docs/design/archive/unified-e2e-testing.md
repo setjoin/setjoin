@@ -47,7 +47,7 @@ npm run test:e2e
 ### Directory structure
 
 ```
-mailserver/webmail/
+webmail/
   e2e/
     global.setup.ts              # DB seed + auth state capture
     global.teardown.ts           # Data cleanup

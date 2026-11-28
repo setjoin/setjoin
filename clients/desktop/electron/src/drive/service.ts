@@ -7,21 +7,21 @@
 // forward itself afterwards via POST /api/drive/native-token.
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { DriveApiError, DriveHttp } from '../../../../../mailserver/webmail/src/lib/drive/sync/protocol.js';
-import { applySchema, SqlMirrorIndex } from '../../../../../mailserver/webmail/src/lib/drive/sync/schema.js';
-import { SyncEngine } from '../../../../../mailserver/webmail/src/lib/drive/sync/engine.js';
-import { isOfficeEditPath } from '../../../../../mailserver/webmail/src/lib/drive/sync/names.js';
-import type { DbLike, FetchLike, LocalChange, LockRow } from '../../../../../mailserver/webmail/src/lib/drive/sync/types.js';
+import { DriveApiError, DriveHttp } from '../../../../../webmail/src/lib/drive/sync/protocol.js';
+import { applySchema, SqlMirrorIndex } from '../../../../../webmail/src/lib/drive/sync/schema.js';
+import { SyncEngine } from '../../../../../webmail/src/lib/drive/sync/engine.js';
+import { isOfficeEditPath } from '../../../../../webmail/src/lib/drive/sync/names.js';
+import type { DbLike, FetchLike, LocalChange, LockRow } from '../../../../../webmail/src/lib/drive/sync/types.js';
 import type {
 	DriveMirrorSpaceStatus,
 	DriveMirrorStatus,
-} from '../../../../../mailserver/webmail/src/lib/native/types.js';
-import { SyncCoordinator } from '../../../../../mailserver/webmail/src/lib/sync/core/coordinator.js';
-import type { ScopeRevokedEvent, StepOutcome, SyncStepContext } from '../../../../../mailserver/webmail/src/lib/sync/core/types.js';
+} from '../../../../../webmail/src/lib/native/types.js';
+import { SyncCoordinator } from '../../../../../webmail/src/lib/sync/core/coordinator.js';
+import type { ScopeRevokedEvent, StepOutcome, SyncStepContext } from '../../../../../webmail/src/lib/sync/core/types.js';
 import {
 	validateScopeRevoked,
 	validateSyncWakeup,
-} from '../../../../../mailserver/webmail/src/lib/sync/core/validate.js';
+} from '../../../../../webmail/src/lib/sync/core/validate.js';
 import type { NativeBinding } from '../native.js';
 import { appKeyDbFile } from '../handlers/db.js';
 import { FolderMirror } from './mirror.js';

@@ -36,8 +36,8 @@ Three layers: (1) Policy definition and device state in PostgreSQL, managed via 
 | `mailserver/gateway/internal/middleware/auth.go` | Extend RequireAuth for quarantine check |
 | `clients/apple/Mail/Managers/MDMProfileManager.swift` | iOS enforcement |
 | `clients/android/.../MdmPolicyEnforcer.kt` | Android enforcement |
-| `mailserver/sql/migrations/V???__mdm_schema.sql` | Tables + indexes |
-| `mailserver/webmail/src/routes/admin/mdm/` | Admin SvelteKit pages |
+| `sql/migrations/V???__mdm_schema.sql` | Tables + indexes |
+| `webmail/src/routes/admin/mdm/` | Admin SvelteKit pages |
 
 **Key decisions:** (1) MDM engine on gateway, not authserver — check-in is user-scoped. (2) Device Admin, not full Android Enterprise — AE requires managed Google Play, incompatible with air-gap and HMS. (3) Policy JSON over JMAP — single request/response, simpler than a JMAP method. (4) `device_id` is client-generated UUID v4, stable per install — server can't generate for offline-first. (5) Wipe ACK before execution — prevents lost-command race. (6) Grace period before quarantine — avoids lockout for transient states. (7) No push for wipe — picked up on next check-in; push can force immediate check-in for emergencies.
 

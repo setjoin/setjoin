@@ -84,7 +84,7 @@ wizard-held memory of what was actually deployed:
 - **The wizard runtime cannot write here — by design, twice over.** The wizard runs in-process
   in mailserverd (`deploy.NewWizard` at `mailserver/cmd/mailserverd/main.go:1388`) as the
   `setjoin` runtime account, and the unit denies it the path twice: `ProtectSystem=strict` with
-  `ReadWritePaths` limited to the data dir and `/tmp` (`mailserver/deploy/mailserver.service.template:21`,
+  `ReadWritePaths` limited to the data dir and `/tmp` (`deploy/mailserver.service.template:21`,
   `:53-58`), on top of the root:root parent's no-write rule above. An earlier draft of this
   sketch had the wizard temp-file-and-rename inside this same directory, contradicting its own
   boundary — that step is superseded by the protocol below.

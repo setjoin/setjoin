@@ -1,5 +1,5 @@
 // Liquid Glass Design Tokens — HarmonyOS NEXT edition
-// Ported from mailserver/webmail/src/lib/theme/tokens.css
+// Ported from webmail/src/lib/theme/tokens.css
 
 export class ThemeColors {
   // Per-app accent — Mail Blue

@@ -228,7 +228,7 @@ In a rehearsal container the candidate source may be mounted read-only at
 `/mnt/repo-src`. Build web assets from a writable temporary copy, and run the
 upgrade helper from the first existing location:
 `/opt/setjoin/deploy/scripts/upgrade.sh` for an installed release or
-`/mnt/repo-src/mailserver/deploy/scripts/upgrade.sh` for this retained-source
+`/mnt/repo-src/deploy/scripts/upgrade.sh` for this retained-source
 layout. Do not copy a new binary over the running installation before the
 schema step merely because the installed helper is absent.
 
@@ -315,7 +315,7 @@ state so an old build cannot turn a small source sync into a multi-gigabyte copy
 ```text
 .git node_modules target test-results .claude .svelte-kit coverage
 /build/ /clients/desktop/src-tauri/gen/ /clients/desktop/electron/release/
-/mailserver/webmail/build/ /gateway /authserver/authserverd /asrbot/asrbotd
+/webmail/build/ /gateway /authserver/authserverd /asrbot/asrbotd
 /mailctl/mailctl
 ```
 

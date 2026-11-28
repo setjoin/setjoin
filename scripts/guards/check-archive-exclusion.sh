@@ -15,7 +15,7 @@
 #      lines (check-reducererr-contract.sh / check-toggle-registry.sh), and
 #      this guard + its self-test. The sanctioned revival pattern (re-apply a
 #      archived file via a new reviewed V-migration, e.g. V074) references the
-#      archive only from mailserver/sql/dbschema/V*.sql files, which are
+#      archive only from sql/dbschema/V*.sql files, which are
 #      outside the scanned loader sets by construction.
 #   3. INPUT-ENUMERATION CONTRACT: the exact file inputs the loaders execute
 #      must still exist where this guard expects them (V001__baseline.sql,
@@ -37,7 +37,7 @@ SCAN_ROOT="${ARCHIVE_GUARD_ROOT:-$ROOT}"
 violations=()
 
 # ── 1. Sentinel presence on every archive SQL file ────────────────────────
-archive_dirs="$(find "$SCAN_ROOT" -maxdepth 3 -type d -path '*/sql/_archive' 2>/dev/null || true)"
+archive_dirs="$(find "$SCAN_ROOT" -maxdepth 3 -type d \( -path '*/sql/_archive' -o -path '*/sql/auth/_archive' \) 2>/dev/null || true)"
 if [ -z "$archive_dirs" ]; then
   violations+=("no */sql/_archive tree found under $SCAN_ROOT — the archive moved; update this guard's contract")
 fi
@@ -90,15 +90,15 @@ require_input() {
   [ -f "$path" ] || violations+=("loader input contract: $desc missing: $path")
 }
 require_input "baseline (load-test-schema.sh direct -f)" \
-  "$SCAN_ROOT/mailserver/sql/dbschema/V001__baseline.sql"
+  "$SCAN_ROOT/sql/dbschema/V001__baseline.sql"
 require_input "provision-roles.sql (load-test-schema.sh pre+post pass)" \
   "$SCAN_ROOT/scripts/provision-roles.sql"
 require_input "_fixtures.sql (load-test-schema.sh pgTAP step)" \
-  "$SCAN_ROOT/mailserver/sql/tests/_fixtures.sql"
+  "$SCAN_ROOT/sql/tests/_fixtures.sql"
 
-migs="$(LC_ALL=C ls "$SCAN_ROOT"/mailserver/sql/dbschema/V[0-9]*__*.sql 2>/dev/null || true)"
-[ -n "$migs" ] || violations+=("loader input contract: no V[0-9]*__*.sql migrations under $SCAN_ROOT/mailserver/sql/dbschema")
-for rd in "$SCAN_ROOT/mailserver/sql/reducers" "$SCAN_ROOT/authserver/sql/reducers"; do
+migs="$(LC_ALL=C ls "$SCAN_ROOT"/sql/dbschema/V[0-9]*__*.sql 2>/dev/null || true)"
+[ -n "$migs" ] || violations+=("loader input contract: no V[0-9]*__*.sql migrations under $SCAN_ROOT/sql/dbschema")
+for rd in "$SCAN_ROOT/sql/reducers" "$SCAN_ROOT/sql/auth/reducers"; do
   rs="$(LC_ALL=C ls "$rd"/*.sql 2>/dev/null || true)"
   [ -n "$rs" ] || violations+=("loader input contract: no *.sql reducers under $rd")
 done

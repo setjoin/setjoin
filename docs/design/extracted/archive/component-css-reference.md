@@ -828,7 +828,7 @@ Verbatim contents:
 **Self-hosting replacement note**: the bundle loads IBM Plex Sans (400/500/600/700) and IBM Plex
 Mono (400/500/600) from Google Fonts. Setjoin is an on-premise/air-gap product — production must
 **not** depend on Google Fonts. Replace the `@import` with self-hosted `@font-face` rules pointing
-at woff2 binaries under `mailserver/webmail/static/fonts/` (IBM Plex is OFL-licensed, so bundling
+at woff2 binaries under `webmail/static/fonts/` (IBM Plex is OFL-licensed, so bundling
 is permitted), preserving the same family names and weights so `--font-sans` / `--font-mono`
 token definitions keep resolving. Include `font-display: swap` to match the bundle's
 `display=swap` behavior.
@@ -838,15 +838,15 @@ token definitions keep resolving. Include `font-display: swap` to match the bund
 ## Brand assets
 
 The four SVGs from `docs/design/setjoin-design-system/assets/` were copied **as files** (not
-inlined) to `mailserver/webmail/static/brand/` on 2026-06-13, so they survive the bundle deletion
+inlined) to `webmail/static/brand/` on 2026-06-13, so they survive the bundle deletion
 and are servable by the webmail at `/brand/<name>.svg`:
 
 | File | Description |
 |---|---|
-| `mailserver/webmail/static/brand/logo-mark.svg` | 36×36 logo mark — two overlapping rounded squares (stroke `#1E202B`) with solid indigo `#4A50D0` intersection square; light-background color version. |
-| `mailserver/webmail/static/brand/logo-mark-mono.svg` | 36×36 monochrome logo mark — same geometry, entirely `currentColor` (strokes + fill), for tinting via CSS color. |
-| `mailserver/webmail/static/brand/logo-wordmark.svg` | 172×40 horizontal lockup — color mark + "setjoin" wordmark text (IBM Plex Sans 600, 22px, −0.02em): "set" in `#1E202B`, "join" in `#4A50D0`; for light backgrounds. |
-| `mailserver/webmail/static/brand/logo-wordmark-dark.svg` | 172×40 dark-mode lockup — mark strokes `#FFFFFF`, intersection + "join" in light indigo `#A8AFF4`, "set" in `#FFFFFF`; for dark backgrounds. |
+| `webmail/static/brand/logo-mark.svg` | 36×36 logo mark — two overlapping rounded squares (stroke `#1E202B`) with solid indigo `#4A50D0` intersection square; light-background color version. |
+| `webmail/static/brand/logo-mark-mono.svg` | 36×36 monochrome logo mark — same geometry, entirely `currentColor` (strokes + fill), for tinting via CSS color. |
+| `webmail/static/brand/logo-wordmark.svg` | 172×40 horizontal lockup — color mark + "setjoin" wordmark text (IBM Plex Sans 600, 22px, −0.02em): "set" in `#1E202B`, "join" in `#4A50D0`; for light backgrounds. |
+| `webmail/static/brand/logo-wordmark-dark.svg` | 172×40 dark-mode lockup — mark strokes `#FFFFFF`, intersection + "join" in light indigo `#A8AFF4`, "set" in `#FFFFFF`; for dark backgrounds. |
 
 Note: `static/brand/` already contained pre-existing files (`glyph.svg`, `wordmark.svg`,
 `app-icons/`) from earlier work; the four files above were added alongside them without

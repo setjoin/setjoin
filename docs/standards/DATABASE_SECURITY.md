@@ -190,14 +190,14 @@ nothing at the DB layer denies it. These guards convert that to **fail-closed-at
 
 - **`scripts/guards/check-table-ownership-manifest.sh`** (`config/table-ownership-manifest.json`,
   Issue #539) — **positive** static guard over all logical base/parent tables in
-  `mailserver/sql/dbschema/V*.sql` and all Rust domain crates (`server-rust/crates/domains/*`):
+  `sql/dbschema/V*.sql` and all Rust domain crates (`server/crates/domains/*`):
   1. Classifies every logical table with an owning domain crate (or `foundation`),
      security class (`mailbox_scoped`, `user_scoped`, `org_global`, `system_only`),
      RLS posture (`enforced` requires both `ENABLE`+`FORCE ROW LEVEL SECURITY` in
      replayed `V*.sql`; `pending_wave1_cutover` is ratcheted strictly to the frozen
      legacy baseline tracked by `#546` so no new table may omit `FORCE RLS`), and
      required `rls_scope_column` for scoped tables.
-  2. Rejects uncontracted cross-domain SQL reads/writes in `server-rust/crates/domains/*`
+  2. Rejects uncontracted cross-domain SQL reads/writes in `server/crates/domains/*`
      and ratchets `legacy_write_migration_pending` contracts monotonically.
   3. Enforces R1–R3 ownership predicates in predicate context (`WHERE`/`JOIN ... ON`/
      `HAVING`/`USING`, never projection-only) for `SELECT`, and in `WHERE` for
@@ -287,7 +287,7 @@ grep -rn 'WHERE.*=.*\$' --include="*.go" mailserver/gateway/internal/ authserver
   | grep -v 'user_id\|mailbox_id\|account_id\|domain_id'
 
 # Find DELETEs without ownership check (SQL)
-grep -rn 'DELETE FROM' mailserver/sql/reducers/ \
+grep -rn 'DELETE FROM' sql/reducers/ \
   | grep -v 'user_id\|mailbox_id\|account_id\|p_account'
 
 # Find INSERTs using req.* for ownership (Go)

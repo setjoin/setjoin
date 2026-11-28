@@ -8,7 +8,7 @@
 // in-memory model. This is the acceptance-gate oracle (Task 13); each
 // behavior below is self-evident from the P1 spec it pins, not re-derived
 // from the client code that consumes it.
-import type { FetchLike } from '../../../../../../mailserver/webmail/src/lib/drive/sync/types.js';
+import type { FetchLike } from '../../../../../../webmail/src/lib/drive/sync/types.js';
 
 interface NodeRow {
 	id: number;

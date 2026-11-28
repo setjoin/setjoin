@@ -69,7 +69,7 @@ PY
 
 port_handoff() {
   local hits
-  hits="$(grep -rn -A2 'bind("127.0.0.1:0")' server-rust --include=*.rs | grep 'drop(' || true)"
+  hits="$(grep -rn -A2 'bind("127.0.0.1:0")' server --include=*.rs | grep 'drop(' || true)"
   [[ -z "$hits" ]] || { echo "bind-:0-then-drop port handoff (another process can take the port):"; echo "$hits"; return 1; }
 }
 
@@ -80,8 +80,8 @@ tracked_bytecode() {
 }
 
 check "adequacy preflight" python3 scripts/guards/check-gofree-oracle-adequacy.py --preflight-only
-check "adequacy_guard_test" python3 server-rust/tests/conformance/tests/adequacy_guard_test.py
-check "coverage_report_test" python3 server-rust/tests/conformance/tests/coverage_report_test.py
+check "adequacy_guard_test" python3 server/tests/conformance/tests/adequacy_guard_test.py
+check "coverage_report_test" python3 server/tests/conformance/tests/coverage_report_test.py
 check "merge-lane-shards test" python3 scripts/ci/test-merge-lane-shards.py
 check "lane-job-gate test" python3 scripts/ci/test-lane-job-gate.py
 # cargo-deny: the pinned binary the lane uses (scripts/server-rust-lane-tools.sh puts it in
@@ -94,7 +94,7 @@ cargo_deny() {
     echo "cargo-deny not found in $bin or on PATH; run: bash scripts/server-rust-lane-tools.sh (or set PRE_CI_SKIP_DENY=1 to skip)"
     return 3
   fi
-  (cd server-rust && cargo deny --locked check)
+  (cd server && cargo deny --locked check)
 }
 if [[ "${PRE_CI_SKIP_DENY:-}" == 1 ]]; then
   results+=("SKIP cargo deny (PRE_CI_SKIP_DENY=1)")
@@ -115,7 +115,7 @@ check "agent context budget" bash scripts/guards/check-agent-context-budget.sh
 changed_binaries() {
   local f dir d top m found
   while IFS= read -r f; do
-    [[ "$f" == server-rust/*/tests/* || "$f" == server-rust/*/*/tests/* || "$f" == server-rust/tests/* ]] || continue
+    [[ "$f" == server/*/tests/* || "$f" == server/*/*/tests/* || "$f" == server/tests/* ]] || continue
     [[ "$f" == *.rs ]] || continue
     dir="${f%%/tests/*}/tests"
     top="${f#"$dir"/}"

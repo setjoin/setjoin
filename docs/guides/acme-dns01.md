@@ -6,7 +6,7 @@
 > `TLS_DNS_*` / `ACME_*` variable set causes `setjoind` / `setjoin-server` to
 > refuse startup fail-closed. Migrate to an edge TLS/ACME terminator (Caddy or
 > certbot with DNS-01 plugins) exporting PEM files to `TLS_CERT` / `TLS_KEY`
-> via `mailserver/deploy/scripts/export-edge-pem.sh` (hot-reloaded
+> via `deploy/scripts/export-edge-pem.sh` (hot-reloaded
 > automatically by all Setjoin listeners with zero restarts). See
 > `docs/guides/EDGE_TLS_ACME_MIGRATION.md`.
 

@@ -5,7 +5,7 @@
 # the launcher), ONE instance per comparator window. The .mjs owns all
 # behavior — the frozen optional-job workload shape through the window's
 # fault proxy, the production admission/backoff rules (mirrored from
-# mailserver/webmail/src/lib/offline/ with provenance), the §2.4-as-amended
+# webmail/src/lib/offline/ with provenance), the §2.4-as-amended
 # declared-level saturation proof (engaged at-limit OR held-by-production-
 # rule with reason codes; outage alone never refutes), the per-poll samples
 # and summary receipt fragment, the §2.3.1 ordered drain, and the embedded

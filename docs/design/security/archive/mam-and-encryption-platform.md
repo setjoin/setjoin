@@ -615,7 +615,7 @@ A daily cron job also runs at 3am, checking if rekey is needed. The rekey is ide
 - `mailctl/cmd/key.go` — CLI key lifecycle
 - `mailctl/cmd/cert.go` — CLI self-signed certificate generation
 - `mailctl/cmd/storage_migrate.go` — CLI storage volume migration
-- `mailserver/deploy/setjoin-gateway.service.example` — systemd unit with LoadCredential
+- `deploy/setjoin-gateway.service.example` — systemd unit with LoadCredential
 - `docs/guides/key-management.md` — Key lifecycle documentation
 - Intune MAM-WE architecture: App SDK → policy service, no device enrollment
 - NIST SP 800-57: Recommendation for Key Management

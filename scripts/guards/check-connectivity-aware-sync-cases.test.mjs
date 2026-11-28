@@ -297,7 +297,7 @@ try {
 			copy.cases.find((entry) => entry.id === 'CAS-E6-PAIRED-REGRESSION').command = 'RUN_ID=<run-id> bash scripts/ci/verify-connectivity-aware-sync.sh core';
 		}, 'must contain the exact case ID'],
 		['E6 command is not one line', (copy) => {
-			copy.cases.find((entry) => entry.id === 'CAS-E6-DIAGNOSTIC-BOUNDS').command = 'cd mailserver/webmail\nnpx vitest run';
+			copy.cases.find((entry) => entry.id === 'CAS-E6-DIAGNOSTIC-BOUNDS').command = 'cd webmail\nnpx vitest run';
 		}, 'one exact non-empty command line'],
 		['E6 case loses its identity seed', (copy) => {
 			delete copy.cases.find((entry) => entry.id === 'CAS-E6-METRIC-LABEL-ALLOWLIST').seed;
@@ -374,7 +374,7 @@ function makeHarnessInstrumentFixture() {
 			heldRequiresPendingWork: true,
 			refutingClasses: ['empty', 'below-limit-no-reason', 'unknown-hold', 'fallback-basis', 'stale-observation', 'missing-observation', 'unreachable-observation', 'malformed-observation', 'reason-counter-contradiction'],
 			admissionImplementation: 'production-module-imports',
-			productionModules: ['mailserver/webmail/src/lib/offline/scheduler.ts', 'mailserver/webmail/src/lib/offline/work-contract.ts'],
+			productionModules: ['webmail/src/lib/offline/scheduler.ts', 'webmail/src/lib/offline/work-contract.ts'],
 			backoffRules: ['retryableFailure-arms-backoff', 'networkFlap-observation-only', 'committed-progress-or-newer-authenticated-trigger-resets', 'run-seeded-randomness'],
 		},
 		quiescence: { drainSettleDeadlineMs: 2000, settledIntervalMs: 5000 },
@@ -889,7 +889,7 @@ const harnessSchemaCaseSummary = ' E6-harness-schema cases=' + harnessSchemaCase
 	// selection/freezing truth) and CAS-E7-CAPABILITY-EVIDENCE-BINDING binds
 	// the frozen outcome contract (the capability registry).
 	const e7OwnershipCases = [
-		['CAS-E7-LOCAL-ALL-NOT-RELEASE', 'docs/verification/connectivity-e6-profile.json', 'e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516'],
+		['CAS-E7-LOCAL-ALL-NOT-RELEASE', 'docs/verification/connectivity-e6-profile.json', 'd8e18abc28bdfff80a628e0507dce3603379446bfa519591f613980a6e752b7f'],
 		['CAS-E7-CAPABILITY-EVIDENCE-BINDING', 'docs/verification/connectivity-e7-outcome-contract.json', '180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67'],
 	];
 	for (const [caseId, fixture, digest] of e7OwnershipCases) {
@@ -1001,7 +1001,7 @@ const harnessSchemaCaseSummary = ' E6-harness-schema cases=' + harnessSchemaCase
 		['E7 capability-evidence case bound to the wrong canonical document', (copy) => {
 			const entry = copy.cases.find((candidate) => candidate.id === capabilityEvidenceCaseId);
 			entry.fixture = 'docs/verification/connectivity-e6-profile.json';
-			entry.fixtureDigest = 'e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516';
+			entry.fixtureDigest = 'd8e18abc28bdfff80a628e0507dce3603379446bfa519591f613980a6e752b7f';
 		}, 'must bind the frozen E7 outcome contract'],
 		// `all` is a local deterministic aggregate, not E7 release readiness:
 		// the sustained selected-profile runtime evidence cases stay required

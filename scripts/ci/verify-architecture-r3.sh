@@ -232,8 +232,8 @@ migration_checkpoint_verdict() {
 	pg_isready -h "$host" -p "$port" >/dev/null || return $?
 	(cd "$ROOT/mailserver" && go test ./internal/migration -run 'Test(IMAPCheckpoint|IMAPSourceSession|ProviderSourceSessions|SourceSession|ConnectorPhase|MillionObject|EWSResume)' -count=1) || return $?
   psql -X -v ON_ERROR_STOP=1 -h "$host" -p "$port" -U "$user" -d "$db" \
-		-f "$ROOT/mailserver/sql/reducers/migration_checkpoint_commit.sql" >/dev/null || return $?
-  pg_prove -h "$host" -p "$port" -U "$user" -d "$db" "$ROOT/mailserver/sql/tests/migration_source_identity.pg"
+		-f "$ROOT/sql/reducers/migration_checkpoint_commit.sql" >/dev/null || return $?
+  pg_prove -h "$host" -p "$port" -U "$user" -d "$db" "$ROOT/sql/tests/migration_source_identity.pg"
 }
 webhook_outbox_verdict() {
   local host="${PGHOST:-127.0.0.1}" port="${PGPORT:-5432}" user="${PGUSER:-mail}" db="${DB_NAME:-mailserver_test}"
@@ -243,14 +243,14 @@ webhook_outbox_verdict() {
   PGPASSWORD="${PGPASSWORD:-mail}" DB_HOST="$host" DB_PORT="$port" DB_USER="$user" DB_NAME="$db" \
 		bash "$ROOT/scripts/load-test-schema.sh" || return $?
   PGPASSWORD="${PGPASSWORD:-mail}" pg_prove -h "$host" -p "$port" -U "$user" -d "$db" \
-    "$ROOT/mailserver/sql/tests/webhook_publication_outbox.pg" \
-    "$ROOT/mailserver/sql/tests/webhook_delivery_admission.pg" \
-    "$ROOT/mailserver/sql/tests/webhook_persistent_events.pg" \
-    "$ROOT/mailserver/sql/tests/webhook_mail_facts.pg" \
-    "$ROOT/mailserver/sql/tests/mail_external_approval.pg" \
-    "$ROOT/mailserver/sql/tests/scheduled_action_send.pg" \
-    "$ROOT/mailserver/sql/tests/jmap_email_submission.pg" \
-		"$ROOT/mailserver/sql/tests/migration_orchestrate.pg" || return $?
+    "$ROOT/sql/tests/webhook_publication_outbox.pg" \
+    "$ROOT/sql/tests/webhook_delivery_admission.pg" \
+    "$ROOT/sql/tests/webhook_persistent_events.pg" \
+    "$ROOT/sql/tests/webhook_mail_facts.pg" \
+    "$ROOT/sql/tests/mail_external_approval.pg" \
+    "$ROOT/sql/tests/scheduled_action_send.pg" \
+    "$ROOT/sql/tests/jmap_email_submission.pg" \
+		"$ROOT/sql/tests/migration_orchestrate.pg" || return $?
   DB_DSN="$dsn" REQUIRE_DB=1 go test ./mailserver/internal/smtp \
 		-run 'TestSubmission(HeldIsAcceptedWithoutMailSentFact|CommitFailureLeavesNoMailSentFact|StoresRawBlob|BlobStoreFailureIsFailClosed)|TestHandleDataNoTrailingOKOnFailure' -count=1 || return $?
   DB_DSN="$dsn" REQUIRE_DB=1 go test ./mailserver/internal/jmap \
@@ -274,10 +274,10 @@ mam_lifecycle_verdict() {
   (cd "$ROOT" && cargo test --manifest-path clients/desktop/src-tauri/Cargo.toml mam_lifecycle)
 }
 chat_reconcile_verdict() {
-  (cd "$ROOT/mailserver/webmail" && npx vitest run src/lib/chat/store.svelte.test.ts)
+  (cd "$ROOT/webmail" && npx vitest run src/lib/chat/store.svelte.test.ts)
 }
 compose_state_verdict() {
-  (cd "$ROOT/mailserver/webmail" && npx vitest run \
+  (cd "$ROOT/webmail" && npx vitest run \
     src/lib/stores/composeStore.svelte.test.ts \
     src/lib/components/ComposeScreen.test.ts)
 }

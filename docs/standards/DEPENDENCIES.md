@@ -8,7 +8,7 @@
 
 | Layer | Technology | Current | Latest (checked) | Upgrade Policy |
 |---|---|---|---|---|
-| Rust runtime | Rust | MSRV 1.97.1 (`server-rust/`), CI 1.99+ | 1.99+ | `rustup` stable; canonical server (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`) and client native crates. Go runtime and server modules were deleted in `#142` ([ARCH-031](../adr/ARCH-031-go-is-deleted.md)). |
+| Rust runtime | Rust | MSRV 1.97.1 (`server/`), CI 1.99+ | 1.99+ | `rustup` stable; canonical server (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`) and client native crates. Go runtime and server modules were deleted in `#142` ([ARCH-031](../adr/ARCH-031-go-is-deleted.md)). |
 | Node runtime | Node.js | 26.6.0 local; CI uses major 26 | 26.6.0 | Development and release CI stay on the current project baseline. |
 | PostgreSQL | server compatibility target | 18.x (18.4 current) | 18.4 | Stay on latest 18.x patch. Major PG upgrades require extension audit. The 信创 CI lane intentionally also exercises PostgreSQL 17. |
 | Connection pool | PgBouncer | 1.25.2 compatibility target | 1.25.2 | Host/package deployment; patch-level updates are accepted after release-note review. |
@@ -23,7 +23,7 @@
 
 ## PostgreSQL Extension Compatibility
 
-The schema requires three extensions created in `mailserver/sql/dbschema/V001__baseline.sql`:
+The schema requires three extensions created in `sql/dbschema/V001__baseline.sql`:
 
 | Extension | Type | PG 18 Compatible | Minimum Version | Notes |
 |---|---|---|---|---|
@@ -35,13 +35,13 @@ The schema requires three extensions created in `mailserver/sql/dbschema/V001__b
 
 ---
 
-## Rust Server Workspace (`server-rust/`)
+## Rust Server Workspace (`server/`)
 
-All server binaries (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`) and domain/protocol crates are locked in `server-rust/Cargo.lock` and governed by `server-rust/deny.toml`, `server-rust/license-exception-reasons.toml`, `scripts/guards/check-rust-family-isolation.py`, and `scripts/guards/check-rust-license-exceptions.py`. Server-side Go modules (`mailserver`, `authserver`, `shared`, `mailctl`, `asrbot`, `tools/setjoin-release`) were deleted in `#142` ([ARCH-031](../adr/ARCH-031-go-is-deleted.md)).
+All server binaries (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`) and domain/protocol crates are locked in `server/Cargo.lock` and governed by `server/deny.toml`, `server/license-exception-reasons.toml`, `scripts/guards/check-rust-family-isolation.py`, and `scripts/guards/check-rust-license-exceptions.py`. Server-side Go modules (`mailserver`, `authserver`, `shared`, `mailctl`, `asrbot`, `tools/setjoin-release`) were deleted in `#142` ([ARCH-031](../adr/ARCH-031-go-is-deleted.md)).
 
 **Verification commands:**
 ```bash
-cargo deny --locked check --manifest-path server-rust/Cargo.toml
+cargo deny --locked check --manifest-path server/Cargo.toml
 python3 scripts/guards/check-rust-family-isolation.py
 python3 scripts/guards/check-rust-license-exceptions.py
 ```
@@ -135,11 +135,11 @@ Before upgrading any dependency:
 1. **Check the web** for the latest version, release notes, and breaking changes.
 2. **Review transitive compatibility:**
    - PostgreSQL major bump → audit all extensions (`pg_cron`, etc.).
-   - Rust MSRV/toolchain bump → check `server-rust/Cargo.toml`, `clients/Cargo.toml`, and `rust-floor.yml`.
+   - Rust MSRV/toolchain bump → check `server/Cargo.toml`, `clients/Cargo.toml`, and `rust-floor.yml`.
    - Svelte major bump → audit all `.svelte` files for syntax changes (e.g., runes mode).
 3. **Run the verification suite:**
    - `bash scripts/ci/build.sh` and `bash scripts/guards/check-server-rust.sh` (Rust server)
-   - `cargo deny --locked check --manifest-path server-rust/Cargo.toml`
+   - `cargo deny --locked check --manifest-path server/Cargo.toml`
    - `npm run check` (webmail — must be 0 errors, 0 warnings)
    - `npm run build` (webmail)
    - `npm audit` (must be 0 vulnerabilities)

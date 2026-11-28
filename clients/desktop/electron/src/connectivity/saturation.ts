@@ -15,9 +15,9 @@
 //!
 //! HONESTY POSTURE (read before wiring the endpoint into a claim): the E4-I
 //! coordinator owns the real optional-work queue and it lives in the webmail
-//! TypeScript layer (`mailserver/webmail/src/lib/offline/coordinator.ts`),
+//! TypeScript layer (`webmail/src/lib/offline/coordinator.ts`),
 //! composed at webmail boot behind the projected flag pair
-//! (`mailserver/webmail/src/lib/offline/boot.ts`). When the composed webmail
+//! (`webmail/src/lib/offline/boot.ts`). When the composed webmail
 //! exposes its queue state through the renderer-side
 //! `window.__setjoinConnectivityQueueState` global, this endpoint polls it
 //! through the window bridge (`webContents.executeJavaScript`, the same
@@ -79,7 +79,7 @@ const ENGINE_QUEUE_STATE = "not-exposed-in-this-build";
 
 /**
  * The renderer-side global the composed webmail installs
- * (`mailserver/webmail/src/lib/offline/boot.ts` — the names are pinned on
+ * (`webmail/src/lib/offline/boot.ts` — the names are pinned on
  * BOTH sides; there is no shared module across the two builds). The main
  * process reads it through the same window bridge as the render probe.
  */

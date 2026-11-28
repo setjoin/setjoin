@@ -126,7 +126,7 @@ def merge_fragments(root, inventory, catalog):
     """Per-family JMAP fragments (#369-#377). They may only extend the POST /jmap
     command and mutator lists and add suites for exactly those commands."""
     owners = [r for r in inventory["routes"] if route_key(r) == JMAP_ROUTE]
-    for path in sorted((Path(root) / "server-rust/tests/conformance/route-catalog.d").glob("*.json")):
+    for path in sorted((Path(root) / "server/tests/conformance/route-catalog.d").glob("*.json")):
         if not FRAGMENT_NAME.fullmatch(path.name):
             raise ValueError(f"{path}: fragment names are jmap-<issue>.json")
         fragment = json.loads(path.read_text())
@@ -297,7 +297,7 @@ FN_ITEM = re.compile(r"^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?(?:default[ \t]+)?(?:c
 def workspace_packages(root):
     """name -> (directory, {test target: source path}) for every Cargo package under server-rust."""
     packages = {}
-    base = root / "server-rust"
+    base = root / "server"
     for manifest in sorted(base.rglob("Cargo.toml")):
         relative = manifest.relative_to(base).parts
         if "target" in relative or "node_modules" in relative:
@@ -456,7 +456,7 @@ def build_replay_target(root, cargo, target, env):
     if target in _REPLAY_BUILT:
         return
     built = subprocess.run([cargo, "test", "--locked", "--offline", "-p", target[0], "--test", target[1], "--no-run"],
-                           cwd=root / "server-rust", env=env, capture_output=True, text=True, check=False)
+                           cwd=root / "server", env=env, capture_output=True, text=True, check=False)
     if built.returncode:
         raise ValueError(f"replay target {target[0]}::{target[1]} build failed:\n{(built.stdout + built.stderr)[-4000:]}")
     _REPLAY_BUILT.add(target)
@@ -469,7 +469,7 @@ def run_replay(root, cargo, replay, receipt, prebuilt=None):
     if prebuilt is None:
         args = [cargo, "test", "--locked", "--offline", "-p", replay["package"],
                 "--test", replay["target"], replay["test"], "--", "--exact", "--nocapture"]
-        cwd = root / "server-rust"
+        cwd = root / "server"
         # execute_replays builds every target first; a direct call builds here (outside the timeout).
         build_replay_target(root, cargo, (replay["package"], replay["target"]), env)
     else:
@@ -619,7 +619,7 @@ def build_binary(root, cargo, target, env):
     """The instrumented test executable of one (package, target); a ValueError text on failure."""
     command = [cargo, "test", "--locked", "--offline", "-p", target[0], "--test", target[1],
                "--no-run", "--message-format=json"]
-    result = subprocess.run(command, cwd=root / "server-rust", env=env,
+    result = subprocess.run(command, cwd=root / "server", env=env,
                             capture_output=True, text=True, check=False)
     if result.returncode:
         diagnostics = []
@@ -651,7 +651,7 @@ def load_serial_groups(root):
     coverage stage serialises exactly what the nextest run serialises. A group is a set of
     binaries that share host state (fixed ports, docker, /tmp names), `max-threads = 1`."""
     script = Path(__file__).resolve().parents[1] / "ci" / "server-rust-lane-groups.py"
-    result = subprocess.run([sys.executable, str(script), "--root", str(root / "server-rust")],
+    result = subprocess.run([sys.executable, str(script), "--root", str(root / "server")],
                             cwd=root, capture_output=True, text=True, check=False)
     if result.returncode:
         raise ValueError(f"serial group config failed:\n{result.stdout}{result.stderr}")
@@ -993,8 +993,8 @@ def main():
                         help="run every replay, every mutant and then coverage, print all failures "
                              "at the end and exit non-zero if any failed (default: stop at the first)")
     args = parser.parse_args()
-    inventory = args.inventory or args.root / "server-rust/bins/gateway/route-inventory.json"
-    catalog = args.catalog or args.root / "server-rust/tests/conformance/route-catalog.json"
+    inventory = args.inventory or args.root / "server/bins/gateway/route-inventory.json"
+    catalog = args.catalog or args.root / "server/tests/conformance/route-catalog.json"
     if args.only is not None:
         stages = [name.strip() for name in args.only.split(",") if name.strip()]
         unknown = sorted(set(stages) - set(STAGES))

@@ -232,7 +232,7 @@ def components(hits):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "server-rust"))
+    ap.add_argument("--root", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "server"))
     ap.add_argument("--list", action="store_true", help="print the groups instead of TOML")
     args = ap.parse_args()
     meta = json.loads(subprocess.check_output(

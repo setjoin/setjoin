@@ -302,7 +302,7 @@ Settings page gets a "Webhooks" section. Users see their own webhooks only. Same
 
 | Action | File | Responsibility |
 |--------|------|----------------|
-| Create | `mailserver/sql/migrations/V021__webhooks.sql` | Schema for subscriptions + deliveries |
+| Create | `sql/migrations/V021__webhooks.sql` | Schema for subscriptions + deliveries |
 | Create | `shared/webhook/sign.go` | HMAC-SHA256 signer/verifier (Standard Webhooks format) |
 | Create | `shared/webhook/cloud_event.go` | CloudEvents envelope builder |
 | Create | `mailserver/gateway/internal/handlers/admin_webhooks.go` | Admin CRUD + replay + catalog |
@@ -310,9 +310,9 @@ Settings page gets a "Webhooks" section. Users see their own webhooks only. Same
 | Create | `mailserver/gateway/internal/webhook/dispatcher.go` | Queue-first delivery + 3-tier retry |
 | Modify | `mailserver/gateway/cmd/gateway/main.go` | Register routes + start dispatcher |
 | Create | `mailserver/gateway/internal/webhook/dispatcher_test.go` | Delivery pipeline tests |
-| Create | `mailserver/webmail/src/routes/admin/webhooks/+page.svelte` | Admin webhooks UI |
-| Modify | `mailserver/webmail/src/routes/settings/+page.svelte` | User webhooks section |
-| Modify | `mailserver/webmail/src/routes/admin/+layout.svelte` | Nav entry |
-| Modify | `mailserver/webmail/src/lib/admin/client.ts` | Types + API functions |
-| Modify | `mailserver/sql/reducers/retention.sql` | Add webhook delivery to prune_log_tables |
+| Create | `webmail/src/routes/admin/webhooks/+page.svelte` | Admin webhooks UI |
+| Modify | `webmail/src/routes/settings/+page.svelte` | User webhooks section |
+| Modify | `webmail/src/routes/admin/+layout.svelte` | Nav entry |
+| Modify | `webmail/src/lib/admin/client.ts` | Types + API functions |
+| Modify | `sql/reducers/retention.sql` | Add webhook delivery to prune_log_tables |
 | Modify | `mailserver/gateway/internal/handlers/admin_retention.go` | Add webhook delivery days config |

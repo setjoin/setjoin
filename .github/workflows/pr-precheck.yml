@@ -52,7 +52,7 @@ jobs:
           echo "key=$(sha256sum lane-artifacts/packages.txt | cut -c1-12)" >> "$GITHUB_OUTPUT"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: server-rust -> ../../../../lane-build/target
+          workspaces: server -> ../../../../lane-build/target
           shared-key: quick
           key: ${{ steps.plan.outputs.key }}
           save-if: false
@@ -83,8 +83,8 @@ jobs:
           python3 scripts/ci/precheck-integration.py selftest
           git fetch -q origin main:refs/remotes/origin/main || true
           changed="$(git diff --name-only origin/main...HEAD)"
-          # awk reads all input (no SIGPIPE under pipefail): any server-rust/ path that is not *.md
-          if awk '/^server-rust\// && !/\.md$/ { hit = 1 } END { exit !hit }' <<<"$changed"; then
+          # awk reads all input (no SIGPIPE under pipefail): any server/ path that is not *.md
+          if awk '/^server\// && !/\.md$/ { hit = 1 } END { exit !hit }' <<<"$changed"; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
@@ -103,7 +103,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: steps.select.outputs.select != ''
         with:
-          workspaces: server-rust -> ../../../../lane-build/target
+          workspaces: server -> ../../../../lane-build/target
           shared-key: lane
           save-if: false
       - name: Integration tests of the selected targets (30-minute cap)

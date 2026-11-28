@@ -53,7 +53,7 @@ source/link rows with `FOR SHARE`, and re-derives link ownership from
 `user_identity_links`. The decisive predicate includes
 `v_link.user_id <> p_user_id`, source and link generation equality, active
 state, and the `authenticate` purpose
-(`mailserver/sql/reducers/identity_auth_mint_fence.sql`).
+(`sql/reducers/identity_auth_mint_fence.sql`).
 
 The integrity of the token-carried `jwtutil.IdentityFenceClaim` is therefore
 not the ownership boundary: the reducer rechecks ownership from authoritative

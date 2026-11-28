@@ -99,8 +99,8 @@ source "$(dirname "$0")/../_base.sh"
 
 # REDUCERS_DIR / TESTS_DIR may be overridden (used by the guard's own negative-case
 # self-test); they default to the repo's reducer + pgTAP trees.
-REDUCERS="${REDUCERS_DIR:-$ROOT/mailserver/sql/reducers}"
-TESTS="${TESTS_DIR:-$ROOT/mailserver/sql/tests}"
+REDUCERS="${REDUCERS_DIR:-$ROOT/sql/reducers}"
+TESTS="${TESTS_DIR:-$ROOT/sql/tests}"
 
 # Files allowed to keep the legacy `p_account_id` param (frozen V061; ADR-003 §B).
 ACCOUNT_ID_ALLOWLIST="calendar_freebusy.sql calendar_freebusy_multi.sql"

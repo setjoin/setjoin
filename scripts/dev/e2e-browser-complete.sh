@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-WEBMAIL="$ROOT/mailserver/webmail"
+WEBMAIL="$ROOT/webmail"
 STACK="$WEBMAIL/e2e/scripts/start-test-stack.sh"
 RESULTS="$WEBMAIL/test-results/browser-complete"
 DB_NAME="${E2E_DB_NAME:-mailserver_e2e}"

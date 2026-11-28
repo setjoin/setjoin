@@ -726,9 +726,9 @@ class DepthTie(unittest.TestCase):
     def test_fetch_depth_is_the_ruleset_batch_bound_plus_one(self):
         self.assertEqual(gate.QUEUE_MAX_BATCH, 5)
         self.assertEqual(gate.QUEUE_FETCH_DEPTH, gate.QUEUE_MAX_BATCH + 1)
-        dox = (Path(__file__).resolve().parents[2] / "server-rust" / "DOX.md").read_text()
+        dox = (Path(__file__).resolve().parents[2] / "server" / "DOX.md").read_text()
         self.assertRegex(dox, r"`max_entries_to_build` " + str(gate.QUEUE_MAX_BATCH) + r"\b")
-        self.assertTrue(f"`--depth {gate.QUEUE_FETCH_DEPTH}`" in dox, "server-rust/DOX.md must state the fetch depth")
+        self.assertTrue(f"`--depth {gate.QUEUE_FETCH_DEPTH}`" in dox, "server/DOX.md must state the fetch depth")
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ Every workflow runs on GitHub-hosted runners. `scripts/guards/check-workflow-log
 | `ubuntu-24.04` | webmail, rust-floor (x86_64, loongarch64), meet-renderer-qualification |
 | `ubuntu-24.04-arm` | rust-floor (aarch64) |
 
-`webmail.yml` runs svelte-check and the Vitest coverage ratchet on `mailserver/webmail/**` changes
+`webmail.yml` runs svelte-check and the Vitest coverage ratchet on `webmail/**` changes
 (pull_request, push to main, manual). The legacy Go `xinchuang-ci.yml` was removed (#142); the
 structural guards run in the server-rust lane's `guards` job (below) and locally (`scripts/run-guards.sh`).
 
@@ -44,7 +44,7 @@ Later means a queue branch whose commit descends from the entry's commit (`git f
 A later ref whose merge_group lane run is completed with a conclusion other than `success` does not count: GitHub
 keeps a failed entry's ref queued under HEADGREEN, which held the earlier entries until CAP in the live pilot
 (2026-11-17). The `queue` job asks the Actions API for that (one curl child per later sha, `actions: read`, the only API call
-of the queue job; `server-rust/DOX.md#parallel-full-lane-550`). Unknown answers keep the ref later.
+of the queue job; `server/DOX.md#parallel-full-lane-550`). Unknown answers keep the ref later.
 Timing: SETTLE 120 s before the first decision, CAP 5400 s (90 min); no git or API call starts at or after the CAP, and the
 worst-case I/O of one poll is 255 s (git 180 s, plus up to five run lookups of 15 s), and each subprocess checks the deadline first.
 The ancestry fetch is `--depth 6` (the ruleset's batch of 5 plus one); a shallow miss means head, never an untested merge. The queue job
@@ -55,13 +55,13 @@ while a head runs). A `gone` entry (its branch left the queue) runs nothing and 
 "nothing ran; not a test pass"; the red sits on a commit nothing reads. A check_response_timeout (360 min) overrun
 ejects the entry, which fails closed. Every waiter keeps `aggregate` pending until it ends, never green. Intermediate
 commits of a batch are not tested one by one: the batch tip's lane is their test. The nightly full lane is the backstop.
-Rollback and rollout: `server-rust/DOX.md#parallel-full-lane-550`.
+Rollback and rollout: `server/DOX.md#parallel-full-lane-550`.
 A push to `main` only refreshes the caches (`build`, `coverage-build`; no tests, summary
 "cache refresh only, no tests"), and a nightly `schedule` (02:30 UTC) runs the full lane plus coverage as the backstop,
 skipping cleanly when main has no commit in the last 26 hours. It never runs on `pull_request`; PRs get only `.github/workflows/pr-precheck.yml`
 (jobs `light` = `scripts/ci/quick-check.sh` and `integration` = the changed packages' integration tests selected by
 `scripts/ci/precheck-integration.py`, gated by a job also named `aggregate`). The rows above do not apply to either. Images come from `ghcr.io/setjoin` as pinned
-in `.github/ci/images.lock`. See `server-rust/DOX.md#parallel-full-lane-550`.
+in `.github/ci/images.lock`. See `server/DOX.md#parallel-full-lane-550`.
 
 `run-guards.sh --known-red FILE` tolerates the guards named in `scripts/guards-known-red.txt` (each with an
 issue reference, today #348): they still run and warn. The allowlist only shrinks: a listed guard that
@@ -78,12 +78,12 @@ It stays one job so it never competes with the 19-job full lane for the 20-job c
 
 On every pull-request update: `light` (as quick check above) and `integration` run side by side (peak two jobs per PR),
 then a ~10 s gate job `aggregate`, the ruleset's required check, is red unless both succeeded. `integration` ends at once
-when no `server-rust/` file other than `*.md` changed. Otherwise `scripts/ci/precheck-integration.py plan` selects test targets
+when no `server/` file other than `*.md` changed. Otherwise `scripts/ci/precheck-integration.py plan` selects test targets
 (rule in its docstring, fixtures in `selftest`, which runs first in the job): every `tests/*.rs` target of each changed
 package and of its normal/build reverse dependents when there are at most 5 of them; for `setjoin-gateway` and
 `setjoin-auth` only targets whose test file changed or names a changed test helper or golden, or whose name matches a
 changed path (soft caps 30 and 20: over the cap, only changed or referencing test files run);
-nothing for `server-rust/Cargo.toml`, `Cargo.lock` or `rust-toolchain*` changes. It runs them through
+nothing for `server/Cargo.toml`, `Cargo.lock` or `rust-toolchain*` changes. It runs them through
 `scripts/ci/server-rust-parallel-lane.sh` with `SERVER_RUST_STAGES=workspace` and `SERVER_RUST_NEXTEST_SELECT` on the lane
 Postgres (`REQUIRE_DB=1`, skip markers, ignored and zero tests red), restoring the `lane` cargo cache
 without saving. The test step is capped at 30 minutes (job 45; an auth-domain selection of ~2000 tests needs ~5 min build + ~16 min tests + teardown); hitting the cap is red. Anything not selected, doc tests,

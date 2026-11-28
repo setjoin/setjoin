@@ -1,3 +1,0 @@
-Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
-
-The initial admin-list tracer observed rows left by earlier red-test assertion panics. These immutable, unqualified recordings are retained for provenance and are excluded from the route catalog. Qualified cases return failures through fixture cleanup and run from the fresh assigned schema.

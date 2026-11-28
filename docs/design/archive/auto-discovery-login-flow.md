@@ -177,7 +177,7 @@ DNS queries are platform-specific:
 
 - `docs/design/clients/setup-auto-discovery.md` — DNS SRV/MX discovery design
 - `mailserver/internal/wellknown/setjoin.go` — .well-known/setjoin endpoint
-- `mailserver/webmail/src/routes/+page.svelte` — current login page
+- `webmail/src/routes/+page.svelte` — current login page
 - `clients/apple/mail/Views/LoginView.swift` — iOS login
 - `clients/android/.../ui/auth/LoginScreen.kt` — Android login
 - RFC 6186 — SRV Records for Email Services

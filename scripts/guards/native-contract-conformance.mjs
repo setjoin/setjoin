@@ -9,12 +9,12 @@ import { createRequire } from "node:module";
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
 const AUTHORITY = path.join(
   ROOT,
-  "mailserver/webmail/src/lib/native/types.ts",
+  "webmail/src/lib/native/types.ts",
 );
-const TSCONFIG = path.join(ROOT, "mailserver/webmail/tsconfig.json");
+const TSCONFIG = path.join(ROOT, "webmail/tsconfig.json");
 const GENERATED = path.join(
   ROOT,
-  "mailserver/webmail/src/lib/native/testdata/contract-members.generated.json",
+  "webmail/src/lib/native/testdata/contract-members.generated.json",
 );
 const ELECTRON_BRIDGE = path.join(
   ROOT,
@@ -39,7 +39,7 @@ const HARMONY_SHIM = path.join(
 
 const require = createRequire(import.meta.url);
 const ts = require(
-  path.join(ROOT, "mailserver/webmail/node_modules/typescript/lib/typescript.js"),
+  path.join(ROOT, "webmail/node_modules/typescript/lib/typescript.js"),
 );
 
 const GROUP_PROPERTIES = new Map([

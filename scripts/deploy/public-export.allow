@@ -5,19 +5,19 @@
 # real secret). Read a new finding before adding its path; keep entries narrow.
 
 # Rust conformance goldens, oracle recordings, test fixtures
-server-rust/tests/conformance/*
-server-rust/crates/protocols/smtp/oracle/*
-server-rust/crates/protocols/federation/oracle/*
-server-rust/bins/*/tests/*
-server-rust/crates/*/tests/*
-server-rust/crates/config-secret/src/tests.rs
+server/tests/conformance/*
+server/crates/protocols/smtp/oracle/*
+server/crates/protocols/federation/oracle/*
+server/bins/*/tests/*
+server/crates/*/tests/*
+server/crates/config-secret/src/tests.rs
 # PEM header string matches in parsing code (no key material)
-server-rust/bins/gateway/src/jmap/recovery.rs
-server-rust/bins/gateway/src/recovery_begin.rs
+server/bins/gateway/src/jmap/recovery.rs
+server/bins/gateway/src/recovery_begin.rs
 # Go and SQL tests
 *_test.go
-mailserver/sql/tests/*.pg
-mailserver/webmail/e2e/*.spec.ts
+sql/tests/*.pg
+webmail/e2e/*.spec.ts
 # Test and rehearsal scripts with fixed throwaway credentials
 scripts/*/*.test.sh
 scripts/*/*.test.mjs
@@ -26,9 +26,9 @@ scripts/dev/test-secfix3-mutants.py
 scripts/dev/e6-gateway-fixture.sh
 scripts/deploy/ga-fresh-install-smoke.sh
 scripts/deploy/unified-deployment-d2.sh
-mailserver/deploy/scripts/test-livekit-render.sh
+deploy/scripts/test-livekit-render.sh
 # Model sha256 pins, not secrets
-mailserver/deploy/scripts/lib-livekit.sh
+deploy/scripts/lib-livekit.sh
 # Code literals flagged by generic-api-key (key type, field names)
 mailserver/internal/acme/dns01.go
 mailserver/internal/user/migration.go

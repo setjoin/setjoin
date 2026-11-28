@@ -4,8 +4,8 @@ The counted path from a fresh clone to a green test suite. Follow it top to
 bottom; each step names the exact command and the expected output.
 
 > **Architecture in one line:** business logic lives in PL/pgSQL reducers
-> (`mailserver/sql/reducers/`, `authserver/sql/reducers/`); the canonical Rust
-> server (`server-rust/`: `setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`,
+> (`sql/reducers/`, `sql/auth/reducers/`); the canonical Rust
+> server (`server/`: `setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`,
 > `setjoin-updater`) translates protocols and orchestrates requests (Go deleted in
 > `#142`, [`ARCH-031`](docs/adr/ARCH-031-go-is-deleted.md)).
 > Read [`AGENTS.md`](AGENTS.md) (project rules + the per-area doc index) and
@@ -13,7 +13,7 @@ bottom; each step names the exact command and the expected output.
 
 ## Prerequisites
 
-Versions match `server-rust/Cargo.toml` and the build scripts — install at least these:
+Versions match `server/Cargo.toml` and the build scripts — install at least these:
 
 | Tool         | Version | Why                                              |
 |--------------|---------|--------------------------------------------------|
@@ -58,7 +58,7 @@ services separately).
 
 ### Expected result
 
-The mailserver/authserver pgTAP, Rust server (`server-rust/`), and webmail Vitest lanes
+The mailserver/authserver pgTAP, Rust server (`server/`), and webmail Vitest lanes
 must all pass. Exact test counts are intentionally emitted by the runners instead of
 copied into this guide, so a new required case cannot make the documentation stale.
 Missing, skipped, failed, ambiguous, malformed, or flaky-after-retry named cases fail
@@ -71,13 +71,13 @@ don't reload the whole schema for each change — just the reducers:
 
 ```bash
 # 1. Edit a reducer (one function per file).
-$EDITOR mailserver/sql/reducers/transition_message_location.sql
+$EDITOR sql/reducers/transition_message_location.sql
 
 # 2. Reload reducers into the loaded test DB (fail-loud; names a broken file).
 DB_NAME=mailserver_test bash scripts/reload-reducers.sh
 
 # 3. Re-run just the affected pgTAP test(s).
-pg_prove -d mailserver_test mailserver/sql/tests/jmap_email.pg
+pg_prove -d mailserver_test sql/tests/jmap_email.pg
 ```
 
 `reload-reducers.sh` loads files in deterministic path order and iterates to a
@@ -88,7 +88,7 @@ or a real dependency cycle — is fatal and **names the file**; a transient
 connection blip (exit 2) is retried inline with backoff. It never silently
 drops a reducer.
 
-Reducer conventions (enforced — see `mailserver/sql/AGENTS.md`): `p_`/`v_`
+Reducer conventions (enforced — see `sql/AGENTS.md`): `p_`/`v_`
 prefixes; errors via `RAISE EXCEPTION ... USING ERRCODE='BZ0xx'`; mutating
 reducers bump the relevant `jmap_*_state` in-txn; every reducer needs a pgTAP
 test; never `NOT NULL` on a function parameter.
@@ -242,7 +242,7 @@ for copy-paste route, app prefix, worker, feature-key/V184+, native-member,
 N-1, rollback, diagnostics, and benchmark recipes. Developers may run the
 registry/native generators with `--write`; CI always uses check-only mode.
 
-Webmail-only checks (run from `mailserver/webmail`):
+Webmail-only checks (run from `webmail`):
 
 ```bash
 npm ci
@@ -255,9 +255,9 @@ npm test           # Vitest
 ## House rules (the short version)
 
 - **Branch off `main`** for work. Commit/push only when asked.
-- **Rust (`server-rust/`, `clients/`):** `cargo fmt --check`, `cargo clippy --locked -- -D warnings`,
+- **Rust (`server/`, `clients/`):** `cargo fmt --check`, `cargo clippy --locked -- -D warnings`,
   `cargo deny --locked check`, family isolation between domain crates, and `--locked` lockfiles;
-  see [`server-rust/AGENTS.md`](server-rust/AGENTS.md).
+  see [`server/AGENTS.md`](server/AGENTS.md).
 - **Webmail (Svelte 5 runes):** `$state`/`$derived`/`$effect`, `onclick=` (not
   `on:click`); token-only styling; type, ESLint and Stylelint gates must be clean.
 - **All authored languages:** use the checked-in, check-only quality front door;
@@ -277,11 +277,13 @@ npm test           # Vitest
 |-----------------|--------------------------------|
 | Project rules + index | [`AGENTS.md`](AGENTS.md)  |
 | Domain glossary | [`CONTEXT.md`](CONTEXT.md)      |
-| Rust server (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`) | [`server-rust/AGENTS.md`](server-rust/AGENTS.md) |
-| Mailserver SQL, webmail, deploy, OpenAPI assets | [`mailserver/AGENTS.md`](mailserver/AGENTS.md) |
-| Reducers / schema / tests | [`mailserver/sql/AGENTS.md`](mailserver/sql/AGENTS.md) |
-| Auth/threat SQL reducers & pgTAP tests | [`authserver/AGENTS.md`](authserver/AGENTS.md) |
-| Admin CLI (`mailctl`) | [`server-rust/bins/mailctl/DOX.md`](server-rust/bins/mailctl/DOX.md) |
+| Rust server (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`) | [`server/AGENTS.md`](server/AGENTS.md) |
+| SQL schema, reducers & pgTAP | [`sql/AGENTS.md`](sql/AGENTS.md) |
+| Webmail SvelteKit SPA | [`webmail/AGENTS.md`](webmail/AGENTS.md) |
+| Deployment templates & scripts | [`deploy/AGENTS.md`](deploy/AGENTS.md) |
+| Reducers / schema / tests | [`sql/AGENTS.md`](sql/AGENTS.md) |
+| Auth/threat SQL reducers & pgTAP tests | [`sql/auth/AGENTS.md`](sql/auth/AGENTS.md) |
+| Admin CLI (`mailctl`) | [`server/bins/mailctl/DOX.md`](server/bins/mailctl/DOX.md) |
 | Integration (curl flows) | [`docs/guides/INTEGRATION_EXAMPLES.md`](docs/guides/INTEGRATION_EXAMPLES.md) |
 | Single-node prod | [`docs/guides/SINGLE_NODE_SETUP.md`](docs/guides/SINGLE_NODE_SETUP.md) |
 | Feature registry + architecture checks | [`docs/guides/FEATURE_REGISTRY_DEVELOPMENT.md`](docs/guides/FEATURE_REGISTRY_DEVELOPMENT.md) |

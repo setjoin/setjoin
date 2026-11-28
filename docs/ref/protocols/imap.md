@@ -60,5 +60,5 @@ changes only the read mode; membership evidence is retained for diagnosis.
 ```bash
 go test ./internal/imap/... -v
 pg_prove -h 127.0.0.1 -p 5432 -U mail -d mailserver_test \
-  mailserver/sql/tests/imap_membership_uid.pg
+  sql/tests/imap_membership_uid.pg
 ```

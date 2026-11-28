@@ -19,12 +19,12 @@ function parseArgs(argv) {
 		root: defaultRoot,
 		base: process.env.COVERAGE_BASE ?? '',
 		diffFile: '',
-		coverage: 'mailserver/webmail/coverage/coverage-final.json',
+		coverage: 'webmail/coverage/coverage-final.json',
 		config: 'docs/verification/changed-coverage-exclusions.json',
 		threshold: 90,
 		criticalThreshold: 95,
 		mode: 'report',
-		output: 'mailserver/webmail/test-results/changed-coverage.json',
+		output: 'webmail/test-results/changed-coverage.json',
 	};
 	const names = new Set(['root', 'base', 'diff-file', 'coverage', 'config', 'threshold', 'critical-threshold', 'mode', 'output']);
 	for (let i = 0; i < argv.length; i += 1) {
@@ -73,7 +73,7 @@ function loadDiff(options) {
 	options.base = base;
 	return childProcess.execFileSync(
 		'git',
-		['diff', '--find-renames', '--unified=0', '--no-color', base, '--', 'mailserver/webmail/src'],
+		['diff', '--find-renames', '--unified=0', '--no-color', base, '--', 'mailserver/webmail/src', 'webmail/src'],
 		{ cwd: options.root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
 	);
 }

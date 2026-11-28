@@ -8,7 +8,7 @@ it either attributes every client to the proxy IP (breaking rate limits, spray
 detection, geo/conditional access and audit attribution) or lets clients spoof
 their identity. Read the semantics section before deploying.
 
-Package contract: Rust `setjoin-server` / `setjoin-auth` client-IP extraction (see `server-rust/AGENTS.md`).
+Package contract: Rust `setjoin-server` / `setjoin-auth` client-IP extraction (see `server/AGENTS.md`).
 
 ## What it controls
 
@@ -117,10 +117,10 @@ actually appears in the logs.
 
 ## Example: Caddy (automatic HTTPS)
 
-See the official template at `mailserver/deploy/Caddyfile.template` (and
+See the official template at `deploy/Caddyfile.template` (and
 `docs/guides/EDGE_TLS_ACME_MIGRATION.md` for exporting PEM files to
 `/etc/mail/tls` for IMAP/SMTP/LDAP/Federation hot-reload, or
-`mailserver/deploy/angie-guomi.conf.template` for GuoMi TLCP deployments):
+`deploy/angie-guomi.conf.template` for GuoMi TLCP deployments):
 
 ```
 mail.example.com {

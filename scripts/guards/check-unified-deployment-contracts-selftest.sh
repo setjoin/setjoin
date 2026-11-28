@@ -16,7 +16,7 @@ seed() {
   rm -rf "$TMP/case"
   mkdir -p "$TMP/case"
   cp "$ROOT"/scripts/deploy/unified-deployment-{readiness,d2,d3,d4,d4-oidc-flow,d4-auth-observer,d5,d6}.sh "$TMP/case/"
-  cp "$ROOT/mailserver/deploy/scripts/upgrade.sh" "$TMP/case/upgrade.sh"
+  cp "$ROOT/deploy/scripts/upgrade.sh" "$TMP/case/upgrade.sh"
   cp "$ROOT"/scripts/deploy/ga-fresh-install-smoke.sh "$TMP/case/"
 }
 

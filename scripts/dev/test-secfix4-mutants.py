@@ -21,8 +21,8 @@ import sys
 import tempfile
 
 repo = Path(__file__).resolve().parents[2]
-root = repo / "server-rust"
-reducers = repo / "mailserver/sql/reducers"
+root = repo / "server"
+reducers = repo / "sql/reducers"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 

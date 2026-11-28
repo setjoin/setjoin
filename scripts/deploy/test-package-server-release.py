@@ -18,7 +18,7 @@ RETIRED_MEMBERS = {
     "mailserver/setjoin-recovery",
     "authserver/authserverd",
     "mailctl/mailctl",
-    "server-rust/setjoin-gateway",
+    "server/setjoin-gateway",
 }
 
 
@@ -51,12 +51,12 @@ class ServerRelease(unittest.TestCase):
                     asrbotd.write_bytes(elf(arch, "rust:asrbotd"))
                     updater.write_bytes(elf(arch, "rust:updater"))
                     expected = {
-                        "server-rust/setjoin-server": elf(arch, "rust:server"),
-                        "server-rust/setjoin-auth": elf(arch, "rust:auth"),
-                        "server-rust/mailctl": elf(arch, "rust:mailctl"),
-                        "server-rust/setjoin-updater": elf(arch, "rust:updater"),
-                        "server-rust/asrbotd": elf(arch, "rust:asrbotd"),
-                        "mailserver/webmail/build/index.html": b"webmail",
+                        "server/setjoin-server": elf(arch, "rust:server"),
+                        "server/setjoin-auth": elf(arch, "rust:auth"),
+                        "server/mailctl": elf(arch, "rust:mailctl"),
+                        "server/setjoin-updater": elf(arch, "rust:updater"),
+                        "server/asrbotd": elf(arch, "rust:asrbotd"),
+                        "webmail/build/index.html": b"webmail",
                     }
                     output = root / (arch + ".tar.gz")
                     result = subprocess.run(
@@ -91,20 +91,20 @@ class ServerRelease(unittest.TestCase):
                                     archive.extractfile(member).read(),
                                     member.mode,
                                 )
-                            elif name == "mailserver/deploy/scripts/install.sh":
+                            elif name == "deploy/scripts/install.sh":
                                 found[name] = (None, member.mode)
                     for name, content in expected.items():
                         self.assertIn(name, found)
                         self.assertEqual(found[name][0], content)
                     for bin_name in (
-                        "server-rust/setjoin-server",
-                        "server-rust/setjoin-auth",
-                        "server-rust/mailctl",
-                        "server-rust/setjoin-updater",
-                        "server-rust/asrbotd",
+                        "server/setjoin-server",
+                        "server/setjoin-auth",
+                        "server/mailctl",
+                        "server/setjoin-updater",
+                        "server/asrbotd",
                     ):
                         self.assertTrue(found[bin_name][1] & 0o111, bin_name)
-                    self.assertIn("mailserver/deploy/scripts/install.sh", found)
+                    self.assertIn("deploy/scripts/install.sh", found)
 
     def _package(self, root, roots_env):
         for name in (
@@ -162,7 +162,7 @@ class ServerRelease(unittest.TestCase):
             with tarfile.open(out, mode="r|gz") as archive:
                 for member in archive:
                     member_name = member.name.removeprefix("./")
-                    if member_name == "server-rust/release-roots.json":
+                    if member_name == "server/release-roots.json":
                         self.assertEqual(
                             archive.extractfile(member).read(), roots.read_bytes()
                         )
@@ -182,7 +182,7 @@ class ServerRelease(unittest.TestCase):
             self.assertIn("ships no release trust roots", result.stderr)
             with tarfile.open(out, mode="r|gz") as archive:
                 self.assertNotIn(
-                    "server-rust/release-roots.json",
+                    "server/release-roots.json",
                     [m.name.removeprefix("./") for m in archive],
                 )
 
@@ -274,11 +274,11 @@ class ServerRelease(unittest.TestCase):
                     with tarfile.open(expand_out, mode="r|gz") as archive:
                         names = {m.name.removeprefix("./") for m in archive}
                     for req in (
-                        "server-rust/setjoind",
-                        "server-rust/setjoin-server",
-                        "server-rust/setjoin-auth",
-                        "server-rust/mailctl",
-                        "server-rust/setjoin-updater",
+                        "server/setjoind",
+                        "server/setjoin-server",
+                        "server/setjoin-auth",
+                        "server/mailctl",
+                        "server/setjoin-updater",
                     ):
                         self.assertIn(req, names)
 
@@ -304,9 +304,9 @@ class ServerRelease(unittest.TestCase):
                     self.assertEqual(res.returncode, 0, res.stderr)
                     with tarfile.open(unified_out, mode="r|gz") as archive:
                         names = {m.name.removeprefix("./") for m in archive}
-                    self.assertIn("server-rust/setjoind", names)
-                    self.assertNotIn("server-rust/setjoin-server", names)
-                    self.assertNotIn("server-rust/setjoin-auth", names)
+                    self.assertIn("server/setjoind", names)
+                    self.assertNotIn("server/setjoin-server", names)
+                    self.assertNotIn("server/setjoin-auth", names)
 
             # Wrong ELF arch on setjoind MUST be rejected.
             setjoind.write_bytes(elf("arm64", "wrong-arch"))

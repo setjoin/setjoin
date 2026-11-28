@@ -27,24 +27,24 @@ while read -r reducer path; do
     fail=1
   fi
 done <<'MANIFEST'
-chat_messages_list mailserver/sql/reducers/chat_message.sql
-chat_messages_since mailserver/sql/reducers/chat_message.sql
-chat_thread_list mailserver/sql/reducers/chat_message.sql
-chat_search mailserver/sql/reducers/chat_search.sql
-chat_conversation_list mailserver/sql/reducers/chat_read.sql
-chat_pins_list mailserver/sql/reducers/chat_pin.sql
-chat_saves_list mailserver/sql/reducers/chat_save.sql
-chat_my_threads mailserver/sql/reducers/chat_threads.sql
-chat_channel_readers mailserver/sql/reducers/chat_readers.sql
-chat_message_send mailserver/sql/reducers/chat_message.sql
-chat_message_edit mailserver/sql/reducers/chat_message.sql
-chat_message_delete mailserver/sql/reducers/chat_message.sql
-chat_reaction_toggle mailserver/sql/reducers/chat_reaction.sql
-chat_pin_toggle mailserver/sql/reducers/chat_pin.sql
-chat_save_toggle mailserver/sql/reducers/chat_save.sql
-chat_poll_vote mailserver/sql/reducers/chat_poll.sql
-chat_poll_close mailserver/sql/reducers/chat_poll.sql
-chat_poll_results mailserver/sql/reducers/chat_poll.sql
+chat_messages_list sql/reducers/chat_message.sql
+chat_messages_since sql/reducers/chat_message.sql
+chat_thread_list sql/reducers/chat_message.sql
+chat_search sql/reducers/chat_search.sql
+chat_conversation_list sql/reducers/chat_read.sql
+chat_pins_list sql/reducers/chat_pin.sql
+chat_saves_list sql/reducers/chat_save.sql
+chat_my_threads sql/reducers/chat_threads.sql
+chat_channel_readers sql/reducers/chat_readers.sql
+chat_message_send sql/reducers/chat_message.sql
+chat_message_edit sql/reducers/chat_message.sql
+chat_message_delete sql/reducers/chat_message.sql
+chat_reaction_toggle sql/reducers/chat_reaction.sql
+chat_pin_toggle sql/reducers/chat_pin.sql
+chat_save_toggle sql/reducers/chat_save.sql
+chat_poll_vote sql/reducers/chat_poll.sql
+chat_poll_close sql/reducers/chat_poll.sql
+chat_poll_results sql/reducers/chat_poll.sql
 MANIFEST
 
 if [ "$count" -ne 18 ]; then

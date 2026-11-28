@@ -25,11 +25,11 @@ if [[ -z "${TEST_DB_DSN:-${DB_DSN:-${DB_APP_DSN:-}}}" ]]; then
   exit 1
 fi
 
-if ! "$CARGO" fetch --manifest-path "$ROOT/server-rust/Cargo.toml" --locked --offline >/dev/null 2>&1; then
-  "$CARGO" fetch --manifest-path "$ROOT/server-rust/Cargo.toml" --locked
+if ! "$CARGO" fetch --manifest-path "$ROOT/server/Cargo.toml" --locked --offline >/dev/null 2>&1; then
+  "$CARGO" fetch --manifest-path "$ROOT/server/Cargo.toml" --locked
 fi
 
 "$CARGO" run --locked --offline \
-  --manifest-path "$ROOT/server-rust/Cargo.toml" \
+  --manifest-path "$ROOT/server/Cargo.toml" \
   -p setjoin-sql-contracts \
   --bin verify-sql-contracts

@@ -178,17 +178,17 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/gofree-t13-package.XXXXXXXX")
 outtmp=''
 trap 'rm -rf "$tmp"; if [[ -n "$outtmp" ]]; then rm -f -- "$outtmp"; fi' EXIT
 git -C "$ROOT" archive HEAD | tar -x -C "$tmp"
-install -d -m 0755 "$tmp/server-rust"
+install -d -m 0755 "$tmp/server"
 if [[ -n "$setjoind" ]]; then
-  install -m 0755 "$setjoind" "$tmp/server-rust/setjoind"
+  install -m 0755 "$setjoind" "$tmp/server/setjoind"
 fi
 if [[ "$cohort" != "unified" ]]; then
-  install -m 0755 "$server" "$tmp/server-rust/setjoin-server"
-  install -m 0755 "$rustauth" "$tmp/server-rust/setjoin-auth"
+  install -m 0755 "$server" "$tmp/server/setjoin-server"
+  install -m 0755 "$rustauth" "$tmp/server/setjoin-auth"
 fi
-install -m 0755 "$mailctl" "$tmp/server-rust/mailctl"
-install -m 0755 "$updater" "$tmp/server-rust/setjoin-updater"
-install -m 0755 "$asrbotd" "$tmp/server-rust/asrbotd"
+install -m 0755 "$mailctl" "$tmp/server/mailctl"
+install -m 0755 "$updater" "$tmp/server/setjoin-updater"
+install -m 0755 "$asrbotd" "$tmp/server/asrbotd"
 # Vendor PUBLIC release trust roots (#507): a build input, never in git. The installer
 # places them at /etc/setjoin/release-roots.json before adopting a managed release.
 roots=${SETJOIN_RELEASE_TRUST_ROOTS:-}
@@ -206,12 +206,12 @@ ok = (d.get('schema_version') == 1 and d.get('purpose') == 'release'
 if not ok:
     raise SystemExit('release trust roots must be schema 1, purpose release, 1..16 ed25519 keys, none test-only')
 PY
-  install -m 0644 "$roots" "$tmp/server-rust/release-roots.json"
+  install -m 0644 "$roots" "$tmp/server/release-roots.json"
 else
   echo 'warning: SETJOIN_RELEASE_TRUST_ROOTS unset; the package ships no release trust roots and upgrades of managed installs will require the operator to provide /etc/setjoin/release-roots.json' >&2
 fi
-mkdir -p "$tmp/mailserver/webmail/build"
-cp -R "$webmail/." "$tmp/mailserver/webmail/build/"
+mkdir -p "$tmp/webmail/build"
+cp -R "$webmail/." "$tmp/webmail/build/"
 outtmp=$(mktemp "${output}.tmp.XXXXXXXX")
 tar -C "$tmp" -cf - . | gzip -1 >"$outtmp"
 mv -f -- "$outtmp" "$output"

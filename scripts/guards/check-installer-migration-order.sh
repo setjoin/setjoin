@@ -6,7 +6,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-INSTALLER="${INSTALLER_MIGRATION_ORDER_FILE:-$ROOT/mailserver/deploy/scripts/install.sh}"
+INSTALLER="${INSTALLER_MIGRATION_ORDER_FILE:-$ROOT/deploy/scripts/install.sh}"
 
 run_check() {
   local file="$1" migration_line reducer_line group_line user_line continuity_chown_line failed=0
@@ -15,17 +15,17 @@ run_check() {
     return 1
   fi
 
-  migration_line="$(grep -nF '"$ROOT/server-rust/mailctl" schema apply --yes' "$file" | head -1 | cut -d: -f1 || true)"
+  migration_line="$(grep -nF '"$ROOT/server/mailctl" schema apply --yes' "$file" | head -1 | cut -d: -f1 || true)"
   reducer_line="$(grep -nF 'bash "$ROOT/scripts/reload-reducers.sh"' "$file" | head -1 | cut -d: -f1 || true)"
   if [ -z "$migration_line" ] || [ -z "$reducer_line" ] || [ "$migration_line" -ge "$reducer_line" ]; then
     echo "installer-migration-order: matching mailctl must apply pending migrations before reducer reload" >&2
     failed=1
   fi
-  grep -Fq '[ ! -x "$ROOT/server-rust/mailctl" ]' "$file" || {
+  grep -Fq '[ ! -x "$ROOT/server/mailctl" ]' "$file" || {
     echo "installer-migration-order: build preflight does not require the matching mailctl" >&2
     failed=1
   }
-  grep -Fq 'install -m 0755 "$ROOT/server-rust/mailctl"' "$file" || {
+  grep -Fq 'install -m 0755 "$ROOT/server/mailctl"' "$file" || {
     echo "installer-migration-order: install artifacts omit mailctl" >&2
     failed=1
   }
@@ -44,39 +44,39 @@ if [ "${1:-}" = "--self-test" ]; then
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   cat >"$tmp/bad.sh" <<'EOF'
-[ ! -x "$ROOT/server-rust/mailctl" ]
+[ ! -x "$ROOT/server/mailctl" ]
 getent group setjoin >/dev/null 2>&1 || groupadd -r setjoin
 id -u setjoin >/dev/null 2>&1 || useradd -r -g setjoin
 chown root:setjoin "$CONTINUITY_SIGNING_KEY_FILE"
 bash "$ROOT/scripts/reload-reducers.sh"
-"$ROOT/server-rust/mailctl" schema apply --yes
-install -m 0755 "$ROOT/server-rust/mailctl" "$INSTALL_DIR/mailctl"
+"$ROOT/server/mailctl" schema apply --yes
+install -m 0755 "$ROOT/server/mailctl" "$INSTALL_DIR/mailctl"
 EOF
   if run_check "$tmp/bad.sh" >/dev/null 2>&1; then
     echo "installer-migration-order self-test: accepted reducers before migrations" >&2
     exit 1
   fi
   cat >"$tmp/bad-identity.sh" <<'EOF'
-[ ! -x "$ROOT/server-rust/mailctl" ]
-"$ROOT/server-rust/mailctl" schema apply --yes
+[ ! -x "$ROOT/server/mailctl" ]
+"$ROOT/server/mailctl" schema apply --yes
 bash "$ROOT/scripts/reload-reducers.sh"
 chown root:setjoin "$CONTINUITY_SIGNING_KEY_FILE"
 getent group setjoin >/dev/null 2>&1 || groupadd -r setjoin
 id -u setjoin >/dev/null 2>&1 || useradd -r -g setjoin
-install -m 0755 "$ROOT/server-rust/mailctl" "$INSTALL_DIR/mailctl"
+install -m 0755 "$ROOT/server/mailctl" "$INSTALL_DIR/mailctl"
 EOF
   if run_check "$tmp/bad-identity.sh" >/dev/null 2>&1; then
     echo "installer-migration-order self-test: accepted continuity-key ownership before runtime identity" >&2
     exit 1
   fi
   cat >"$tmp/good.sh" <<'EOF'
-[ ! -x "$ROOT/server-rust/mailctl" ]
+[ ! -x "$ROOT/server/mailctl" ]
 getent group setjoin >/dev/null 2>&1 || groupadd -r setjoin
 id -u setjoin >/dev/null 2>&1 || useradd -r -g setjoin
 chown root:setjoin "$CONTINUITY_SIGNING_KEY_FILE"
-"$ROOT/server-rust/mailctl" schema apply --yes
+"$ROOT/server/mailctl" schema apply --yes
 bash "$ROOT/scripts/reload-reducers.sh"
-install -m 0755 "$ROOT/server-rust/mailctl" "$INSTALL_DIR/mailctl"
+install -m 0755 "$ROOT/server/mailctl" "$INSTALL_DIR/mailctl"
 EOF
   run_check "$tmp/good.sh"
   echo "installer-migration-order self-test: PASS"

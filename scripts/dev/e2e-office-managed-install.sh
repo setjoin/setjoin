@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-WEBMAIL="$ROOT/mailserver/webmail"
+WEBMAIL="$ROOT/webmail"
 STACK="$WEBMAIL/e2e/scripts/start-test-stack.sh"
 DB_NAME="${E2E_DB_NAME:-mailserver_office_install_e2e}"
 GATEWAY_PORT="${E2E_GATEWAY_PORT:-8188}"

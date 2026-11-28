@@ -33,8 +33,8 @@ fail=0
 # on the real tree when nothing matches).
 mk_clean() {
   local d="$1"
-  mkdir -p "$d/mailserver/sql/reducers" "$d/scripts/guards"
-  cp "$ROOT/mailserver/sql/reducers/guest_profile.sql" "$d/mailserver/sql/reducers/"
+  mkdir -p "$d/sql/reducers" "$d/scripts/guards"
+  cp "$ROOT/sql/reducers/guest_profile.sql" "$d/sql/reducers/"
   cp "$GUARD_SRC" "$d/scripts/guards/"
 }
 
@@ -64,7 +64,7 @@ run_case() {
 
 # ── §1: unjustified membership-granting reducer ─────────────────────────────
 setup_s1() {
-  cat > "$1/mailserver/sql/reducers/evil_new_door.sql" <<'SQL'
+  cat > "$1/sql/reducers/evil_new_door.sql" <<'SQL'
 CREATE OR REPLACE FUNCTION evil_open_door(p_user_id bigint, p_channel_id bigint) RETURNS void AS $fn$
 BEGIN
     INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (p_channel_id, p_user_id, 'member');
@@ -75,15 +75,15 @@ SQL
 
 # ── §4: RLS-blind raw guest_accounts read outside the named excepted files ───
 setup_s4() {
-  cat > "$1/mailserver/sql/reducers/evil_raw_read.sql" <<'SQL'
+  cat > "$1/sql/reducers/evil_raw_read.sql" <<'SQL'
 CREATE OR REPLACE FUNCTION evil_peek(p_user_id bigint) RETURNS boolean AS $fn$
   SELECT EXISTS (SELECT 1 FROM guest_accounts WHERE user_id = p_user_id);
 $fn$ LANGUAGE sql;
 SQL
 }
 setup_s4_profile_authority() {
-  sed 's/SECURITY DEFINER/SECURITY INVOKER/g' "$ROOT/mailserver/sql/reducers/guest_profile.sql" \
-    > "$1/mailserver/sql/reducers/guest_profile.sql"
+  sed 's/SECURITY DEFINER/SECURITY INVOKER/g' "$ROOT/sql/reducers/guest_profile.sql" \
+    > "$1/sql/reducers/guest_profile.sql"
 }
 
 run_case "§1 unjustified membership grant"         "evil_new_door.sql"                                 setup_s1

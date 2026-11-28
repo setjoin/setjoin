@@ -39,7 +39,7 @@
  * ---------------------------------------------------------------------------
  * Pins (single source of truth — nothing here invents a value)
  * ---------------------------------------------------------------------------
- * The harness parses `mailserver/deploy/scripts/lib-livekit.sh` and refuses
+ * The harness parses `deploy/scripts/lib-livekit.sh` and refuses
  * to run if the pins are missing or malformed:
  *   EGRESS_IMAGE        docker.io/livekit/egress:v1.13.0@sha256:980ff439...
  *   LIVEKIT_VERSION     1.13.5 (+ LIVEKIT_SHA256_AMD64 / _ARM64 release
@@ -106,7 +106,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
-const DEPLOY_LIB_REL = 'mailserver/deploy/scripts/lib-livekit.sh';
+const DEPLOY_LIB_REL = 'deploy/scripts/lib-livekit.sh';
 const DEFAULT_OUTPUT_ROOT_REL = 'test-results/meet-audio-evidence';
 const HARNESS_REL = 'scripts/dev/run-meet-audio-evidence-harness.mjs';
 

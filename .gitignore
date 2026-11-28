@@ -31,7 +31,7 @@ entities.json
 .hvigor/
 gateway
 # The Rust front-door gateway crate is source, not a build output (#220).
-!/server-rust/bins/gateway/
+!/server/bins/gateway/
 /authserver/authserverd
 /mailserver/mailserverd
 /mailserver/setjoin-updater
@@ -40,7 +40,23 @@ gateway
 /asrbot/asrbotd
 /mailserver/unit-catalog-gen
 /tools/setjoin-release/setjoin-release
-/server-rust/asrbotd
+/server/asrbotd
+
+# Migrated from mailserver/.gitignore (#577)
+.svelte-kit/
+webmail/build/
+webmail/test-results/
+webmail/playwright-report/
+webmail/e2e/test-results/
+deploy/tls/*.crt
+deploy/tls/*.key
+deploy/tls/*.pem
+*.keytab
+secrets/
+.audit/
+.idea/
+.vscode/
+*.swp
 
 # subagent-driven-development scratch (process artifacts, not source)
 /sdd/

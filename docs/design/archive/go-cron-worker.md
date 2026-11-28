@@ -226,7 +226,7 @@ INSERT INTO system_config (key, value) VALUES
 | `mailserver/gateway/internal/cron/metrics.go` | Prometheus metrics 注册 |
 | `mailserver/gateway/internal/cron/worker_test.go` | 单元测试 |
 | `mailserver/gateway/cmd/gateway/main.go` | 初始化并启动 cronWorker |
-| `mailserver/sql/migrations/V031__cron_run_log.sql` | cron_run_log 表 |
+| `sql/migrations/V031__cron_run_log.sql` | cron_run_log 表 |
 
 ---
 

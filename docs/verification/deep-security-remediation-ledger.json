@@ -1746,7 +1746,7 @@
    "rootCauseCluster": null,
    "ruleId": "html-email.css-escape-remote-load",
    "scanLocations": [
-    "mailserver/webmail/src/lib/sanitize.ts"
+    "webmail/src/lib/sanitize.ts"
    ],
    "severity": null,
    "sharedPatchDependencies": [],
@@ -3218,7 +3218,7 @@
   {
    "closurePatch": {
     "trigger": "A global revocation (ldap_sync_disable_user disable, admin reset, authserver critical-event path all call revoke_user_sessions(...,'all')) revoked the first-party oauth_tokens store but NOT oidc_tokens — the OIDC PROVIDER's own token store for federated relying-party clients (a DISTINCT table, authserver/internal/federation/oidc_op_token_store.go). A disabled user's OP sessions survived with live refresh grants: the OP refresh rotation only checks revoked_at/refresh_expires_at, so the surviving rows minted fresh access tokens indefinitely (sealed anchor oidc-refresh-survives-user-disable).",
-    "legitimate": "Completed the existing all-session revocation boundary in its owning PL/pgSQL reducer (mailserver/sql/reducers/revoke_user_sessions.sql, scope='all' branch): the boundary now also flips oidc_tokens.revoked_at for the user in the same transaction — same person fence, same audit_write, same session_revoke pg_notify, same RLS-definer boundary proven by the existing setjoin_app leg. Narrow family/jti scopes intentionally stay narrow (the OP store has no family/jti concept), preserving the reducer's documented scope contract.",
+    "legitimate": "Completed the existing all-session revocation boundary in its owning PL/pgSQL reducer (sql/reducers/revoke_user_sessions.sql, scope='all' branch): the boundary now also flips oidc_tokens.revoked_at for the user in the same transaction — same person fence, same audit_write, same session_revoke pg_notify, same RLS-definer boundary proven by the existing setjoin_app leg. Narrow family/jti scopes intentionally stay narrow (the OP store has no family/jti concept), preserving the reducer's documented scope contract.",
     "bypass": "After scope='all': zero active oidc_tokens for the revoked user (other users' OP sessions untouched), revoked_at stamped in place, and the row is closed against the OP refresh grant's revoked_at IS NULL predicate — rotation can never mint a successor. Family/jti events leave the OP store untouched. All executed by the named pgTAP assertions (green in this slice's verification run on the dedicated container)."
    },
    "clusterSeverity": null,
@@ -3320,7 +3320,7 @@
    "rootCauseCluster": null,
    "ruleId": "session-revocation.oidc-refresh-survives-disable",
    "scanLocations": [
-    "mailserver/sql/reducers/revoke_user_sessions.sql"
+    "sql/reducers/revoke_user_sessions.sql"
    ],
    "severity": null,
    "sharedPatchDependencies": [],
@@ -6077,7 +6077,7 @@
   {
    "closurePatch": {
     "trigger": "Direct blob PUT (/blobs/{sha256}) persisted the content-addressed blob row with no reclamation arming and no per-user accounting: an uploaded-but-never-attached blob was a zero-reference object NO cleanup path ever visited — bytes accumulated permanently in object storage, with no per-user bound (sealed anchor direct-blob-put-inserts-zero-reference-objects-that-are-never-queued-for-cleanup).",
-    "legitimate": "Bound existing tested controls (no new code needed): the PUT's DB bookkeeping is reducer-owned (med-blob-reclamation-001) — blob_upload_account (mailserver/sql/reducers/blob_upload_account.sql) commits in ONE transaction the admission insert at ref_count=0, the per-user byte charge (blob_user_charges → blob_user_usage with a FOR UPDATE-serialized quota bound, BZ001 on over-quota), and the reclamation arming (blob_cleanup_queue row with the configured grace window); blob/handler.go binds p_user_id from the authenticated claims (R2), the MEASURED streamed byte count, and the policy, commits BEFORE the temp→canonical promote (a failed promote leaves a ref_count=0 row the arming heals), and the cleanup tick reaps only through an atomic DELETE...WHERE ref_count=0 re-check so a late attach can never lose referenced bytes.",
+    "legitimate": "Bound existing tested controls (no new code needed): the PUT's DB bookkeeping is reducer-owned (med-blob-reclamation-001) — blob_upload_account (sql/reducers/blob_upload_account.sql) commits in ONE transaction the admission insert at ref_count=0, the per-user byte charge (blob_user_charges → blob_user_usage with a FOR UPDATE-serialized quota bound, BZ001 on over-quota), and the reclamation arming (blob_cleanup_queue row with the configured grace window); blob/handler.go binds p_user_id from the authenticated claims (R2), the MEASURED streamed byte count, and the policy, commits BEFORE the temp→canonical promote (a failed promote leaves a ref_count=0 row the arming heals), and the cleanup tick reaps only through an atomic DELETE...WHERE ref_count=0 re-check so a late attach can never lose referenced bytes.",
     "bypass": "an uploaded-but-never-attached blob lands in blob_cleanup_queue and is reclaimed after the grace window (named arming test); an attached blob inside the window survives (attach bumps ref_count via the V075 trigger and the reaper's atomic re-check); a dedup re-upload neither double-charges nor stacks queue rows; concurrent uploads serialize per user on the FOR UPDATE lock and can never exceed the bound. All executed by the named tests (green in this slice's verification run)."
    },
    "clusterSeverity": null,
@@ -9158,7 +9158,7 @@
    "rootCauseCluster": null,
    "ruleId": "resource-exhaustion.attachment-size-trust",
    "scanLocations": [
-    "mailserver/sql/reducers/jmap_email.sql"
+    "sql/reducers/jmap_email.sql"
    ],
    "severity": null,
    "sharedPatchDependencies": [],
@@ -10122,7 +10122,7 @@
    "rootCauseCluster": null,
    "ruleId": "webmail.plaintext-reply-html-interpretation",
    "scanLocations": [
-    "mailserver/webmail/src/lib/components/ComposeScreen.svelte"
+    "webmail/src/lib/components/ComposeScreen.svelte"
    ],
    "severity": null,
    "sharedPatchDependencies": [],
@@ -10243,7 +10243,7 @@
    "rootCauseCluster": null,
    "ruleId": "audit-integrity.federated-coverage-epochs",
    "scanLocations": [
-    "mailserver/sql/reducers/federation_room_invite.sql"
+    "sql/reducers/federation_room_invite.sql"
    ],
    "severity": null,
    "sharedPatchDependencies": [],
@@ -11849,7 +11849,7 @@
   },
   {
    "closurePatch": {
-    "trigger": "mailserver/deploy/scripts/backup.sh piped pg_dump straight into a world-readable-by-umask gzip file inside /var/lib/setjoin/backups: a raw pg_dump is a complete copy of every mailbox, credential hash and secret column, and the script also swallowed pg_dump stderr (2\u003e/dev/null) so a failed dump could silently truncate the newest retained backup (sealed anchor insecure-permissions.database-backup).",
+    "trigger": "deploy/scripts/backup.sh piped pg_dump straight into a world-readable-by-umask gzip file inside /var/lib/setjoin/backups: a raw pg_dump is a complete copy of every mailbox, credential hash and secret column, and the script also swallowed pg_dump stderr (2\u003e/dev/null) so a failed dump could silently truncate the newest retained backup (sealed anchor insecure-permissions.database-backup).",
     "legitimate": "Bound the repo's existing 0600 dump/credential discipline (mailctl backup_db.go: os.CreateTemp 0600 dumps, refuseArgvSecretFlags/PGPASSWORD-env-only delivery at mailctl/backup_db.go:57-160; the backup signing key file itself must be 0600) into the shell lane: backup.sh now runs under umask 077 so the dump is mode 0600, publishes atomically (temp name → mv) so a failed run never leaves a truncated file that looks restorable, keeps the password in the PGPASSWORD environment only (never argv, never echoed), stops discarding pg_dump stderr, and overrides (DB_HOST/DB_PORT/DB_USER/DB_NAME) default to the historical local shape. Executed live against a stub pg_dump by the named tests.",
     "bypass": "The published dump is group/world-unreadable (mode 600 asserted); a failing pg_dump exits nonzero with nothing published and no partial left behind while the prior backup keeps its 0600 mode; the password never appears in pg_dump argv. All executed by the named tests (green in this slice's verification run)."
    },
@@ -11954,7 +11954,7 @@
    "rootCauseCluster": null,
    "ruleId": "insecure-permissions.database-backup",
    "scanLocations": [
-    "mailserver/deploy/scripts/backup.sh"
+    "deploy/scripts/backup.sh"
    ],
    "severity": null,
    "sharedPatchDependencies": [],
@@ -12579,8 +12579,8 @@
   {
    "closurePatch": {
     "trigger": "chat/unfurl.go parsePreviewHTML copies og:title/og:description out of up to maxHTMLBytes (2 MiB) of attacker-controlled fetched page bytes, and fetchPreview handed them UNBOUNDED to chat_link_preview_cache_write: V122 types chat_link_previews.title/description as unbounded TEXT (no length bound, verified), so one fetched URL could persist megabytes of third-party junk in the cache row, and chat_message_unfurl_apply duplicates the same bytes into chat_messages.payload (WORM-exempt column) on every applying message — an attacker-reachable unbounded persistent-write primitive on a toggle-gated best-effort feature (sealed anchor unfurl-unbounded-title-description, ruleId resource-exhaustion.link-unfurl-metadata, batch B13; er5-s15 recorded the ownership-boundary reject naming this lane's files).",
-    "legitimate": "The bound is a state invariant on the write path the reducer file owns (chat_link_previews is FORCE RLS deny-all; its only writer is chat_link_preview_cache_write): chat_unfurl.sql gains chat_unfurl_bound_text(p_text, p_max_chars) — IMMUTABLE STRICT, char_length (character, not byte) semantics matching the Go mirror — truncation-with-MARKER (the trailing ellipsis occupies the cap's final character, so the result is always exactly ≤ cap and visibly truncated). Applied at BOTH writers the file owns: chat_link_preview_cache_write caps at ingress (512 title / 1024 description characters) and chat_message_unfurl_apply re-applies the same caps at the payload merge, so cache rows written before the bound (or by any future unbounded writer) are still bounded at the moment their metadata duplicates into chat_messages.payload — idempotent on already-bounded values. Truncation-with-marker, not a CHECK: this file's settled posture is silent degradation (unfurl is best-effort enrichment and nothing here RAISEs — a CHECK would fail the whole best-effort cache write), so no new BZ ERRCODE is consumed. The Go fetch path mirrors the same caps (boundUnfurlText, maxUnfurlTitleChars/maxUnfurlDescriptionChars in chat/unfurl.go) inside fetchPreview so over-bound strings never ship to the wire; the reducer stays the authority. p_/v_ prefixes, SECURITY DEFINER + apply_worker_ownership, in-transaction writes and the existing R1–R4 posture (global url_hash-keyed worker cache, no user-identity columns) are unchanged. Reducer index (mailserver/sql/reducers/README.md) registers chat_unfurl_bound_text with the bound contract.",
-    "bypass": "An over-bound og:title/og:description is stored at exactly 512/1024 characters ending in '…' while the fetch still caches status=ok (silent degradation — no raise, no blocked fetch); at-cap and under-cap values pass through unmarked; CJK text truncates on whole glyphs (character semantics, not bytes); a pre-bound legacy cache row planted with over-cap text is bounded at the apply-time payload merge. Mutation-verified: neutralizing the cache_write bound fails pgTAP chat_unfurl_bounds.pg legs 9-11 (ingress truncation legs); restoring the bound passes. Executed by the named tests (green in this run's verification): pgTAP mailserver/sql/tests/chat_unfurl_bounds.pg (19 tests: bound-helper NULL/under/at/over-cap, cap-never-exceeded, CJK character semantics, cache_write ingress truncation + status=ok, at-cap passthrough, apply merge bound + marker, legacy pre-bound row leg) and the chat_unfurl.pg regression suite (25 tests, green); Go TestBoundUnfurlText (under/at/over cap, marker position, CJK) and TestFetchPreview_BoundsOverLongMetadata (end-to-end fetch → bounded title/description)."
+    "legitimate": "The bound is a state invariant on the write path the reducer file owns (chat_link_previews is FORCE RLS deny-all; its only writer is chat_link_preview_cache_write): chat_unfurl.sql gains chat_unfurl_bound_text(p_text, p_max_chars) — IMMUTABLE STRICT, char_length (character, not byte) semantics matching the Go mirror — truncation-with-MARKER (the trailing ellipsis occupies the cap's final character, so the result is always exactly ≤ cap and visibly truncated). Applied at BOTH writers the file owns: chat_link_preview_cache_write caps at ingress (512 title / 1024 description characters) and chat_message_unfurl_apply re-applies the same caps at the payload merge, so cache rows written before the bound (or by any future unbounded writer) are still bounded at the moment their metadata duplicates into chat_messages.payload — idempotent on already-bounded values. Truncation-with-marker, not a CHECK: this file's settled posture is silent degradation (unfurl is best-effort enrichment and nothing here RAISEs — a CHECK would fail the whole best-effort cache write), so no new BZ ERRCODE is consumed. The Go fetch path mirrors the same caps (boundUnfurlText, maxUnfurlTitleChars/maxUnfurlDescriptionChars in chat/unfurl.go) inside fetchPreview so over-bound strings never ship to the wire; the reducer stays the authority. p_/v_ prefixes, SECURITY DEFINER + apply_worker_ownership, in-transaction writes and the existing R1–R4 posture (global url_hash-keyed worker cache, no user-identity columns) are unchanged. Reducer index (sql/reducers/README.md) registers chat_unfurl_bound_text with the bound contract.",
+    "bypass": "An over-bound og:title/og:description is stored at exactly 512/1024 characters ending in '…' while the fetch still caches status=ok (silent degradation — no raise, no blocked fetch); at-cap and under-cap values pass through unmarked; CJK text truncates on whole glyphs (character semantics, not bytes); a pre-bound legacy cache row planted with over-cap text is bounded at the apply-time payload merge. Mutation-verified: neutralizing the cache_write bound fails pgTAP chat_unfurl_bounds.pg legs 9-11 (ingress truncation legs); restoring the bound passes. Executed by the named tests (green in this run's verification): pgTAP sql/tests/chat_unfurl_bounds.pg (19 tests: bound-helper NULL/under/at/over-cap, cap-never-exceeded, CJK character semantics, cache_write ingress truncation + status=ok, at-cap passthrough, apply merge bound + marker, legacy pre-bound row leg) and the chat_unfurl.pg regression suite (25 tests, green); Go TestBoundUnfurlText (under/at/over cap, marker position, CJK) and TestFetchPreview_BoundsOverLongMetadata (end-to-end fetch → bounded title/description)."
    },
    "clusterSeverity": null,
    "confidence": null,
@@ -12670,7 +12670,7 @@
       "releaseStatus": "not_ready"
      },
      "at": "2026-09-19T23:50:26Z",
-     "reason": "er5-s15 cannot close this occurrence inside its file ownership: the unbounded link-unfurl metadata (og:title / og:description parsed by chat/unfurl.go parsePreviewHTML from a fetched page) enters persistence exclusively through unfurl.go's fetchPreview→chat_link_preview_cache_write call and the chat_link_previews TEXT columns (V122 — no length bound, verified), then duplicates into chat_messages.payload via chat_message_unfurl_apply. Both files (mailserver/internal/chat/unfurl.go, mailserver/sql/reducers/chat_unfurl.sql) are outside the er5-s15 fileOwnershipSet, and the slice's own target file (chat/messages.go) holds no metadata bytes — its only unfurl surface is the trigger seam, bounded under occ_33c17c52. Named follow-up for the owning lane: bound title/description before cache_write (e.g. LEFT(p_title,512)/LEFT(p_description,1024) in chat_link_preview_cache_write plus mirrored Go-side trims in fetchPreview) with a pgTAP leg pinning the cap; this reject records the boundary, not a dispute that the bound is needed."
+     "reason": "er5-s15 cannot close this occurrence inside its file ownership: the unbounded link-unfurl metadata (og:title / og:description parsed by chat/unfurl.go parsePreviewHTML from a fetched page) enters persistence exclusively through unfurl.go's fetchPreview→chat_link_preview_cache_write call and the chat_link_previews TEXT columns (V122 — no length bound, verified), then duplicates into chat_messages.payload via chat_message_unfurl_apply. Both files (mailserver/internal/chat/unfurl.go, sql/reducers/chat_unfurl.sql) are outside the er5-s15 fileOwnershipSet, and the slice's own target file (chat/messages.go) holds no metadata bytes — its only unfurl surface is the trigger seam, bounded under occ_33c17c52. Named follow-up for the owning lane: bound title/description before cache_write (e.g. LEFT(p_title,512)/LEFT(p_description,1024) in chat_link_preview_cache_write plus mirrored Go-side trims in fetchPreview) with a pgTAP leg pinning the cap; this reject records the boundary, not a dispute that the bound is needed."
     },
     {
      "op": "start",
@@ -12732,8 +12732,8 @@
    "sharedPatchDependencies": [],
    "sliceId": null,
    "tests": [
-    "pgTAP mailserver/sql/tests/chat_unfurl_bounds.pg (19 tests)",
-    "pgTAP mailserver/sql/tests/chat_unfurl.pg (25-test regression)",
+    "pgTAP sql/tests/chat_unfurl_bounds.pg (19 tests)",
+    "pgTAP sql/tests/chat_unfurl.pg (25-test regression)",
     "TestBoundUnfurlText",
     "TestFetchPreview_BoundsOverLongMetadata"
    ],
@@ -13815,8 +13815,8 @@
   },
   {
    "closurePatch": {
-    "trigger": "mailserver/deploy/config.env.sample — the file a fresh operator copies — rendered the tenant-facing runtime DSNs (DB_DSN/DB_DIRECT_DSN) as a single all-privileged database credential (postgres://mail:changeme@…), normalizing tenant-facing services running as the database owner/superuser: any gateway flaw becomes total data exposure and the native-RLS role separation the installer provisions since 2026-07-07 is documented away (sealed anchor deployment-sample-superuser-runtime-dsn).",
-    "legitimate": "Bound the deployment's own tested provisioning posture instead of inventing one: the sample now mirrors what install.sh actually renders by default (mailserver/deploy/scripts/install.sh DSN_BLOCK — app-role runtime DSNs in config.env, privileged tiers exclusively in /etc/setjoin/db-credentials.d/db-credentials.env 0600 root:root per docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md §2: setjoin_app NOSUPERUSER/NOBYPASSRLS owns nothing, setjoin_worker BYPASSRLS, setjoin_owner migrations-only) and binds the secret-zero-read-redaction discipline (mailserver/internal/admin/admin_config.go:16-39 [ENCRYPTED] sentinel contract) to the sample file itself: placeholder-only credentials, no real secret in the shared sample, privileged DSNs never rendered into the tenant-facing env file. --permissive-dsn stays documented as an explicit operator-chosen downgrade, not a default.",
+    "trigger": "deploy/config.env.sample — the file a fresh operator copies — rendered the tenant-facing runtime DSNs (DB_DSN/DB_DIRECT_DSN) as a single all-privileged database credential (postgres://mail:changeme@…), normalizing tenant-facing services running as the database owner/superuser: any gateway flaw becomes total data exposure and the native-RLS role separation the installer provisions since 2026-07-07 is documented away (sealed anchor deployment-sample-superuser-runtime-dsn).",
+    "legitimate": "Bound the deployment's own tested provisioning posture instead of inventing one: the sample now mirrors what install.sh actually renders by default (deploy/scripts/install.sh DSN_BLOCK — app-role runtime DSNs in config.env, privileged tiers exclusively in /etc/setjoin/db-credentials.d/db-credentials.env 0600 root:root per docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md §2: setjoin_app NOSUPERUSER/NOBYPASSRLS owns nothing, setjoin_worker BYPASSRLS, setjoin_owner migrations-only) and binds the secret-zero-read-redaction discipline (mailserver/internal/admin/admin_config.go:16-39 [ENCRYPTED] sentinel contract) to the sample file itself: placeholder-only credentials, no real secret in the shared sample, privileged DSNs never rendered into the tenant-facing env file. --permissive-dsn stays documented as an explicit operator-chosen downgrade, not a default.",
     "bypass": "A fresh install copying the sample can no longer boot tenant-facing services on an owner/superuser credential: DB_DSN/DB_DIRECT_DSN are spelled setjoin_app only, the worker/owner tiers are named as credential-file-only, and any owner-spelled or throwaway-password DSN spelling in the sample is refused by the named posture tests (green in this slice's verification run)."
    },
    "clusterSeverity": null,
@@ -13918,7 +13918,7 @@
    "rootCauseCluster": null,
    "ruleId": "insecure-configuration.superuser-application-dsn",
    "scanLocations": [
-    "mailserver/deploy/config.env.sample"
+    "deploy/config.env.sample"
    ],
    "severity": null,
    "sharedPatchDependencies": [],

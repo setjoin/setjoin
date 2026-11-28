@@ -19,7 +19,7 @@ import sys
 import tempfile
 
 repo = Path(__file__).resolve().parents[2]
-root = repo / "server-rust"
+root = repo / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 
@@ -38,7 +38,7 @@ MUTANTS = {
 }
 # Mutant id -> env value actually read by the code (two ids share one code flag).
 RUST_FLAG = {"m365-aux-mailbox-as-calendar-no-default": "m365-aux-mailbox-as-calendar"}
-REDUCERS = repo / "mailserver/sql/reducers"
+REDUCERS = repo / "sql/reducers"
 APPLY = ("rust_migration_apply_aux_object.sql", "rust_migration_apply_aux_object(bigint,uuid,text,text,text,text,text,text,jsonb,text)")
 BEGIN = ("migration_aux_object_begin.sql", "migration_aux_object_begin(bigint,uuid,text,text,text,text,text,text)")
 COMPLETE = ("migration_aux_object_complete.sql", "migration_aux_object_complete(bigint,uuid,text,text,bigint)")

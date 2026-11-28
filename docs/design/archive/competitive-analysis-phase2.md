@@ -74,7 +74,7 @@ For each competitor, a concrete list of capabilities where SetJoin is ahead. The
 
 | # | SetJoin Advantage | Evidence |
 |---|------------------|----------|
-| 1 | **Native JMAP (RFC 8620/8621)** -- not IMAP, not partial JMAP. Full core + mail + contacts + calendar + tasks. | `mailserver/webmail/src/lib/types/jmap.ts` (249 lines of typed JMAP protocol); Go gateway at `mailserver/internal/jmap/` |
+| 1 | **Native JMAP (RFC 8620/8621)** -- not IMAP, not partial JMAP. Full core + mail + contacts + calendar + tasks. | `webmail/src/lib/types/jmap.ts` (249 lines of typed JMAP protocol); Go gateway at `mailserver/internal/jmap/` |
 | 2 | **Integrated Calendar + Contacts + Tasks** -- same app, same JSON protocol. Velo is email-only. | `calendar/+page.svelte` (1437 lines), `contacts/+page.svelte` (962 lines), `tasks/+page.svelte` (886 lines) |
 | 3 | **Full Admin Console** -- 30+ admin pages for domains, users, mailboxes, rules, migration, eDiscovery, quarantine, DMARC, DNS, storage, audit. Velo has zero admin surface. | `routes/admin/` -- 30 `.svelte` pages, e.g. `admin/users/+page.svelte`, `admin/ediscovery/+page.svelte` |
 | 4 | **Air-Gap Capable** -- no internet dependency. Fonts bundled, icons bundled, translations bundled, updates from customer server. Velo requires internet for AI, OAuth, and update checks. | `tokens.css` font `@font-face` declarations (lines 14-27, self-hosted woff2); `phase12-client-architecture.md` Q3 |
@@ -114,7 +114,7 @@ For each competitor, a concrete list of capabilities where SetJoin is ahead. The
 | 2 | **Complete PIM Platform** -- mail + calendar + contacts + tasks + directory in one app. Delta Chat is a chat app that uses email as transport; it has no calendar integration. | Four module pages (calendar/contacts/tasks/directory) totaling 3413 lines |
 | 3 | **Admin Console** -- 30+ pages for IT management. Delta Chat has zero admin/management surface (it's a personal app). | `admin/` route directory with 30 Svelte pages |
 | 4 | **Enterprise Security** -- DLP, DANE, DMARC, DKIM, SPF, anti-spam, ClamAV, rate limiting, geo-blocking, spray detection, threat pipeline. Delta Chat relies on the underlying mail provider for all of these. | Auth server 8-step threat pipeline (`authserver/internal/threat/interceptor.go`); mailserver security in `docs/specs/SECURITY.md` |
-| 5 | **PL/pgSQL Reducers** -- all business logic in the database, making it auditable and transactional. Delta Chat's core is a Rust library with SQLite -- no server-side logic at all. | `mailserver/sql/reducers/` -- ~80 stored procedures; `CLAUDE.md` SpaceTimeDB-inspired pattern |
+| 5 | **PL/pgSQL Reducers** -- all business logic in the database, making it auditable and transactional. Delta Chat's core is a Rust library with SQLite -- no server-side logic at all. | `sql/reducers/` -- ~80 stored procedures; `CLAUDE.md` SpaceTimeDB-inspired pattern |
 
 ### 2.5 Versus Proton Mail
 
@@ -142,8 +142,8 @@ Each item includes priority (P0/P1/P2), effort estimate, and which files to modi
 **Effort:** 2 days
 **Priority:** P0
 **Files to modify:**
-- `mailserver/webmail/src/routes/inbox/+page.svelte` -- add `on:swipeleft`/`on:swiperight` on message rows
-- `mailserver/webmail/src/lib/components/UndoToast.svelte` -- extend to accept `undoAction` callback with auto-dismiss
+- `webmail/src/routes/inbox/+page.svelte` -- add `on:swipeleft`/`on:swiperight` on message rows
+- `webmail/src/lib/components/UndoToast.svelte` -- extend to accept `undoAction` callback with auto-dismiss
 
 #### 3.2 Markdown Paste in Composer (from Velo)
 
@@ -152,7 +152,7 @@ Each item includes priority (P0/P1/P2), effort estimate, and which files to modi
 **Effort:** 0.5 days (plan already written, code in the plan)
 **Priority:** P0
 **Files to modify:**
-- `mailserver/webmail/src/lib/components/RichTextEditor.svelte` -- replace stub `handlePaste` with markdown-to-HTML converter
+- `webmail/src/lib/components/RichTextEditor.svelte` -- replace stub `handlePaste` with markdown-to-HTML converter
 
 #### 3.3 Reduced-Transparency / Reduced-Motion CSS Fallbacks (from Proton Mail)
 
@@ -161,8 +161,8 @@ Each item includes priority (P0/P1/P2), effort estimate, and which files to modi
 **Effort:** 0.5 days (plan already written)
 **Priority:** P0 (accessibility is non-optional per design spec SS2.8)
 **Files to modify:**
-- `mailserver/webmail/src/lib/theme/tokens.css` -- add `@media (prefers-reduced-transparency: reduce)` block
-- `mailserver/webmail/src/lib/theme/global.css` -- add `@media (prefers-reduced-motion: reduce)` block
+- `webmail/src/lib/theme/tokens.css` -- add `@media (prefers-reduced-transparency: reduce)` block
+- `webmail/src/lib/theme/global.css` -- add `@media (prefers-reduced-motion: reduce)` block
 
 ### P1 -- Build Next (High Impact, Medium Effort)
 
@@ -187,7 +187,7 @@ Each item includes priority (P0/P1/P2), effort estimate, and which files to modi
 **Effort:** 1 day
 **Priority:** P1
 **Files to modify:**
-- `mailserver/webmail/src/lib/components/NewsletterBundle.svelte` -- add avatar stack (gravatar for sender domain), unread counts, "Mark all read" button
+- `webmail/src/lib/components/NewsletterBundle.svelte` -- add avatar stack (gravatar for sender domain), unread counts, "Mark all read" button
 
 #### 3.6 Contact Frequency Ranking for Autocomplete (from Velo)
 
@@ -196,8 +196,8 @@ Each item includes priority (P0/P1/P2), effort estimate, and which files to modi
 **Effort:** 0.5 days (plan already written)
 **Priority:** P1
 **Files to create:**
-- `mailserver/webmail/src/lib/utils/contactRanking.ts` -- `recordSend()`, `getSendCount()`, `rankContacts()` with localStorage persistence
-- `mailserver/webmail/src/lib/utils/contactRanking.test.ts` -- 3 tests
+- `webmail/src/lib/utils/contactRanking.ts` -- `recordSend()`, `getSendCount()`, `rankContacts()` with localStorage persistence
+- `webmail/src/lib/utils/contactRanking.test.ts` -- 3 tests
 
 #### 3.7 Plugin/Extension Architecture (from Mailspring)
 

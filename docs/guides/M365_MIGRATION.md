@@ -26,9 +26,9 @@ clean in this repo but have not been run against a live box in this pass (see
 | **Zimbra** — no native connector | lossy — via the generic IMAP connector (Zimbra ships a standard IMAP server); same test coverage as IMAP row above | lossy — export Zimbra calendar as `.ics`, upload via Settings > Migration; `ics_import_test.go:TestSplitAndParseICS` | lossy — export Zimbra address book as `.vcf`, upload via Settings > Migration; `vcf_import_test.go` | n/a — one-shot export/upload, no incremental resync | non-goal (see above) |
 
 All three connector types are reachable from both the admin migration console
-(`mailserver/webmail/src/routes/admin/(mail)/migration/+page.svelte:509-511`,
+(`webmail/src/routes/admin/(mail)/migration/+page.svelte:509-511`,
 tabs `IMAP` / `Exchange EWS` / `Microsoft 365`) and the self-service page
-(`mailserver/webmail/src/routes/settings/migration/+page.svelte:270-293`), and
+(`webmail/src/routes/settings/migration/+page.svelte:270-293`), and
 each is dispatched by `orchestrator.go:275`
 (`job.SourceType == "imap" || "ews" || "m365"`). Zimbra has no native
 connector by design. Exactly-once source identity, source-object mapping,
@@ -244,7 +244,7 @@ Verify the Directory (tenant) ID is correct. Ensure the cloud selector in the Pr
 Exchange Web Services (EWS) is the native protocol of on-premises Exchange
 2013/2016/2019 (Exchange Online also speaks EWS, but Microsoft Graph is the
 modern/recommended path for M365 — see above). setjoin's on-prem-Exchange
-connector (`server-rust/crates/domains/migration`) speaks EWS directly:
+connector (`server/crates/domains/migration`) speaks EWS directly:
 no Graph, no cloud dependency, works fully air-gapped/on-prem.
 
 ## Prerequisites
@@ -279,7 +279,7 @@ Migration** for a single self-service user):
 `TestConnection` (the **Test Connection** button) issues a lightweight
 `GetFolder` SOAP call before any job starts, so a bad URL/credential/impersonation
 setup fails fast instead of mid-migration
-(`server-rust/crates/domains/migration`'s `"ews"` case →
+(`server/crates/domains/migration`'s `"ews"` case →
 `validateEWSServerURL` + `EWSConnector.TestConnection`).
 
 ## What transfers
@@ -345,7 +345,7 @@ capture the output as that customer's go-live evidence.
 
 Any IMAP4-capable mail server (Gmail/Google Workspace, Zimbra, cPanel/Dovecot,
 legacy on-prem mail, etc.) can be migrated via the generic IMAP connector
-(`server-rust/crates/domains/migration`). This is the lossy fallback
+(`server/crates/domains/migration`). This is the lossy fallback
 for any source without a dedicated connector: **mail only** natively; calendar
 and contacts travel via separate `.ics`/`.vcf` file upload
 (`ics_import.go`/`vcf_import.go`), not automatically pulled.
@@ -418,4 +418,4 @@ insufficient.
   (which already default to Zimbra-compatible values: 993/SSL). The admin
   migration UI's IMAP setup guide now includes an explicit Zimbra callout
   pointing here instead
-  (`mailserver/webmail/src/routes/admin/(mail)/migration/+page.svelte`).
+  (`webmail/src/routes/admin/(mail)/migration/+page.svelte`).

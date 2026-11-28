@@ -2,7 +2,7 @@
 //! load via the window's `initialization_script`.
 //!
 //! This JS defines an object whose shape MUST match `SetjoinNativeBridge` in
-//! `mailserver/webmail/src/lib/native/types.ts`. Each method `invoke()`s the
+//! `webmail/src/lib/native/types.ts`. Each method `invoke()`s the
 //! matching `#[tauri::command]` in `bridge.rs`. The `capabilities` array is
 //! rendered from [`bridge::DESKTOP_CAPABILITIES`] so there is one source of
 //! truth (and the C0 parity test guards it).
@@ -42,7 +42,7 @@ pub fn bridge_init_js() -> String {
 
 /// `window.setjoinNative.vault`'s own sub-shape version (C2 Task 2 Step 3b),
 /// independent of the whole-bridge `version` above — mirrors
-/// `mailserver/webmail/src/lib/native/types.ts` VAULT_VERSION and the
+/// `webmail/src/lib/native/types.ts` VAULT_VERSION and the
 /// Electron `bridge.ts` VAULT_VERSION. Bump in lock-step with a vault contract
 /// change.
 const VAULT_VERSION: u32 = 1;

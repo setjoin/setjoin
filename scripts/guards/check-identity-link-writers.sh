@@ -5,7 +5,7 @@
 set -euo pipefail
 
 ROOT="${ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
-REDUCERS="${REDUCERS:-$ROOT/mailserver/sql/reducers}"
+REDUCERS="${REDUCERS:-$ROOT/sql/reducers}"
 
 expected=$'identity_auth_jit\nidentity_auth_link\nidentity_auth_unlink\nidentity_legacy_backfill\nidentity_match_decide\nidentity_source_entry_apply\nidentity_transition_execute\nidentity_transition_rollback\nldap_sync_anchor_link'
 

@@ -21,7 +21,7 @@ zero dropped active connections**.
 
 ## Target Directory & Permission Posture
 
-`mailserver/deploy/scripts/export-edge-pem.sh` enforces strict root-owned
+`deploy/scripts/export-edge-pem.sh` enforces strict root-owned
 permissions and refuses symlinked destination paths or group/world-writable
 directories:
 
@@ -55,7 +55,7 @@ and proxies to Setjoin on literal IPv4 loopback `127.0.0.1:8090`, while a
 systemd `.path` unit triggers `export-edge-pem.sh` on every renewal for
 IMAP/SMTP/LDAP/Federation listeners.
 
-1. Render `mailserver/deploy/Caddyfile.template` (substituting `{{HOSTNAME}}`
+1. Render `deploy/Caddyfile.template` (substituting `{{HOSTNAME}}`
    and `{{ACME_EMAIL}}`) to `/etc/caddy/Caddyfile`.
    - Always proxy to literal `127.0.0.1:8090` (never `localhost`, which can
      resolve to `::1` and break `TRUSTED_PROXY_IP=127.0.0.1` /
@@ -66,8 +66,8 @@ IMAP/SMTP/LDAP/Federation listeners.
      `export-edge-pem.sh` protects DANE-EE with `DANE_ENFORCE_KEY_PIN=1` by
      failing closed and printing double-TLSA rollover instructions if the SPKI
      hash changes.
-2. Render `mailserver/deploy/setjoin-tls-export.path.template` and
-   `mailserver/deploy/setjoin-tls-export.service.template` to
+2. Render `deploy/setjoin-tls-export.path.template` and
+   `deploy/setjoin-tls-export.service.template` to
    `/etc/systemd/system/setjoin-tls-export.path` and
    `/etc/systemd/system/setjoin-tls-export.service`.
 3. Enable and start Caddy and the export watcher:
@@ -85,7 +85,7 @@ sudo systemctl start setjoin-tls-export.service
 
 If you publish SMTP `DANE-EE` (`TLSA 3 1 1`) records or prefer keeping direct
 HTTPS on `setjoind` (`setjoin-https.socket`), use `certbot` with `--reuse-key`
-and `mailserver/deploy/certbot-deploy-hook.sh.template`.
+and `deploy/certbot-deploy-hook.sh.template`.
 
 1. Issue your initial certificate with key reuse enabled:
 
@@ -94,7 +94,7 @@ sudo certbot certonly --standalone --key-type ecdsa --elliptic-curve secp256r1 \
   --reuse-key -d mail.example.com --email ops@example.com --agree-tos
 ```
 
-2. Render `mailserver/deploy/certbot-deploy-hook.sh.template` (setting
+2. Render `deploy/certbot-deploy-hook.sh.template` (setting
    `EXPECTED_LINEAGE` to `/etc/letsencrypt/live/mail.example.com`) to
    `/etc/setjoin/certbot-deploy-hook.sh` (`chmod 0750`, `root:root`).
    The hook verifies `RENEWED_LINEAGE` is non-empty and matches
@@ -127,7 +127,7 @@ sudo systemctl status certbot.service
 For Chinese commercial cryptography (TLCP / GB/T 38636, dual SM2 sign + enc
 certificates) deployments, follow
 `docs/adr/ARCH-014-guomi-tls-edge-proxy-posture.md` and render
-`mailserver/deploy/angie-guomi.conf.template` for Angie 1.2+ built with
+`deploy/angie-guomi.conf.template` for Angie 1.2+ built with
 Tongsuo:
 
 - Uses Tongsuo's native dual-argument `ssl_ntls on;`,
@@ -174,7 +174,7 @@ rm -f /tmp/migrated-key.pem /tmp/migrated-chain.pem
    - If terminating HTTPS at Caddy/Angie on the same host, set
      `TLS_EDGE_PROXY=true`, `HTTP_MODE=proxy`, `TRUSTED_PROXY_IP=127.0.0.1`,
      and `GATEWAY_TRUSTED_PROXIES=127.0.0.1`, then run
-     `sudo mailserver/deploy/scripts/upgrade.sh refresh-gateway-env` so Setjoin
+     `sudo deploy/scripts/upgrade.sh refresh-gateway-env` so Setjoin
      stops/disables `setjoin-https.socket` (freeing `:443` for Caddy/Angie)
      while retaining `TLS_CERT`/`TLS_KEY` for SMTPS/IMAPS/LDAPS
      (see `docs/guides/TRUSTED_PROXY_DEPLOYMENT.md`).

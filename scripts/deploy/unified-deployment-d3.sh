@@ -113,8 +113,8 @@ CGO_ENABLED=0 go build -o /tmp/mailserverd.d3 -ldflags="-s -w" ./cmd/mailserverd
 cd /root/setjoin/mailctl
 CGO_ENABLED=0 go build -o /tmp/mailctl.d3 .
 cd /root/setjoin
-bash mailserver/deploy/scripts/upgrade.sh /tmp/mailserverd.d3 /tmp/mailctl.d3 \
-  /root/setjoin/mailserver/webmail/build
+bash deploy/scripts/upgrade.sh /tmp/mailserverd.d3 /tmp/mailctl.d3 \
+  /root/setjoin/webmail/build
 curl -skf --max-time 5 https://127.0.0.1/ready >/dev/null
 INNER
   printf 'current_build_upgrade=PASS\n' | tee "$EVIDENCE_DIR/build.txt"
