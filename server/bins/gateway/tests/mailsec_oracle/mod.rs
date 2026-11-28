@@ -499,7 +499,11 @@ async fn run_inner(
         };
         let recording = go.is_some();
         let token = if admin { admin_token(a.user) } else { common::recovery_token(a.user) };
-        let standin = if slice == "trace" { trace::jmap_standin(label, &a, &seed, &token).await? } else { None };
+        let standin = if slice == "trace" {
+            trace::jmap_standin(label, &a, &seed, &token, recording).await?
+        } else {
+            None
+        };
         if slice == "queue" {
             queue::after_start(&owner, &seed).await?;
         }
@@ -522,7 +526,26 @@ async fn run_inner(
         }
         if slice == "trace" {
             // Go's identity names with HOSTNAME=mail.test: mailserver and the host itself.
-            route = route.with_trace(setjoin_gateway::mail_security_trace::TraceConfig::new(Some(setjoin_mail_security::received::Identity::from_config("mail.test", "mail.test"))));
+            let mut trace_cfg = setjoin_gateway::mail_security_trace::TraceConfig::new(Some(
+                setjoin_mail_security::received::Identity::from_config("mail.test", "mail.test"),
+            ));
+            if let Some((_, standin_addr)) = &standin {
+                trace_cfg = trace_cfg.with_jmap_base(
+                    &setjoin_gateway::mail_security_trace::jmap_base_from_listen_addr(
+                        &standin_addr.to_string(),
+                    ),
+                );
+            } else if !recording && label == "inbound-no-listener" {
+                let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+                let closed_addr = closed.local_addr()?;
+                drop(closed);
+                trace_cfg = trace_cfg.with_jmap_base(
+                    &setjoin_gateway::mail_security_trace::jmap_base_from_listen_addr(
+                        &closed_addr.to_string(),
+                    ),
+                );
+            }
+            route = route.with_trace(trace_cfg);
         }
         let adapter = Probe { inner: route, changed_status: mutant };
         let mut inventory: Value = serde_json::from_str(include_str!("../../route-inventory.json"))?;
@@ -690,7 +713,7 @@ async fn run_inner(
             }
         }
         server.abort();
-        if let Some(standin) = &standin { standin.abort(); }
+        if let Some((standin, _)) = &standin { standin.abort(); }
         let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/conformance/mail-security/goldens");
         std::fs::create_dir_all(&dir)?;
         let stem = format!("{slice}-{action}-{label}");
@@ -705,6 +728,9 @@ async fn run_inner(
             let mut expected: Value = common::golden_doc(&file, "observation", &observation);
             if slice == "quarantine" {
                 quarantine::normalize_wave27_expected(action, label, &mut expected);
+            }
+            if slice == "dlp" {
+                dlp::normalize_issue246_expected(action, label, &mut expected);
             }
             let compared = golden::compare(&expected["observation"], &observation);
             if mutant {

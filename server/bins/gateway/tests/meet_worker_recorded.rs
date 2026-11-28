@@ -1283,6 +1283,92 @@ async fn run(case: &'static str, mutant: Mutant) -> Result<(), BoxError> {
     result.and(cleaned)
 }
 
+#[tokio::test]
+async fn reconcile_captions_tolerates_null_captions_since() -> Result<(), BoxError> {
+    let _guard = SERIAL.lock().await;
+    let Some(db) = Db::for_case("meet-worker-null-captions-since") else {
+        return Ok(());
+    };
+    let c = db.connect().await?;
+    let a = fixture::account(&c, "meet4-null-cc").await?;
+    let saved: Option<bool> = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.meet'",
+            &[],
+        )
+        .await?
+        .map(|r| r.get(0));
+    c.execute(
+        "INSERT INTO feature_toggles (key, enabled) VALUES ('feature.meet', true) \
+         ON CONFLICT (key) DO UPDATE SET enabled = true",
+        &[],
+    )
+    .await?;
+    let result = async {
+        let peers: Peers = Arc::default();
+        let sfu = twirp(peers.clone()).await;
+        let asr_addr = asr(peers.clone()).await;
+        let s3_addr = s3(peers.clone()).await;
+        let mut labels = Labels::default();
+        let long = now() + 3600;
+        let (m_null, room_null) = meeting(&c, &mut labels, a.user, "live", long, None, "{}").await?;
+        let (m_stale, room_stale) = meeting(&c, &mut labels, a.user, "live", long, None, "{}").await?;
+        c.execute(
+            "UPDATE meetings SET settings = '{\"captionsOn\": true}'::jsonb WHERE id=$1",
+            &[&m_null],
+        )
+        .await?;
+        c.execute(
+            "UPDATE meetings SET settings = jsonb_build_object('captionsOn', true, 'captionsSince', (now() - interval '10 minutes')::text) WHERE id=$1",
+            &[&m_stale],
+        )
+        .await?;
+        {
+            let mut st = peers.lock().unwrap();
+            st.rooms = vec![room_null, room_stale];
+        }
+        let livekit = LiveKit::new(KEY, SECRET, &format!("ws://{sfu}"), true, true)
+            .with_asr(&format!("http://{asr_addr}"), ASR_TOKEN);
+        let worker = MeetReconcile::new(
+            setjoin_pg::workers::WorkerDatabase::new(&db.dsn)?
+                .with_audit_keys("22".repeat(32), String::new()),
+            livekit,
+            Some(S3Store::new(&format!("http://{s3_addr}"), BUCKET, "test-access", "test-secret")?),
+        );
+        worker.tick().await;
+        for (label, id) in [("null-since", m_null), ("stale-since", m_stale)] {
+            let on: bool = c
+                .query_one(
+                    "SELECT COALESCE((settings->>'captionsOn')::boolean, false) FROM meetings WHERE id=$1",
+                    &[&id],
+                )
+                .await?
+                .get(0);
+            if on {
+                return Err(format!("{label} meeting still has captionsOn=true after tick").into());
+            }
+        }
+        Ok::<_, BoxError>(())
+    }
+    .await;
+    match saved {
+        Some(v) => {
+            c.execute(
+                "UPDATE feature_toggles SET enabled=$1 WHERE key='feature.meet'",
+                &[&v],
+            )
+            .await?;
+        }
+        None => {
+            c.execute("DELETE FROM feature_toggles WHERE key='feature.meet'", &[])
+                .await?;
+        }
+    }
+    purge(&c, &[a.user]).await?;
+    let cleaned = meet_fixture::cleanup(&c, &[&a]).await;
+    result.and(cleaned)
+}
+
 /// Removes every meeting row (and what hangs off it) the case's accounts own, so
 /// the next case's tick sees nothing but its own seed. Replica mode skips the FK
 /// triggers; only these fixture tables are touched.

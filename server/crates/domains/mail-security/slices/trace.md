@@ -14,15 +14,17 @@
   case answers only `detailExpired:true`.
 - User trace (`GET /messages/{emailId}/trace`, token only): the message must sit in one of the
   user's mailboxes (`mb.user_id`; else 404). A `Sent` system tag means the per-recipient outbound view
-  (queue row by `message_pk`+mailbox, attempts by mailbox); otherwise Go fetches the header block from
-  the loopback `http://127.0.0.1/jmap/download/<mailbox>/<raw_ref>/<subject>.eml` with the request's
-  Authorization and Cookie (1 MiB cap, any failure degrades to the empty inbound trace) and Rust does
-  the same (`mail_security_trace.rs`, reqwest, redirects followed). `src/received.rs` ports
+  (queue row by `message_pk`+mailbox, attempts by mailbox); otherwise Rust fetches the header block from
+  the loopback `<jmap_base>/<mailbox>/<raw_ref>/<subject>.eml` with the request's Authorization and
+  Cookie (1 MiB cap, any failure degrades to the empty inbound trace), deriving `<jmap_base>` from the
+  gateway's configured HTTP listen address (`jmap_base_from_listen_addr`, falling back to
+  `http://127.0.0.1/jmap/download`, `#248`). `src/received.rs` ports
   `textproto.ReadMIMEHeader`, `mail.ParseDate` over `time.Parse` (48 layouts, `Local` read as UTC),
   the five RE2 patterns and Go's JSON, checked by `tests/received_vectors.json` (265 inputs recorded
   from Go 1.26.6). Identity names (`hostname`, `internal.domains`) are resolved from the
   gateway's startup `Settings` snapshot (`configuration::Settings`), including when `SETJOIN_CONFIG`
   is set; standalone callers fall back to `HOSTNAME`/`INTERNAL_DOMAINS`. A timestamp outside years 0..9999 is a
   marshal error: 200 with an empty body.
-- Oracle: `tests/mailsec_oracle/trace.rs` stashes the two global tables; the inbound cases start a
-  stand-in on 127.0.0.1:80 (Go's hard-coded base), so run them as root and never in parallel.
+- Oracle: `tests/mailsec_oracle/trace.rs` stashes the two global tables; in replay mode the inbound
+  cases start the download stand-in on an ephemeral loopback port (`127.0.0.1:0`) and wire it into
+  `TraceConfig::with_jmap_base`, exercising `#248` without requiring port 80.

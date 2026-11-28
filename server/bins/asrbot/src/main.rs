@@ -31,28 +31,27 @@ async fn main() {
     let server = Arc::new(Server::new(rooms, cfg.token.clone()));
 
     let shutdown = CancellationToken::new();
-    // Go logs the "listening" line from the serving goroutine before ListenAndServe
-    // can fail, so a failed bind is announced, then reported.
+    let listener = match bind(&cfg.listen).await {
+        Ok(listener) => listener,
+        Err(err) => {
+            log::error("control server failed", &[("err", s(err.to_string()))]);
+            std::process::exit(1);
+        }
+    };
+    log::info(
+        "asrbotd listening",
+        &[
+            ("addr", s(&cfg.listen)),
+            ("livekit_url", s(&cfg.livekit_url)),
+            ("funasr_url", s(&cfg.funasr_url)),
+            ("max_meetings", json!(cfg.max_meetings)),
+            ("max_active_tracks", json!(cfg.max_active_tracks)),
+        ],
+    );
     let serving = {
-        let (listen, shutdown, cfg) = (cfg.listen.clone(), shutdown.clone(), cfg.clone());
+        let shutdown = shutdown.clone();
         tokio::spawn(async move {
-            log::info(
-                "asrbotd listening",
-                &[
-                    ("addr", s(&cfg.listen)),
-                    ("livekit_url", s(&cfg.livekit_url)),
-                    ("funasr_url", s(&cfg.funasr_url)),
-                    ("max_meetings", json!(cfg.max_meetings)),
-                    ("max_active_tracks", json!(cfg.max_active_tracks)),
-                ],
-            );
-            match bind(&listen).await {
-                Ok(listener) => serve(listener, server, shutdown, Duration::from_secs(5)).await,
-                Err(err) => {
-                    log::error("control server failed", &[("err", s(err.to_string()))]);
-                    shutdown.cancel();
-                }
-            }
+            serve(listener, server, shutdown, Duration::from_secs(5)).await;
         })
     };
 

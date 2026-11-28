@@ -13,11 +13,12 @@
   Go's two 500 details are kept by re-raising `dlp_clear_failed` / `dlp_save_failed`). A foreign-key violation
   from `dlp_violations` is `failed to clear patterns`. Success is a bare 200 with no body or content type.
 - Anti-phish: GET reads `antiphish_%` rows (value trimmed of `"`, `true`/`True` are true, a list that does not
-  decode is `[]`, a stored `null` list renders `null`); PUT is one upsert statement (Go's six upserts are one
-  batch transaction) and a missing list marshals as `null`.
-- Audit list: `since` is Go's `time.Parse(RFC3339)` (a zero time adds no filter), `limit` 1..100 else 50, items
-  render `created_at` in the process's local zone; a NULL `message_id` or `client_ip` makes Go's scan fail and
-  end the list at that row, so Rust ends it there too; the document keys are `count` then `items` (a map).
+  decode is `[]`, a stored `null` list renders `null`); PUT caps the body at 1 MiB (`#246`), is one upsert
+  statement (Go's six upserts are one batch transaction), and a missing list marshals as `null`.
+- Audit list: `since` is Go's `time.Parse(RFC3339)` (a zero time adds no filter), `limit` 1..100 else 50,
+  ordered by `created_at DESC, id DESC`, items render `created_at` in the process's local zone; nullable
+  `message_id` (serialized as `null`) and `client_ip` (serialized as `""`) rows are preserved instead of
+  truncating the list at the first unresolved click (`#246`); the document keys are `count` then `items` (a map).
 - Click: the token is `base64(payload).base64(HMAC)` under a key derived per version
   (`JWT_SECRET`, `JWT_LINK_PROTECT_TOKEN_VERSION`, `JWT_LINK_PROTECT_TOKEN_PREVIOUS_SECRET`, all from the
   environment; with `SETJOIN_CONFIG` set and `JWT_SECRET` or `SAFEBROWSING_API_KEY` unset the route forwards to

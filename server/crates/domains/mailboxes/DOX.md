@@ -77,8 +77,10 @@ Every refusal is Go's bare problem (empty `instance`, no language), not the fold
   multipart walk and `htmlindex` charsets through `encoding_rs`. `tests/vectors/` holds 274
   corpus cases recorded from frozen Go (`corpus.py`, `dump_go.txt`, `vectors.json`); extend
   the corpus, rerun the dumper and keep `mimeutil_vectors` green.
-- Go quirks mirrored: the stored `from_addr` is the display name and `from_name` the address
-  (`importRawMessage` swaps `ParseFrom`'s results); text with invalid UTF-8 or NUL fails the
+- Post-Go fix (`#221`): `ImportFields::parse` stores the email address in `from_addr` and the
+  display name in `from_name` (retiring frozen Go's `importRawMessage` swap; immutable frozen-Go
+  goldens and `vectors.json` are normalized deterministically in the test harnesses). Remaining
+  mirrored behaviours: text with invalid UTF-8 or NUL fails the
   message after the object upload; an RFC 2822 date (`-0700`) is not an HTTP date so `now()` is
   used; the body is not transfer-decoded (QP/base64 kept as is); an unknown charset keeps the
   bytes; `export` skips an mbox message whose object name is invalid, answers an empty entry for

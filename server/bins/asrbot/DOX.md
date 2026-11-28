@@ -9,10 +9,12 @@ regression tests. Same routes, same FunASR and LiveKit interactions, same output
 ## Layout
 
 - `src/control.rs`, `serve.rs`, `gojson.rs` — the control HTTP surface: `net/http` ServeMux
-  behaviour (307 for unclean paths, 404, 405 with `Allow`, HEAD), `requireAuth` (Bearer prefix
-  stripped if present, constant-time compare via `subtle`), Go `encoding/json` decode/encode
-  subset (case-insensitive keys, `null` ignored, first value only, depth 10000, U+FFFD repair,
-  HTML-escaped output), 8 KiB body bound, Read/Header/Idle timeouts.
+  behaviour (307 for unclean paths, 404, 405 with `Allow`, HEAD), `requireAuth` (exact `Bearer `
+  prefix required, constant-time compare via `subtle`, #211), Go `encoding/json` decode/encode
+  subset (case-insensitive keys, `null` ignored, single value only with trailing non-whitespace
+  rejected #211, depth 10000, U+FFFD repair, HTML-escaped output), 8 KiB body bound, Read/Header/Idle
+  timeouts. On bind failure `main.rs` logs `"control server failed"` and exits 1 without logging
+  `"asrbotd listening"` or `"shutting down"` (#211).
 - `src/registry.rs` — `RoomRegistry` (admission, capacity, cancel, compare-release; a stopping
   identity keeps its slot until the runner returns). `src/session.rs` — the real `RoomRunner`.
 - `src/livekit.rs` — a minimal LiveKit participant over `webrtc` 0.21 (pure Rust, sans-io

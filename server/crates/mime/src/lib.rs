@@ -218,10 +218,9 @@ pub struct ImportFields {
 
 impl ImportFields {
     pub fn parse(raw: &[u8]) -> Self {
-        // Go's importRawMessage reads ParseFrom's (name, address) into
-        // (fromAddr, fromName): the stored `from_addr` is the display name and
-        // `from_name` the address. Mirrored for parity (a Go bug, see the DOX).
-        let (from_addr, from_name) = parse_from(&extract_header(raw, "From"));
+        // #221: `parse_from` returns `(name, address)`. Store the email address
+        // in `from_addr` and the display name in `from_name`.
+        let (from_name, from_addr) = parse_from(&extract_header(raw, "From"));
         ImportFields {
             message_id: extract_header(raw, "Message-ID"),
             subject: extract_header(raw, "Subject"),
@@ -238,5 +237,23 @@ impl ImportFields {
                 .filter(|d| !d.is_empty())
                 .and_then(|d| parse_http_time(&d)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn import_fields_stores_address_in_from_addr_and_display_name_in_from_name() {
+        let raw = b"From: \"Doe, John\" <john@example.com>\r\nSubject: Hi\r\n\r\nhello";
+        let fields = ImportFields::parse(raw);
+        assert_eq!(fields.from_addr, b"john@example.com");
+        assert_eq!(fields.from_name, b"Doe, John");
+
+        let bare = b"From: carol@example.com\r\n\r\nbody";
+        let fields = ImportFields::parse(bare);
+        assert_eq!(fields.from_addr, b"carol@example.com");
+        assert_eq!(fields.from_name, b"");
     }
 }

@@ -506,7 +506,8 @@ async fn exercise(
             &json!({"format":1,"route":route_name,"case":format!("{label}-row-effects"),"go_source":source,"effects":observation["effects"]}),
         )?;
     } else {
-        let expected: Value = serde_json::from_slice(&std::fs::read(&file)?)?;
+        let mut expected: Value = serde_json::from_slice(&std::fs::read(&file)?)?;
+        normalize_issue221_expected(action, &mut expected);
         let divergences: Value = serde_json::from_slice(&std::fs::read(
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../tests/conformance/mailboxes/divergences.json"),
@@ -527,11 +528,44 @@ async fn exercise(
             return Ok(());
         }
         compared?;
-        let expected: Value = serde_json::from_slice(&std::fs::read(row_file)?)?;
+        let mut expected: Value = serde_json::from_slice(&std::fs::read(row_file)?)?;
+        normalize_issue221_expected(action, &mut expected);
         golden::compare(&expected["effects"], &observation["effects"])?;
         eprintln!("GOLDEN-REPLAY: {route_name} :: {label}");
     }
     Ok(())
+}
+
+/// Deterministic post-Go #221 expectation normalization over immutable frozen-Go
+/// mailbox import goldens: frozen Go swapped `from_addr` (display name) and
+/// `from_name` (email address); Rust stores address in `from_addr` and display
+/// name in `from_name`.
+fn normalize_issue221_expected(action: &str, doc: &mut Value) {
+    if action != "import" {
+        return;
+    }
+    let effects = if doc.get("observation").is_some() {
+        &mut doc["observation"]["effects"]
+    } else {
+        &mut doc["effects"]
+    };
+    for phase in ["before", "after"] {
+        if let Some(messages) = effects
+            .pointer_mut(&format!("/0/{phase}/messages"))
+            .and_then(Value::as_array_mut)
+        {
+            for msg in messages {
+                if let Some(obj) = msg.as_object_mut() {
+                    if let (Some(addr), Some(name)) =
+                        (obj.get("from_addr").cloned(), obj.get("from_name").cloned())
+                    {
+                        obj.insert("from_addr".into(), name);
+                        obj.insert("from_name".into(), addr);
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn mask_value(v: Value, fx: &Fx) -> Value {

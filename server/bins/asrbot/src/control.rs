@@ -151,10 +151,11 @@ impl Server {
         }
     }
 
-    /// `strings.TrimPrefix(header, "Bearer ")` then a constant-time compare (ring).
+    /// Require an exact `Bearer <token>` prefix and compare in constant time (#211).
     fn authorized(&self, header: Option<&[u8]>) -> bool {
-        let header = header.unwrap_or_default();
-        let got = header.strip_prefix(b"Bearer ").unwrap_or(header);
+        let Some(got) = header.and_then(|h| h.strip_prefix(b"Bearer ")) else {
+            return false;
+        };
         !got.is_empty() && bool::from(got.ct_eq(self.token.as_bytes()))
     }
 }
@@ -494,5 +495,29 @@ mod tests {
     fn empty_token_is_refused() {
         assert!(validate_token("").is_err());
         assert!(validate_token("x").is_ok());
+    }
+
+    #[test]
+    fn authorized_requires_bearer_prefix() {
+        struct NoopRunner;
+        #[async_trait::async_trait]
+        impl crate::registry::RoomRunner for NoopRunner {
+            async fn run(
+                &self,
+                _cancel: tokio_util::sync::CancellationToken,
+                _room: String,
+                _token: String,
+            ) {
+            }
+        }
+        let rooms = Arc::new(RoomRegistry::new(1, Arc::new(NoopRunner)));
+        let srv = Server::new(rooms, "secret-tok".into());
+        assert!(srv.authorized(Some(b"Bearer secret-tok")));
+        assert!(!srv.authorized(Some(b"secret-tok")));
+        assert!(!srv.authorized(Some(b"bearer secret-tok")));
+        assert!(!srv.authorized(Some(b"Bearer  secret-tok")));
+        assert!(!srv.authorized(Some(b"Bearer ")));
+        assert!(!srv.authorized(Some(b"Bearer wrong")));
+        assert!(!srv.authorized(None));
     }
 }

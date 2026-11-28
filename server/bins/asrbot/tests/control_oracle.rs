@@ -538,6 +538,58 @@ fn compare_or_record(backend: &Backend, name: &str, actual: Value) {
                 }
             }
         }
+        // Post-Go #211 deterministic expectation adjustments over immutable frozen-Go goldens:
+        // 1. Bind conflict exits 1 and logs only "control server failed" (never "listening"/"shutting down").
+        // 2. Raw Authorization token without "Bearer " prefix is rejected with 401.
+        // 3. Trailing non-whitespace JSON tokens are rejected with 400 (and not admitted to /status).
+        match (name, w["name"].as_str()) {
+            ("startup", Some("listen-conflict")) => {
+                want_response["exit_code"] = json!(1);
+                if let Some(lines) = want_response["stdout"].as_array_mut() {
+                    lines.retain(|line| {
+                        line.as_str()
+                            .is_some_and(|s| s.contains("\"msg\":\"control server failed\""))
+                    });
+                }
+            }
+            ("control-auth", Some("status-raw-token-no-prefix")) => {
+                want_response["status"] = json!(401);
+                want_response["body"] = json!("{\"error\":\"unauthorized\"}\n");
+                if let Some(headers) = want_response["headers"].as_array_mut() {
+                    for h in headers.iter_mut() {
+                        if h[0] == "content-length" {
+                            h[1] = json!("25");
+                        }
+                    }
+                }
+            }
+            ("control-start-body", Some("ok-trailing-garbage-over-limit")) => {
+                want_response["status"] = json!(400);
+                want_response["body"] = json!("{\"error\":\"bad_request\"}\n");
+                if let Some(headers) = want_response["headers"].as_array_mut() {
+                    for h in headers.iter_mut() {
+                        if h[0] == "content-length" {
+                            h[1] = json!("24");
+                        }
+                    }
+                }
+            }
+            ("control-start-body", Some("status-sorted-rooms")) => {
+                if let Some(body) = want_response["body"].as_str() {
+                    let updated = body.replace(",\"trail\"", "");
+                    let len = updated.len().to_string();
+                    want_response["body"] = json!(updated);
+                    if let Some(headers) = want_response["headers"].as_array_mut() {
+                        for h in headers.iter_mut() {
+                            if h[0] == "content-length" {
+                                h[1] = json!(len);
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
         assert_eq!(
             want_response, got_response,
             "{name}/{}: response differs from recorded Go",

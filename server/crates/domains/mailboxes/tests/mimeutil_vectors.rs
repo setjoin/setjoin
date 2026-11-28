@@ -29,8 +29,10 @@ fn message_fields_match_go() {
         let checks: [(&str, Vec<u8>, Vec<u8>); 11] = [
             ("message_id", f.message_id.clone(), b64(&case["message_id"])),
             ("subject", f.subject.clone(), b64(&case["subject"])),
-            ("from_addr", f.from_addr.clone(), b64(&case["from_addr"])),
-            ("from_name", f.from_name.clone(), b64(&case["from_name"])),
+            // #221: frozen Go's dump_go.txt recorded swapped from_addr (display name) and
+            // from_name (address). Post-Go Rust fixes the swap without mutating vectors.json.
+            ("from_addr", f.from_addr.clone(), b64(&case["from_name"])),
+            ("from_name", f.from_name.clone(), b64(&case["from_addr"])),
             ("to", f.to_json.clone().into_bytes(), b64(&case["to"])),
             ("cc", f.cc_json.clone().into_bytes(), b64(&case["cc"])),
             ("bcc", f.bcc_json.clone().into_bytes(), b64(&case["bcc"])),

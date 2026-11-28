@@ -239,7 +239,7 @@ pub fn antiphish_put_args(body: &AntiPhish) -> (Vec<String>, Vec<String>) {
 
 // ---- link-protect audit ----
 
-/// One audit row. `message_id` and `client_ip` may be NULL, which Go's scan cannot take.
+/// One audit row. `message_id` and `client_ip` are nullable (e.g. unresolved clicks).
 pub struct AuditRow {
     pub id: i64,
     pub url_hash: String,
@@ -253,7 +253,7 @@ pub struct AuditRow {
 }
 
 /// `GET /admin/link-protect/audit`. `since` is a UTC `YYYY-MM-DDTHH:MM:SS.ffffffZ` text.
-/// Go's `rows.Scan` failure on a NULL closes the rows, so the list ends at that row.
+/// Nullable `message_id` and `client_ip` rows are preserved rather than truncating the list (#246).
 pub async fn audit_list(
     factory: &TxFactory,
     admin: &AdminPermissionProof,
@@ -272,15 +272,8 @@ pub async fn audit_list(
     tx.finish().await?;
     let mut out = vec![];
     for row in &rows {
-        let (Ok(message_id), Ok(client_ip)) = (
-            row.try_get::<_, Option<i64>>(4),
-            row.try_get::<_, Option<String>>(6),
-        ) else {
-            return Err(invalid());
-        };
-        if message_id.is_none() || client_ip.is_none() {
-            break;
-        }
+        let message_id: Option<i64> = row.try_get(4).map_err(|_| invalid())?;
+        let client_ip: Option<String> = row.try_get(6).map_err(|_| invalid())?;
         out.push(AuditRow {
             id: row.try_get(0).map_err(|_| invalid())?,
             url_hash: row.try_get(1).map_err(|_| invalid())?,
