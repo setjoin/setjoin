@@ -518,3 +518,33 @@ async fn drive_native_token_keeps_act_provenance() {
     let claims: Value = serde_json::from_slice(&B64.decode(payload).unwrap()).unwrap();
     assert_eq!(claims["act"], json!(4242), "{claims}");
 }
+
+#[tokio::test]
+async fn oversized_internal_key_json_introspect_returns_413() {
+    let Some(e) = env("secfix3-introspect-json-cap").await else {
+        return;
+    };
+    let mut cfg = Config::for_secret(e.secret.clone());
+    cfg.worker_dsn = None;
+    cfg.internal_api_key = "secfix3-introspect-key".into();
+    let s = AuthServer::load(e.exec.clone(), cfg).await.unwrap();
+
+    let valid = Request::post("/auth/introspect")
+        .header("content-type", "application/json")
+        .header("authorization", "Bearer secfix3-introspect-key")
+        .body(body(r#"{"token":"unknown-token"}"#))
+        .unwrap();
+    let (ok_status, ok_body) = send(&s, valid).await;
+    assert_eq!(ok_status, 200, "{ok_body}");
+    assert!(ok_body.contains("\"active\":false"), "{ok_body}");
+
+    let huge = format!(r#"{{"token":"{}"}}"#, "a".repeat((10 << 20) + 16));
+    let too_large = Request::post("/auth/introspect")
+        .header("content-type", "application/json")
+        .header("authorization", "Bearer secfix3-introspect-key")
+        .body(body(huge))
+        .unwrap();
+    let (big_status, big_body) = send(&s, too_large).await;
+    assert_eq!(big_status, 413, "{big_body}");
+    assert!(big_body.contains("request body too large"), "{big_body}");
+}

@@ -31,11 +31,12 @@ async fn browser_login_uses_direct_tls_and_sanitizes_forwarded_host() {
         "../../../tests/conformance/identity-login/security/csrf-ipv6.json"
     ))
     .unwrap();
-    for case in golden["cases"]
+    for (from_ipv6, case) in golden["cases"]
         .as_array()
         .unwrap()
         .iter()
-        .chain(ipv6["cases"].as_array().unwrap())
+        .map(|c| (false, c))
+        .chain(ipv6["cases"].as_array().unwrap().iter().map(|c| (true, c)))
     {
         let tls = case["tls"].as_bool().unwrap();
         let proto = case["proto"].as_str().unwrap();
@@ -57,15 +58,29 @@ async fn browser_login_uses_direct_tls_and_sanitizes_forwarded_host() {
         let resp = server.handle(req).await;
         let status = resp.status().as_u16();
         let bytes = resp.into_body().collect().await.unwrap().to_bytes();
-        results.push((case, status, String::from_utf8(bytes.to_vec()).unwrap()));
+        results.push((
+            from_ipv6,
+            case,
+            status,
+            String::from_utf8(bytes.to_vec()).unwrap(),
+        ));
     }
     c.batch_execute("DELETE FROM feature_toggles WHERE key IN ('feature.rate_limit','feature.conditional_access','feature.device_trust_enforcement')").await.unwrap();
     c.execute("INSERT INTO feature_toggles SELECT * FROM jsonb_populate_recordset(NULL::feature_toggles,$1::text::jsonb)",&[&flags]).await.unwrap();
     drop(c);
     driver.abort();
-    for (case, status, body) in results {
-        assert_eq!(status, case["status"].as_u64().unwrap() as u16, "{case}");
-        assert_eq!(body, case["body"].as_str().unwrap());
+    const INVALID_JSON_BODY: &str = "{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"invalid JSON\",\"instance\":\"/auth/login\"}\n";
+    for (from_ipv6, case, status, body) in results {
+        if from_ipv6 {
+            // #272: portless IPv6 `[::1]` and default-port `[::1]:443` now
+            // normalize consistently and pass CSRF to the JSON decoder (400),
+            // fixing frozen Go's recorded 403 mismatch in csrf-ipv6.json.
+            assert_eq!(status, 400, "{case}");
+            assert_eq!(body, INVALID_JSON_BODY, "{case}");
+        } else {
+            assert_eq!(status, case["status"].as_u64().unwrap() as u16, "{case}");
+            assert_eq!(body, case["body"].as_str().unwrap());
+        }
     }
 }
 

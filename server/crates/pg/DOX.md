@@ -318,6 +318,12 @@ before-COMMIT best-effort semantics. No connection is exposed and no response is
 published by either callback. `db_scope::async_credential_proof_keeps_the_user_fence_until_reducer_commit`
 tries a concurrent user mutation during the awaited callback and observes55P03,
 then verifies the final statement still uses the original transaction.
+For CPU-heavy proof steps (e.g. guest-invite password history checks and
+bcrypt/PBKDF2-SM3 hashing, `#383`), `run_user_async_proof_command_with_proof_timeout_and_tail`
+(and `AuthDb::run_user_async_proof_command_contract_with_proof_timeout_and_tail`)
+bounds the `prove` callback under an explicit `proof_timeout` (at least
+`Timeouts::statement`) while keeping SQL preamble/read, follow-up write,
+receipt, rollback, and commit strictly under `Timeouts::statement`.
 
 User-command commit receipts (#334): `with_user_receipt(ReceiptCommand)` attaches
 code-owned family/command metadata to a cloned executor. It inserts the receipt

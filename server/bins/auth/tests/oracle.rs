@@ -848,10 +848,10 @@ async fn run_case(
     }
     let mut responses = Vec::new();
     let mut tokens = Vec::new();
-    let keys = setjoin_authz::legacy_jwt::LegacyKeys::new(
+    let keys = setjoin_authz::legacy_jwt::LegacyKeys::from_pem(
         f["secret"].as_str().unwrap().as_bytes(),
         &["authserver-hmac-1"],
-        None,
+        (id == "login-hybrid").then(|| f["sm2_pem"].as_str().unwrap()),
     )?;
     for (field, token) in presented_tokens {
         let claims = keys
@@ -987,6 +987,18 @@ async fn run_case(
         if let Ok(value) = serde_json::from_str::<Value>(&raw) {
             for field in ["access_token", "refresh_token", "force_token"] {
                 if let Some(token) = value[field].as_str() {
+                    if id == "login-hybrid" {
+                        use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine as _};
+                        let hdr: Value = serde_json::from_slice(
+                            &B64.decode(token.split('.').next().ok_or("jwt header")?)?,
+                        )?;
+                        if hdr["alg"] != "SM2" || hdr["kid"] != "authserver-sm2-1" {
+                            return Err(format!(
+                                "login-hybrid {field} expected SM2/authserver-sm2-1 header, got {hdr}"
+                            )
+                            .into());
+                        }
+                    }
                     let claims = keys
                         .validate(token, "mailserver", "mailserver-gateway", now)
                         .ok_or("unverifiable token")?;

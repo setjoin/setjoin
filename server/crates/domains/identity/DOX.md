@@ -461,8 +461,10 @@ controls ON state, per registration, in the route inventory and catalog.
 `guest_invite` runs on the auth worker credential (Go's workerPool). GET:
 discovery, then one user-scoped `rust_guest_invite_disclosure` (no receipt).
 POST: discovery, then the read reducer's guest->user->invite locks held through
-profile hashing and one token-bound `rust_guest_invite_accept_finish` write
-(receipted). Passwords over 72 bytes or containing NUL are never bound (flags). Deadline/failure: 500 after
+profile hashing (bounded by `guest_invite::PROOF_TIMEOUT` = 15 s while SQL read,
+write and commit remain under the 2 s `Timeouts::statement` bound, #383) and one
+token-bound `rust_guest_invite_accept_finish` write (receipted). Internal 500s
+log `StatementFailure` sqlstate and message without parameters or secrets (#383). Passwords over 72 bytes or containing NUL are never bound (flags). Deadline/failure: 500 after
 acknowledged rollback or discarded connection, zero partial writes; lost COMMIT:
 500 plus X-Operation-ID. No notify (frozen Go emits none). `readiness` reports
 BYPASSRLS/reducer posture.

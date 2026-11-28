@@ -6,8 +6,10 @@ DB_DSN is the request pool; no worker/direct credentials are substituted.
 DB_WORKER_DSN (YAML db.worker_dsn), defaulting to DB_DSN, is used only for
 cross-tenant revocation reconciliation. Startup
 checks the embedded schema version and loads the existing encrypted signing key
-snapshot. JWT_SIGNING_ALG selects ES256 or Go's HS256/SM2 profile behavior. No key
-rotation. JWT issuer/audience and access/refresh lifetimes remain compatible.
+snapshot. JWT_SIGNING_ALG selects ES256 or defaults to SM2 for `smx` (and
+`hybrid` with an SM2 key) and HS256 otherwise; `hybrid` with an SM2 key signs
+with SM2 (#268). No key rotation. JWT issuer/audience and access/refresh
+lifetimes remain compatible.
 
 Native routes: POST /auth/login, GET /auth/password-policy (HEAD returns 405),
 GET/HEAD /.well-known/jwks.json, /.well-known/setjoin, /api/v1/version, /health and /ready; GET/HEAD /auth/me and
@@ -67,7 +69,8 @@ served on the HTTP wire before comparison.
 form calls. INTERNAL_API_KEY reads `internal.api_key` from YAML with env override.
 OAuth clients use Basic before client_secret_post, enabled-client lookup and
 bcrypt with Go's dummy comparison for unknown clients. JSON accepts only the
-internal gate. The endpoint reads the presented token's hash without validating
+internal gate and caps request bodies at 10 MiB (returning 413 Payload Too Large
+when exceeded, #273). The endpoint reads the presented token's hash without validating
 it as a JWT (including app passwords), and Go deliberately permits one
 authenticated OAuth client to introspect another client's presented token.
 Errors/unknown/revoked/expired/disabled tokens collapse to inactive.
@@ -545,9 +548,10 @@ rate limit, captcha, tarpit and `auth_attempts` tail; lookup failures reject clo
 `ip_rules_unavailable`, divergence `threat-username-handler-decode`), strict closed JSON,
 and sleeps Go's fixed 100 ms on terminal rejects after the transaction settles; a 429
 `recovery_ip` limit sets `threat_no_outcome` so no attempt row is written
-(divergences `guest-invite-no-row-on-rate-limit`, `attempt-username-bounded`). Own
-two-connection worker pool; startup logs a degraded posture (no BYPASSRLS,
-missing reducers). Residual: no username lockout key exists for guest-invite, so only
+(divergences `guest-invite-no-row-on-rate-limit`, `attempt-username-bounded`). Own two-connection worker pool; startup logs a degraded posture (no BYPASSRLS,
+missing reducers) and logs GeoIP MMDB load failures once at startup (#383).
+Internal 500s log `StatementFailure` sqlstate/message without parameters or
+secrets (#383). Residual: no username lockout key exists for guest-invite, so only
 ip rules, rate limit and captcha apply (#346).
 
 Rollout (#342): all four guest-invite registrations (auth and gateway listener, GET and

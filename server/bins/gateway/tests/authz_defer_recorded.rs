@@ -1209,6 +1209,13 @@ fn check_corpus(
             let doc = json!({"go_source":expected["go_source"],"cases":cases});
             expected = common::security_expected(path.parent().unwrap(), &path, &doc);
         }
+        if name == "csrf" {
+            // #272: portless `[::1]` and default-port `[::1]:80` now normalize
+            // consistently and pass CSRF to the expired-token 401 check (matching
+            // `origin-wins`), fixing frozen Go's recorded 403 mismatch in csrf.json.
+            assert_eq!(expected["cases"]["ipv6-mixed-port"]["status"], 403);
+            expected["cases"]["ipv6-mixed-port"] = expected["cases"]["origin-wins"].clone();
+        }
         assert_eq!(json!(cases), expected["cases"]);
     }
     Ok(())
