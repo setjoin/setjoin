@@ -3,7 +3,7 @@
 //! is unreachable). The process's guarded client refuses the loopback receiver, so a
 //! settled row proves wiring, credential and guard together without a network peer.
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use common::BoxError;
 use setjoin_conformance::harness::Db;
 use std::process::{Command, Stdio};

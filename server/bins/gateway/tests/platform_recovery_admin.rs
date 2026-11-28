@@ -1,6 +1,6 @@
 //! #455 recovery admin HTTP seam, immutable frozen-Go responses and effects.
-mod common;
-mod platform_oracle;
+use crate::common;
+use crate::platform_oracle;
 #[tokio::test]
 async fn list_success() -> Result<(), common::BoxError> {
     platform_oracle::updates::run("recovery-list", "success", None).await

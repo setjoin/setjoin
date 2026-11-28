@@ -1,7 +1,6 @@
 //! #469: the `/messages/{id}/*` REST routes, replayed from frozen-Go goldens with no upstream.
-mod common;
-#[allow(dead_code, unused_imports)]
-mod jmap_email_oracle;
+#[allow(unused_imports)]
+use crate::jmap_email_oracle;
 use jmap_email_oracle::{run, Mutation};
 use setjoin_conformance::harness::{BoxError, Db};
 macro_rules! replay {

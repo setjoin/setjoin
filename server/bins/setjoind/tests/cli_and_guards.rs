@@ -2,7 +2,7 @@
 //! conflicting flags (exit 2), retired `GATEWAY_ROUTE_INVENTORY` refusal, and
 //! expand–contract binary guards (#543).
 
-mod common;
+use crate::common;
 
 use std::os::unix::fs::symlink;
 use std::process::Command;

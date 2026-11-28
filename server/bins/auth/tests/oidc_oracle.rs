@@ -1,5 +1,5 @@
 //! Frozen-Go OIDC OP HTTP oracle.
-mod common;
+use crate::common;
 include!("oidc_oracle/harness.rs");
 async fn public(route: &str, kind: &str, mutant: bool) -> Result<(), Err> {
     let _serial = SERIAL.lock().await;

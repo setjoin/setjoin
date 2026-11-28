@@ -3,9 +3,8 @@
 //! nonce preservation, legacy secret re-sealing under app RLS, and webpush
 //! ignoring `X-Device-*` headers without forwarding or burning nonces.
 #![allow(dead_code)]
-mod common;
-#[path = "../../../crates/domains/identity/tests/saml_acs/support.rs"]
-mod saml_support;
+use crate::common;
+use crate::saml_support;
 
 use base64::{
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},

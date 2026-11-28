@@ -3,11 +3,10 @@
 //! empty route table against a fake LiveKit/Egress/ASR; replay unsets Go and
 //! serves the routes natively against identical fakes. Peripheral calls are part
 //! of every observation.
-mod common;
+use crate::common;
 #[path = "common/meet_fixture.rs"]
 mod meet_fixture;
-#[path = "common/meet_peripherals.rs"]
-mod peripherals;
+use crate::peripherals;
 use common::BoxError;
 use futures_util::FutureExt;
 use hyper::{Request, Response};

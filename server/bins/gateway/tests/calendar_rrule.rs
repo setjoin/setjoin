@@ -1,7 +1,7 @@
 //! #465: End-to-end JMAP CalendarEvent/set RRULE validation and RFC 5545
 //! recurrence expansion via JMAP `CalendarEvent/freeBusy` and HTTP
 //! `POST /api/calendar/free-busy`.
-mod common;
+use crate::common;
 
 use common::BoxError;
 use futures_util::FutureExt;

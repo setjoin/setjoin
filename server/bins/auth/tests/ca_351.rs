@@ -1,10 +1,8 @@
 //! #351 Conditional Access, Device Trust Claims, and Session Controls across all 7 sign-in families.
 #![allow(dead_code)]
-mod common;
-#[path = "common/revoke.rs"]
-mod revoke;
-#[path = "../../../crates/domains/identity/tests/saml_acs/support.rs"]
-mod saml_support;
+use crate::common;
+use crate::revoke;
+use crate::saml_support;
 
 use base64::{
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},

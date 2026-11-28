@@ -2,9 +2,9 @@
 //! (impersonation `act`, `Guest`, `MailboxBlocked`, `NoPrimaryMailbox`, `AlternativeCredential`),
 //! the `deploy_remote_fence` R2 fix, the `rule_config_template_create` NULLIF fix,
 //! Drive `b.rs` guest defense-in-depth without `SessionAdmission`, and guest malformed `act <= 0`.
-mod common;
-#[allow(dead_code, unused_imports)]
-mod platform_oracle;
+use crate::common;
+#[allow(unused_imports)]
+use crate::platform_oracle;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

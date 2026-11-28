@@ -2,7 +2,7 @@
 //! native provider/control shapes, and the existing global/inventory switches.
 use crate::common::boot::Child;
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use common::{body_bytes, full, send, BoxError};
 use hyper::{Request, Response};
 use setjoin_conformance::{fixture, harness::Db};

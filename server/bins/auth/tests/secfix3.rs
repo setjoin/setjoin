@@ -2,7 +2,7 @@
 //! asserts the secure behaviour; `scripts/dev/test-secfix3-mutants.py` restores the
 //! frozen-Go bug (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`) and requires
 //! the test to fail. Tests hold the family advisory lock like the other auth cases.
-mod common;
+use crate::common;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine};
 use http_body_util::BodyExt;
 use hyper::Request;

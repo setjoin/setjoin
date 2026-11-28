@@ -1,6 +1,6 @@
 //! #407: the Rust cron catalog equals frozen Go's `AllTasks()`, every task is
 //! guarded by `GO_WORKERS_OFF`, and credentials split per task.
-mod common;
+use crate::common;
 use common::BoxError;
 use setjoin_conformance::harness::Db;
 use setjoin_gateway::cron_catalog::{

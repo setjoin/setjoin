@@ -2,9 +2,8 @@
 //! "not common" or verify against an empty TOTP key (security Go bugs fixed in Rust; see
 //! tests/conformance/identity-{login,mfa,webauthn,rp}/divergences.json). Faults revoke SELECT
 //! from the request role through `common/revoke.rs`; cleanup always runs before assertions.
-mod common;
-#[path = "common/revoke.rs"]
-mod revoke;
+use crate::common;
+use crate::revoke;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};

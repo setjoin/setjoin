@@ -1,7 +1,6 @@
 //! #371 `Calendar/*` (7 methods including `Calendar/delegateList`) frozen-Go oracle suite.
 
-mod common;
-mod jmap_family_oracle;
+use crate::jmap_family_oracle;
 
 use jmap_family_oracle::{run, verify_rust_journal_advances, Case, Mutation};
 use setjoin_conformance::harness::{BoxError, Db};

@@ -2,10 +2,8 @@
 //! these cases pin Rust's own guest decisions. Every DB case takes the shared
 //! identity-login advisory lock and proves `is_guest_account` pristine first.
 // Shared fixtures only; this binary uses a subset of the helpers.
-#[allow(dead_code)]
-mod common;
-#[path = "common/revoke.rs"]
-mod revoke;
+use crate::common;
+use crate::revoke;
 use base64::Engine as _;
 use http_body_util::BodyExt;
 use hyper::Request;

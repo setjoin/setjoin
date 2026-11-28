@@ -1,7 +1,6 @@
 //! Frozen Go -> actual Rust front door recording; native replay has no Go upstream.
-mod common;
-#[path = "common/revoke.rs"]
-mod revoke;
+use crate::common;
+use crate::revoke;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};

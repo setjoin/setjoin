@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [features]
 # Test-only: restores the frozen-Go S/MIME trust cache defects (SETJOIN_MAILSEC_MUTANT).
@@ -26,3 +27,7 @@ base64 = "=0.22.1"
 
 [dev-dependencies]
 flate2 = "=1.1.9"
+
+[[test]]
+name = "suite_misc"
+path = "tests/suite_misc.rs"

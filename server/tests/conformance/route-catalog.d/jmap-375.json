@@ -42,8 +42,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-get-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_get_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_get_success"
           }
         },
         {
@@ -51,8 +51,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-get-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_get_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_get_cross_tenant"
           }
         },
         {
@@ -60,8 +60,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-get-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_get_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_get_invalid_input"
           }
         },
         {
@@ -69,8 +69,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-get-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_get_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_get_delegate_personal"
           }
         },
         {
@@ -78,23 +78,23 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-get-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_get_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_get_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_375",
-        "test": "address_book_get_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_375::address_book_get_changed_status_mutant",
         "name": "changed-status"
       },
       "family_mutants": [
         {
           "name": "no-tenant-filter",
           "package": "setjoin-gateway",
-          "target": "jmap_family_375",
-          "test": "address_book_get_no_tenant_filter_mutant"
+          "target": "suite_jmap_family",
+          "test": "jmap_family_375::address_book_get_no_tenant_filter_mutant"
         }
       ]
     },
@@ -118,8 +118,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-changes-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_changes_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_changes_success"
           }
         },
         {
@@ -127,8 +127,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-changes-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_changes_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_changes_cross_tenant"
           }
         },
         {
@@ -136,8 +136,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-changes-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_changes_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_changes_invalid_input"
           }
         },
         {
@@ -145,8 +145,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-changes-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_changes_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_changes_delegate_personal"
           }
         },
         {
@@ -154,8 +154,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-changes-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_changes_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_changes_entitlement_denied"
           }
         },
         {
@@ -163,15 +163,15 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-changes-state-mismatch.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_changes_state_mismatch"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_changes_state_mismatch"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_375",
-        "test": "address_book_changes_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_375::address_book_changes_changed_status_mutant",
         "name": "changed-status"
       }
     },
@@ -195,8 +195,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-set-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_set_success"
           },
           "row_golden": "server/tests/conformance/jmap/families/address_book/address-book-set-success-row-effects.json"
         },
@@ -205,8 +205,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-set-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_set_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_set_cross_tenant"
           },
           "row_golden": "server/tests/conformance/jmap/families/address_book/address-book-set-cross-tenant-row-effects.json"
         },
@@ -215,8 +215,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-set-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_set_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_set_invalid_input"
           },
           "row_golden": "server/tests/conformance/jmap/families/address_book/address-book-set-invalid-input-row-effects.json"
         },
@@ -225,8 +225,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-set-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_set_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_set_delegate_personal"
           },
           "row_golden": "server/tests/conformance/jmap/families/address_book/address-book-set-delegate-personal-row-effects.json"
         },
@@ -235,8 +235,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-set-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_set_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_set_entitlement_denied"
           },
           "row_golden": "server/tests/conformance/jmap/families/address_book/address-book-set-entitlement-denied-row-effects.json"
         },
@@ -245,16 +245,16 @@
           "golden": "server/tests/conformance/jmap/families/address_book/address-book-set-repeat.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "address_book_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::address_book_set_repeat"
           },
           "row_golden": "server/tests/conformance/jmap/families/address_book/address-book-set-repeat-row-effects.json"
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_375",
-        "test": "address_book_set_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_375::address_book_set_changed_status_mutant",
         "name": "changed-status"
       }
     },
@@ -278,8 +278,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-get-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_get_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_get_success"
           }
         },
         {
@@ -287,8 +287,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-get-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_get_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_get_cross_tenant"
           }
         },
         {
@@ -296,8 +296,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-get-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_get_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_get_invalid_input"
           }
         },
         {
@@ -305,8 +305,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-get-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_get_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_get_delegate_personal"
           }
         },
         {
@@ -314,15 +314,15 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-get-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_get_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_get_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_375",
-        "test": "contact_group_get_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_375::contact_group_get_changed_status_mutant",
         "name": "changed-status"
       }
     },
@@ -346,8 +346,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-query-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_query_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_query_success"
           }
         },
         {
@@ -355,8 +355,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-query-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_query_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_query_cross_tenant"
           }
         },
         {
@@ -364,8 +364,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-query-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_query_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_query_invalid_input"
           }
         },
         {
@@ -373,8 +373,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-query-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_query_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_query_delegate_personal"
           }
         },
         {
@@ -382,15 +382,15 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-query-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_query_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_query_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_375",
-        "test": "contact_group_query_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_375::contact_group_query_changed_status_mutant",
         "name": "changed-status"
       }
     },
@@ -414,8 +414,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-set-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_set_success"
           },
           "row_golden": "server/tests/conformance/jmap/families/address_book/contact-group-set-success-row-effects.json"
         },
@@ -424,8 +424,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-set-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_set_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_set_cross_tenant"
           },
           "row_golden": "server/tests/conformance/jmap/families/address_book/contact-group-set-cross-tenant-row-effects.json"
         },
@@ -434,8 +434,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-set-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_set_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_set_invalid_input"
           },
           "row_golden": "server/tests/conformance/jmap/families/address_book/contact-group-set-invalid-input-row-effects.json"
         },
@@ -444,8 +444,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-set-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_set_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_set_delegate_personal"
           },
           "row_golden": "server/tests/conformance/jmap/families/address_book/contact-group-set-delegate-personal-row-effects.json"
         },
@@ -454,8 +454,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-set-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_set_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_set_entitlement_denied"
           },
           "row_golden": "server/tests/conformance/jmap/families/address_book/contact-group-set-entitlement-denied-row-effects.json"
         },
@@ -464,16 +464,16 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-set-repeat.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_set_repeat"
           },
           "row_golden": "server/tests/conformance/jmap/families/address_book/contact-group-set-repeat-row-effects.json"
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_375",
-        "test": "contact_group_set_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_375::contact_group_set_changed_status_mutant",
         "name": "changed-status"
       }
     },
@@ -497,8 +497,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-expand-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_expand_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_expand_success"
           }
         },
         {
@@ -506,8 +506,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-expand-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_expand_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_expand_cross_tenant"
           }
         },
         {
@@ -515,8 +515,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-expand-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_expand_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_expand_invalid_input"
           }
         },
         {
@@ -524,8 +524,8 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-expand-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_expand_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_expand_delegate_personal"
           }
         },
         {
@@ -533,15 +533,15 @@
           "golden": "server/tests/conformance/jmap/families/address_book/contact-group-expand-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_375",
-            "test": "contact_group_expand_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_375::contact_group_expand_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_375",
-        "test": "contact_group_expand_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_375::contact_group_expand_changed_status_mutant",
         "name": "changed-status"
       }
     }

@@ -1,7 +1,7 @@
 //! F08 slice `terms-remaining`, group `apps`: the curated-application console, replayed
 //! without a Go upstream.
-mod common;
-mod platform_oracle;
+use crate::common;
+use crate::platform_oracle;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

@@ -2,7 +2,7 @@
 //! quickly — the request is forwarded to Go within a bound — and requests
 //! the route never claims do not wait on the database at all. The database
 //! here is a black hole (accepts TCP, never answers), so no schema is needed.
-mod common;
+use crate::common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

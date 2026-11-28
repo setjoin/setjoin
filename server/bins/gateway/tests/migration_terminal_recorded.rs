@@ -4,8 +4,8 @@
 //! the same seed against a fake receiver; the Rust orchestrator must deliver the same
 //! requests (path, signature, exact body) and leave the same job, delivery and publication
 //! rows. Record: `GOFREE_RECORD_DRAIN=all GOFREE_GO_SOURCE=<sha>`; replay needs no Go.
-mod common;
-mod drain_oracle;
+use crate::common;
+use crate::drain_oracle;
 use common::webhook_receiver::{self as hooks, Seen};
 use drain_oracle::{settle, BoxError, GoTick};
 use serde_json::{json, Value};

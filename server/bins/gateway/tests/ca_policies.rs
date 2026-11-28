@@ -1,6 +1,6 @@
 //! F03 slice `policies` frozen-Go oracle, replayed without a Go upstream.
-mod ca_policies_oracle;
-mod common;
+use crate::ca_policies_oracle;
+use crate::common;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

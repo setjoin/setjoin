@@ -1,5 +1,5 @@
 //! #267: frozen-Go channel HTTP/effect oracle; replay has no Go upstream.
-mod common;
+use crate::common;
 use common::BoxError;
 use hyper::{Request, Response};
 use serde_json::{json, Value};

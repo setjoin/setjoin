@@ -1,7 +1,7 @@
 //! #285: F13 golden routes recorded from frozen Go through the front door.
 //! Recording runs Go behind an empty route table; replay unsets Go and serves
 //! the routes natively. LiveKit is only configured, never contacted.
-mod common;
+use crate::common;
 #[path = "common/meet_fixture.rs"]
 mod meet_fixture;
 use common::BoxError;

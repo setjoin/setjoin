@@ -3,7 +3,7 @@
 //! Frozen Go is recorded once per CRYPTO_ALGORITHM_PROFILE; native replay has
 //! no Go upstream and must report zero Go proxies. Native-only tests prove
 //! revocation and live eviction for legacy tokens and a missing-key mutant.
-mod common;
+use crate::common;
 use common::BoxError;
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::BodyExt;

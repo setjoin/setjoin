@@ -2,7 +2,7 @@
 //! Owner-approved OIDC relying-party security fixes (#530, 2026-11-06). Each
 //! test states the secure behaviour; `scripts/dev/test-secfix8-mutants.py` restores
 //! the frozen-Go defect and requires the matching test to fail.
-mod common;
+use crate::common;
 include!("rp_oracle/harness.rs");
 #[path = "rp_oracle/flows.rs"]
 mod flows;

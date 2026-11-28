@@ -1,5 +1,6 @@
 //! Frozen-Go SSE recordings at the real front door; native replay has no Go upstream.
-mod common;
+use crate::common;
+#[path = "jmap_sse_lifetime/mod.rs"]
 mod jmap_sse_lifetime;
 #[tokio::test]
 async fn sse_periodic_authorization() -> Result<(), common::BoxError> {

@@ -52,8 +52,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_get_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_get_success"
           }
         },
         {
@@ -61,8 +61,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_get_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_get_cross_tenant"
           }
         },
         {
@@ -70,8 +70,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_get_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_get_invalid_input"
           }
         },
         {
@@ -79,8 +79,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_get_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_get_delegate_personal"
           }
         },
         {
@@ -88,23 +88,23 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_get_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_get_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_369",
-        "test": "calendar_event_get_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_369::calendar_event_get_status_mutant"
       },
       "family_mutants": [
         {
           "name": "no-tenant-filter",
           "package": "setjoin-gateway",
-          "target": "jmap_family_369",
-          "test": "calendar_event_get_no_tenant_filter_mutant"
+          "target": "suite_jmap_family",
+          "test": "jmap_family_369::calendar_event_get_no_tenant_filter_mutant"
         }
       ]
     },
@@ -129,8 +129,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_query_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_query_success"
           }
         },
         {
@@ -138,8 +138,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_query_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_query_cross_tenant"
           }
         },
         {
@@ -147,8 +147,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_query_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_query_invalid_input"
           }
         },
         {
@@ -156,8 +156,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_query_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_query_delegate_personal"
           }
         },
         {
@@ -165,16 +165,16 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_query_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_query_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_369",
-        "test": "calendar_event_query_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_369::calendar_event_query_status_mutant"
       }
     },
     {
@@ -198,8 +198,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-changes-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_changes_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_changes_success"
           }
         },
         {
@@ -207,8 +207,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-changes-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_changes_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_changes_cross_tenant"
           }
         },
         {
@@ -216,8 +216,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-changes-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_changes_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_changes_invalid_input"
           }
         },
         {
@@ -225,8 +225,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-changes-state-mismatch.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_changes_state_mismatch"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_changes_state_mismatch"
           }
         },
         {
@@ -234,8 +234,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-changes-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_changes_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_changes_delegate_personal"
           }
         },
         {
@@ -243,16 +243,16 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-changes-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_changes_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_changes_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_369",
-        "test": "calendar_event_changes_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_369::calendar_event_changes_status_mutant"
       }
     },
     {
@@ -277,8 +277,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_set_success"
           }
         },
         {
@@ -287,8 +287,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_set_repeat"
           }
         },
         {
@@ -297,8 +297,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-update-destroy-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_set_update_destroy"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_set_update_destroy"
           }
         },
         {
@@ -307,8 +307,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_set_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_set_cross_tenant"
           }
         },
         {
@@ -317,8 +317,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_set_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_set_invalid_input"
           }
         },
         {
@@ -327,8 +327,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_set_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_set_delegate_personal"
           }
         },
         {
@@ -337,16 +337,16 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-entitlement-denied-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_set_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_set_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_369",
-        "test": "calendar_event_set_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_369::calendar_event_set_status_mutant"
       }
     },
     {
@@ -371,8 +371,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_import_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_import_success"
           }
         },
         {
@@ -381,8 +381,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_import_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_import_repeat"
           }
         },
         {
@@ -391,8 +391,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_import_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_import_cross_tenant"
           }
         },
         {
@@ -401,8 +401,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_import_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_import_invalid_input"
           }
         },
         {
@@ -411,8 +411,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_import_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_import_delegate_personal"
           }
         },
         {
@@ -421,16 +421,16 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-entitlement-denied-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_import_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_import_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_369",
-        "test": "calendar_event_import_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_369::calendar_event_import_status_mutant"
       }
     },
     {
@@ -454,8 +454,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-free-busy-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_free_busy_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_free_busy_success"
           }
         },
         {
@@ -463,8 +463,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-free-busy-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_free_busy_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_free_busy_cross_tenant"
           }
         },
         {
@@ -472,8 +472,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-free-busy-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_free_busy_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_free_busy_invalid_input"
           }
         },
         {
@@ -481,8 +481,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-free-busy-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_free_busy_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_free_busy_delegate_personal"
           }
         },
         {
@@ -490,16 +490,16 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-free-busy-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_free_busy_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_free_busy_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_369",
-        "test": "calendar_event_free_busy_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_369::calendar_event_free_busy_status_mutant"
       }
     },
     {
@@ -523,8 +523,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-free-slots-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_query_free_slots_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_query_free_slots_success"
           }
         },
         {
@@ -532,8 +532,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-free-slots-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_query_free_slots_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_query_free_slots_cross_tenant"
           }
         },
         {
@@ -541,8 +541,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-free-slots-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_query_free_slots_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_query_free_slots_invalid_input"
           }
         },
         {
@@ -550,8 +550,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-free-slots-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_query_free_slots_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_query_free_slots_delegate_personal"
           }
         },
         {
@@ -559,16 +559,16 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-free-slots-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_query_free_slots_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_query_free_slots_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_369",
-        "test": "calendar_event_query_free_slots_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_369::calendar_event_query_free_slots_status_mutant"
       }
     },
     {
@@ -593,8 +593,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_rsvp_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_rsvp_success"
           }
         },
         {
@@ -603,8 +603,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_rsvp_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_rsvp_repeat"
           }
         },
         {
@@ -613,8 +613,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-delegate-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_rsvp_delegate"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_rsvp_delegate"
           }
         },
         {
@@ -623,8 +623,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_rsvp_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_rsvp_cross_tenant"
           }
         },
         {
@@ -633,8 +633,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_rsvp_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_rsvp_invalid_input"
           }
         },
         {
@@ -643,8 +643,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_rsvp_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_rsvp_delegate_personal"
           }
         },
         {
@@ -653,16 +653,16 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-entitlement-denied-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_rsvp_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_rsvp_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_369",
-        "test": "calendar_event_rsvp_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_369::calendar_event_rsvp_status_mutant"
       }
     },
     {
@@ -686,8 +686,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-counter-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_counter_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_counter_success"
           }
         },
         {
@@ -695,8 +695,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-counter-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_counter_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_counter_cross_tenant"
           }
         },
         {
@@ -704,8 +704,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-counter-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_counter_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_counter_invalid_input"
           }
         },
         {
@@ -713,8 +713,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-counter-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_counter_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_counter_delegate_personal"
           }
         },
         {
@@ -722,16 +722,16 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-counter-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_counter_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_counter_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_369",
-        "test": "calendar_event_counter_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_369::calendar_event_counter_status_mutant"
       }
     },
     {
@@ -755,8 +755,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-shared-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_get_shared_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_get_shared_success"
           }
         },
         {
@@ -764,8 +764,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-shared-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_get_shared_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_get_shared_cross_tenant"
           }
         },
         {
@@ -773,8 +773,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-shared-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_get_shared_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_get_shared_invalid_input"
           }
         },
         {
@@ -782,8 +782,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-shared-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_get_shared_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_get_shared_delegate_personal"
           }
         },
         {
@@ -791,16 +791,16 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-shared-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_get_shared_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_get_shared_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_369",
-        "test": "calendar_event_get_shared_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_369::calendar_event_get_shared_status_mutant"
       }
     },
     {
@@ -825,8 +825,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_set_occurrence_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_set_occurrence_success"
           }
         },
         {
@@ -835,8 +835,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_set_occurrence_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_set_occurrence_repeat"
           }
         },
         {
@@ -845,8 +845,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_set_occurrence_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_set_occurrence_cross_tenant"
           }
         },
         {
@@ -855,8 +855,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_set_occurrence_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_set_occurrence_invalid_input"
           }
         },
         {
@@ -865,8 +865,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_set_occurrence_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_set_occurrence_delegate_personal"
           }
         },
         {
@@ -875,16 +875,16 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-entitlement-denied-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_set_occurrence_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_set_occurrence_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_369",
-        "test": "calendar_event_set_occurrence_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_369::calendar_event_set_occurrence_status_mutant"
       }
     },
     {
@@ -908,8 +908,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-resource-list-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_resource_list_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_resource_list_success"
           }
         },
         {
@@ -917,8 +917,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-resource-list-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_resource_list_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_resource_list_cross_tenant"
           }
         },
         {
@@ -926,8 +926,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-resource-list-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_resource_list_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_resource_list_invalid_input"
           }
         },
         {
@@ -935,8 +935,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-resource-list-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_resource_list_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_resource_list_delegate_personal"
           }
         },
         {
@@ -944,16 +944,16 @@
           "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-resource-list-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_resource_list_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_resource_list_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_369",
-        "test": "calendar_event_resource_list_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_369::calendar_event_resource_list_status_mutant"
       }
     },
     {
@@ -978,8 +978,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_send_update_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_send_update_success"
           }
         },
         {
@@ -988,8 +988,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_send_update_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_send_update_repeat"
           }
         },
         {
@@ -998,8 +998,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_send_update_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_send_update_cross_tenant"
           }
         },
         {
@@ -1008,8 +1008,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_send_update_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_send_update_invalid_input"
           }
         },
         {
@@ -1018,8 +1018,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_send_update_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_send_update_delegate_personal"
           }
         },
         {
@@ -1028,16 +1028,16 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-entitlement-denied-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_369",
-            "test": "calendar_event_send_update_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_369::calendar_event_send_update_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_369",
-        "test": "calendar_event_send_update_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_369::calendar_event_send_update_status_mutant"
       }
     }
   ]

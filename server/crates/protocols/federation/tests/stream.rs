@@ -2,7 +2,7 @@
 //! database: identities come from the committed fixture CAs and the reducer
 //! calls are stubbed. (Wire parity with the frozen Go listener lives in
 //! tests/replay.rs.)
-mod common;
+use crate::common;
 use common::*;
 use setjoin_federation::{
     db::{BoxFut, FedDb},

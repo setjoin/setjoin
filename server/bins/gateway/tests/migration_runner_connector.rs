@@ -1,8 +1,7 @@
 //! The IMAP connector of the migration runner (#431) against a scripted source:
 //! folder discovery and tags, UID pages of 100, resume by UIDVALIDITY, login
 //! errors and the SSRF policy at dial time.
-#[path = "common/fake_imap.rs"]
-mod fake_imap;
+use crate::fake_imap;
 use fake_imap::{folder, message, FakeImap};
 use setjoin_gateway::migration_runner::{Batch, Checkpoint, Dialer, ImapConfig, ImapConnector};
 use std::collections::BTreeMap;

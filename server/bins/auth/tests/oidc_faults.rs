@@ -1,12 +1,12 @@
 //! OIDC publication under PostgreSQL COMMIT wire loss and refusal on unreadable rows.
-mod common;
+#[allow(unused_imports)]
+use crate::common;
 include!("oidc_oracle/harness.rs");
 #[path = "oidc_oracle/grants.rs"]
 mod grants;
 #[path = "oidc_oracle/tokens.rs"]
 mod tokens;
-#[path = "common/webauthn_commit.rs"]
-mod wire;
+use crate::webauthn_commit as wire;
 struct Proxy(tokio::task::JoinHandle<std::io::Result<wire::CommitCut>>);
 impl Drop for Proxy {
     fn drop(&mut self) {

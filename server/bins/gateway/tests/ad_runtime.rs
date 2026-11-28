@@ -1,6 +1,6 @@
 //! #381 AD runtime routes and `ad-sync` worker: frozen-Go oracle replayed without a Go upstream.
-mod ad_oracle;
-mod common;
+use crate::ad_oracle;
+use crate::common;
 macro_rules! case {
     ($name:ident, $route:literal, $case:literal) => {
         #[tokio::test]

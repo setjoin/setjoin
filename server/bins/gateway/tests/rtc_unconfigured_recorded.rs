@@ -1,6 +1,6 @@
 //! #357: without LiveKit configuration frozen Go registers no `/rtc` handler, so its
 //! root mux answers; the route's catch-all fallback answers the same bytes natively.
-mod common;
+use crate::common;
 use common::mux_oracle::{run, MuxCase, Website};
 use common::BoxError;
 use hyper::Request;

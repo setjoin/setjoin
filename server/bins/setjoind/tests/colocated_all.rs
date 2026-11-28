@@ -9,7 +9,7 @@
 //! - Public listener blocks internal auth admin/SCIM routes (`/auth/scim/disable`
 //!   returns 404; `/admin/reload` with `INTERNAL_API_KEY` does not hit auth reload).
 
-mod common;
+use crate::common;
 
 use std::process::Command;
 use std::time::Duration;

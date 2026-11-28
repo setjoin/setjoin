@@ -1,5 +1,5 @@
 //! Operator configuration is tested through the executable's HTTP listener.
-mod common;
+use crate::common;
 use common::boot::CommandBootExt;
 
 use common::{body_bytes, fake_upstream, full, send};

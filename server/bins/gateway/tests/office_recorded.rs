@@ -1,13 +1,9 @@
 //! Frozen Go at the HTTP seam, including committed rows and S3 I/O.
-mod common;
-#[path = "common/office_fixture.rs"]
-mod office_fixture;
-#[path = "common/office_go.rs"]
-mod office_go;
-#[path = "common/office_provider.rs"]
-mod office_provider;
-#[path = "common/office_s3.rs"]
-mod office_s3;
+use crate::common;
+use crate::fixture as office_fixture;
+use crate::office_go;
+use crate::office_provider;
+use crate::office_s3;
 use futures_util::FutureExt;
 use hyper::{Request, Response};
 use serde_json::{json, Value};

@@ -1,8 +1,7 @@
 //! Authentication is user-scoped, including people without a mailbox. A lost
 //! COMMIT never releases bearer credentials; lookup requires current password proof.
-#[path = "common/webauthn_commit.rs"]
-mod commit;
-mod common;
+use crate::webauthn_commit as commit;
+use crate::common;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};

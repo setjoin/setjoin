@@ -1,8 +1,7 @@
 //! #341 device trust accept side: frozen Go -> actual front door recording;
 //! native replay has no Go upstream. Contract and recording inputs:
 //! tests/conformance/identity-device/README.md.
-#[allow(dead_code)]
-mod common;
+use crate::common;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};

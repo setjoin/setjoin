@@ -6,11 +6,10 @@
 //! case observes the database (ids and times masked), the `meet:<user>`
 //! notifications, every twirp/ASR call (grant included) and every object
 //! mutation. Go is the oracle (ARCH-029).
-mod common;
+use crate::common;
 #[path = "common/meet_fixture.rs"]
 mod meet_fixture;
-#[path = "common/meet_peripherals.rs"]
-mod meet_peripherals;
+use crate::meet_peripherals;
 use common::BoxError;
 use http_body_util::BodyExt;
 use hyper::Response;

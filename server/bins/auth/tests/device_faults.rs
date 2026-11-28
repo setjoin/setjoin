@@ -3,8 +3,7 @@
 //! ordering/idempotence, oversize and unobservable policy bodies, the
 //! event cap's pre-proof order, and check-in event insert failure.
 //! Contract: identity-device/README.md.
-#[allow(dead_code)]
-mod common;
+use crate::common;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::Value;

@@ -1,4 +1,4 @@
-mod common;
+use crate::common;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

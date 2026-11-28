@@ -6,7 +6,7 @@
 //! `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/dev/test-secfix5-mutants.py) restore
 //! frozen Go's behaviour and must make these tests fail. The device-credential re-seal
 //! test (#513 item 1) lives in crates/authz/tests/device_credential.rs.
-mod common;
+use crate::common;
 use common::BoxError;
 use serde_json::json;
 use setjoin_conformance::{fixture, harness::Db};

@@ -45,8 +45,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-get-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_get_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_get_success"
           }
         },
         {
@@ -54,8 +54,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-get-not-found.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_get_not_found"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_get_not_found"
           }
         },
         {
@@ -63,8 +63,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-get-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_get_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_get_cross_tenant"
           }
         },
         {
@@ -72,8 +72,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-get-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_get_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_get_invalid_input"
           }
         },
         {
@@ -81,8 +81,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-get-delegate-allowed.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_get_delegate_allowed"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_get_delegate_allowed"
           }
         },
         {
@@ -90,8 +90,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-get-delegate-insufficient.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_get_delegate_insufficient"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_get_delegate_insufficient"
           }
         },
         {
@@ -99,8 +99,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-get-delegate-revoked.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_get_delegate_revoked"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_get_delegate_revoked"
           }
         },
         {
@@ -108,23 +108,23 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-get-suspended.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_get_suspended"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_get_suspended"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_372",
-        "test": "mail_draft_get_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_372::mail_draft_get_status_mutant",
         "name": "changed-status"
       },
       "family_mutants": [
         {
           "name": "no-tenant-filter",
           "package": "setjoin-gateway",
-          "target": "jmap_family_372",
-          "test": "mail_draft_get_no_tenant_filter_mutant"
+          "target": "suite_jmap_family",
+          "test": "jmap_family_372::mail_draft_get_no_tenant_filter_mutant"
         }
       ]
     },
@@ -149,8 +149,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-open-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_open_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_open_success"
           }
         },
         {
@@ -159,8 +159,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-open-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_open_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_open_repeat"
           }
         },
         {
@@ -169,8 +169,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-open-not-found-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_open_not_found"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_open_not_found"
           }
         },
         {
@@ -179,8 +179,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-open-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_open_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_open_cross_tenant"
           }
         },
         {
@@ -189,8 +189,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-open-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_open_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_open_invalid_input"
           }
         },
         {
@@ -199,8 +199,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-open-delegate-allowed-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_open_delegate_allowed"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_open_delegate_allowed"
           }
         },
         {
@@ -209,8 +209,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-open-delegate-insufficient-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_open_delegate_insufficient"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_open_delegate_insufficient"
           }
         },
         {
@@ -219,8 +219,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-open-delegate-revoked-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_open_delegate_revoked"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_open_delegate_revoked"
           }
         },
         {
@@ -229,15 +229,15 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-open-suspended-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_open_suspended"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_open_suspended"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_372",
-        "test": "mail_draft_open_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_372::mail_draft_open_status_mutant",
         "name": "changed-status"
       }
     },
@@ -262,8 +262,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-lease-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_lease_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_lease_success"
           }
         },
         {
@@ -272,8 +272,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-lease-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_lease_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_lease_repeat"
           }
         },
         {
@@ -282,8 +282,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-lease-state-mismatch-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_lease_state_mismatch"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_lease_state_mismatch"
           }
         },
         {
@@ -292,8 +292,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-lease-not-found-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_lease_not_found"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_lease_not_found"
           }
         },
         {
@@ -302,8 +302,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-lease-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_lease_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_lease_cross_tenant"
           }
         },
         {
@@ -312,8 +312,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-lease-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_lease_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_lease_invalid_input"
           }
         },
         {
@@ -322,8 +322,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-lease-delegate-allowed-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_lease_delegate_allowed"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_lease_delegate_allowed"
           }
         },
         {
@@ -332,8 +332,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-lease-delegate-insufficient-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_lease_delegate_insufficient"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_lease_delegate_insufficient"
           }
         },
         {
@@ -342,8 +342,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-lease-delegate-revoked-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_lease_delegate_revoked"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_lease_delegate_revoked"
           }
         },
         {
@@ -352,15 +352,15 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-lease-suspended-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_lease_suspended"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_lease_suspended"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_372",
-        "test": "mail_draft_lease_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_372::mail_draft_lease_status_mutant",
         "name": "changed-status"
       }
     },
@@ -385,8 +385,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-save-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_save_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_save_success"
           }
         },
         {
@@ -395,8 +395,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-save-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_save_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_save_repeat"
           }
         },
         {
@@ -405,8 +405,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-save-state-mismatch-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_save_state_mismatch"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_save_state_mismatch"
           }
         },
         {
@@ -415,8 +415,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-save-not-found-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_save_not_found"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_save_not_found"
           }
         },
         {
@@ -425,8 +425,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-save-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_save_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_save_cross_tenant"
           }
         },
         {
@@ -435,8 +435,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-save-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_save_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_save_invalid_input"
           }
         },
         {
@@ -445,8 +445,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-save-delegate-allowed-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_save_delegate_allowed"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_save_delegate_allowed"
           }
         },
         {
@@ -455,8 +455,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-save-delegate-insufficient-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_save_delegate_insufficient"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_save_delegate_insufficient"
           }
         },
         {
@@ -465,8 +465,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-save-delegate-revoked-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_save_delegate_revoked"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_save_delegate_revoked"
           }
         },
         {
@@ -475,15 +475,15 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-save-suspended-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_save_suspended"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_save_suspended"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_372",
-        "test": "mail_draft_save_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_372::mail_draft_save_status_mutant",
         "name": "changed-status"
       }
     },
@@ -508,8 +508,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-replace-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_replace_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_replace_success"
           }
         },
         {
@@ -518,8 +518,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-replace-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_replace_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_replace_repeat"
           }
         },
         {
@@ -528,8 +528,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-replace-state-mismatch-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_replace_state_mismatch"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_replace_state_mismatch"
           }
         },
         {
@@ -538,8 +538,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-replace-not-found-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_replace_not_found"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_replace_not_found"
           }
         },
         {
@@ -548,8 +548,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-replace-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_replace_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_replace_cross_tenant"
           }
         },
         {
@@ -558,8 +558,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-replace-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_replace_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_replace_invalid_input"
           }
         },
         {
@@ -568,8 +568,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-replace-delegate-allowed-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_replace_delegate_allowed"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_replace_delegate_allowed"
           }
         },
         {
@@ -578,8 +578,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-replace-delegate-insufficient-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_replace_delegate_insufficient"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_replace_delegate_insufficient"
           }
         },
         {
@@ -588,8 +588,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-replace-delegate-revoked-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_replace_delegate_revoked"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_replace_delegate_revoked"
           }
         },
         {
@@ -598,15 +598,15 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-draft-replace-suspended-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_draft_replace_suspended"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_draft_replace_suspended"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_372",
-        "test": "mail_draft_replace_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_372::mail_draft_replace_status_mutant",
         "name": "changed-status"
       }
     },
@@ -630,8 +630,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-get-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_get_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_get_success"
           }
         },
         {
@@ -639,8 +639,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-get-not-found.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_get_not_found"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_get_not_found"
           }
         },
         {
@@ -648,8 +648,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-get-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_get_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_get_cross_tenant"
           }
         },
         {
@@ -657,8 +657,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-get-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_get_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_get_invalid_input"
           }
         },
         {
@@ -666,8 +666,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-get-delegate-allowed.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_get_delegate_allowed"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_get_delegate_allowed"
           }
         },
         {
@@ -675,8 +675,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-get-delegate-insufficient.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_get_delegate_insufficient"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_get_delegate_insufficient"
           }
         },
         {
@@ -684,8 +684,8 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-get-delegate-revoked.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_get_delegate_revoked"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_get_delegate_revoked"
           }
         },
         {
@@ -693,15 +693,15 @@
           "golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-get-suspended.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_get_suspended"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_get_suspended"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_372",
-        "test": "mail_comment_get_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_372::mail_comment_get_status_mutant",
         "name": "changed-status"
       }
     },
@@ -726,8 +726,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-set-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_set_success"
           }
         },
         {
@@ -736,8 +736,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-set-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_set_repeat"
           }
         },
         {
@@ -746,8 +746,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-set-state-mismatch-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_set_state_mismatch"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_set_state_mismatch"
           }
         },
         {
@@ -756,8 +756,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-set-not-found-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_set_not_found"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_set_not_found"
           }
         },
         {
@@ -766,8 +766,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-set-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_set_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_set_cross_tenant"
           }
         },
         {
@@ -776,8 +776,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-set-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_set_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_set_invalid_input"
           }
         },
         {
@@ -786,8 +786,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-set-delegate-allowed-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_set_delegate_allowed"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_set_delegate_allowed"
           }
         },
         {
@@ -796,8 +796,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-set-delegate-insufficient-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_set_delegate_insufficient"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_set_delegate_insufficient"
           }
         },
         {
@@ -806,8 +806,8 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-set-delegate-revoked-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_set_delegate_revoked"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_set_delegate_revoked"
           }
         },
         {
@@ -816,15 +816,15 @@
           "row_golden": "server/tests/conformance/jmap/families/mail-draft/mail-comment-set-suspended-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_372",
-            "test": "mail_comment_set_suspended"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_372::mail_comment_set_suspended"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_372",
-        "test": "mail_comment_set_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_372::mail_comment_set_status_mutant",
         "name": "changed-status"
       }
     }

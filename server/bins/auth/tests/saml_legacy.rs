@@ -1,5 +1,6 @@
 //! Existing Go RSA1024 SP key custody; no key generation/rotation in production.
-mod common;
+#[allow(unused_imports)]
+use crate::common;
 include!("saml_oracle/harness.rs");
 #[path = "saml_oracle/flows.rs"]
 mod flows;

@@ -1,5 +1,5 @@
 //! #333 native Drive credential: actual front door, frozen Go wire authority.
-mod common;
+use crate::common;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use common::BoxError;
 use http_body_util::BodyExt;

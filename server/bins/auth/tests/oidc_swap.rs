@@ -1,6 +1,7 @@
 //! Live frozen-Go/native OP swap. Run explicitly with the assigned recorder;
 //! ordinary oidc_oracle qualification has both Go upstreams unset.
-mod common;
+#[allow(unused_imports)]
+use crate::common;
 include!("oidc_oracle/harness.rs");
 #[path = "oidc_oracle/grants.rs"]
 mod grants;

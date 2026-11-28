@@ -1,7 +1,6 @@
 //! Public WebAuthn routes under lost COMMIT replies, with actor-bound recovery.
-#[path = "common/webauthn_commit.rs"]
-mod commit;
-mod common;
+use crate::webauthn_commit as commit;
+use crate::common;
 use base64::Engine;
 use http_body_util::BodyExt;
 use hyper::Request;

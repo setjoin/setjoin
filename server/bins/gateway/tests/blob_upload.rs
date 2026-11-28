@@ -1,5 +1,5 @@
 //! PUT accounting, promotion and dedup observed through HTTP and the S3 peer.
-mod common;
+use crate::common;
 use common::BoxError;
 use http_body_util::BodyExt;
 use hyper::{Request, Response};

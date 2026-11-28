@@ -8,8 +8,8 @@
 //! is checked separately in `webhook_dispatch.rs`.
 //!
 //! Record: `GOFREE_RECORD_DRAIN=all|case,case` (+ `GOFREE_GO_SOURCE`); replay needs no Go.
-mod common;
-mod drain_oracle;
+use crate::common;
+use crate::drain_oracle;
 use drain_oracle::{settle, BoxError, GoTick};
 use hyper::Response;
 use serde_json::{json, Value};

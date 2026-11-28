@@ -3,7 +3,7 @@
 //! refuse loopback, private and metadata addresses at dial time without sending a byte,
 //! and log the failure like Go's legacy path. Also `enqueue_durable`, the circuit breaker
 //! through the executor, mailbox-scoped fail-closed matching and graceful shutdown.
-mod common;
+use crate::common;
 use common::BoxError;
 use hyper::Response;
 use setjoin_config_secret::CryptoProfile;

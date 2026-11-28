@@ -6,7 +6,7 @@
 //! - `WorkerSupervisor` `wave2_maintenance_tasks` schedule registration (`prune-scope-revocations`,
 //!   `prune-chat-changes`)
 
-mod common;
+use crate::common;
 
 use common::BoxError;
 use futures_util::FutureExt;

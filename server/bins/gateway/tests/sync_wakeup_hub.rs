@@ -29,7 +29,7 @@
 //!    bound Drive space, receives `event: sync_wakeup` and priority
 //!    `event: scope_revoked` on `guest_set_status(..., 'disable', NULL)`.
 
-mod common;
+use crate::common;
 
 use common::BoxError;
 use futures_util::{SinkExt, StreamExt};

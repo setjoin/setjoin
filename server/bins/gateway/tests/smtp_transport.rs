@@ -1,7 +1,7 @@
 //! Native HTTPS policy client: real TLS peer, status, compression and body bounds.
 use crate::common::boot::Child;
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use setjoin_gateway::smtp_outbound::HttpPolicyFetch;
 use setjoin_smtp::outbound::PolicyFetch;
 use std::sync::Arc;

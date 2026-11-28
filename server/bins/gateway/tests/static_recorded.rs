@@ -5,7 +5,7 @@
 //! by design replay against a fake upstream serving the recorded Go answer and
 //! must be forwarded exactly once. The case table is generated; see
 //! `tests/conformance/static1/README.md`.
-mod common;
+use crate::common;
 use common::BoxError;
 use http_body_util::BodyExt;
 use hyper::{Request, Response};

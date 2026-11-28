@@ -1,6 +1,6 @@
 //! F17 slice `calendar-booking` frozen-Go oracle, replayed without a Go upstream.
-mod calendar_oracle;
-mod common;
+use crate::calendar_oracle;
+use crate::common;
 
 macro_rules! case {
     ($name:ident, $route:literal, $label:literal) => {

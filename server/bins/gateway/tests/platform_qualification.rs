@@ -1,6 +1,6 @@
 //! #455 individually selectable recorded route floors.
-mod common;
-mod platform_oracle;
+use crate::common;
+use crate::platform_oracle;
 #[tokio::test]
 async fn recovery_list_success() -> Result<(), common::BoxError> {
     platform_oracle::updates::run("recovery-list", "success", None).await

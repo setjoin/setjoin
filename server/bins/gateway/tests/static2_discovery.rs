@@ -1,5 +1,5 @@
 //! #417: HTTP discovery against controlled DNS and a certificate-verified peer.
-mod common;
+use crate::common;
 use common::BoxError;
 use hickory_resolver::proto::{
     op::Message,

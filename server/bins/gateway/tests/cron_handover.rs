@@ -1,6 +1,6 @@
 //! #365: per-task cron locks let tasks leave Go one at a time.
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use chrono::TimeZone;
 use common::BoxError;
 use setjoin_conformance::harness::Db;

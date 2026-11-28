@@ -1,5 +1,5 @@
 //! The same complete family registration used by the executable, over HTTP.
-mod common;
+use crate::common;
 use hyper::{Request, Response};
 use serde_json::json;
 use setjoin_conformance::{fixture, harness::Db};

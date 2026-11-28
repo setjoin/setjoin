@@ -1,5 +1,5 @@
 //! Real auth HTTP -> encrypted native device -> signed approval -> one-use poll.
-mod common;
+use crate::common;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};

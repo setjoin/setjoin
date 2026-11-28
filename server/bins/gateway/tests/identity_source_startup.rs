@@ -3,7 +3,7 @@
 //! (`GO_WORKERS_OFF`), alone or with the identity toggle observer that wakes it.
 use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
-mod common;
+use crate::common;
 use common::BoxError;
 use hyper::Response;
 use setjoin_conformance::harness::Db;

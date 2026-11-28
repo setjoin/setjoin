@@ -1,9 +1,6 @@
-#[path = "support/auth_blobs.rs"]
-mod auth_blobs;
-#[path = "support/auth_dns.rs"]
-mod auth_dns;
-#[path = "support/pipeline.rs"]
-mod pipeline;
+use crate::auth_blobs;
+use crate::auth_dns;
+use crate::pipeline;
 use base64::Engine;
 use futures_util::FutureExt;
 use std::{sync::Arc, time::Duration};

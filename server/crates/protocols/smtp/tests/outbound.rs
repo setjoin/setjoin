@@ -1,6 +1,5 @@
 //! Outbound worker recordings replay without Go.
-#[path = "support/outbound.rs"]
-mod support;
+use crate::support;
 use serde_json::Value;
 use support::replay;
 #[tokio::test]

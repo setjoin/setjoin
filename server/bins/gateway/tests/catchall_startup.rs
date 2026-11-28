@@ -1,5 +1,5 @@
 //! Operator seams: native catch-alls without Go, both rollbacks and build refusal.
-mod common;
+use crate::common;
 use common::BoxError;
 use hyper::{Request, Response};
 use serde_json::{json, Value};

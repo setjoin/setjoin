@@ -4,7 +4,7 @@
 //!
 //! Record: GOFREE_RECORD_ASRBOT_GO_BINARY=<asrbotd> cargo test -p setjoin-asrbot --test outbound_oracle -- --test-threads=1
 
-mod support;
+use crate::support;
 
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};

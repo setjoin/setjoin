@@ -1,5 +1,6 @@
 //! SAML SP public HTTP seam. The frozen middleware's path mismatch is parity.
-mod common;
+#[allow(unused_imports)]
+use crate::common;
 include!("saml_oracle/harness.rs");
 #[path = "saml_oracle/flows.rs"]
 mod flows;

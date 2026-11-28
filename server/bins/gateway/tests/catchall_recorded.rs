@@ -1,5 +1,5 @@
 //! #416 frozen-Go mux/SPA responses, recorded through the real front door.
-mod common;
+use crate::common;
 use common::BoxError;
 use futures_util::FutureExt;
 use hyper::{Request, Response};

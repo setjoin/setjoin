@@ -19,7 +19,8 @@ cases = [
     ("hardening", "secure_dir_refuses_a_directory_not_owned_by_root", "non-root-owned directory accepted"),
 ]
 def run(feature, test, name):
-    cmd = ["cargo", "test", "--locked", "-p", "setjoin-updater"] + (["--features", "oracle-mutants"] if feature else []) + (["--bin", "setjoin-updater"] if test == "bin" else ["--test", test]) + [name, "--", "--test-threads=1"]
+    target_args = ["--bin", "setjoin-updater", name] if test == "bin" else ["--test", "suite_misc", f"{test}::{name}"]
+    cmd = ["cargo", "test", "--locked", "-p", "setjoin-updater"] + (["--features", "oracle-mutants"] if feature else []) + target_args + ["--", "--test-threads=1"]
     return subprocess.run(cmd, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 for test, name, marker in cases:
     r = run(True, test, name)

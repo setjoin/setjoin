@@ -1,7 +1,7 @@
 //! #342 guest-invite acceptance: frozen-Go HTTP/effect oracle through the real front
 //! door (auth listener and gateway alias share these replays), plus native
 //! timing, lock, deadline, threat and upgrade tests.
-mod common;
+use crate::common;
 use base64::Engine as _;
 use http_body_util::BodyExt;
 use hyper::Request;

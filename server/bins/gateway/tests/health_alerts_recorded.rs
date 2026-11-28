@@ -4,8 +4,8 @@
 //! `HealthAlerts` tracker, run the same steps over the same seeded `health_history`; the
 //! fake receiver must see the same alerts (exact signed bodies) and no repeat for a
 //! persistent error. Record: `GOFREE_RECORD_DRAIN=all GOFREE_GO_SOURCE=<sha>`.
-mod common;
-mod drain_oracle;
+use crate::common;
+use crate::drain_oracle;
 use common::webhook_receiver::{self as hooks, Seen};
 use drain_oracle::{settle, BoxError, GoTick};
 use serde_json::json;

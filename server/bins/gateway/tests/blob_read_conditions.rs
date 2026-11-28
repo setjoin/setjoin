@@ -1,5 +1,5 @@
 //! Frozen-Go conditional/cache/range behavior at the F16 HTTP boundary.
-mod common;
+use crate::common;
 use hyper::{Method, Request, Response};
 use serde_json::{json, Value};
 use setjoin_conformance::{fixture, harness::Db};

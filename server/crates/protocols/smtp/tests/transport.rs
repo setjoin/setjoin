@@ -1,7 +1,5 @@
 //! Delivery policy is observed through seed + tick + remote wire and DB effects.
-#[allow(dead_code)]
-#[path = "support/outbound.rs"]
-mod support;
+use crate::support;
 
 #[tokio::test]
 async fn dane_lookup_failure_defers_before_opening_a_remote_session_like_go() {
@@ -181,8 +179,7 @@ async fn persisted_mta_sts_mx_and_tls_requirements_match_recorded_go() {
     }
 }
 
-#[path = "support/auth_dns.rs"]
-mod auth_dns;
+use crate::auth_dns;
 struct PolicyResponse {
     body: String,
     status: u64,

@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [dependencies]
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
@@ -14,3 +15,11 @@ tokio = { version = "=1.54.1", features = ["io-util", "net", "time"] }
 rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
 tokio = { version = "=1.54.1", features = ["io-util", "macros", "rt-multi-thread", "sync", "test-util"] }
 serde_json = { version = "=1.0.145", features = ["raw_value"] }
+
+[[test]]
+name = "pem_hot_reload"
+path = "tests/pem_hot_reload.rs"
+
+[[test]]
+name = "suite_serial_tls"
+path = "tests/suite_serial_tls.rs"

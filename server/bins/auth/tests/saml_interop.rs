@@ -3,7 +3,7 @@
 //! `--pull never`: when it is absent the test fails and says how to fetch it, it never skips.
 //! Proves an SP-initiated link and login end to end, a replay, and an unlinked user.
 #![allow(dead_code, unused_imports)]
-mod common;
+use crate::common;
 include!("saml_oracle/harness.rs");
 #[path = "saml_oracle/flows.rs"]
 mod flows;

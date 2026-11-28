@@ -1,6 +1,6 @@
 //! F05 slice `mailboxes`, import and export, frozen-Go oracle replayed without a Go upstream.
-mod common;
-mod mailbox_io_oracle;
+use crate::common;
+use crate::mailbox_io_oracle;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

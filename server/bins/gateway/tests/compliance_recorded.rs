@@ -1,6 +1,6 @@
 //! Frozen Go HTTP and committed-effect oracle for F04 eDiscovery.
-mod common;
-mod compliance_oracle;
+use crate::common;
+use crate::compliance_oracle;
 #[tokio::test]
 async fn cases_list_success() -> Result<(), common::BoxError> {
     compliance_oracle::run("list", "success").await

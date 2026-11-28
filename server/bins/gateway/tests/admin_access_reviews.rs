@@ -1,6 +1,6 @@
 //! F01 slice `access-reviews` frozen-Go oracle, replayed without a Go upstream.
-mod admin_access_reviews_oracle;
-mod common;
+use crate::admin_access_reviews_oracle;
+use crate::common;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

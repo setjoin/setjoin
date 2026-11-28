@@ -1,7 +1,6 @@
 //! Complete family registration, metrics and rollback at the HTTP boundary.
-mod common;
-#[path = "common/office_fixture.rs"]
-mod office_fixture;
+use crate::common;
+use crate::office_fixture;
 use hyper::{Request, Response};
 use setjoin_conformance::harness::Db;
 use setjoin_gateway::{Config, Gateway, RouteTable, TrustedProxies};

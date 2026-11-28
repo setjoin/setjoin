@@ -28,35 +28,35 @@ if os.environ.get("REQUIRE_DB") != "1":
 
 GW, AZ = "setjoin-gateway", "setjoin-authz"
 # (package, test target, test filter) triples; every one must fail under the mutant.
-EXCHANGE = [(GW, "secfix5", "exchange_group_domain_scope_confines_a_scoped_admin"), (GW, "exchange", "create_project_group_scope")]
+EXCHANGE = [(GW, "suite_misc", "secfix5::exchange_group_domain_scope_confines_a_scoped_admin"), (GW, "suite_serial_mailsec_jmap", "exchange::create_project_group_scope")]
 LOCKDOWN = [
-    (GW, "secfix5", "lockdown_console_is_confined_to_the_callers_reach"),
-    (GW, "devices", "transition_foreign_target"),
+    (GW, "suite_misc", "secfix5::lockdown_console_is_confined_to_the_callers_reach"),
+    (GW, "suite_admin", "devices::transition_foreign_target"),
 ]
 LOCKDOWN_READ = [
-    (GW, "secfix5", "lockdown_console_is_confined_to_the_callers_reach"),
-    (GW, "devices", "queue_foreign_target"),
+    (GW, "suite_misc", "secfix5::lockdown_console_is_confined_to_the_callers_reach"),
+    (GW, "suite_admin", "devices::queue_foreign_target"),
 ]
 OFFLINE = [
-    (GW, "secfix5", "offline_devices_are_confined_to_the_callers_reach"),
-    (GW, "offline", "q_wipe_foreign"),
+    (GW, "suite_misc", "secfix5::offline_devices_are_confined_to_the_callers_reach"),
+    (GW, "suite_calendar_mail", "offline::q_wipe_foreign"),
 ]
 OFFLINE_PENDING = [
-    (GW, "secfix5", "offline_devices_are_confined_to_the_callers_reach"),
-    (GW, "offline", "q_pending_foreign"),
+    (GW, "suite_misc", "secfix5::offline_devices_are_confined_to_the_callers_reach"),
+    (GW, "suite_calendar_mail", "offline::q_pending_foreign"),
 ]
 QUARANTINE = [
-    (GW, "secfix5", "quarantine_admin_actions_are_confined_to_the_callers_reach"),
-    (GW, "mailsec_quarantine", "admin_preview_scoped"),
+    (GW, "suite_misc", "secfix5::quarantine_admin_actions_are_confined_to_the_callers_reach"),
+    (GW, "suite_serial_mailsec_jmap", "mailsec_quarantine::admin_preview_scoped"),
 ]
 QUARANTINE_WRITE = [
-    (GW, "secfix5", "quarantine_admin_actions_are_confined_to_the_callers_reach"),
-    (GW, "mailsec_quarantine", "admin_release_scoped"),
-    (GW, "mailsec_quarantine", "admin_reject_scoped"),
+    (GW, "suite_misc", "secfix5::quarantine_admin_actions_are_confined_to_the_callers_reach"),
+    (GW, "suite_serial_mailsec_jmap", "mailsec_quarantine::admin_release_scoped"),
+    (GW, "suite_serial_mailsec_jmap", "mailsec_quarantine::admin_reject_scoped"),
 ]
 RESEAL = [
-    (AZ, "device_credential", "legacy_plaintext_secret_is_resealed_under_app_rls"),
-    (GW, "static_recorded", "telemetry_proof_legacy_valid"),
+    (AZ, "suite_misc", "device_credential::legacy_plaintext_secret_is_resealed_under_app_rls"),
+    (GW, "suite_static_misc", "static_recorded::telemetry_proof_legacy_valid"),
 ]
 
 # mutant id -> list of (package, target, filter); a "sql:" id reloads a bug-restored reducer.

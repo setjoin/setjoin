@@ -8,7 +8,7 @@
 //! when set; no DSN → `CONFORMANCE-SKIP` line, `REQUIRE_DB=1` → FAIL.
 //! The cases share the `feature_toggles` rows they flip, so they run one at a
 //! time and restore every row they touched.
-mod common;
+use crate::common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

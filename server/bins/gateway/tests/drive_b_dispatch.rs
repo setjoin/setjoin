@@ -1,9 +1,8 @@
 //! Real executable: native B dispatch, exact rollback requests, identity signer.
 use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
-mod common;
-#[path = "common/office_fixture.rs"]
-mod office_fixture;
+use crate::common;
+use crate::office_fixture;
 use common::BoxError;
 use futures_util::FutureExt;
 use http_body_util::BodyExt;

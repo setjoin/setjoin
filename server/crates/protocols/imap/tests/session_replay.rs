@@ -2,7 +2,7 @@
 //! APPEND/IDLE transcripts (#345) replayed at the listener's TCP boundary: reply
 //! bytes, nothing unrecorded behind them, and the recorded row effects (the query
 //! text is oracle/session-observe.json, shared with the Go recorder).
-mod common;
+use crate::common;
 use common::server;
 use std::{sync::Arc, time::Duration};
 use tokio::{

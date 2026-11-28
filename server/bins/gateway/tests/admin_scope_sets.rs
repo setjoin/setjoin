@@ -1,6 +1,6 @@
 //! F01 slice `scope-sets` frozen-Go oracle, replayed without a Go upstream.
-mod admin_scope_sets_oracle;
-mod common;
+use crate::admin_scope_sets_oracle;
+use crate::common;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

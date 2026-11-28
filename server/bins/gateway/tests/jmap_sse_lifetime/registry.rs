@@ -1,6 +1,7 @@
 //! Public connection-registry lifecycle and native legacy-profile refusal (#356a).
+use super::super::{rows, BoxError, Frames, SERIAL};
+use crate::common;
 use crate::common::boot::CommandBootExt;
-use crate::{common, rows, BoxError, Frames, SERIAL};
 use http_body_util::BodyExt;
 use hyper::{Request, Response};
 use serde_json::{json, Value};

@@ -1,5 +1,5 @@
 //! Abort is observed at HTTP, PostgreSQL and S3 boundaries, against frozen Go.
-mod common;
+use crate::common;
 
 use hyper::{Request, Response};
 use setjoin_conformance::{fixture, harness::Db};

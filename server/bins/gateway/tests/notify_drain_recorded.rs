@@ -5,7 +5,7 @@
 //!
 //! Record: `GOFREE_RECORD_DRAIN=all|case,case` (+ `GOFREE_GO_SOURCE`); delete a
 //! golden to re-record it. Replay needs no Go.
-mod drain_oracle;
+use crate::drain_oracle;
 use drain_oracle::{settle, BoxError, GoTick};
 use serde_json::{json, Map, Value};
 use setjoin_conformance::harness::{Db, Listener};

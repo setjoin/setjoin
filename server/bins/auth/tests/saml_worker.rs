@@ -1,5 +1,6 @@
 //! Frozen Go cache-task seed/tick and private-network discovery seam.
-mod common;
+#[allow(unused_imports)]
+use crate::common;
 include!("saml_oracle/harness.rs");
 #[path = "saml_oracle/flows.rs"]
 mod flows;

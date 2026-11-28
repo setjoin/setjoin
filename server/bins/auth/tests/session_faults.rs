@@ -1,6 +1,5 @@
-mod common;
-#[path = "common/session_commit.rs"]
-mod wire;
+use crate::common;
+use crate::wire;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};

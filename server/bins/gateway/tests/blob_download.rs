@@ -1,5 +1,5 @@
 //! Blob ownership and bytes are observed through the front door.
-mod common;
+use crate::common;
 
 use hyper::{Request, Response};
 use setjoin_conformance::{fixture, harness::Db};

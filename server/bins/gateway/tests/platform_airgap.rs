@@ -1,6 +1,6 @@
 //! #455 signed offline-update HTTP parity.
-mod common;
-mod platform_oracle;
+use crate::common;
+use crate::platform_oracle;
 #[tokio::test]
 async fn appcast_matches_frozen_go()->Result<(),common::BoxError>{
     for case in ["success","scoped","invalid"] {eprintln!("ORACLE-CASE airgap-feed {case}");platform_oracle::updates::run("airgap-feed",case,None).await?;}

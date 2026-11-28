@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [dependencies]
 setjoin-mime = { path = "../../mime" }
@@ -23,3 +24,7 @@ serde = { version = "=1.0.229", features = ["derive"] }
 aes-gcm = { version = "=0.10.3", default-features = false, features = ["alloc", "zeroize"] }
 sm4 = { version = "=0.5.1", default-features = false, features = ["zeroize"] }
 zeroize = "=1.9.1"
+
+[[test]]
+name = "suite_misc"
+path = "tests/suite_misc.rs"

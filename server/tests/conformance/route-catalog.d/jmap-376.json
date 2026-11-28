@@ -48,8 +48,8 @@
           "golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-list-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_list_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_list_success"
           }
         },
         {
@@ -57,8 +57,8 @@
           "golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-list-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_list_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_list_cross_tenant"
           }
         },
         {
@@ -66,8 +66,8 @@
           "golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-list-invalid.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_list_invalid"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_list_invalid"
           }
         },
         {
@@ -75,16 +75,16 @@
           "golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-list-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_list_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_list_delegate_personal"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_376",
-        "test": "saved_search_list_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_376::saved_search_list_status_mutant"
       }
     },
     {
@@ -108,8 +108,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-set-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_set_success"
           }
         },
         {
@@ -118,8 +118,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-set-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_set_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_set_cross_tenant"
           }
         },
         {
@@ -128,8 +128,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-set-invalid-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_set_invalid"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_set_invalid"
           }
         },
         {
@@ -138,8 +138,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-set-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_set_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_set_delegate_personal"
           }
         },
         {
@@ -148,16 +148,16 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-set-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_set_repeat"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_376",
-        "test": "saved_search_set_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_376::saved_search_set_status_mutant"
       }
     },
     {
@@ -181,8 +181,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-delete-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_delete_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_delete_success"
           }
         },
         {
@@ -191,8 +191,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-delete-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_delete_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_delete_cross_tenant"
           }
         },
         {
@@ -201,8 +201,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-delete-invalid-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_delete_invalid"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_delete_invalid"
           }
         },
         {
@@ -211,8 +211,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-delete-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_delete_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_delete_delegate_personal"
           }
         },
         {
@@ -221,16 +221,16 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/saved-search-delete-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "saved_search_delete_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::saved_search_delete_repeat"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_376",
-        "test": "saved_search_delete_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_376::saved_search_delete_status_mutant"
       }
     },
     {
@@ -253,8 +253,8 @@
           "golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-get-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_get_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_get_success"
           }
         },
         {
@@ -262,8 +262,8 @@
           "golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-get-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_get_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_get_cross_tenant"
           }
         },
         {
@@ -271,8 +271,8 @@
           "golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-get-invalid.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_get_invalid"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_get_invalid"
           }
         },
         {
@@ -280,23 +280,23 @@
           "golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-get-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_get_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_get_delegate_personal"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_376",
-        "test": "quick_step_get_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_376::quick_step_get_status_mutant"
       },
       "family_mutants": [
         {
           "name": "no-tenant-filter",
           "package": "setjoin-gateway",
-          "target": "jmap_family_376",
-          "test": "quick_step_get_no_tenant_filter_mutant"
+          "target": "suite_jmap_family",
+          "test": "jmap_family_376::quick_step_get_no_tenant_filter_mutant"
         }
       ]
     },
@@ -321,8 +321,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-set-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_set_success"
           }
         },
         {
@@ -331,8 +331,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-set-update-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_set_update"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_set_update"
           }
         },
         {
@@ -341,8 +341,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-set-destroy-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_set_destroy"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_set_destroy"
           }
         },
         {
@@ -351,8 +351,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-set-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_set_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_set_cross_tenant"
           }
         },
         {
@@ -361,8 +361,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-set-invalid-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_set_invalid"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_set_invalid"
           }
         },
         {
@@ -371,8 +371,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-set-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_set_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_set_delegate_personal"
           }
         },
         {
@@ -381,16 +381,16 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-set-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_set_repeat"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_376",
-        "test": "quick_step_set_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_376::quick_step_set_status_mutant"
       }
     },
     {
@@ -414,8 +414,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-apply-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_apply_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_apply_success"
           }
         },
         {
@@ -424,8 +424,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-apply-not-found-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_apply_not_found"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_apply_not_found"
           }
         },
         {
@@ -434,8 +434,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-apply-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_apply_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_apply_cross_tenant"
           }
         },
         {
@@ -444,8 +444,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-apply-invalid-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_apply_invalid"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_apply_invalid"
           }
         },
         {
@@ -454,8 +454,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-apply-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_apply_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_apply_delegate_personal"
           }
         },
         {
@@ -464,16 +464,16 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/quick-step-apply-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "quick_step_apply_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::quick_step_apply_repeat"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_376",
-        "test": "quick_step_apply_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_376::quick_step_apply_status_mutant"
       }
     },
     {
@@ -496,8 +496,8 @@
           "golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-list-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_list_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_list_success"
           }
         },
         {
@@ -505,8 +505,8 @@
           "golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-list-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_list_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_list_cross_tenant"
           }
         },
         {
@@ -514,8 +514,8 @@
           "golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-list-invalid.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_list_invalid"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_list_invalid"
           }
         },
         {
@@ -523,16 +523,16 @@
           "golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-list-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_list_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_list_delegate_personal"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_376",
-        "test": "email_template_list_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_376::email_template_list_status_mutant"
       }
     },
     {
@@ -556,8 +556,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-set-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_set_success"
           }
         },
         {
@@ -566,8 +566,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-set-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_set_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_set_cross_tenant"
           }
         },
         {
@@ -576,8 +576,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-set-invalid-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_set_invalid"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_set_invalid"
           }
         },
         {
@@ -586,8 +586,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-set-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_set_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_set_delegate_personal"
           }
         },
         {
@@ -596,16 +596,16 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-set-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_set_repeat"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_376",
-        "test": "email_template_set_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_376::email_template_set_status_mutant"
       }
     },
     {
@@ -629,8 +629,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-delete-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_delete_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_delete_success"
           }
         },
         {
@@ -639,8 +639,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-delete-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_delete_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_delete_cross_tenant"
           }
         },
         {
@@ -649,8 +649,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-delete-invalid-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_delete_invalid"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_delete_invalid"
           }
         },
         {
@@ -659,8 +659,8 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-delete-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_delete_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_delete_delegate_personal"
           }
         },
         {
@@ -669,16 +669,16 @@
           "row_golden": "server/tests/conformance/jmap/families/vendor-mail/email-template-delete-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_376",
-            "test": "email_template_delete_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_376::email_template_delete_repeat"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_376",
-        "test": "email_template_delete_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_376::email_template_delete_status_mutant"
       }
     }
   ]

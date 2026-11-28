@@ -1,6 +1,6 @@
 //! The wildcard subtree rows (`/chat/`, `/drive/`, `/meet`, `/meet/`) belong to the
 //! catch-all alone, and a rolled-back F15/F16 request is counted under its owning family (#472).
-mod common;
+use crate::common;
 
 use hyper::{Request, Response};
 use setjoin_gateway::{

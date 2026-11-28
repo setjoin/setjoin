@@ -1,5 +1,5 @@
 //! Reassembly and verification are observed through HTTP, DB and S3 state.
-mod common;
+use crate::common;
 use hyper::{Request, Response};
 use setjoin_conformance::{fixture, harness::Db};
 use setjoin_gateway::{

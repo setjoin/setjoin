@@ -1,9 +1,6 @@
 //! F08 slice `webhooks` (#302): frozen-Go oracle replayed without a Go upstream.
-mod common;
-#[path = "platform_oracle/mod.rs"]
-#[allow(dead_code)]
-mod platform_oracle;
-mod platform_webhooks_oracle;
+use crate::common;
+use crate::platform_webhooks_oracle;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

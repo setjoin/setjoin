@@ -8,10 +8,8 @@
 //!
 //! Record: `GOFREE_RECORD_DRAIN=all|case,case` (+ `GOFREE_GO_SOURCE`); delete a
 //! golden to re-record it. Replay needs no Go.
-mod common;
-mod drain_oracle;
-#[path = "drive_workers_oracle/fake_s3.rs"]
-mod fake_s3;
+use crate::drain_oracle;
+use crate::fake_s3;
 use drain_oracle::{settle, BoxError, GoTick};
 use fake_s3::DriveS3;
 use serde_json::{json, Value};

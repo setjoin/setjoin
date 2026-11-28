@@ -1,7 +1,6 @@
 //! Frozen-Go oracle suite for #372 (`MailDraft/*` and `MailComment/*`).
 
-mod common;
-mod jmap_family_oracle;
+use crate::jmap_family_oracle;
 
 use jmap_family_oracle::{run, Case, Mutation};
 

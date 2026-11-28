@@ -1,5 +1,5 @@
 //! Recorded frozen-Go HTTP requests replayed through the real front door.
-mod common;
+use crate::common;
 use hyper::{Request, Response};
 use serde_json::{json, Value};
 use setjoin_conformance::{fixture, golden, harness::Db};

@@ -1,5 +1,5 @@
 //! Exact chunk uploads are observed at HTTP, PostgreSQL and the S3 API.
-mod common;
+use crate::common;
 use hyper::{Request, Response};
 use setjoin_conformance::{fixture, harness::Db};
 use setjoin_gateway::{

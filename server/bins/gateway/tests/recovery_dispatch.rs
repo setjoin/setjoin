@@ -1,5 +1,5 @@
 //! The Go root mux mounts recovery JSON routes under /api, not at bare GETs.
-mod common;
+use crate::common;
 
 use hyper::{Request, Response};
 use setjoin_gateway::{

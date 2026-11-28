@@ -1,6 +1,6 @@
 //! F11 frozen-Go HTTP oracle, replayed without a Go upstream.
-mod common;
-mod guests_oracle;
+use crate::common;
+use crate::guests_oracle;
 
 /// Per-file serial guard (#362). Cases install and remove shared fixture rows
 /// (`system_config` keys such as `authserver.public_url`), and snapshot global

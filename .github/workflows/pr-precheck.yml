@@ -100,6 +100,7 @@ jobs:
           set -euo pipefail
           bash scripts/ci/lane-container.sh python3 scripts/ci/precheck-integration.py plan lane-artifacts
           echo "select=$(cat lane-artifacts/integration-select.txt)" >> "$GITHUB_OUTPUT"
+          echo "filter=$(cat lane-artifacts/integration-filter.txt)" >> "$GITHUB_OUTPUT"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: steps.select.outputs.select != ''
         with:
@@ -112,6 +113,7 @@ jobs:
         env:
           SERVER_RUST_STAGES: workspace
           SERVER_RUST_NEXTEST_SELECT: ${{ steps.select.outputs.select }}
+          SERVER_RUST_NEXTEST_FILTER: ${{ steps.select.outputs.filter }}
           LANE_COVERAGE: '0'
           LANE_JOBS: '4'
           GOFREE_AIRGAP_FIXTURE_ROOT: /dev/shm

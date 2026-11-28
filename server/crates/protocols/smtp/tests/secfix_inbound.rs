@@ -3,10 +3,8 @@
 //! restored by a mutant (`scripts/dev/test-smtp-secfix-mutants.py`) must fail one of
 //! these. The recorded frozen-Go corpora stay immutable; the cases they lock a bug
 //! in are listed in `oracle/divergences.json`.
-#[path = "support/auth_blobs.rs"]
-mod auth_blobs;
-#[path = "support/auth_dns.rs"]
-mod auth_dns;
+use crate::auth_blobs;
+use crate::auth_dns;
 use base64::Engine;
 use serde_json::{json, Value};
 use setjoin_conformance::harness::Db;

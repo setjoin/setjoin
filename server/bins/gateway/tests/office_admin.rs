@@ -1,11 +1,8 @@
 //! Browser-authenticated Office provider routes, recorded through the front door.
-mod common;
-#[path = "common/office_fixture.rs"]
-mod office_fixture;
-#[path = "common/office_go.rs"]
-mod office_go;
-#[path = "common/office_provider.rs"]
-mod office_provider;
+use crate::common;
+use crate::fixture as office_fixture;
+use crate::office_go;
+use crate::office_provider;
 use hyper::{Request, Response};
 use serde_json::{json, Value};
 use setjoin_conformance::harness::Db;

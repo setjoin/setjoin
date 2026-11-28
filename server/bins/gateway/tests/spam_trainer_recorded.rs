@@ -1,6 +1,6 @@
 //! Seed-plus-one-tick oracle at DB and signed fake-S3 boundaries, no Go on replay.
-mod common;
-mod drain_oracle;
+use crate::common;
+use crate::drain_oracle;
 use drain_oracle::{BoxError, GoTick};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use http_body_util::Full;

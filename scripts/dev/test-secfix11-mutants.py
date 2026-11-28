@@ -20,13 +20,13 @@ if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 os.environ.setdefault("GOFREE_AIRGAP_FIXTURE_ROOT", "/dev/shm")
 
-# (package, cargo target args, test name)
-LIB = ("setjoin-platform", ["--lib"])
-NEW = ("setjoin-gateway", ["--test", "secfix11"])
-DEPLOY = ("setjoin-gateway", ["--test", "platform_deploy"])
-AIRGAP = ("setjoin-gateway", ["--test", "platform_airgap"])
-STORAGE = ("setjoin-gateway", ["--test", "platform_storage_runtime"])
-JOBS = ("setjoin-gateway", ["--test", "platform_jobs_storage"])
+# (package, cargo target args, optional submodule prefix)
+LIB = ("setjoin-platform", ["--lib"], "")
+NEW = ("setjoin-gateway", ["--test", "suite_serial_platform"], "secfix11::")
+DEPLOY = ("setjoin-gateway", ["--test", "suite_serial_platform"], "platform_deploy::")
+AIRGAP = ("setjoin-gateway", ["--test", "suite_serial_platform"], "platform_airgap::")
+STORAGE = ("setjoin-gateway", ["--test", "suite_serial_platform"], "platform_storage_runtime::")
+JOBS = ("setjoin-gateway", ["--test", "suite_serial_platform"], "platform_jobs_storage::")
 SCOPE = (NEW, "scoped_system_upgrade_cannot_deploy_or_upload")
 MUTANTS = {
     "upgrade-scoped-grant-deploy-start": [SCOPE, (DEPLOY, "start_scoped")],
@@ -50,11 +50,11 @@ MUTANTS = {
 
 
 def cargo(spec, name, mutant, features):
-    package, target = spec
+    package, target, prefix = spec
     cmd = ["cargo", "test", "--locked", "-p", package]
     if features:
         cmd += ["--features", "oracle-mutants"]
-    cmd += target + [name, "--", "--test-threads=1"]
+    cmd += target + [prefix + name, "--", "--test-threads=1"]
     env = {**os.environ}
     env.pop("SETJOIN_SECFIX3_MUTANT", None)
     if mutant:
@@ -73,11 +73,11 @@ for mutant, tests in chosen.items():
         why = [l for l in result.stdout.splitlines() if "panicked at" in l or l.startswith(("assertion", "left", "right"))]
         print(f"MUTANT-REJECTED: {mutant} by {name} ({' | '.join(l.strip() for l in why[:2])[:200]})", flush=True)
 # The same build without a mutant selected, then the ordinary build, must pass.
-seen = sorted({(tuple(spec[0:1]) + tuple(spec[1]), name) for tests in chosen.values() for spec, name in tests})
-for (package, *target), name in seen:
+seen = sorted({(spec[0], tuple(spec[1]), spec[2], name) for tests in chosen.values() for spec, name in tests})
+for package, target, prefix, name in seen:
     for features in (True, False):
-        result = cargo((package, target), name, None, features)
+        result = cargo((package, list(target), prefix), name, None, features)
         if result.returncode:
             print(result.stdout[-3000:])
-            sys.exit(f"secure test failed without a mutant (features={features}): {package} {target} {name}")
+            sys.exit(f"secure test failed without a mutant (features={features}): {package} {list(target)} {prefix}{name}")
 print(f"SECFIX11 mutants: PASS ({len(chosen)} rejected; ordinary builds green)")

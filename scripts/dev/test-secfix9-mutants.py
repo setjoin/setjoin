@@ -23,7 +23,7 @@ root = repo / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 
-GW = ("setjoin-gateway", "setjoin_gateway", "SETJOIN_SECFIX3_MUTANT", "secfix9")
+GW = ("setjoin-gateway", "setjoin_gateway", "SETJOIN_SECFIX3_MUTANT", "suite_serial_platform", "secfix9")
 # mutant id -> (spec, test name)
 MUTANTS = {
     "m365-aux-mailbox-as-calendar": (GW, "legacy_calendar_projection_writes_only_the_target_mailboxs_own_calendar"),
@@ -76,11 +76,11 @@ SQL = {
 
 
 def cargo(spec, name, env_extra, features):
-    package, _, _, target = spec
+    package, _, _, target, mod = spec
     cmd = ["cargo", "test", "--locked", "-p", package]
     if features:
         cmd += ["--features", "oracle-mutants"]
-    cmd += ["--test", target, name, "--", "--test-threads=1"]
+    cmd += ["--test", target, f"{mod}::{name}", "--", "--test-threads=1"]
     return subprocess.run(
         cmd, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         env={**os.environ, **env_extra},

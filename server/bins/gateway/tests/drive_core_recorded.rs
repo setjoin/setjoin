@@ -1,9 +1,7 @@
 //! #274 frozen Go oracle at the front door HTTP seam.
-#[path = "common/drive_commit.rs"]
-mod commit_wire;
-mod common;
-#[path = "common/drive_s3.rs"]
-mod storage_wire;
+use crate::commit_wire;
+use crate::common;
+use crate::drive_s3 as storage_wire;
 use common::BoxError;
 use futures_util::FutureExt;
 use http_body_util::BodyExt;

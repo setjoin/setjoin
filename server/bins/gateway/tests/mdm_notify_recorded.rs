@@ -1,7 +1,7 @@
 //! Real Go process vs Rust process: seed, notify, observe no writes/outbound I/O.
 //! Go's dispatcher refuses device_policy before the named worker starts. Keep
 //! that dormant behavior, including with GO_WORKERS_OFF=mdm-notify.
-mod common;
+use crate::common;
 use common::BoxError;
 use serde_json::{json, Value};
 use setjoin_conformance::{fixture, golden, harness::Db};

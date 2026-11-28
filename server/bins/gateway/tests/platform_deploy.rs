@@ -1,6 +1,6 @@
 //! #455 process-local deployment wizard HTTP parity.
-mod common;
-mod platform_oracle;
+use crate::common;
+use crate::platform_oracle;
 #[tokio::test]
 async fn status_matches_frozen_go() -> Result<(), common::BoxError> {
     for case in ["success", "scoped", "invalid", "empty", "denied"] {

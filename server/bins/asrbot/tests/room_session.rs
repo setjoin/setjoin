@@ -1,6 +1,6 @@
 //! The bot against fake LiveKit and FunASR peripherals (no real service is contacted).
 
-mod support;
+use crate::support;
 
 use setjoin_asrbot::funasr::Client;
 use setjoin_asrbot::livekit::Options;

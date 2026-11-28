@@ -1,6 +1,6 @@
 //! Remaining five F08 storage routes (#459), through the HTTP parity seam.
-mod common;
-mod platform_oracle;
+use crate::common;
+use crate::platform_oracle;
 #[tokio::test]
 async fn status_success() -> Result<(), common::BoxError> {
     platform_oracle::jobs_storage::run("storage-status", "success").await

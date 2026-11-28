@@ -2,7 +2,7 @@
 //! `JWT_SECRET` or `SM2_PRIVATE_KEY_FILE` talking to `--subsystems=auth` over
 //! loopback via `RemoteAuthAuthority`) (#543).
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeMap;
 use std::process::Command;

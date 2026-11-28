@@ -1,5 +1,5 @@
 //! Exact scoped bearer download, observed through the real front door.
-mod common;
+use crate::common;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use hyper::{Request, Response};
 use serde_json::{json, Value};

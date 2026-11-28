@@ -1,6 +1,6 @@
 //! F03 slice `remaining` frozen-Go oracle, replayed without a Go upstream.
-mod ca_remaining_oracle;
-mod common;
+use crate::ca_remaining_oracle;
+use crate::common;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

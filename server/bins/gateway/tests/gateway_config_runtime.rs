@@ -1,7 +1,7 @@
 //! The executable must resolve YAML without any Go upstream.
 use crate::common::boot::Child;
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use common::BoxError;
 use hyper::{Request, Response};
 use setjoin_conformance::harness::Db;

@@ -1,6 +1,6 @@
 //! #271: contracts of the F22 adapter that need no database and no Go process:
 //! what it must hand to Go because it cannot see the configuration Go reads.
-mod common;
+use crate::common;
 use common::BoxError;
 use hyper::{Request, Response};
 use setjoin_gateway::{Config, Gateway, RouteTable, TrustedProxies};

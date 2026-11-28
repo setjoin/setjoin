@@ -1,5 +1,5 @@
 //! Executable handover and direct-LISTEN -> worker-credential write, with Go unset.
-mod common;
+use crate::common;
 use common::{boot::CommandBootExt, BoxError};
 use setjoin_conformance::{fixture, harness::Db};
 use std::os::unix::process::CommandExt;

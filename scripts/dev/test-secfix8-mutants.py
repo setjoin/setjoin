@@ -23,9 +23,9 @@ root = repo / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 
-RP = ("setjoin-auth", "setjoin_auth", "SETJOIN_SECFIX8_MUTANT", "rp_secfix8")
-GW = ("setjoin-gateway", "setjoin_gateway", "SETJOIN_SECFIX3_MUTANT", "secfix8")
-CAREM = ("setjoin-gateway", "setjoin_gateway", "SETJOIN_SECFIX3_MUTANT", "ca_remaining")
+RP = ("setjoin-auth", "setjoin_auth", "SETJOIN_SECFIX8_MUTANT", "suite_serial_auth_3", "rp_secfix8")
+GW = ("setjoin-gateway", "setjoin_gateway", "SETJOIN_SECFIX3_MUTANT", "suite_misc", "secfix8")
+CAREM = ("setjoin-gateway", "setjoin_gateway", "SETJOIN_SECFIX3_MUTANT", "suite_admin", "ca_remaining")
 # mutant id -> (package, _, env var, test target, test name)
 MUTANTS = {
     "rp-http-endpoints": (RP, "discovered_token_and_jwks_endpoints_must_be_https"),
@@ -78,11 +78,11 @@ SQL = {
 
 
 def cargo(spec, name, env_extra, features):
-    package, _, _, target = spec
+    package, _, _, target, mod = spec
     cmd = ["cargo", "test", "--locked", "-p", package]
     if features:
         cmd += ["--features", "oracle-mutants"]
-    cmd += ["--test", target, name, "--", "--test-threads=1"]
+    cmd += ["--test", target, f"{mod}::{name}", "--", "--test-threads=1"]
     return subprocess.run(
         cmd, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         env={**os.environ, **env_extra},

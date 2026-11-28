@@ -3,7 +3,7 @@
 //! runs on the worker credential (never the request DSN), and the preview
 //! worker is inert without `DRIVE_PREVIEW_CMD`.
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use common::BoxError;
 use setjoin_conformance::harness::Db;
 use std::process::{Command, Stdio};

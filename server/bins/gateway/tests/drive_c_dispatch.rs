@@ -1,9 +1,8 @@
 //! Real executable: native sharing-watch dispatch and exact rollback requests (#276).
 use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
-mod common;
-#[path = "common/office_fixture.rs"]
-mod office_fixture;
+use crate::common;
+use crate::office_fixture;
 use common::BoxError;
 use futures_util::FutureExt;
 use http_body_util::BodyExt;

@@ -2,7 +2,7 @@
 //! warm-cache revocation, the owner-approved TOTP refusal (security
 //! divergence, oracle/divergences.json), the post-verify gates on a cache hit,
 //! and app passwords never cached.
-mod common;
+use crate::common;
 use common::*;
 use std::{sync::Arc, time::Duration};
 use tokio::{

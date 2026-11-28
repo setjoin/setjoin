@@ -8,8 +8,7 @@
 //! Rust `TrustCache` + `SmimeTrustListener` must produce the same three observations.
 //!
 //! Record: `GOFREE_RECORD_DRAIN=all|case,case` (+ `GOFREE_GO_SOURCE`); replay needs no Go.
-mod common;
-mod drain_oracle;
+use crate::drain_oracle;
 
 use drain_oracle::{settle, BoxError, GoTick};
 use serde_json::{json, Value};

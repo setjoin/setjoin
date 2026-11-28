@@ -2,7 +2,7 @@
 //! executable gateway, no click reaches Go, and the secret never appears in its logs.
 //! The click names mailbox -1 (D-357e-1) and an unparsable URL, so the answer (the warn
 //! page) needs neither DNS nor an audit row.
-mod common;
+use crate::common;
 use common::boot::CommandBootExt;
 use common::BoxError;
 use hmac::{Hmac, Mac};

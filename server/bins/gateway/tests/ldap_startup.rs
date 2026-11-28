@@ -3,7 +3,7 @@
 //! unless Go's copy of the worker is off.
 use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
-mod common;
+use crate::common;
 use common::{body_bytes, full, send, BoxError};
 use hyper::{Request, Response};
 use serde_json::{json, Value};

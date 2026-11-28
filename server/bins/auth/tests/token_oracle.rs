@@ -1,7 +1,7 @@
 //! Frozen Go -> actual Rust front door recording; native replay has no Go upstream.
 #[path = "token_oracle/bootstrap.rs"]
 mod bootstrap;
-mod common;
+use crate::common;
 #[path = "token_oracle/impersonate.rs"]
 mod impersonate;
 #[path = "token_oracle/stores.rs"]

@@ -2,9 +2,9 @@
 //! Go upstream. Go resolves the Spamhaus DBL through a fake DNS server (its container's
 //! `resolv.conf` names it, Rust is given the same server), the token key is the fixed oracle
 //! secret, and the audit rows the reducer writes are the observed effects.
-mod common;
-#[allow(dead_code, unused_imports)]
-mod mailsec_oracle;
+use crate::common;
+#[allow(unused_imports)]
+use crate::mailsec_oracle;
 use common::BoxError;
 use hmac::{Hmac, Mac};
 use hyper::{Request, Response};

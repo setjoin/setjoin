@@ -1,7 +1,7 @@
 //! Pure-Rust federation peer interop: both connection roles (dialer and
 //! acceptor), >256-frame bidirectional delivery, durable cursors, and
 //! ephemeral typing over mutual TLS on loopback.
-mod common;
+use crate::common;
 use common::*;
 use futures_util::FutureExt;
 use serde_json::Value;

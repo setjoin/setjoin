@@ -1,5 +1,5 @@
 //! Original frozen-Go presence floors, now replayed natively with Go unset (#418).
-mod common;
+use crate::common;
 static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 use common::BoxError;
 use http_body_util::BodyExt;

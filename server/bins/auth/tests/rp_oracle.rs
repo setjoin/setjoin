@@ -1,5 +1,5 @@
 //! OIDC RP public HTTP seam through the real front door; frozen-Go captures.
-mod common;
+use crate::common;
 include!("rp_oracle/harness.rs");
 #[path = "rp_oracle/flows.rs"]
 mod flows;

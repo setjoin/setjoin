@@ -1,7 +1,7 @@
 //! Golden recording/replay through the real front door and committed DB seam.
-mod common;
-#[allow(dead_code, unused_imports)]
-mod jmap_email_oracle;
+use crate::common;
+#[allow(unused_imports)]
+use crate::jmap_email_oracle;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

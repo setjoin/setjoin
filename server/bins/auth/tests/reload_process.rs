@@ -1,5 +1,5 @@
 //! Standalone process seam: SIGHUP and HTTP share one live internal-key generation.
-mod common;
+use crate::common;
 use std::{
     os::unix::process::CommandExt,
     process::{Child, Command, Stdio},

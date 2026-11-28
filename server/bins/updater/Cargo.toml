@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [dependencies]
 anyhow = "=1.0.104"
@@ -36,3 +37,11 @@ tempfile = "=3.27.0"
 # Test-only: restores each recorded security gap so a test must reject it
 # (scripts/dev/test-updater-secfix-mutants.py). Never enabled in a shipped build.
 oracle-mutants = []
+
+[[test]]
+name = "suite_misc"
+path = "tests/suite_misc.rs"
+
+[[test]]
+name = "suite_serial_updater"
+path = "tests/suite_serial_updater.rs"

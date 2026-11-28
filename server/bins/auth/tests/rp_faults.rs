@@ -1,5 +1,5 @@
 //! Real PostgreSQL COMMIT cuts, fresh proof lookup and failed reads during RP completion.
-mod common;
+use crate::common;
 include!("rp_oracle/harness.rs");
 #[path = "rp_oracle/flows.rs"]
 mod flows;
@@ -7,12 +7,10 @@ mod flows;
 mod idp;
 #[path = "rp_oracle/observation.rs"]
 mod observation;
-#[path = "common/revoke.rs"]
-mod revoke;
+use crate::revoke;
 #[path = "rp_oracle/settlement.rs"]
 mod settlement;
-#[path = "common/webauthn_commit.rs"]
-mod wire;
+use crate::wire;
 use setjoin_conformance::fixture;
 struct Proxy(tokio::task::JoinHandle<std::io::Result<wire::CommitCut>>);
 impl Drop for Proxy {

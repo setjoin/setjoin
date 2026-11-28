@@ -6,7 +6,7 @@
 //! frames, close code) and what the client saw (upgrade answer, frames, close
 //! code, plain answers, redirects, 502). The SFU is a fake peripheral: it
 //! decides authentication (a bad or foreign token is answered 401/403 by it).
-mod common;
+use crate::common;
 #[path = "common/meet_fixture.rs"]
 mod meet_fixture;
 use common::BoxError;

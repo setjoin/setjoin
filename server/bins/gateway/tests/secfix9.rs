@@ -3,9 +3,8 @@
 //! secure behaviour at the real seam; the mutants (feature `oracle-mutants`,
 //! `SETJOIN_SECFIX3_MUTANT`, scripts/dev/test-secfix9-mutants.py) restore frozen behaviour and
 //! must make these tests fail.
-mod common;
-#[path = "common/fake_microsoft.rs"]
-mod fake_microsoft;
+use crate::common;
+use crate::fake_microsoft;
 use common::BoxError;
 use serde_json::json;
 use setjoin_conformance::{fixture, harness::Db};

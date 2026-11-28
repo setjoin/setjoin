@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [dependencies]
 setjoin-calendar-format = { path = "../../calendar-format" }
@@ -59,3 +60,11 @@ tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "test-ut
 
 [lints.rust]
 unsafe_code = "forbid"
+
+[[test]]
+name = "interop"
+path = "tests/interop.rs"
+
+[[test]]
+name = "suite_misc"
+path = "tests/suite_misc.rs"

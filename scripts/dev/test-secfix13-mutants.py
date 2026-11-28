@@ -24,8 +24,8 @@ root = repo / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 
-RP = ("setjoin-auth", "setjoin_auth", "SETJOIN_SECFIX13_MUTANT", "rp_secfix13")
-GW = ("setjoin-gateway", "setjoin_gateway", "SETJOIN_SECFIX3_MUTANT", "secfix13")
+RP = ("setjoin-auth", "setjoin_auth", "SETJOIN_SECFIX13_MUTANT", "suite_serial_auth_3", "rp_secfix13")
+GW = ("setjoin-gateway", "setjoin_gateway", "SETJOIN_SECFIX3_MUTANT", "suite_misc", "secfix13")
 # mutant id -> (spec, test name)
 MUTANTS = {
     "sql:rp-settle-rewrites-email": (RP, "an_idp_asserted_address_never_rewrites_the_linked_account_email"),
@@ -61,11 +61,11 @@ SQL = {
 }
 
 def cargo(spec, name, env_extra, features):
-    package, _, _, target = spec
+    package, _, _, target, mod = spec
     cmd = ["cargo", "test", "--locked", "-p", package]
     if features:
         cmd += ["--features", "oracle-mutants"]
-    cmd += ["--test", target, name, "--", "--test-threads=1"]
+    cmd += ["--test", target, f"{mod}::{name}", "--", "--test-threads=1"]
     return subprocess.run(
         cmd, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         env={**os.environ, **env_extra},
@@ -106,8 +106,8 @@ finally:
 GW_CORPUS = root / "tests/conformance/identity-self-service"
 RP_CORPUS = root / "tests/conformance/identity-rp"
 REGEN = [
-    ("setjoin-gateway", "identity_self_service", "migration_test_imap_success", {"SECFIX3_WRITE_SECURITY": "1"}, GW_CORPUS),
-    ("setjoin-auth", "rp_oracle", "link_success", {"SECFIX8_WRITE_SECURITY": "1", "SECFIX8_WRITE_ONLY": "link-success"}, RP_CORPUS),
+    ("setjoin-gateway", "suite_admin", "identity_self_service::migration_test_imap_success", {"SECFIX3_WRITE_SECURITY": "1"}, GW_CORPUS),
+    ("setjoin-auth", "suite_serial_auth_3", "rp_oracle::link_success", {"SECFIX8_WRITE_SECURITY": "1", "SECFIX8_WRITE_ONLY": "link-success"}, RP_CORPUS),
 ]
 if not only or "regeneration" in only:
     for package, target, name, extra, corpus in REGEN:
@@ -141,7 +141,7 @@ if not only or "regeneration" in only:
         entry["reason"] += " UNREVIEWED"
         divergences.write_text(json.dumps(entries, indent=2, ensure_ascii=False) + "\n")
         result = subprocess.run(
-            ["cargo", "test", "--locked", "-p", "setjoin-auth", "--test", "rp_oracle", "--", "--test-threads=1", "--exact", "link_success"],
+            ["cargo", "test", "--locked", "-p", "setjoin-auth", "--test", "suite_serial_auth_3", "--", "--test-threads=1", "--exact", "rp_oracle::link_success"],
             cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             env={**os.environ, "SECFIX8_WRITE_SECURITY": "1", "SECFIX8_WRITE_ONLY": "matches-no-baseline"},
         )

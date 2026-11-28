@@ -33,6 +33,15 @@ ERROR_TYPE = re.compile(r'"methodResponses":\[\["error",\{"type":"urn:ietf:param
 # A family may carry one mutant of these kinds per route: each route's notification
 # (or the like) is a separate effect, so one route's mutant says nothing about another's.
 PER_ROUTE_FAMILY_MUTANTS = {"no-notify"}
+SELECTOR_NAME = re.compile(r"[A-Za-z0-9_-]+")
+TEST_SELECTOR = re.compile(r"[A-Za-z0-9_-]+(?:::[A-Za-z0-9_-]+)*")
+
+
+def valid_selector(selector):
+    return (isinstance(selector, dict)
+            and isinstance(selector.get("package"), str) and bool(SELECTOR_NAME.fullmatch(selector["package"]))
+            and isinstance(selector.get("target"), str) and bool(SELECTOR_NAME.fullmatch(selector["target"]))
+            and isinstance(selector.get("test"), str) and bool(TEST_SELECTOR.fullmatch(selector["test"])))
 
 
 def route_key(row):
@@ -237,17 +246,12 @@ def check(root, inventory, catalog):
             coverage_suites.append((route_name, suite))
             for mutant in suite.get("family_mutants", []) if on else []:
                 if suite.get("fragment"):
-                    if (not isinstance(mutant, dict) or mutant.get("name") != "no-tenant-filter"
-                            or any(not re.fullmatch(r"[A-Za-z0-9_-]+", str(mutant.get(f, "")))
-                                   for f in ("package", "target", "test"))):
+                    if not isinstance(mutant, dict) or mutant.get("name") != "no-tenant-filter" or not valid_selector(mutant):
                         raise ValueError(f"{key}: invalid fragment family mutant")
                     executable.append((mutant, f"MUTANT-REJECTED: {route_name} :: no-tenant-filter"))
                     fragment_tenant_filters.add(route["family"])
                     continue
-                if (not isinstance(mutant, dict) or mutant.get("name") not in FAMILY_MUTANTS
-                        or any(not isinstance(mutant.get(field), str)
-                               or not re.fullmatch(r"[A-Za-z0-9_-]+", mutant[field])
-                               for field in ("package", "target", "test"))):
+                if not isinstance(mutant, dict) or mutant.get("name") not in FAMILY_MUTANTS or not valid_selector(mutant):
                     raise ValueError(f"{key}: invalid family mutant")
                 family = family_mutants.setdefault(route["family"], {})
                 held = family.setdefault(mutant["name"], [])
@@ -307,13 +311,14 @@ def workspace_packages(root):
             document = tomllib.loads(manifest.read_text())
         except (tomllib.TOMLDecodeError, UnicodeDecodeError):
             continue
-        name = document.get("package", {}).get("name")
+        package = document.get("package", {})
+        name = package.get("name")
         if not name:
             continue
         directory = manifest.parent
         targets = {}
         tests = directory / "tests"
-        if tests.is_dir():
+        if package.get("autotests", True) is not False and tests.is_dir():
             for entry in sorted(tests.iterdir()):
                 if entry.suffix == ".rs" and entry.is_file():
                     targets[entry.stem] = entry
@@ -961,10 +966,7 @@ def check_suite(root, route, suite, on):
     selectors = set()
     for case in suite["cases"]:
         replay = case.get("replay", {})
-        if (not isinstance(replay, dict)
-                or any(not isinstance(replay.get(field), str)
-                       or not re.fullmatch(r"[A-Za-z0-9_-]+", replay[field])
-                       for field in ("package", "target", "test"))):
+        if not valid_selector(replay):
             raise ValueError(f"{key}: missing executable replay selector for {case['kind']}")
         selector = tuple(replay[field] for field in ("package", "target", "test"))
         if selector in selectors:
@@ -975,10 +977,7 @@ def check_suite(root, route, suite, on):
         return
     if mutant is None:
         mutant = {}
-    if (not isinstance(mutant, dict)
-            or any(not isinstance(mutant.get(field), str)
-                   or not re.fullmatch(r"[A-Za-z0-9_-]+", mutant[field])
-                   for field in ("package", "target", "test"))):
+    if not valid_selector(mutant):
         raise ValueError(f"{key}: missing executable mutant self-test")
     if tuple(mutant[field] for field in ("package", "target", "test")) in selectors:
         raise ValueError(f"{key}: mutant self-test duplicates a replay")

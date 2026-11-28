@@ -1,5 +1,5 @@
-mod common;
-mod rules_oracle;
+use crate::common;
+use crate::rules_oracle;
 #[tokio::test]
 async fn personal_list_success() -> Result<(), common::BoxError> {
     rules_oracle::run("personal-list", "success", None).await

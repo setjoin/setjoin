@@ -1,7 +1,7 @@
 //! Bundled F05 admission: all 16 migration routes are native; retain the existing global/inventory switch checks.
 use crate::common::boot::Child;
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use common::{body_bytes, full, send, BoxError};
 use hyper::{Request, Response};
 use setjoin_conformance::{fixture, harness::Db};

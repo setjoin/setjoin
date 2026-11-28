@@ -3,7 +3,7 @@
 //! behind an empty route table; replay unsets Go and serves the routes natively.
 //! No LiveKit call exists on these routes, so the fake SFU only has to be
 //! configured, and any call it saw would be a divergence.
-mod common;
+use crate::common;
 #[path = "common/meet_fixture.rs"]
 mod meet_fixture;
 use common::BoxError;

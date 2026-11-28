@@ -5,7 +5,8 @@
 //! EXECUTE revoked from the app role the flow must fail, and it works with it granted. Each
 //! fails against the matching direct-SELECT mutant restored by
 //! `scripts/dev/test-secfix10-mutants.py` (feature `oracle-mutants`, `SETJOIN_SECFIX10_MUTANT`).
-mod common;
+#[allow(unused_imports)]
+use crate::common;
 include!("oidc_oracle/harness.rs");
 #[path = "oidc_oracle/grants.rs"]
 mod grants;

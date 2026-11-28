@@ -53,8 +53,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-get-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_get_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_get_success"
           }
         },
         {
@@ -62,8 +62,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-get-mixed-ids.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_get_mixed_ids"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_get_mixed_ids"
           }
         },
         {
@@ -71,8 +71,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-get-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_get_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_get_cross_tenant"
           }
         },
         {
@@ -80,8 +80,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-get-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_get_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_get_invalid_input"
           }
         },
         {
@@ -89,8 +89,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-get-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_get_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_get_delegate_personal"
           }
         },
         {
@@ -98,23 +98,23 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-get-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_get_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_get_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_373",
-        "test": "task_get_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_373::task_get_status_mutant"
       },
       "family_mutants": [
         {
           "name": "no-tenant-filter",
           "package": "setjoin-gateway",
-          "target": "jmap_family_373",
-          "test": "task_get_no_tenant_filter_mutant"
+          "target": "suite_jmap_family",
+          "test": "jmap_family_373::task_get_no_tenant_filter_mutant"
         }
       ]
     },
@@ -139,8 +139,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-query-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_query_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_query_success"
           }
         },
         {
@@ -148,8 +148,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-query-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_query_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_query_cross_tenant"
           }
         },
         {
@@ -157,8 +157,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-query-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_query_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_query_invalid_input"
           }
         },
         {
@@ -166,8 +166,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-query-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_query_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_query_delegate_personal"
           }
         },
         {
@@ -175,16 +175,16 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-query-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_query_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_query_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_373",
-        "test": "task_query_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_373::task_query_status_mutant"
       }
     },
     {
@@ -208,8 +208,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-changes-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_changes_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_changes_success"
           }
         },
         {
@@ -217,8 +217,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-changes-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_changes_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_changes_cross_tenant"
           }
         },
         {
@@ -226,8 +226,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-changes-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_changes_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_changes_invalid_input"
           }
         },
         {
@@ -235,8 +235,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-changes-state-mismatch.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_changes_state_mismatch"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_changes_state_mismatch"
           }
         },
         {
@@ -244,8 +244,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-changes-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_changes_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_changes_delegate_personal"
           }
         },
         {
@@ -253,16 +253,16 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-changes-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_changes_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_changes_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_373",
-        "test": "task_changes_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_373::task_changes_status_mutant"
       }
     },
     {
@@ -287,8 +287,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_set_success"
           }
         },
         {
@@ -297,8 +297,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_set_repeat"
           }
         },
         {
@@ -307,8 +307,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-update-destroy-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_set_update_destroy"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_set_update_destroy"
           }
         },
         {
@@ -317,8 +317,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_set_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_set_cross_tenant"
           }
         },
         {
@@ -327,8 +327,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_set_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_set_invalid_input"
           }
         },
         {
@@ -337,8 +337,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_set_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_set_delegate_personal"
           }
         },
         {
@@ -347,16 +347,16 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-entitlement-denied-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_set_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_set_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_373",
-        "test": "task_set_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_373::task_set_status_mutant"
       }
     },
     {
@@ -380,8 +380,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-comment-get-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_comment_get_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_comment_get_success"
           }
         },
         {
@@ -389,8 +389,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-comment-get-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_comment_get_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_comment_get_cross_tenant"
           }
         },
         {
@@ -398,8 +398,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-comment-get-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_comment_get_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_comment_get_invalid_input"
           }
         },
         {
@@ -407,8 +407,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-comment-get-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_comment_get_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_comment_get_delegate_personal"
           }
         },
         {
@@ -416,16 +416,16 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-comment-get-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_comment_get_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_comment_get_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_373",
-        "test": "task_comment_get_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_373::task_comment_get_status_mutant"
       }
     },
     {
@@ -450,8 +450,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_comment_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_comment_set_success"
           }
         },
         {
@@ -460,8 +460,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_comment_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_comment_set_repeat"
           }
         },
         {
@@ -470,8 +470,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_comment_set_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_comment_set_cross_tenant"
           }
         },
         {
@@ -480,8 +480,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_comment_set_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_comment_set_invalid_input"
           }
         },
         {
@@ -490,8 +490,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_comment_set_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_comment_set_delegate_personal"
           }
         },
         {
@@ -500,16 +500,16 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-entitlement-denied-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_comment_set_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_comment_set_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_373",
-        "test": "task_comment_set_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_373::task_comment_set_status_mutant"
       }
     },
     {
@@ -533,8 +533,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-list-get-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_get_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_get_success"
           }
         },
         {
@@ -542,8 +542,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-list-get-foreign-object.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_get_foreign_object"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_get_foreign_object"
           }
         },
         {
@@ -551,8 +551,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-list-get-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_get_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_get_invalid_input"
           }
         },
         {
@@ -560,8 +560,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-list-get-disabled.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_get_disabled"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_get_disabled"
           }
         },
         {
@@ -569,16 +569,16 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-list-get-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_get_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_get_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_373",
-        "test": "task_list_get_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_373::task_list_get_status_mutant"
       }
     },
     {
@@ -603,8 +603,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-set-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_set_success"
           }
         },
         {
@@ -613,8 +613,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-set-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_set_repeat"
           }
         },
         {
@@ -623,8 +623,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-set-update-destroy-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_set_update_destroy"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_set_update_destroy"
           }
         },
         {
@@ -633,8 +633,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-set-foreign-object-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_set_foreign_object"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_set_foreign_object"
           }
         },
         {
@@ -643,8 +643,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-set-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_set_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_set_invalid_input"
           }
         },
         {
@@ -653,16 +653,16 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-set-entitlement-denied-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_set_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_set_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_373",
-        "test": "task_list_set_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_373::task_list_set_status_mutant"
       }
     },
     {
@@ -687,8 +687,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_member_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_member_set_success"
           }
         },
         {
@@ -697,8 +697,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_member_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_member_set_repeat"
           }
         },
         {
@@ -707,8 +707,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-self-leave-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_member_set_self_leave"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_member_set_self_leave"
           }
         },
         {
@@ -717,8 +717,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-foreign-object-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_member_set_foreign_object"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_member_set_foreign_object"
           }
         },
         {
@@ -727,8 +727,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-nonexistent-list-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_member_set_nonexistent_list"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_member_set_nonexistent_list"
           }
         },
         {
@@ -737,8 +737,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_member_set_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_member_set_invalid_input"
           }
         },
         {
@@ -747,16 +747,16 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-entitlement-denied-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_member_set_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_member_set_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_373",
-        "test": "task_list_member_set_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_373::task_list_member_set_status_mutant"
       }
     },
     {
@@ -780,8 +780,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-list-tasks-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_tasks_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_tasks_success"
           }
         },
         {
@@ -789,8 +789,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-list-tasks-foreign-object.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_tasks_foreign_object"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_tasks_foreign_object"
           }
         },
         {
@@ -798,8 +798,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-list-tasks-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_tasks_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_tasks_invalid_input"
           }
         },
         {
@@ -807,16 +807,16 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-list-tasks-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_tasks_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_tasks_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_373",
-        "test": "task_list_tasks_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_373::task_list_tasks_status_mutant"
       }
     },
     {
@@ -841,8 +841,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_task_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_task_set_success"
           }
         },
         {
@@ -851,8 +851,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_task_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_task_set_repeat"
           }
         },
         {
@@ -861,8 +861,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-update-destroy-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_task_set_update_destroy"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_task_set_update_destroy"
           }
         },
         {
@@ -871,8 +871,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-foreign-object-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_task_set_foreign_object"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_task_set_foreign_object"
           }
         },
         {
@@ -881,8 +881,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_task_set_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_task_set_invalid_input"
           }
         },
         {
@@ -891,16 +891,16 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-entitlement-denied-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_list_task_set_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_list_task_set_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_373",
-        "test": "task_list_task_set_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_373::task_list_task_set_status_mutant"
       }
     },
     {
@@ -924,8 +924,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-assigned-get-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_assigned_get_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_assigned_get_success"
           }
         },
         {
@@ -933,8 +933,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-assigned-get-foreign-object.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_assigned_get_foreign_object"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_assigned_get_foreign_object"
           }
         },
         {
@@ -942,8 +942,8 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-assigned-get-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_assigned_get_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_assigned_get_invalid_input"
           }
         },
         {
@@ -951,16 +951,16 @@
           "golden": "server/tests/conformance/jmap/families/tasks/task-assigned-get-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_assigned_get_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_assigned_get_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_373",
-        "test": "task_assigned_get_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_373::task_assigned_get_status_mutant"
       }
     },
     {
@@ -985,8 +985,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_assigned_set_status_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_assigned_set_status_success"
           }
         },
         {
@@ -995,8 +995,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_assigned_set_status_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_assigned_set_status_repeat"
           }
         },
         {
@@ -1005,8 +1005,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-foreign-object-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_assigned_set_status_foreign_object"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_assigned_set_status_foreign_object"
           }
         },
         {
@@ -1015,8 +1015,8 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_assigned_set_status_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_assigned_set_status_invalid_input"
           }
         },
         {
@@ -1025,16 +1025,16 @@
           "row_golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-entitlement-denied-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_373",
-            "test": "task_assigned_set_status_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_373::task_assigned_set_status_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "changed-status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_373",
-        "test": "task_assigned_set_status_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_373::task_assigned_set_status_status_mutant"
       }
     }
   ]

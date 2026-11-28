@@ -2,7 +2,7 @@
 //! switched off, and with `feature.notify_decouple` ON the events a LISTEN
 //! client (the transport under Go's WebSocket/SSE hub) sees come from Rust.
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use common::BoxError;
 use setjoin_conformance::harness::Db;
 use std::process::{Command, Stdio};

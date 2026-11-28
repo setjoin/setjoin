@@ -1,9 +1,8 @@
 //! #274 real executable, all 19 registrations, native and rollback paths.
 use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
-mod common;
-#[path = "common/drive_s3.rs"]
-mod storage_wire;
+use crate::common;
+use crate::storage_wire;
 use common::BoxError;
 use futures_util::FutureExt;
 use http_body_util::BodyExt;

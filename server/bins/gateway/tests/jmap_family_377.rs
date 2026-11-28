@@ -1,9 +1,9 @@
 //! #377: JMAP Reminder/{get,dismiss,snooze} and Continuity/{get,present}
 //! recorded Go-parity oracle, mutants and WebSocket / readiness tests.
-#[allow(dead_code, unused_imports)]
-mod common;
-#[allow(dead_code, unused_imports)]
-mod jmap_family_oracle;
+#[allow(unused_imports)]
+use crate::common;
+#[allow(unused_imports)]
+use crate::jmap_family_oracle;
 
 use std::sync::Arc;
 

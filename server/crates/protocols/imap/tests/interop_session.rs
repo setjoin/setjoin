@@ -5,7 +5,7 @@
 //! `setjoin-interop-imap:local` (never built or removed here, #141) and the
 //! client container is `--rm`; Docker is required, never skipped. The
 //! client carries the same two Go-parity patches as `interop_client.py`.
-mod common;
+use crate::common;
 use common::server;
 use std::{process::Command, sync::Arc};
 use tokio::{net::TcpListener, sync::watch};
