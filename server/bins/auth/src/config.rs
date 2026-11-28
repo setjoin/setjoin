@@ -221,15 +221,8 @@ impl Config {
                     Some(std::fs::read_to_string(path).map_err(|_| "read SM2_PRIVATE_KEY_FILE")?);
             }
         }
-        c.signing_alg = match explicit_signing_alg {
-            Some(alg) => alg,
-            None if c.profile == CryptoProfile::Smx
-                || (c.profile == CryptoProfile::Hybrid && c.sm2_pem.is_some()) =>
-            {
-                "SM2".into()
-            }
-            None => "HS256".into(),
-        };
+        c.signing_alg = explicit_signing_alg.unwrap_or_else(|| "HS256".into());
+        c.signing_alg = c.effective_signing_alg().into();
         c.access_seconds = duration(&get("JWT_EXPIRY", "jwt.expiry").unwrap_or("1h".into()))?;
         c.refresh_seconds =
             duration(&get("JWT_REFRESH_EXPIRY", "jwt.refresh_expiry").unwrap_or("720h".into()))?;

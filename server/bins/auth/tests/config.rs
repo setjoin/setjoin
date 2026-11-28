@@ -70,6 +70,10 @@ fn smx_profile_keeps_go_s_sixteen_byte_secret_floor() {
         let hybrid_sm2 = setjoin_auth::Config::from_env().unwrap();
         assert_eq!(hybrid_sm2.signing_alg, "SM2");
         assert_eq!(hybrid_sm2.effective_signing_alg(), "SM2");
+        std::env::set_var("JWT_SIGNING_ALG", "HS256");
+        let hybrid_sm2_explicit_hs256 = setjoin_auth::Config::from_env().unwrap();
+        assert_eq!(hybrid_sm2_explicit_hs256.signing_alg, "SM2");
+        assert_eq!(hybrid_sm2_explicit_hs256.effective_signing_alg(), "SM2");
         std::env::set_var("JWT_SIGNING_ALG", "ES256");
         let explicit_es256 = setjoin_auth::Config::from_env().unwrap();
         assert_eq!(explicit_es256.signing_alg, "ES256");
