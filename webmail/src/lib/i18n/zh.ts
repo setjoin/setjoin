@@ -297,6 +297,11 @@ const zh: Record<string, string> = {
   "inbox.html_toggle.show": "显示 HTML",
   "inbox.html_toggle.hide": "隐藏 HTML",
   "inbox.read_receipt_request": "发件人请求已读回执",
+  "inbox.group.pinned": "置顶",
+  "inbox.group.today": "今天",
+  "inbox.group.yesterday": "昨天",
+  "inbox.group.this_week": "本周",
+  "inbox.group.older": "更早",
 
   // ── Mail banners ──
   "mail.banner.spoof_warning":

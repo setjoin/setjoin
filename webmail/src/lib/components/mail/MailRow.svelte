@@ -38,9 +38,11 @@
 		onSnooze?: (date: Date) => void;
 		/** Reducer-authored shared-mailbox work state for this thread. */
 		workStatus?: MailWorkStatus;
+		/** Tabindex for the row root (MessageList drives roving tabindex; standalone defaults to 0). */
+		rowTabIndex?: number;
 	}
 
-	let { email, tags, selected, onOpen, onArchive, onStar, onTrash, onToggleRead, sendAt, onCancel, isOther = false, onMoveFocus, tour, onSnooze, workStatus }: Props = $props();
+	let { email, tags, selected, onOpen, onArchive, onStar, onTrash, onToggleRead, sendAt, onCancel, isOther = false, onMoveFocus, tour, onSnooze, workStatus, rowTabIndex = 0 }: Props = $props();
 
 	const unread = $derived(!email.keywords?.['$seen']);
 
@@ -265,7 +267,7 @@
 	class="sj-mailrow"
 	class:sj-mailrow--selected={selected}
 	role="button"
-	tabindex="0"
+	tabindex={rowTabIndex}
 	aria-label={`${unread ? 'Unread, ' : ''}message from ${senderName}: ${subject}${timestamp ? `, ${timestamp}` : ''}`}
 	onclick={handleRowClick}
 	onkeydown={handleKeyDown}
@@ -477,6 +479,15 @@
 		gap: 3px;
 		background: var(--surface-card);
 		transition: transform var(--duration-fast, 150ms) var(--ease-out, ease-out);
+	}
+
+	:global([data-density="compact"]) .sj-mailrow {
+		gap: 1px;
+		padding: var(--space-1) var(--space-3);
+	}
+
+	:global([data-density="compact"]) .sj-mailrow__inner {
+		gap: 1px;
 	}
 
 	.sj-mailrow__inner--dragging {

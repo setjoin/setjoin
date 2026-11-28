@@ -320,6 +320,11 @@ const de: Record<string, string> = {
   "inbox.html_toggle.show": "HTML anzeigen",
   "inbox.html_toggle.hide": "HTML ausblenden",
   "inbox.read_receipt_request": "Absender hat Lesebestätigung angefordert",
+  "inbox.group.pinned": "Angepinnt",
+  "inbox.group.today": "Heute",
+  "inbox.group.yesterday": "Gestern",
+  "inbox.group.this_week": "Diese Woche",
+  "inbox.group.older": "Älter",
 
   // ── Mail banners ──
   "mail.banner.spoof_warning":
