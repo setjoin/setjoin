@@ -258,7 +258,7 @@ echo "   $n1 token(s) checked."
 # not a path char, the leftmost match starts at `ROOT/mailserver/...`, whose
 # first segment `ROOT` isn't a real top-level dir, so it's correctly ignored
 # rather than reported as a dangling path).
-TOP_LEVEL_ALLOW=(mailserver authserver shared mailctl clients docs scripts examples deploy)
+TOP_LEVEL_ALLOW=(mailserver authserver shared mailctl clients docs scripts deploy)
 is_top_level_allowed() {
   local seg="$1" t
   for t in "${TOP_LEVEL_ALLOW[@]}"; do [ "$seg" = "$t" ] && return 0; done

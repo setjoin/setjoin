@@ -423,7 +423,7 @@ across 9 implementation waves. Current per-protocol compliance:
 ### Compliance infrastructure
 
 - **Rules:** `.opencode/rules/` — 9 protocol rule files auto-loaded per session
-- **RFC references:** `docs/rfcs/` — concise extracts of critical normative sections
+- **RFC references:** `docs/ref/rfcs/` — concise extracts of critical normative sections
 - **Compliance tests:** `internal/{smtp,caldav}/` — 34 protocol compliance tests
 - **Audit baseline:** original audit findings and improvement plan (private working notes, not in this repository)
 - **Checklist:** `TODO.md` — all findings integrated as actionable `[x]`/`[ ]` checkboxes

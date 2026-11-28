@@ -797,11 +797,11 @@ grep -rn 'CREATE OR REPLACE FUNCTION' mailserver/sql/reducers/ --include='*.sql'
 ## Related Documentation
 
 - `docs/phases.md` — Phase 1.2: reducer catalog
-- `docs/specs/DATABASE_SECURITY.md` — R1-R4 rules enforced by all reducers
+- `docs/standards/DATABASE_SECURITY.md` — R1-R4 rules enforced by all reducers
 - `docs/reducer-error-codes.md` — error code registry
-- `docs/specs/JMAP.md` — JMAP method → reducer mapping
-- `docs/specs/RULES.md` — Rule engine condition grammar and action catalog
-- `docs/specs/CRASH_RECOVERY.md` — Startup recovery procedure
+- `docs/ref/JMAP.md` & `docs/ref/JMAP_VENDOR_EXTENSIONS.md` — JMAP method → reducer mapping and vendor capability
+- `docs/ref/RULES.md` — Rule engine condition grammar and action catalog
+- `docs/ref/CRASH_RECOVERY.md` — Startup recovery procedure
 
 ## Rust Approvals parity (#269)
 

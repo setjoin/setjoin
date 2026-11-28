@@ -1,6 +1,6 @@
 # RFC 7672 — SMTP Security via Opportunistic DANE TLS
 
-> Full text: `docs/rfcs/rfc7672-dane-smtp.txt`
+> Full text: `docs/ref/rfcs/rfc7672-dane-smtp.txt`
 > Implementation: `mailserver/gateway/internal/smtp/dane.go`
 
 ## Compliance Checklist
