@@ -10,7 +10,7 @@
 --   · ALLOW — the meeting's own presenter drives the REAL reducer write
 --     path (meeting_presentation_annotation_commit) as setjoin_app under
 --     FORCE: the legitimate writer is never locked out.
--- COVERED entries: scripts/rls-denial-allowlist.txt + rls-allow-allowlist.txt.
+-- COVERED entries: scripts/guards/rls-denial-allowlist.txt + rls-allow-allowlist.txt.
 BEGIN;
 SELECT plan(11);
 

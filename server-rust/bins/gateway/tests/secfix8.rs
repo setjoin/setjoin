@@ -1,6 +1,6 @@
 //! Owner-approved security fixes of 2026-11-06 (#529 admin-scope residuals, #531 follow-ups of
 //! #512). Each test states the secure behaviour at the real seam; the mutants (feature
-//! `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/test-secfix8-mutants.py) restore frozen
+//! `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/dev/test-secfix8-mutants.py) restore frozen
 //! Go's behaviour and must make these tests fail.
 mod common;
 use common::BoxError;

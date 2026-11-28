@@ -2802,7 +2802,7 @@ mod db {
     async fn actor_arguments_are_seam_bound() {
         // No database: `for_case` panics under REQUIRE_DB=1 (the lane and the
         // PR pre-check) and otherwise prints `CONFORMANCE-SKIP (reason=no-db
-        // case=actor_arguments_are_seam_bound)`, which scripts/check-server-rust.sh
+        // case=actor_arguments_are_seam_bound)`, which scripts/guards/check-server-rust.sh
         // counts and turns red under REQUIRE_DB=1. It cannot pass silently (#427).
         let Some(db) = Db::for_case("actor_arguments_are_seam_bound") else {
             return;

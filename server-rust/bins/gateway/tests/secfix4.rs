@@ -3,7 +3,7 @@
 //! departments, #467 conditional-access policies). Each test drives the real Rust command
 //! or read with three actors: a domain-scoped admin on a foreign object (refused), on its
 //! own domain's object (allowed) and an organization-wide admin (allowed). The mutants
-//! (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/test-secfix4-mutants.py)
+//! (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/dev/test-secfix4-mutants.py)
 //! restore frozen Go's behaviour and must make these tests fail.
 mod common;
 use common::BoxError;

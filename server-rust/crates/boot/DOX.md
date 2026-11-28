@@ -78,7 +78,7 @@ set, S3/WORM checks run only when `subsystems.workers || subsystems.http`, and
 `setjoin_boot::run()` returns `Result<BootPosture, Refusal>` and
 unconditionally enforces `EnforcementMode::FailClosedReleaseNPlus1` with zero
 bypass flags (`run_with_mode` and `WarnReleaseN` are removed from production
-entrypoints, guarded by `scripts/check-rls-fail-closed.sh`). It passes the
+entrypoints, guarded by `scripts/guards/check-rls-fail-closed.sh`). It passes the
 effective `worker_dsn` (so omitting `DB_WORKER_DSN` fails closed loudly instead
 of reusing `DB_DSN`) and `raw_owner_dsn.as_deref()` (so production units
 intentionally omitting `DB_OWNER_DSN` per DEPLOY-004 succeed while an

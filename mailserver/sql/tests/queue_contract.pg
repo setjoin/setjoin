@@ -1,6 +1,6 @@
 -- queue_contract.pg: pgTAP schema guard for the F1 failure contract.
 -- The converged queues must carry the contract columns on the loaded schema
--- (complements the greppy scripts/check-queue-contract.sh: this proves the
+-- (complements the greppy scripts/guards/check-queue-contract.sh: this proves the
 -- columns are really IN the database, not just textually present in a V-file).
 BEGIN;
 SELECT plan(11);

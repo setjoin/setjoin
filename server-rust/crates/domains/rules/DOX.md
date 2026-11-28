@@ -39,7 +39,7 @@ grants; owner-approved security fix 2026-11-05 (#484) drops them (`authority::lo
 fail closed). Personal-rule and sweep caps (100 / 3) are enforced in the database:
 `setjoin_pg::run_receipted_command_capped` locks the mailbox row FOR UPDATE, then counts and
 writes as separate statements of one transaction (Go counted unlocked, so concurrent requests
-exceeded the caps); `personal_create`/`apply` answer `Committed("cap")` when full. Tests: gateway `secfix3_rules`; mutants via `scripts/test-secfix3-mutants.py`.
+exceeded the caps); `personal_create`/`apply` answer `Committed("cap")` when full. Tests: gateway `secfix3_rules`; mutants via `scripts/dev/test-secfix3-mutants.py`.
 
 The active schema omits both template tables. `tests/conformance/rules/legacy-fixture.sql`
 is temporary oracle data only, never a schema migration or archive load. Template

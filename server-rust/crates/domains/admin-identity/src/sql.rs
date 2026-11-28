@@ -2,7 +2,7 @@
 //!
 //! Every SQL statement executed by `setjoin-admin-identity` (and its gateway
 //! worker-bypass adapter arms) is declared here as a static [`SqlContract`]
-//! verified against live PostgreSQL 17 by `scripts/check-rust-sql-contracts.sh`.
+//! verified against live PostgreSQL 17 by `scripts/guards/check-rust-sql-contracts.sh`.
 use setjoin_sql_catalog::{
     pg_rfc3339, ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type,
 };

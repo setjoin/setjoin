@@ -3,10 +3,10 @@
 # fails an unlisted red guard, fails a listed guard that now passes (ratchet), rejects unknown names.
 source "$(dirname "$0")/_base.sh"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-mkdir "$tmp/scripts"
+mkdir -p "$tmp/scripts/guards"
 cp "$ROOT/scripts/_base.sh" "$ROOT/scripts/run-guards.sh" "$tmp/scripts/"
-printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/scripts/check-green.sh"
-printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/scripts/check-red.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/scripts/guards/check-green.sh"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/scripts/guards/check-red.sh"
 rg() { bash "$tmp/scripts/run-guards.sh" "$@" >/dev/null 2>&1; }
 fail=0
 expect() { # want label args...

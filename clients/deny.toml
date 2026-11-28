@@ -4,7 +4,7 @@
 # webpki-roots / webpki-root-certs (Mozilla CA roots), which only the clients
 # graphs pull in. Setjoin's own crates are PolyForm-Noncommercial-1.0.0 (root
 # LICENSE); they set `publish = false`, so [licenses.private] skips them.
-# Enforced by scripts/check-clients-licenses.sh (drift vs server-rust + cargo-deny).
+# Enforced by scripts/guards/check-clients-licenses.sh (drift vs server-rust + cargo-deny).
 [licenses]
 allow = [
   "MIT",
@@ -29,13 +29,13 @@ ignore = true
 # Cargo supply-chain registry policy for the clients workspace
 # (D-CLIENTS--CARGO-002, CWE-494). Enforced by `cargo deny check sources`
 # where cargo-deny is available, and validated byte-for-byte against
-# scripts/cargo-lock-pins.json by scripts/check-cargo-supply-chain.sh
+# scripts/guards/cargo-lock-pins.json by scripts/guards/check-cargo-supply-chain.sh
 # (which runs in every run-guards.sh lane, including xinchuang CI).
 #
 # Policy: the ONLY permitted dependency source is crates.io. Git dependencies,
 # alternative registries, and any mirror are denied. If a mirror is ever
 # sanctioned, add it to allow-registry here, to `registries` in
-# scripts/cargo-lock-pins.json, and document it in clients/.cargo/config.toml
+# scripts/guards/cargo-lock-pins.json, and document it in clients/.cargo/config.toml
 # in the same change — the guard fails any drift between the three.
 [sources]
 # Unknown registries (anything not in allow-registry) fail the check.

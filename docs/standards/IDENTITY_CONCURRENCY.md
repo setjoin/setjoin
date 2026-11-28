@@ -71,7 +71,7 @@ not retry minting with the stale claim.
 
 ## Static writer inventory
 
-`scripts/check-identity-link-writers.sh` fails when a reducer is added to or
+`scripts/guards/check-identity-link-writers.sh` fails when a reducer is added to or
 removed from the known writer set. It recognizes both qualified and
 unqualified table names and intentionally excludes migrations and pgTAP
 fixtures. This prevents the prior near-miss where an unqualified-only search

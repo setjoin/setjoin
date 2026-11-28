@@ -134,7 +134,7 @@
   "externalGates": [
     {
       "id": "link-protect-http",
-      "command": "bash scripts/e2e.sh link-protect",
+      "command": "bash scripts/dev/e2e.sh link-protect",
       "requires": ["SAFEBROWSING_API_KEY", "TEST_ADMIN_TOKEN", "TEST_GATEWAY_URL"],
       "includedIn": [],
       "reason": "The full SMTP→gateway→Safe Browsing flow uses an external credential/service; only the in-process token contract is local."

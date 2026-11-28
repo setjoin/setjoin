@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 POLICY = pathlib.Path(__file__).resolve().parents[2] / "deny.toml"
-EXCEPTION_GUARD = pathlib.Path(__file__).resolve().parents[3] / "scripts/check-rust-license-exceptions.py"
+EXCEPTION_GUARD = pathlib.Path(__file__).resolve().parents[3] / "scripts/guards/check-rust-license-exceptions.py"
 
 
 class LicensePolicy(unittest.TestCase):
@@ -52,7 +52,7 @@ class LicensePolicy(unittest.TestCase):
         self.assertEqual(advisories.get("unmaintained"), "all")
         self.assertEqual(advisories.get("unsound"), "all")
         self.assertEqual(advisories.get("yanked"), "deny")
-        lane = (POLICY.parents[1] / "scripts/check-server-rust.sh").read_text()
+        lane = (POLICY.parents[1] / "scripts/guards/check-server-rust.sh").read_text()
         calls = re.findall(r'"\$CARGO" deny --locked check([^)|]*)\)', lane)
         self.assertTrue(calls, "the Rust lane must run cargo deny check")
         for args in calls:

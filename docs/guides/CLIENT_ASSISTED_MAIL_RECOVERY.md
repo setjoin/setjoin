@@ -64,12 +64,12 @@ paths, so later rehearsals do not repeat manual host preparation:
 ```bash
 export RUN_PREFIX=sj-continuity-$(date +%Y%m%d)
 export REWIND_ATTEMPT=attempt-1
-bash scripts/transactional-upgrade-rehearsal.sh provision
-bash scripts/transactional-upgrade-rehearsal.sh updater
-bash scripts/transactional-upgrade-rehearsal.sh rewind
-bash scripts/transactional-upgrade-rehearsal.sh deterministic
-bash scripts/transactional-upgrade-rehearsal.sh status
-bash scripts/transactional-upgrade-rehearsal.sh cleanup
+bash scripts/deploy/transactional-upgrade-rehearsal.sh provision
+bash scripts/deploy/transactional-upgrade-rehearsal.sh updater
+bash scripts/deploy/transactional-upgrade-rehearsal.sh rewind
+bash scripts/deploy/transactional-upgrade-rehearsal.sh deterministic
+bash scripts/deploy/transactional-upgrade-rehearsal.sh status
+bash scripts/deploy/transactional-upgrade-rehearsal.sh cleanup
 ```
 
 `resume-provision` is only for the guarded pre-install/install checkpoint. A
@@ -84,7 +84,7 @@ real updater success/rollback and rewind rehearsals, deterministic U5–U7 tests
 and the final hardware gate in order:
 
 ```bash
-RUN_PREFIX="$RUN_PREFIX" bash scripts/transactional-upgrade-rehearsal.sh full
+RUN_PREFIX="$RUN_PREFIX" bash scripts/deploy/transactional-upgrade-rehearsal.sh full
 ```
 
 Until then it intentionally stops at the first OPEN release row and preserves

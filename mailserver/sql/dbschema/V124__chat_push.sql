@@ -8,7 +8,7 @@
 -- feature.chat_push; the pushjobs worker's second drain leg (Task 3) fans
 -- out per member at drain time. No RLS — worker-only table, the same
 -- V107 push_intents / scheduled_actions precedent (R4-by-access-path, not
--- native RLS); NOT added to scripts/rls-denial-allowlist.txt (that guard
+-- native RLS); NOT added to scripts/guards/rls-denial-allowlist.txt (that guard
 -- covers FORCE'd tables only).
 -- ════════════════════════════════════════════════════════════════════════
 

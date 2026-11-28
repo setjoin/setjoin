@@ -13,17 +13,17 @@ file and parent-directory fsync; failure preserves the previous output.
 
 Process oracle: `cargo test -p setjoin-release -- --test-threads=1`.
 
-`../../../scripts/sign-server-release.sh` builds with Rust, hashes, signs with at least two
+`../../../scripts/deploy/sign-server-release.sh` builds with Rust, hashes, signs with at least two
 key IDs, verifies offline (production roots and floor 2), then promotes the signed
 manifest. Inputs are an unsigned inventory; the roots and the signer helper stay with
 the owner. No workflow publishes releases yet; release builds and owner-side signing
 are planned separately.
 
-Before downloading inputs, `scripts/check-server-release-build.sh` checks the
+Before downloading inputs, `scripts/guards/check-server-release-build.sh` checks the
 selected run's exact workflow path (`.github/workflows/server-build.yml`),
 push/release event, main/release-tag head, same repository and success conclusion.
 Release tags must resolve to the run's head SHA (annotated tags are supported).
-`bash scripts/test-check-server-release-build.sh` exercises acceptance and every
+`bash scripts/guards/test-check-server-release-build.sh` exercises acceptance and every
 rejection offline with a fake `gh`. The unsigned server build producer is not
 present in this tree; provisioning that exact workflow is a prerequisite to
 signing, and the gate fails closed until it exists. No producer attestations

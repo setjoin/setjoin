@@ -47,6 +47,6 @@ Endpoint outages do not roll back the accepted business mutation.
 Verify locally with:
 
 ```bash
-bash scripts/verify-architecture-r3.sh --doctor
-bash scripts/verify-architecture-r3.sh webhook-outbox
+bash scripts/ci/verify-architecture-r3.sh --doctor
+bash scripts/ci/verify-architecture-r3.sh webhook-outbox
 ```

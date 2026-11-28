@@ -7,9 +7,9 @@ it does not enable production features or replace the normal build/test lanes.
 ## Start with the fake path
 
 ```bash
-bash scripts/verify-office-foundation.sh doctor
-bash scripts/verify-office-foundation.sh quick
-bash scripts/verify-office-foundation.sh evidence <manifest.json>
+bash scripts/ci/verify-office-foundation.sh doctor
+bash scripts/ci/verify-office-foundation.sh quick
+bash scripts/ci/verify-office-foundation.sh evidence <manifest.json>
 ```
 
 The fake path is offline-capable and contains no tenant, database, object-store,
@@ -37,7 +37,7 @@ interoperability.
 ## Doctor output
 
 ```bash
-bash scripts/verify-office-foundation.sh doctor --json
+bash scripts/ci/verify-office-foundation.sh doctor --json
 ```
 
 Doctor checks only local, non-secret prerequisites and manifest shape. It reports
@@ -63,7 +63,7 @@ authority/isolation, security, capacity, corpus, and removal lanes.
 ## Live profile and provider removal
 
 ```bash
-bash scripts/verify-office-foundation.sh live-collabora
+bash scripts/ci/verify-office-foundation.sh live-collabora
 ```
 
 Without all approved prerequisites this command exits non-zero with
@@ -83,10 +83,10 @@ work. A provider may never become the authority for bytes or recovery.
 Use the offline catalog when a lane fails:
 
 ```bash
-bash scripts/verify-office-foundation.sh explain E_OFFICE_PROVIDER_UNREADY
-bash scripts/verify-office-foundation.sh explain E_OFFICE_PROOF_REJECTED
-bash scripts/verify-office-foundation.sh explain E_OFFICE_SAVE_RECEIPT_REPLAY
-bash scripts/verify-office-foundation.sh explain E_OFFICE_UNSUPPORTED_OFFLINE_WEB
+bash scripts/ci/verify-office-foundation.sh explain E_OFFICE_PROVIDER_UNREADY
+bash scripts/ci/verify-office-foundation.sh explain E_OFFICE_PROOF_REJECTED
+bash scripts/ci/verify-office-foundation.sh explain E_OFFICE_SAVE_RECEIPT_REPLAY
+bash scripts/ci/verify-office-foundation.sh explain E_OFFICE_UNSUPPORTED_OFFLINE_WEB
 ```
 
 Every operator-facing failure should state the problem, cause, effect, next

@@ -10,21 +10,21 @@
   "authorization": "docs/verification/2026-09-19-owner-consolidated-decisions.md §D3 (renderer/font qualification authorized; the run consumes THIS corpus, so the freeze precedes the run) + the owner-directed 2026-09-20 qualification run (dev-side darwin/arm64 capture; linux-ci-host server re-qualification is the named production-pin follow-up)",
   "corpusDir": "docs/verification/meet-m0-corpus",
   "verification": {
-    "script": "scripts/gen-meet-m0-corpus.sh verify",
+    "script": "scripts/dev/gen-meet-m0-corpus.sh verify",
     "goTest": "go test ./internal/meet/presentation -run M0Corpus (mailserver module)",
     "contract": "The Go helper corpus_manifest.go re-derives digest, byte size and intrinsic count for every digest-bearing entry — synthetic-seed AND frozen producer-pinned rows — and refuses producer-pinned entries that are still acquisition-pending but have bytes on disk."
   },
   "generator": {
-    "script": "scripts/gen-meet-m0-corpus.sh",
+    "script": "scripts/dev/gen-meet-m0-corpus.sh",
     "deterministic": true,
     "network": "none",
     "dependencies": "bash + python3 stdlib only",
     "regeneration": "synthetic-seed entries are byte-deterministic: a re-run reproduces the frozen sha256 digests exactly; drift fails `verify` and the Go test",
-    "acquisition": "`scripts/gen-meet-m0-corpus.sh acquire` stages the five producer-pinned conversions through the pinned engine (SOFFICE env or PATH) into a staging dir and prints a digest/size/count fragment for the manifest update + dated receipt. This is the linux-ci-host re-qualification procedure; it never overwrites frozen corpus rows."
+    "acquisition": "`scripts/dev/gen-meet-m0-corpus.sh acquire` stages the five producer-pinned conversions through the pinned engine (SOFFICE env or PATH) into a staging dir and prints a digest/size/count fragment for the manifest update + dated receipt. This is the linux-ci-host re-qualification procedure; it never overwrites frozen corpus rows."
   },
   "classSemantics": {
     "producer-pinned": "Bytes produced by the D3-pinned producer (LibreOffice headless, MPL-2.0) with the engine identity captured verbatim from `soffice --version` at generation time. Producer versions are NEVER invented; entries stay 'acquisition-pending' until that capture happens. Revision 2 captured the engine dev-side on darwin/arm64 (owner-directed 2026-09-20 qualification run); the linux-ci-host server-side capture remains the production-pin follow-up and re-runs the same recipes with a fresh dated receipt.",
-    "synthetic-seed": "Deterministic in-repo generated fixtures (scripts/gen-meet-m0-corpus.sh, no network, no third-party material). They carry structure, size and counts for bandwidth benchmarking and serve as LibreOffice conversion INPUTS. They are NEVER passable as producer-pinned evidence and are never renderer-qualification inputs."
+    "synthetic-seed": "Deterministic in-repo generated fixtures (scripts/dev/gen-meet-m0-corpus.sh, no network, no third-party material). They carry structure, size and counts for bandwidth benchmarking and serve as LibreOffice conversion INPUTS. They are NEVER passable as producer-pinned evidence and are never renderer-qualification inputs."
   },
   "producerPinning": {
     "decision": "D3 one-suite constraint: LibreOffice headless is the single authorized office engine for Office-format → PDF server-side conversion; one PDF paging primitive (poppler GPL or pdfium BSD-style) is chosen by measured qualification, never pre-pinned here.",
@@ -63,7 +63,7 @@
       "budgetBindings": ["Cached-reference-deck start p95 is at most 30 seconds"],
       "producer": {
         "kind": "in-repo deterministic generator",
-        "script": "scripts/gen-meet-m0-corpus.sh",
+        "script": "scripts/dev/gen-meet-m0-corpus.sh",
         "seed": "m0corpus/pdf/small-deck"
       },
       "provenance": "Original generated fixture; no third-party material. Synthetic seed — never producer-pinned evidence."
@@ -81,7 +81,7 @@
       "budgetBindings": ["Default prefetch is current + next two pages, bounded by 24 MiB and reduced under constrained connectivity"],
       "producer": {
         "kind": "in-repo deterministic generator",
-        "script": "scripts/gen-meet-m0-corpus.sh",
+        "script": "scripts/dev/gen-meet-m0-corpus.sh",
         "seed": "m0corpus/pdf/medium-deck"
       },
       "provenance": "Original generated fixture; no third-party material. Synthetic seed — never producer-pinned evidence."
@@ -102,7 +102,7 @@
       ],
       "producer": {
         "kind": "in-repo deterministic generator",
-        "script": "scripts/gen-meet-m0-corpus.sh",
+        "script": "scripts/dev/gen-meet-m0-corpus.sh",
         "seed": "m0corpus/pdf/large-500p"
       },
       "provenance": "Original generated fixture; no third-party material. Synthetic seed — never producer-pinned evidence. The 256 KiB cell is measured on the meet-pages-v1 Manifest JSON built FROM this source, not on the source bytes."
@@ -124,7 +124,7 @@
       ],
       "producer": {
         "kind": "in-repo deterministic generator",
-        "script": "scripts/gen-meet-m0-corpus.sh",
+        "script": "scripts/dev/gen-meet-m0-corpus.sh",
         "seed": "m0corpus/image/<page> (shake_256, 3 MiB incompressible RGB per page)"
       },
       "provenance": "Original generated fixture; image bytes are keyed pseudo-random (incompressible by design, modelling real photo assets). Synthetic seed — never producer-pinned evidence."
@@ -145,7 +145,7 @@
       ],
       "producer": {
         "kind": "in-repo deterministic generator",
-        "script": "scripts/gen-meet-m0-corpus.sh",
+        "script": "scripts/dev/gen-meet-m0-corpus.sh",
         "seed": "m0corpus/pdf/annotation-heavy-ref20 (40 FreeText annotations per page)"
       },
       "provenance": "Original generated fixture; no third-party material. 20-page reference-deck SHAPE with dense annotations. Synthetic seed — never producer-pinned evidence. Meet-native notes/annotations remain reducer-owned; nothing here changes the protected-notes boundary."
@@ -166,7 +166,7 @@
       ],
       "producer": {
         "kind": "in-repo deterministic generator",
-        "script": "scripts/gen-meet-m0-corpus.sh",
+        "script": "scripts/dev/gen-meet-m0-corpus.sh",
         "seed": "m0corpus/pptx/reference20"
       },
       "provenance": "Original generated fixture; minimal well-formed OOXML written by the script, NOT Office-authored. Synthetic seed — never producer-pinned evidence. Doubles as the deterministic INPUT for the pinned LibreOffice pptx→pdf and pptx→odp recipes. Amended in revision 2 (same run, still deterministic): slide shapes gained explicit a:xfrm geometry/run color (the pinned producer DROPS empty-spPr shapes, which had produced all-blank pages) and the slideMaster relationship moved FIRST in presentation.xml.rels (a trailing master relationship made the pinned producer's pptx import drop slide 1's content, shift every slide one page early and append a blank page — measured 2026-09-20)."
@@ -184,7 +184,7 @@
       "budgetBindings": ["Producer/format coverage cell — docx"],
       "producer": {
         "kind": "in-repo deterministic generator",
-        "script": "scripts/gen-meet-m0-corpus.sh",
+        "script": "scripts/dev/gen-meet-m0-corpus.sh",
         "seed": "m0corpus/docx/paged12"
       },
       "provenance": "Original generated fixture. DOCX has no intrinsic page count; the count is the generator-written docProps/app.xml <Pages> declaration (countKind declared-pages), honest about not being a rendered page count. Synthetic seed."
@@ -202,7 +202,7 @@
       "budgetBindings": ["Producer/format coverage cell — xlsx"],
       "producer": {
         "kind": "in-repo deterministic generator",
-        "script": "scripts/gen-meet-m0-corpus.sh",
+        "script": "scripts/dev/gen-meet-m0-corpus.sh",
         "seed": "m0corpus/xlsx/sheets3"
       },
       "provenance": "Original generated fixture; no third-party material. Synthetic seed."
@@ -220,7 +220,7 @@
       "budgetBindings": ["Producer/format coverage cell — odp (LibreOffice-native ODF path)"],
       "producer": {
         "kind": "in-repo deterministic generator",
-        "script": "scripts/gen-meet-m0-corpus.sh",
+        "script": "scripts/dev/gen-meet-m0-corpus.sh",
         "seed": "m0corpus/odp/slides10"
       },
       "provenance": "Original generated fixture; no third-party material. Synthetic seed."
@@ -240,7 +240,7 @@
       ],
       "producer": {
         "kind": "in-repo deterministic generator",
-        "script": "scripts/gen-meet-m0-corpus.sh",
+        "script": "scripts/dev/gen-meet-m0-corpus.sh",
         "seed": "m0corpus/vtt/caption-dense (2.5 s cadence, arithmetic timestamps)"
       },
       "provenance": "Original generated fixture; no third-party material. Caption-track seeds exercise semantic-replay/caption transfer, not ASR quality. Synthetic seed."

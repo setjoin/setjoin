@@ -142,7 +142,7 @@ until that separate behavior decision.
 
 Owner-approved security fixes 2026-11-05 (ARCH-029 exception). Tests: gateway `tests/secfix5.rs`
 (foreign refused like missing / own allowed / organization-wide allowed), re-baselined goldens
-under each family's `security/`, mutants in `scripts/test-secfix5-mutants.py`.
+under each family's `security/`, mutants in `scripts/dev/test-secfix5-mutants.py`.
 
 - #435 lockdown: see the mdm slice above.
 - #440 offline: `rust_offline_command(.., p_reach)` refuses approve/deny/revoke/wipe of a device

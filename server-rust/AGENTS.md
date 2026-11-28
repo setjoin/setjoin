@@ -29,7 +29,7 @@ Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go se
     SQL contract catalog (`SqlContract`, `SqlScope`, `pg_rfc3339!`);
     [contract](crates/sql-catalog/DOX.md).
   - `tests/conformance` — DB-backed parity/golden harness; [contract](DOX.md#conformance-harness-contract).
-  - `tests/sql-contracts` (`setjoin-sql-contracts`, #541) — disposable-Postgres SQL verifier (`scripts/check-rust-sql-contracts*.sh`); [contract](crates/sql-catalog/DOX.md).
+  - `tests/sql-contracts` (`setjoin-sql-contracts`, #541) — disposable-Postgres SQL verifier (`scripts/guards/check-rust-sql-contracts*.sh`); [contract](crates/sql-catalog/DOX.md).
 - `pilot/` — separate pilot workspace; [contract](DOX.md#pilot-workspace-contract).
 - `tools/schema-simulation/` — separate tooling workspace; [contract](DOX.md#schema-simulation-workspace).
 
@@ -50,16 +50,16 @@ Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go se
   Runtime dependency constraints: [DOX.md](DOX.md#runtime-dependency-constraints).
 - Session encryption/audit GUC requirements: [DOX.md](DOX.md#session-guc-requirements).
 - Lowering a crate's `rust-version`, merging the pilot, schema-simulation or
-  bench-mark-read into the workspace, or adding a member changes this rail and `scripts/check-server-rust.sh`.
+  bench-mark-read into the workspace, or adding a member changes this rail and `scripts/guards/check-server-rust.sh`.
 
 ## Verification
 
-- `python3 scripts/report-gofree-oracle-coverage.py` measures per-handler coverage for golden replays (`-C instrument-coverage`, `llvm-tools`, DB-backed, no skip).
-- Route inventory goldens live in `bins/gateway/data/` (validated by `inventory_guard` and `scripts/check-openapi-{coverage,visibility}.sh`).
+- `python3 scripts/ci/report-gofree-oracle-coverage.py` measures per-handler coverage for golden replays (`-C instrument-coverage`, `llvm-tools`, DB-backed, no skip).
+- Route inventory goldens live in `bins/gateway/data/` (validated by `inventory_guard` and `scripts/guards/check-openapi-{coverage,visibility}.sh`).
 - Gateway `tests/proxy.rs` covers dispatch, direct `setjoin-auth` routing, and proxy metrics; `tests/startup.rs` checks startup, direct LISTEN, and graceful shutdown.
-- `bash scripts/check-server-rust.sh` — `cargo test --locked` across workspace, pilot, schema-simulation, and bench-mark-read (`SERVER_RUST_NEXTEST=1` for nextest; [DOX.md](DOX.md#parallel-full-lane-550)).
+- `bash scripts/guards/check-server-rust.sh` — `cargo test --locked` across workspace, pilot, schema-simulation, and bench-mark-read (`SERVER_RUST_NEXTEST=1` for nextest; [DOX.md](DOX.md#parallel-full-lane-550)).
 - Oracle adequacy gate and coverage: [DOX.md](DOX.md#oracle-adequacy).
-- Historical Go-deletion rehearsal (#141, retired `#142`, [ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md)): [DOX.md](DOX.md#go-deletion-rehearsal-141); `scripts/test-samlacs-mutants.py` stays in CI `roots` (`REQUIRE_DB=1`).
+- Historical Go-deletion rehearsal (#141, retired `#142`, [ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md)): [DOX.md](DOX.md#go-deletion-rehearsal-141); `scripts/dev/test-samlacs-mutants.py` stays in CI `roots` (`REQUIRE_DB=1`).
 - `setjoin-pg` DB tests (`crates/pg/tests/db_scope.rs`) require `TEST_DB_DSN`/`DB_DSN`, `DB_APP_DSN` (`setjoin_app`), and `DB_WORKER_DSN` (`setjoin_worker`, Release N+1 `#547`); absent → `SETJOIN-PG-DB-SKIP`, `REQUIRE_DB=1` → FAIL.
 - `crates/pg/tests/workers.rs` and `bins/gateway/tests/workers.rs` cover cron/interval scheduling, locks, cancellation, and denylist oracle.
 - Conformance, JMAP DB tests, guard self-test, gateway coverage, RP07/stalled-read, and image qualification: [DOX.md](DOX.md#conformance-and-jmap-db-tests), [DOX.md](DOX.md#verification-detail), [DOX.md](DOX.md#manual-evidence-and-image-qualification).
@@ -142,4 +142,4 @@ Shared Go UUID identifiers (#455): [contracts](crates/contracts/DOX.md#go-uuid-i
 - `crates/workqueue` (#548/#549) — durable WorkQueue, `worker_schedules` leases, DLQ (`operator`), privileged `worker` (family-isolated). `bins/gateway/src/supervisor/` owns `WorkerSupervisor`, boot `BYPASSRLS`, WORM arming, drain-then-retire.
 - `SyncWakeupHub` (`bins/gateway/src/jmap/sync_hub.rs`, #552), `chat_changes` (`#553`), IMAP CONDSTORE/QRESYNC (`#554`): [gateway DOX](bins/gateway/DOX.md), [IMAP DOX](crates/protocols/imap/DOX.md).
 - `crates/search` (`setjoin-search`, #556/#557/#558) — foundation two-tier search, pure-MIT `tantivy` + extraction/indexing + PG re-auth/eDiscovery/purge compaction/HA RPC; [contract](crates/search/DOX.md).
-- `crates/edge-contract` (`setjoin-edge-contract`, #561) — edge-only plain `serde` DTOs generated from `contracts/edge/openapi/edge.v1.yaml` (zero OpenAPI proc-macros; `scripts/check-openapi-proc-macro-ban.sh` + `scripts/check-edge-contract-drift.sh`); [contract](crates/edge-contract/DOX.md).
+- `crates/edge-contract` (`setjoin-edge-contract`, #561) — edge-only plain `serde` DTOs generated from `contracts/edge/openapi/edge.v1.yaml` (zero OpenAPI proc-macros; `scripts/guards/check-openapi-proc-macro-ban.sh` + `scripts/guards/check-edge-contract-drift.sh`); [contract](crates/edge-contract/DOX.md).

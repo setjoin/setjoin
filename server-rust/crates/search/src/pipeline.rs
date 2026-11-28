@@ -3,7 +3,7 @@
 //!
 //! Family isolation: this module stays strictly free of `setjoin-pg/worker-pool`
 //! and `setjoin-workqueue/worker` features so `setjoin-search` remains a clean
-//! foundation crate (`scripts/check-rust-family-isolation.py`). Composition roots
+//! foundation crate (`scripts/guards/check-rust-family-isolation.py`). Composition roots
 //! (`bins/gateway/src/supervisor/search_worker.rs`) supply `WorkerPool` + `ObjectStore`
 //! adapters implementing [`SearchPipelineDb`] and [`ObjectByteReader`].
 

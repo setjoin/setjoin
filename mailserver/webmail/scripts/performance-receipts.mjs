@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 /**
- * Receipt writer and guard seam for `scripts/verify-webmail-performance.sh`.
+ * Receipt writer and guard seam for `scripts/ci/verify-webmail-performance.sh`.
  *
  * Two evidence kinds share one run root and must never be mistaken for each
  * other (plan: retired-docs:superpowers/plans/2026-08-09-webmail-loading-performance.md,
@@ -56,7 +56,7 @@ export class PerfEvidenceError extends Error {
 	}
 
 	grammarLine() {
-		return `E_WEBMAIL_PERF_${this.code} problem=${this.problem} cause=${this.causeText} value=${this.value ?? '-'} artifact=${this.artifact} fix='${this.fix}' rerun='${this.rerun ?? 'bash scripts/verify-webmail-performance.sh --help'}'`;
+		return `E_WEBMAIL_PERF_${this.code} problem=${this.problem} cause=${this.causeText} value=${this.value ?? '-'} artifact=${this.artifact} fix='${this.fix}' rerun='${this.rerun ?? 'bash scripts/ci/verify-webmail-performance.sh --help'}'`;
 	}
 }
 
@@ -107,7 +107,7 @@ export function buildTimingReceipt({
 			value: `${startedAt}..${finishedAt}`,
 			artifact: TIMING_RECEIPT_NAME,
 			fix: 'rerun the timing lane without clock tampering',
-			rerun: `bash scripts/verify-webmail-performance.sh ${mode}`,
+			rerun: `bash scripts/ci/verify-webmail-performance.sh ${mode}`,
 		});
 	}
 	return {
@@ -156,7 +156,7 @@ export function buildRehearsalReceipt({
 			value: String(phases?.length ?? 0),
 			artifact: REHEARSAL_RECEIPT_NAME,
 			fix: 'rerun the rehearsal lane; it always records a prior and a candidate phase',
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal',
 		});
 	}
 	const started = Date.parse(requireString(startedAt, 'startedAt'));
@@ -169,7 +169,7 @@ export function buildRehearsalReceipt({
 			value: `${startedAt}..${finishedAt}`,
 			artifact: REHEARSAL_RECEIPT_NAME,
 			fix: 'rerun the rehearsal lane without clock tampering',
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal',
 		});
 	}
 	return {
@@ -211,7 +211,7 @@ export function writeTimingReceipt({ root, runDir, receipt }) {
 			value: String(receipt?.kind ?? '<absent>'),
 			artifact: TIMING_RECEIPT_NAME,
 			fix: 'use the rehearsal writer for kind rehearsal receipts',
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal --help',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal --help',
 		});
 	}
 	if (existsSync(join(runDir, REHEARSAL_RECEIPT_NAME))) {
@@ -222,7 +222,7 @@ export function writeTimingReceipt({ root, runDir, receipt }) {
 			value: REHEARSAL_RECEIPT_NAME,
 			artifact: runDir,
 			fix: 'keep timing and rehearsal runs in their own run directories',
-			rerun: 'bash scripts/verify-webmail-performance.sh --help',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh --help',
 		});
 	}
 	writeJsonAtomic(join(runDir, TIMING_RECEIPT_NAME), receipt);
@@ -243,7 +243,7 @@ export function writeRehearsalReceipt({ runDir, receipt }) {
 			value: String(receipt?.kind ?? '<absent>'),
 			artifact: REHEARSAL_RECEIPT_NAME,
 			fix: 'use the timing writer for kind timing receipts',
-			rerun: 'bash scripts/verify-webmail-performance.sh --help',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh --help',
 		});
 	}
 	if (existsSync(join(runDir, TIMING_RECEIPT_NAME))) {
@@ -254,7 +254,7 @@ export function writeRehearsalReceipt({ runDir, receipt }) {
 			value: TIMING_RECEIPT_NAME,
 			artifact: runDir,
 			fix: 'keep timing and rehearsal runs in their own run directories',
-			rerun: 'bash scripts/verify-webmail-performance.sh --help',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh --help',
 		});
 	}
 	const receiptPath = join(runDir, REHEARSAL_RECEIPT_NAME);
@@ -289,7 +289,7 @@ export function validatePriorArtifact({ artifactDir, candidateBuildId }) {
 			value: artifactDir,
 			artifact: PRIOR_ARTIFACT_LEDGER_NAME,
 			fix: `retain the prior release as ${PRIOR_ARTIFACT_LEDGER_NAME} plus a ${PRIOR_ARTIFACT_WEB_DIR_NAME}/ copy of its web root`,
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal --help',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal --help',
 		});
 	}
 	const ledgerBytes = readFileSync(ledgerPath);
@@ -304,7 +304,7 @@ export function validatePriorArtifact({ artifactDir, candidateBuildId }) {
 			value: PRIOR_ARTIFACT_LEDGER_NAME,
 			artifact: ledgerPath,
 			fix: 'retain an intact asset ledger with the prior artifact',
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal --help',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal --help',
 		});
 	}
 	if (ledger?.reportVersion !== LEDGER_REPORT_VERSION || ledger?.schemaVersion !== 1) {
@@ -315,7 +315,7 @@ export function validatePriorArtifact({ artifactDir, candidateBuildId }) {
 			value: String(ledger?.reportVersion ?? '<absent>'),
 			artifact: PRIOR_ARTIFACT_LEDGER_NAME,
 			fix: 'retain the ledger produced by scripts/performance-report.mjs v1',
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal --help',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal --help',
 		});
 	}
 	if (typeof ledger.buildId !== 'string' || ledger.buildId.length === 0 || !Array.isArray(ledger.assets) || ledger.assets.length === 0) {
@@ -326,7 +326,7 @@ export function validatePriorArtifact({ artifactDir, candidateBuildId }) {
 			value: String(ledger.buildId ?? '<absent>'),
 			artifact: PRIOR_ARTIFACT_LEDGER_NAME,
 			fix: 'retain a complete signed ledger (buildId plus assets)',
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal --help',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal --help',
 		});
 	}
 	for (const requiredFile of ['index.html', 'service-worker.js', '_app/version.json']) {
@@ -338,7 +338,7 @@ export function validatePriorArtifact({ artifactDir, candidateBuildId }) {
 				value: requiredFile,
 				artifact: `${PRIOR_ARTIFACT_WEB_DIR_NAME}/${requiredFile}`,
 				fix: `copy the complete prior web root including ${requiredFile}`,
-				rerun: 'bash scripts/verify-webmail-performance.sh rehearsal --help',
+				rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal --help',
 			});
 		}
 	}
@@ -351,7 +351,7 @@ export function validatePriorArtifact({ artifactDir, candidateBuildId }) {
 			value: `${versionRecord?.version ?? '<absent>'}!=${ledger.buildId}`,
 			artifact: `${PRIOR_ARTIFACT_WEB_DIR_NAME}/_app/version.json`,
 			fix: 'retain the web root and the ledger from the same prior build',
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal --help',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal --help',
 		});
 	}
 	if (candidateBuildId && ledger.buildId === candidateBuildId) {
@@ -362,7 +362,7 @@ export function validatePriorArtifact({ artifactDir, candidateBuildId }) {
 			value: ledger.buildId,
 			artifact: PRIOR_ARTIFACT_LEDGER_NAME,
 			fix: 'point --prior-artifact at the actually retained prior release artifact',
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal --help',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal --help',
 		});
 	}
 	for (const asset of ledger.assets) {
@@ -412,7 +412,7 @@ function verifyAssetRow(webDir, asset) {
 			value: path,
 			artifact: `${PRIOR_ARTIFACT_WEB_DIR_NAME}/${path}`,
 			fix: 'retain the complete prior web root; every ledger row must be present',
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal --help',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal --help',
 		});
 	}
 	const bytes = readFileSync(filePath);
@@ -424,7 +424,7 @@ function verifyAssetRow(webDir, asset) {
 			value: path,
 			artifact: `${PRIOR_ARTIFACT_WEB_DIR_NAME}/${path}`,
 			fix: 're-retain the prior artifact; the retained copy is not byte-identical to the signed ledger',
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal --help',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal --help',
 		});
 	}
 	for (const representation of Object.values(asset.representations ?? {})) {
@@ -439,7 +439,7 @@ function verifyAssetRow(webDir, asset) {
 				value: sidecarPath,
 				artifact: `${PRIOR_ARTIFACT_WEB_DIR_NAME}/${sidecarPath}`,
 				fix: 'retain the compressed sidecars together with the prior web root',
-				rerun: 'bash scripts/verify-webmail-performance.sh rehearsal --help',
+				rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal --help',
 			});
 		}
 		const sidecarBytes = readFileSync(sidecarFile);
@@ -451,7 +451,7 @@ function verifyAssetRow(webDir, asset) {
 				value: sidecarPath,
 				artifact: `${PRIOR_ARTIFACT_WEB_DIR_NAME}/${sidecarPath}`,
 				fix: 're-retain the prior artifact; the retained sidecar is not byte-identical',
-				rerun: 'bash scripts/verify-webmail-performance.sh rehearsal --help',
+				rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal --help',
 			});
 		}
 	}
@@ -465,7 +465,7 @@ function pathRefused(path) {
 		value: path,
 		artifact: PRIOR_ARTIFACT_LEDGER_NAME,
 		fix: 'retain the ledger produced by scripts/performance-report.mjs; hand-built ledgers are refused',
-		rerun: 'bash scripts/verify-webmail-performance.sh rehearsal --help',
+		rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal --help',
 	});
 }
 
@@ -496,7 +496,7 @@ export function parsePhases(raw, { priorBuildId, candidateBuildId }) {
 			value: String(Array.isArray(phases) ? phases.length : '<unparseable>'),
 			artifact: REHEARSAL_RECEIPT_NAME,
 			fix: 'rerun the rehearsal lane',
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal',
 		});
 	}
 	const byName = Object.fromEntries(phases.map((phase) => [phase.name, phase]));
@@ -508,7 +508,7 @@ export function parsePhases(raw, { priorBuildId, candidateBuildId }) {
 			value: `${byName['phase-prior']?.servedBuildId ?? '<absent>'}->${byName['phase-candidate']?.servedBuildId ?? '<absent>'}`,
 			artifact: REHEARSAL_RECEIPT_NAME,
 			fix: 'rerun the rehearsal; the prior phase must serve the prior build and the candidate phase the candidate build',
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal',
 		});
 	}
 	return phases;
@@ -765,7 +765,7 @@ function cliWriteRehearsal() {
 			value: `${candidateLedger.buildId}!=${candidateBuildId}`,
 			artifact: 'asset-ledger.v1.json',
 			fix: 'rerun the rehearsal from a freshly built and ledger-verified candidate',
-			rerun: 'bash scripts/verify-webmail-performance.sh rehearsal',
+			rerun: 'bash scripts/ci/verify-webmail-performance.sh rehearsal',
 		});
 	}
 	const receipt = buildRehearsalReceipt({

@@ -1,7 +1,7 @@
 //! Owner-approved security fixes of 2026-11-07 (#536: Microsoft migration calendar ownership,
 //! Graph bearer origin pinning, worker-only auxiliary-object reducers). Each test states the
 //! secure behaviour at the real seam; the mutants (feature `oracle-mutants`,
-//! `SETJOIN_SECFIX3_MUTANT`, scripts/test-secfix9-mutants.py) restore frozen behaviour and
+//! `SETJOIN_SECFIX3_MUTANT`, scripts/dev/test-secfix9-mutants.py) restore frozen behaviour and
 //! must make these tests fail.
 mod common;
 #[path = "common/fake_microsoft.rs"]

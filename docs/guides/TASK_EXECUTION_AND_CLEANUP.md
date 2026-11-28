@@ -39,7 +39,7 @@ verification when local capacity proves insufficient.
 | Local Mac | Default build/test/Docker host when its evidence is valid |
 | Required CI | Always run the workflow-required jobs, regardless of local success |
 
-[PowerShell quality](../../scripts/quality-powershell.ps1) is the Windows quality entry
+[PowerShell quality](../../scripts/ci/quality-powershell.ps1) is the Windows quality entry
 point. Never copy another repository's host, account or credential; missing access is an
 explicit unavailable lane.
 

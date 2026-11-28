@@ -37,13 +37,13 @@ The schema requires three extensions created in `mailserver/sql/dbschema/V001__b
 
 ## Rust Server Workspace (`server-rust/`)
 
-All server binaries (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`) and domain/protocol crates are locked in `server-rust/Cargo.lock` and governed by `server-rust/deny.toml`, `server-rust/license-exception-reasons.toml`, `scripts/check-rust-family-isolation.py`, and `scripts/check-rust-license-exceptions.py`. Server-side Go modules (`mailserver`, `authserver`, `shared`, `mailctl`, `asrbot`, `tools/setjoin-release`) were deleted in `#142` ([ARCH-031](../adr/ARCH-031-go-is-deleted.md)).
+All server binaries (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`) and domain/protocol crates are locked in `server-rust/Cargo.lock` and governed by `server-rust/deny.toml`, `server-rust/license-exception-reasons.toml`, `scripts/guards/check-rust-family-isolation.py`, and `scripts/guards/check-rust-license-exceptions.py`. Server-side Go modules (`mailserver`, `authserver`, `shared`, `mailctl`, `asrbot`, `tools/setjoin-release`) were deleted in `#142` ([ARCH-031](../adr/ARCH-031-go-is-deleted.md)).
 
 **Verification commands:**
 ```bash
 cargo deny --locked check --manifest-path server-rust/Cargo.toml
-python3 scripts/check-rust-family-isolation.py
-python3 scripts/check-rust-license-exceptions.py
+python3 scripts/guards/check-rust-family-isolation.py
+python3 scripts/guards/check-rust-license-exceptions.py
 ```
 
 ---
@@ -99,8 +99,8 @@ after their binary, license notice, deterministic rules/data and runner contract
 are proven. The catalog guard is:
 
 ```bash
-bash scripts/check-quality-tool-catalog.sh --self-test
-bash scripts/quality.sh doctor
+bash scripts/guards/check-quality-tool-catalog.sh --self-test
+bash scripts/ci/quality.sh doctor
 ```
 
 Exact active native scanner versions are pinned in
@@ -138,7 +138,7 @@ Before upgrading any dependency:
    - Rust MSRV/toolchain bump → check `server-rust/Cargo.toml`, `clients/Cargo.toml`, and `rust-floor.yml`.
    - Svelte major bump → audit all `.svelte` files for syntax changes (e.g., runes mode).
 3. **Run the verification suite:**
-   - `bash scripts/build.sh` and `bash scripts/check-server-rust.sh` (Rust server)
+   - `bash scripts/ci/build.sh` and `bash scripts/guards/check-server-rust.sh` (Rust server)
    - `cargo deny --locked check --manifest-path server-rust/Cargo.toml`
    - `npm run check` (webmail — must be 0 errors, 0 warnings)
    - `npm run build` (webmail)

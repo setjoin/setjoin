@@ -56,7 +56,7 @@ changes the live HTTP response to 599, requires that specific diff, and emits
 replay; only explicit recording mode can select the original Go upstream.
 All cases of a route share `saml_oracle` for integration coverage. Regeneration
 preserves raw captures, refuses changed qualified observations and preserves
-unowned catalog entries. Run `scripts/test-identity-federation-slices.py` for
+unowned catalog entries. Run `scripts/dev/test-identity-federation-slices.py` for
 the all 38-registrations-ON closing check.
 
 The `saml_sp` task uses named Rust-on/Go-off startup guards. Its seed/tick and

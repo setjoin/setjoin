@@ -11,9 +11,9 @@ mode is extended, `quick` proves only E0 and must not be read as an E1/E2 claim.
 From the repository root:
 
 ```bash
-bash scripts/verify-connectivity-aware-sync.sh list
-bash scripts/verify-connectivity-aware-sync.sh doctor
-bash scripts/verify-connectivity-aware-sync.sh quick --self-test
+bash scripts/ci/verify-connectivity-aware-sync.sh list
+bash scripts/ci/verify-connectivity-aware-sync.sh doctor
+bash scripts/ci/verify-connectivity-aware-sync.sh quick --self-test
 ```
 
 `list` is static and read-only. `doctor` reports exact tool versions and whether
@@ -25,9 +25,9 @@ fail closed without changing host state.
 The DX0 inputs are present in this checkout, so the normal focused command is:
 
 ```bash
-bash scripts/verify-connectivity-aware-sync.sh quick
+bash scripts/ci/verify-connectivity-aware-sync.sh quick
 # or one exact manifest case:
-bash scripts/verify-connectivity-aware-sync.sh quick --case CAS-E0-<exact-id>
+bash scripts/ci/verify-connectivity-aware-sync.sh quick --case CAS-E0-<exact-id>
 ```
 
 The front door claims only the implemented E0 contract proof. It runs the finite
@@ -106,11 +106,11 @@ uses the actionable family:
 ```
 FAIL CAS-DX-MISSING-TOOL: required tool `cargo` is missing or outside the pinned range.
 Fix: ...
-Next: bash scripts/verify-connectivity-aware-sync.sh doctor
+Next: bash scripts/ci/verify-connectivity-aware-sync.sh doctor
 ```
 
 The browser check delegates capability truth to
-`scripts/playwright-supported.sh --check`. A supported host or explicit loopback
+`scripts/ci/playwright-supported.sh --check`. A supported host or explicit loopback
 browser connection is `capability=true`; an unsupported Linux host or diagnostic-
 only container is `capability=false`. No browser is launched by `doctor`.
 
@@ -154,7 +154,7 @@ paths exist:
 
 ```bash
 test -f docs/verification/connectivity-aware-sync-cases.json
-test -f scripts/check-connectivity-aware-sync-cases.mjs
+test -f scripts/guards/check-connectivity-aware-sync-cases.mjs
 ```
 
 Do not weaken the verifier to make this pass. If the paths are absent in a
@@ -180,7 +180,7 @@ ownership. Cleanup is reserved; do not remove broad directories or touch an
 unrelated service. The future command shape is:
 
 ```bash
-RUN_ID=<id> bash scripts/verify-connectivity-aware-sync.sh ubuntu --cleanup
+RUN_ID=<id> bash scripts/ci/verify-connectivity-aware-sync.sh ubuntu --cleanup
 ```
 
 At E0 this returns `NOT RUN CAS-DX-CLEANUP-UNIMPLEMENTED` and changes nothing.
@@ -198,7 +198,7 @@ background capability false.
 Use the manifest ID exactly, including case and punctuation:
 
 ```bash
-bash scripts/verify-connectivity-aware-sync.sh core --case CAS-E3-RANGE-VALIDATOR
+bash scripts/ci/verify-connectivity-aware-sync.sh core --case CAS-E3-RANGE-VALIDATOR
 ```
 
 The E0 front door does not invent a case ID and does not convert it into a

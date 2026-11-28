@@ -1,6 +1,6 @@
 -- mailserver/sql/tests/rls_chat.pg — Task 1: V119 chat core schema + FORCE-RLS
 -- membership-recursion pin. Spec: retired-docs:superpowers/plans/archive/2026-07-11-chat-A1-core-messaging.md Task 1.
--- Task 17 gate: also the COVERED denial proof scripts/rls-denial-allowlist.txt
+-- Task 17 gate: also the COVERED denial proof scripts/guards/rls-denial-allowlist.txt
 -- points at for chat_channels/chat_channel_members/chat_messages/
 -- chat_message_reactions/chat_mentions/chat_message_revisions.
 -- V134 (native-RLS W4 write-policy wave) extends this file with the full

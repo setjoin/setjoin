@@ -55,7 +55,7 @@ calendar-belongs-to-mailbox predicate; (2) `M365Connector::pinned` refuses any G
 `@odata.nextLink`/`deltaLink` and restored checkpoint link that is not https on the cloud's
 Graph host, default port, no userinfo; (3) the three aux-object reducers are worker-only
 (`mailserver/sql/DOX.md`). Tests `bins/gateway/tests/secfix9.rs`; mutants
-`scripts/test-secfix9-mutants.py`. Reviewed expectations (`tests/conformance/migration/
+`scripts/dev/test-secfix9-mutants.py`. Reviewed expectations (`tests/conformance/migration/
 divergences.json`, `security/`, sha256-pinned): `start-ews-legacy` (the legacy event now
 imports into the own calendar; Go failed on the calendar FK). The china cases are no longer
 divergences: the fake answers each link on the host the request came to and the two china goldens

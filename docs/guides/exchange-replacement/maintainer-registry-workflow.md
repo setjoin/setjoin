@@ -48,7 +48,7 @@ The authoring loop is:
    unknown, and mutant omission cases as applicable. Every expected root/probe has
    a terminal result; zero is not complete without independent proof.
 5. **Run the generator and focused verification.** The implemented front door is
-   `scripts/verify-exchange-assessment.sh --doctor|quick|core|live`. `doctor`,
+   `scripts/ci/verify-exchange-assessment.sh --doctor|quick|core|live`. `doctor`,
    `quick`, and `core` are intended to be hermetic; `live` requires a named
    support cell and fails closed when it is unavailable.
 6. **Review every projection.** Inspect generated UI vocabulary, internal feature

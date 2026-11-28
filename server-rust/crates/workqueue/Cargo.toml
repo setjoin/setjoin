@@ -12,7 +12,7 @@ path = "src/lib.rs"
 [features]
 default = []
 # Privileged worker execution (WorkerPool / WorkerTx). Forbidden in default and
-# in all crates/domains/* crates (enforced by scripts/check-rust-family-isolation.py).
+# in all crates/domains/* crates (enforced by scripts/guards/check-rust-family-isolation.py).
 worker = ["setjoin-pg/worker-pool"]
 # Standalone OperatorConnection DLQ inspection/replay/purge helpers for mailctl.
 operator = []

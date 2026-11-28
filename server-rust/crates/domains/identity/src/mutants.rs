@@ -1,7 +1,7 @@
 //! Test-only bug restoration for the owner-approved OIDC provider security fixes
 //! (2026-11-05, #523). Absent from every ordinary build: with the
 //! `oracle-mutants` feature, `SETJOIN_SECFIX7_MUTANT=<id>` re-enables one
-//! frozen-Go defect so `scripts/test-secfix7-mutants.py` can prove the
+//! frozen-Go defect so `scripts/dev/test-secfix7-mutants.py` can prove the
 //! secure-behaviour test rejects it.
 #[cfg(feature = "oracle-mutants")]
 pub fn on(id: &str) -> bool {

@@ -20,11 +20,11 @@ packs, rewrite source, or contact production systems during a check.
 ## Front doors
 
 ```bash
-bash scripts/quality.sh list       # fixed language/tool inventory
-bash scripts/quality.sh doctor     # runner readiness, no scan
-bash scripts/quality.sh fast       # change-time blocking checks
-bash scripts/quality.sh full       # fast + Clippy/platform checks
-bash scripts/quality.sh security   # dependency, secret and workflow authorities
+bash scripts/ci/quality.sh list       # fixed language/tool inventory
+bash scripts/ci/quality.sh doctor     # runner readiness, no scan
+bash scripts/ci/quality.sh fast       # change-time blocking checks
+bash scripts/ci/quality.sh full       # fast + Clippy/platform checks
+bash scripts/ci/quality.sh security   # dependency, secret and workflow authorities
 ```
 
 ## Language ownership matrix
@@ -51,7 +51,7 @@ Beyond the toolchain gate above, Rust server (`server-rust/`) and client (`clien
 
 - `cargo fmt --check` and `cargo clippy --locked -- -D warnings` clean.
 - Commit `Cargo.lock` and keep `--locked` reproducible builds.
-- Enforce domain-family isolation (`scripts/check-rust-family-isolation.py`) and licence/advisory policy (`cargo deny --locked check`, `server-rust/license-exception-reasons.toml`).
+- Enforce domain-family isolation (`scripts/guards/check-rust-family-isolation.py`) and licence/advisory policy (`cargo deny --locked check`, `server-rust/license-exception-reasons.toml`).
 - Multi-statement business logic belongs in PL/pgSQL reducers (`mailserver/sql/reducers/`, `authserver/sql/reducers/`) per [ARCH-028](../adr/ARCH-028-rust-replaces-go-reducers-stay.md) and [ARCH-031](../adr/ARCH-031-go-is-deleted.md).
 - Register every new crate or binary in `server-rust/AGENTS.md` or `clients/AGENTS.md`.
 

@@ -45,8 +45,8 @@ The restart point is always the retained records, never memory. In order:
 | Step | Command | Expected (captured) |
 |---|---|---|
 | Ledger state | `bash scripts/check-deep-security-remediation.sh` | Exit 0 / 1 / 3 exactly as in case 1 — the ledgers are the truth, and the checker re-derives everything from them |
-| Program phase | `bash scripts/verify-security-program.sh coverage status` | Exit 0; `phase C0`, `status PASS`, phase claims/verification per phase |
-| Attempt state | `bash scripts/verify-security-program.sh coverage resume` | Exit 3 `E_SECURITY_PROGRAM_DX_INCOMPLETE` while T7-DX stays open; `whySafe` explains why that is safe — the resume path reconstructs state and never starts anything |
+| Program phase | `bash scripts/ci/verify-security-program.sh coverage status` | Exit 0; `phase C0`, `status PASS`, phase claims/verification per phase |
+| Attempt state | `bash scripts/ci/verify-security-program.sh coverage resume` | Exit 3 `E_SECURITY_PROGRAM_DX_INCOMPLETE` while T7-DX stays open; `whySafe` explains why that is safe — the resume path reconstructs state and never starts anything |
 | Predecessor evidence | Read `docs/verification/security-boundary-evidence-manifest.json` per-lane pointers | Eight lanes, each a dated immutable generation with `verdict`/`exitCode` — resume from these, not from any `latest.json` |
 
 The boomerang property being tested: a returning operator can reconstruct the

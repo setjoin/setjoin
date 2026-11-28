@@ -5,7 +5,7 @@ operator remedy, and exit code. Captured examples live in [fixtures](fixtures.md
 every fixture names the exact command that produced it.
 
 - Checker: `scripts/check-deep-security-remediation.mjs` (codes `E_SEC_REM_*`).
-- Dispatcher/program namespace: `scripts/verify-security-program.sh` +
+- Dispatcher/program namespace: `scripts/ci/verify-security-program.sh` +
   `shared/securityprogram` (codes `E_SECURITY_PROGRAM_*`).
 
 Exit-code legends are the ones each `--help` prints: the checker uses
@@ -71,7 +71,7 @@ forward `--check`; use the bare wrapper or the .mjs for a check run.
 
 ## Dispatcher/namespace codes (`E_SECURITY_PROGRAM_*`)
 
-The canonical catalog lives in `scripts/security-program.mjs` (`ERROR_CATALOG`,
+The canonical catalog lives in `scripts/ci/security-program.mjs` (`ERROR_CATALOG`,
 problem/cause/safe-action triples); `shared/securityprogram/contract.go` mirrors
 the eight triples its namespace emits, and its guard tests keep the two in
 lockstep — the namespace allocates no new codes. `coverage explain CODE` renders

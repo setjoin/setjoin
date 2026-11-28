@@ -869,7 +869,7 @@ export function auditE5CrossedNetworkAttachment(audit: E5CrossedAudit): CaseVerd
 /**
  * E4-I r5 Astra correction (finding 6): the receipt producer and the case
  * validator must AGREE. The validator
- * (`scripts/check-connectivity-aware-sync-cases.mjs`) resolves retained
+ * (`scripts/guards/check-connectivity-aware-sync-cases.mjs`) resolves retained
  * artifacts and fixtures from the REPOSITORY root — retained artifacts are
  * run-scoped (`test-results/connectivity-aware-sync/<run-id>/e4i/<slug>.json`)
  * and the receipt's fixture identity must equal the manifest case's
@@ -922,7 +922,7 @@ function webmailRootDir(): string {
 export function repositoryRootDir(): string {
 	let dir = webmailRootDir();
 	for (let depth = 0; depth < 8; depth += 1) {
-		if (fs.existsSync(path.join(dir, 'scripts', 'check-connectivity-aware-sync-cases.mjs'))) return dir;
+		if (fs.existsSync(path.join(dir, 'scripts', 'guards', 'check-connectivity-aware-sync-cases.mjs'))) return dir;
 		const parent = path.dirname(dir);
 		if (parent === dir) break;
 		dir = parent;

@@ -3,7 +3,7 @@
 # The updater authenticates an existing managed `current` release against the
 # vendor's PUBLIC release roots (not secret). The release package ships them as
 # server-rust/release-roots.json (built from SETJOIN_RELEASE_TRUST_ROOTS, see
-# scripts/package-server-release.sh); this installs them root-owned 0644 BEFORE
+# scripts/deploy/package-server-release.sh); this installs them root-owned 0644 BEFORE
 # adoption runs, on first install and on every upgrade. Sourced by install.sh;
 # needs die/info from the caller.
 

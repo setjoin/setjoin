@@ -349,7 +349,7 @@ CREATE POLICY ws_subscriptions_app_all ON public.ws_subscriptions
 -- case-folded, ∧ single-claim ∧ not quarantined) MUST stay structurally identical to
 -- that twin — if the two rules drift you get split-brain identity (auth resolves a
 -- person the mailserver can't: silent lockout / duplicate JIT).
--- scripts/check-identity-predicate.sh enforces it (extracts + normalizes + diffs
+-- scripts/guards/check-identity-predicate.sh enforces it (extracts + normalizes + diffs
 -- both WHERE clauses; shared/identity plan, 2026-06-18). The PROJECTION is allowed
 -- to differ (this reducer returns 3 columns; the Go twin returns the full Identity
 -- row). A change to the matching RULE here is the documented trigger to merge the

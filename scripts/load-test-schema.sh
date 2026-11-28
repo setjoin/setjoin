@@ -128,7 +128,7 @@ if [ "${1:-}" = "--preflight-only" ]; then
   exit 0
 fi
 
-source "$ROOT/scripts/architecture-r2-test-db.sh"
+source "$ROOT/scripts/ci/architecture-r2-test-db.sh"
 architecture_r2_validate_test_db || exit $?
 
 # ARCH-007 preflight: MUST sit between the (pure) validation above and the
@@ -178,7 +178,7 @@ DROP DATABASE IF EXISTS :"db_name" WITH (FORCE);
 CREATE DATABASE :"db_name" OWNER :"db_user" TEMPLATE template0;
 SQL
 # L2-C9 WP-2 disposable marker: the e2e DB-target guard
-# (scripts/e2e-test-db-guard.sh) refuses to reuse an existing database that
+# (scripts/ci/e2e-test-db-guard.sh) refuses to reuse an existing database that
 # lacks this comment, so stamp it on every fresh create. Comment metadata
 # only — equally harmless for the pgTAP lane (mailserver_test is disposable).
 $PG -v db_name="$DB_NAME" <<'SQL' >/dev/null || {

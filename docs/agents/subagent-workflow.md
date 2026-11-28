@@ -44,14 +44,14 @@ Setjoin treats the **repository as the system of record** and prefers **invarian
 ## Builds, guards & tests
 
 - **CI-first:** run builds and tests on GitHub-hosted runners (`pr-precheck.yml` `aggregate` on PRs; `server-rust lane` on merge queue; manual `gh workflow run quick-check.yml -R setjoin/setjoin --ref <branch>` without a PR).
-- **Local Rust:** no local Rust compilation; run `rustfmt` on added files only (`git add`, `bash scripts/fmt-added.sh`, `git add`, commit).
+- **Local Rust:** no local Rust compilation; run `rustfmt` on added files only (`git add`, `bash scripts/ci/fmt-added.sh`, `git add`, commit).
 - **Standalone guards:** PR pre-check omits merge-queue `guards`, so run relevant no-cargo/no-DB guards before opening a PR:
-  - Reducers/callers: `bash scripts/check-audit-coverage.sh`, `bash scripts/check-app-notify.sh`
+  - Reducers/callers: `bash scripts/guards/check-audit-coverage.sh`, `bash scripts/guards/check-app-notify.sh`
   - Route flips: `python3 scripts/test-check-gofree-rehearsal.py`
-  - New SQL functions: `bash scripts/check-xinchuang-matrix.sh`
+  - New SQL functions: `bash scripts/guards/check-xinchuang-matrix.sh`
   - Conformance READMEs: `bash scripts/check-recorder-docs.sh`
-  - Oracle/catalog changes: `python3 scripts/check-gofree-oracle-adequacy.py --preflight-only`
-  - AGENTS/DOX edits: `bash scripts/check-agent-context-budget.sh`, `bash scripts/check-agent-docs.sh`
+  - Oracle/catalog changes: `python3 scripts/guards/check-gofree-oracle-adequacy.py --preflight-only`
+  - AGENTS/DOX edits: `bash scripts/guards/check-agent-context-budget.sh`, `bash scripts/guards/check-agent-docs.sh`
 - Search open issues and branches before fixing a failing test.
 - **Flake rule:** rerun a failing test alone (passes = flake, file + re-gate once; fails twice = real failure).
 
@@ -74,4 +74,4 @@ Setjoin treats the **repository as the system of record** and prefers **invarian
 - **Local skills:** skills live per developer machine in each harness's plugin/skill directory; this repo ships no agent skills, hooks, or harness config. Keep skill entrypoints short and conditional—do not preload full planning workflows for routine edits or doc moves.
 - **Skill updates:** (1) inspect the actual launcher/interpreter and package manager first, (2) back up only affected files/hooks/config to a task-owned dir, (3) review upstream changes (never infer latest from a version marker alone) and validate frontmatter, references, invocation, and package/skill parity (new sessions reload the catalog), (4) preserve unrelated hooks/config, and (5) clean task-only artifacts while retaining rollback caches/snapshots with provenance in the receipt.
 - **Project design authority:** pick the smallest suitable design workflow with no overlapping audits. Project authority overrides skill defaults: keep Svelte 5, existing components, semantic design tokens, approved fonts/icons, localization, accessibility, and CSP—never add React/Next.js, Tailwind, animation libraries, remote fonts, or placeholder assets because a skill suggests them. Dense dashboards, tables, multi-step workflows, native mobile, and real-time collaboration keep their existing UI owners and approved plans. `audit`/`critique` requests are read-only unless corrections are requested.
-- **DOX & context-budget maintenance:** budgets are root ≤10,000 bytes, child ≤16,000, ancestor chain ≤32,000 (`bash scripts/check-agent-context-budget.sh`; `bash scripts/check-agent-docs.sh` adds link/anchor checks). When a hot rail grows, keep the invariant, owner, and link in the rail and move detail/history to the owning guide, plan, or archive—never delete a durable decision just to shorten a file. The dynamic guard covers new/untracked first-party rails, excludes generated/dependency dirs and directory symlinks, and requires instruction-file symlinks to resolve within the repo; never exploit exclusions to hide oversized rules. Preserve anchors with same-heading redirects, keep mechanical preservation separate from reviewed procedural corrections in receipts, and resolve historical domain contradictions via the current standard/ADR rather than invented policy.
+- **DOX & context-budget maintenance:** budgets are root ≤10,000 bytes, child ≤16,000, ancestor chain ≤32,000 (`bash scripts/guards/check-agent-context-budget.sh`; `bash scripts/guards/check-agent-docs.sh` adds link/anchor checks). When a hot rail grows, keep the invariant, owner, and link in the rail and move detail/history to the owning guide, plan, or archive—never delete a durable decision just to shorten a file. The dynamic guard covers new/untracked first-party rails, excludes generated/dependency dirs and directory symlinks, and requires instruction-file symlinks to resolve within the repo; never exploit exclusions to hide oversized rules. Preserve anchors with same-heading redirects, keep mechanical preservation separate from reviewed procedural corrections in receipts, and resolve historical domain contradictions via the current standard/ADR rather than invented policy.

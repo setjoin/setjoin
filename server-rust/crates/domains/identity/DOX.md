@@ -426,7 +426,7 @@ Dummy-hash login in the profile's own algorithm (`login::dummy_hash`, #487), uid
 `act` on the derived Drive token (#495), android-safetynet attestation is refused outright (#504; its x5c leaf
 was never anchored and Google shut the API down; the frozen verifier survives only behind the
 `oracle-mutants` feature). Synthetic SafetyNet fixtures: `tests/fixtures/safetynet`. Mutants:
-`scripts/test-secfix3-mutants.py`.
+`scripts/dev/test-secfix3-mutants.py`.
 
 ## Federation slice map (#339–#341)
 
@@ -437,7 +437,7 @@ revocation and end-session, including their front-door aliases.
 `/auth/oidc/` subtree; a more specific completion registration selects the OP.
 `federation-saml` (#341) owns SAML metadata/login/ACS/link and the shared
 identity-link list/delete at its closing audit. Unported shapes retain these
-named owners. `scripts/test-identity-federation-slices.py` verifies the complete
+named owners. `scripts/dev/test-identity-federation-slices.py` verifies the complete
 public inventory; the inventory guard checks the source-derived assignments.
 
 OIDC OP profile and key custody (#339): [OIDC.md](OIDC.md).

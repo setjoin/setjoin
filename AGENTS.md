@@ -10,7 +10,7 @@ Self-hosted productivity suite: Rust server (`setjoin-server`, `setjoin-auth`, `
 2. **After editing:** update the owning `AGENTS.md`/DOX and parent Child DOX Index when purpose, contracts, workflows, permissions, side effects, or structure change.
 3. **Closeout:** remove stale/contradictory text, run affected verification, and report any doc intentionally left unchanged.
 
-Budgets: root ≤10,000 bytes, child ≤16,000, chain ≤32,000 (`scripts/check-agent-context-budget.sh`). Move detail behind pointers; mechanical moves preserve text verbatim.
+Budgets: root ≤10,000 bytes, child ≤16,000, chain ≤32,000 (`scripts/guards/check-agent-context-budget.sh`). Move detail behind pointers; mechanical moves preserve text verbatim.
 
 ## Architecture invariants
 

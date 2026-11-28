@@ -43,12 +43,12 @@ jobs:
         if: always()
         env:
           TEST_EVIDENCE_OUTPUT: mailserver/webmail/test-results/test-evidence.json
-        run: bash scripts/check-test-evidence-results.sh --verify vitest-json
+        run: bash scripts/guards/check-test-evidence-results.sh --verify vitest-json
       - name: Enforce changed-code coverage
         if: always()
         env:
           COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: node scripts/report-changed-coverage.mjs --mode enforce
+        run: node scripts/ci/report-changed-coverage.mjs --mode enforce
       - name: Upload Webmail verification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

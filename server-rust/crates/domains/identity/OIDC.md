@@ -109,7 +109,7 @@ fixture of the refused profiles. No RustCrypto signing/decryption is enabled.
 Divergences from frozen Go, each with a secure-behaviour test in
 `bins/auth/tests/oidc_secfix7.rs` (or `oidc_config.rs`), a bug-restoring mutant
 (`mutants.rs`, feature `oracle-mutants`, env `SETJOIN_SECFIX7_MUTANT`, runner
-`scripts/test-secfix7-mutants.py`) and re-baselined goldens (`identity-oidc/divergences.json`
+`scripts/dev/test-secfix7-mutants.py`) and re-baselined goldens (`identity-oidc/divergences.json`
 pins each Go capture by sha256 and names the authored `security/` expectation):
 
 - Opaque/JWT access tokens are bound to the stored row: subject must equal the
@@ -142,7 +142,7 @@ refresh token by hash only found the row the revoke statement matches by that ha
 Tests: `bins/auth/tests/oidc_secfix10.rs` (proves the reducer call: with EXECUTE revoked from the app role
 the flow fails), `mailserver/sql/tests/rust_identity_oidc_lookup.pg`. Mutants
 (`SETJOIN_SECFIX10_MUTANT`: `oidc-direct-refresh-anchor|token-owner|revoke-target`):
-`scripts/test-secfix10-mutants.py`. Existing OIDC goldens are unchanged.
+`scripts/dev/test-secfix10-mutants.py`. Existing OIDC goldens are unchanged.
 
 FORCE RLS on the table is STAGED, not live: `mailserver/sql/staged/oidc_tokens_force_rls.sql` (+ `.pg`).
 The default install runs frozen `authserverd` as `setjoin_app` (NOBYPASSRLS, not the owner; fresh installs are

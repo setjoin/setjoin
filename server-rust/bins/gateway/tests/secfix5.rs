@@ -3,7 +3,7 @@
 //! test drives the real Rust command or read with three actors: a domain-scoped admin on a
 //! foreign object (refused exactly like a missing one), on its own domain's object
 //! (allowed) and an organization-wide admin (allowed). The mutants (feature
-//! `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/test-secfix5-mutants.py) restore
+//! `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/dev/test-secfix5-mutants.py) restore
 //! frozen Go's behaviour and must make these tests fail. The device-credential re-seal
 //! test (#513 item 1) lives in crates/authz/tests/device_credential.rs.
 mod common;

@@ -153,7 +153,7 @@ Go's real listener wiring and `smimeRootsForDomain`: seed, observe, change the t
 the stale cache, one notification, observe), `tests/smime_trust_startup.rs`.
 Owner-approved security fix 2026-11-05 (#465): no cached pool while the LISTEN
 connection is down, cache cleared on reconnect (`tests/smime_trust_reconnect.rs`; mutants
-`smime-no-reconnect-reload`, `smime-cache-while-deaf` via `scripts/test-smtp-secfix-mutants.py`).
+`smime-no-reconnect-reload`, `smime-cache-while-deaf` via `scripts/dev/test-smtp-secfix-mutants.py`).
 
 - **notify**: Go's statement verbatim (1 s, batch 500, `FOR UPDATE SKIP LOCKED`,
   full batches repeat inside one tick, one no-op `DELETE` per idle tick, always
@@ -1024,7 +1024,7 @@ settings and pre-derived link-protect keys (`SMTP_LINK_PROTECT_KEY`/`_KEY_PREVIO
 the toggle-ON Go replays. The shared live gate drives FTRL batch posture logging at
 startup and on flips; this process-local observer stops with the runtime. Installer
 SMTP sockets default ON on fresh and legacy upgrades; explicit empty addresses remain
-operator disables. `scripts/test-smtp-systemd.py` qualifies actual rendered units,
+operator disables. `scripts/deploy/test-smtp-systemd.py` qualifies actual rendered units,
 Go-free enabled delivery and condemnation, capabilities, restart and posture logs.
 
 F21 cancellation replay (#494) also pins the existing runner's ICS/VCF I/O
@@ -1042,7 +1042,7 @@ IMAP testing reuses the shared DNS-policy connector under a 30-second total dead
 rejects caller private exceptions and returns Go's sanitized result without a job.
 The HTTP oracle and mixed-answer connector test pin the outbound boundary.
 
-Owner-approved security fixes 2026-11-05 (#547, `tests/secfix13.rs`, `scripts/test-secfix13-mutants.py`):
+Owner-approved security fixes 2026-11-05 (#547, `tests/secfix13.rs`, `scripts/dev/test-secfix13-mutants.py`):
 every self-service JSON body (test-imap, migration start, webhook, app password, read receipt)
 is capped at 1 MiB (`identity_self_service::BODY_CAP`, 400 over it); `tls_mode` `none` is refused
 (400) on test-imap, and an IMAP start allows only `tls` or `starttls` (an omitted mode would inherit

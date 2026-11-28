@@ -490,7 +490,7 @@ $$;
 
 -- Authoritative live-root catalog checked by Mark-and-Sweep GC.
 -- Every EXISTS arm MUST match config/blob-reference-manifest.json live_roots
--- 1:1 (enforced bidirectionally by scripts/check-blob-reference-manifest.py)
+-- 1:1 (enforced bidirectionally by scripts/guards/check-blob-reference-manifest.py)
 -- and preserve exact predicate parity with partial btree indexes from V292.
 CREATE OR REPLACE FUNCTION blob_has_live_reference(p_sha256 text)
 RETURNS boolean

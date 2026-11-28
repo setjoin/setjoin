@@ -170,7 +170,7 @@ Gateway activation: `cargo test --locked -p setjoin-gateway --test
 federation_activation -- --test-threads=1`; Chat regression: `--test
 chat_channels_recorded typing -- --test-threads=1`.
 
-On the root/systemd test host, `python3 scripts/test-federation-systemd.py
+On the root/systemd test host, `python3 scripts/deploy/test-federation-systemd.py
 <gateway>` exercises native TLS/recorded delivery through a real named systemd
 socket as `nobody` with empty capability sets, restarts with durable dedup,
 and cleans its transient `gofree-fed2-*` units. It also runs the real installer

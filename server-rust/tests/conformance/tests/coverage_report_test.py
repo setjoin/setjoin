@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[4]
-REPORT = ROOT / "scripts/report-gofree-oracle-coverage.py"
+REPORT = ROOT / "scripts/ci/report-gofree-oracle-coverage.py"
 
 
 class CoverageReport(unittest.TestCase):

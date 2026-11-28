@@ -10,8 +10,8 @@ evidence.
 From the repository root:
 
 ```bash
-bash scripts/verify-webmail-performance.sh --doctor
-bash scripts/verify-webmail-performance.sh
+bash scripts/ci/verify-webmail-performance.sh --doctor
+bash scripts/ci/verify-webmail-performance.sh
 ```
 
 `--doctor` is read-only. The no-argument `quick` lane builds the production
@@ -26,9 +26,9 @@ Focused deterministic reruns are `ledger`, `fonts`, `locale`, `responder`, and
 ## Real browser lanes
 
 ```bash
-bash scripts/verify-webmail-performance.sh diagnostic
-bash scripts/verify-webmail-performance.sh ci
-bash scripts/verify-webmail-performance.sh release
+bash scripts/ci/verify-webmail-performance.sh diagnostic
+bash scripts/ci/verify-webmail-performance.sh ci
+bash scripts/ci/verify-webmail-performance.sh release
 ```
 
 - `diagnostic`: one retained sample, no warmup; useful while developing.
@@ -43,18 +43,18 @@ host support in its `run.json` (explicit `kind: timing`). Check whether the
 current machine may run them at all:
 
 ```bash
-bash scripts/verify-webmail-performance.sh hosts          # read-only listing; exit 1 when unsupported
-bash scripts/verify-webmail-performance.sh release --dry-run   # resolved plan, no build/stack/browser, writes nothing
+bash scripts/ci/verify-webmail-performance.sh hosts          # read-only listing; exit 1 when unsupported
+bash scripts/ci/verify-webmail-performance.sh release --dry-run   # resolved plan, no build/stack/browser, writes nothing
 ```
 
-`hosts` reuses the same `scripts/playwright-supported.sh --check` seam the
+`hosts` reuses the same `scripts/ci/playwright-supported.sh --check` seam the
 browser lanes route through: macOS/Windows/Ubuntu 22.04/24.04 (or the loopback
 remote-browser endpoint) are eligible; other Linux hosts fail closed.
 
 All browser modes provision a disposable database with a run-unique name, a
 fixed seeded mailbox corpus, SeaweedFS, authserver, and the real Go gateway on
 automatically selected loopback ports. Browser execution always routes through
-`scripts/playwright-supported.sh`; an unsupported Linux browser host fails
+`scripts/ci/playwright-supported.sh`; an unsupported Linux browser host fails
 closed unless the repository's explicit supported remote-browser seam is
 configured.
 
@@ -96,7 +96,7 @@ A separate command from the timing run — the two are not interchangeable in
 either direction:
 
 ```bash
-bash scripts/verify-webmail-performance.sh rehearsal \
+bash scripts/ci/verify-webmail-performance.sh rehearsal \
   --prior-artifact /path/to/retained-prior-release
 ```
 

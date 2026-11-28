@@ -16,11 +16,11 @@ generated block below and in the CSVs, where they must carry evidence.
 
 ## Regeneration and guard
 
-- `bash scripts/gen-xinchuang-doc.sh` regenerates the block between the
+- `bash scripts/dev/gen-xinchuang-doc.sh` regenerates the block between the
   sentinels below, the `uses_digest` column (source-derived usage, never a
   parity verdict), and `unattested_functions.csv`, from the two CSVs and the
   live reducer sources.
-- `bash scripts/check-xinchuang-matrix.sh` fails closed on drift: row set vs
+- `bash scripts/guards/check-xinchuang-matrix.sh` fails closed on drift: row set vs
   live reducer functions (dead rows, duplicates, complement inventory),
   status/evidence grammar, byte-identical regeneration, and verdict-bearing
   prose or numeric literals outside the sentinels.

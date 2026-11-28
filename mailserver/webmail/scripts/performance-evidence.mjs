@@ -112,7 +112,7 @@ async function main() {
 
 if (process.argv[1]?.endsWith('performance-evidence.mjs')) {
 	main().catch((error) => {
-		console.error(`E_WEBMAIL_PERF_INVALID_EVIDENCE problem=browser_summary_invalid cause=${JSON.stringify(error.message)} value=playwright.json artifact=performance-summary.v1.json fix='inspect the retained Playwright report and rerun the failed scenario' rerun='bash scripts/verify-webmail-performance.sh diagnostic'`);
+		console.error(`E_WEBMAIL_PERF_INVALID_EVIDENCE problem=browser_summary_invalid cause=${JSON.stringify(error.message)} value=playwright.json artifact=performance-summary.v1.json fix='inspect the retained Playwright report and rerun the failed scenario' rerun='bash scripts/ci/verify-webmail-performance.sh diagnostic'`);
 		process.exitCode = 1;
 	});
 }

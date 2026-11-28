@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[4]
-GUARD = ROOT / "scripts/check-gofree-oracle-adequacy.py"
+GUARD = ROOT / "scripts/guards/check-gofree-oracle-adequacy.py"
 FAMILY_MUTANTS = [
     {"name": name, "package": "fake-package", "target": "recorded", "test": name}
     for name in ("no-audit", "no-notify", "no-tenant-filter", "double-bump")
@@ -1002,10 +1002,10 @@ class Preflight(unittest.TestCase):
         self.assertIn("preflight ok", result.stdout)
 
     def test_the_lane_never_skips_preflight_or_runs_a_subset_by_default(self):
-        for name in ("scripts/check-server-rust.sh", "scripts/server-rust-parallel-lane.sh"):
+        for name in ("scripts/guards/check-server-rust.sh", "scripts/ci/server-rust-parallel-lane.sh"):
             text = (ROOT / name).read_text()
             self.assertNotIn("--skip-preflight", text, name)
-        text = (ROOT / "scripts/check-server-rust.sh").read_text()
+        text = (ROOT / "scripts/guards/check-server-rust.sh").read_text()
         self.assertIn("--preflight-only", text)
         # coverage stays on unless the lane's full tier turns it off explicitly
         self.assertIn('"${LANE_COVERAGE:-1}" == 0', text)

@@ -3,7 +3,7 @@
 -- left_at IS NULL filter dies at the meeting-end mass-stamp; that is the
 -- whole reason meeting_attendee_role exists, spec §B2). Spec:
 -- retired-docs:superpowers/plans/archive/2026-07-15-meet-B2-recording.md Task 1.
--- COVERED entry in scripts/rls-denial-allowlist.txt points here:
+-- COVERED entry in scripts/guards/rls-denial-allowlist.txt points here:
 -- non-attendee/banned/never-joined see no recording rows; attendee reads survive meeting-end.
 --
 -- meeting_id is captured via \gset at fixture time (the meet_control.pg

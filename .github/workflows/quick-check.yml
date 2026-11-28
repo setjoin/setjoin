@@ -2,7 +2,7 @@ name: quick check
 
 # Fast single-job check for a branch that has no pull request yet, so nobody compiles Rust on a
 # small dev host. Manual only (workflow_dispatch): pull requests already run the same
-# scripts/quick-check.sh in pr-precheck.yml's `light` job (it and the `integration` job feed the
+# scripts/ci/quick-check.sh in pr-precheck.yml's `light` job (it and the `integration` job feed the
 # required `aggregate`), so a push trigger here only duplicated it. It does NOT run integration
 # tests. ONE job on purpose: it must not compete with the 19-job full lane for the
 # free-plan concurrency limit.
@@ -50,7 +50,7 @@ jobs:
         id: plan
         run: |
           git fetch -q origin main:refs/remotes/origin/main || true
-          bash scripts/lane-container.sh bash scripts/quick-check.sh plan
+          bash scripts/ci/lane-container.sh bash scripts/ci/quick-check.sh plan
           echo "key=$(sha256sum lane-artifacts/packages.txt | cut -c1-12)" >> "$GITHUB_OUTPUT"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -59,9 +59,9 @@ jobs:
           key: ${{ steps.plan.outputs.key }}
           save-if: true
       - name: Quick-check self-test
-        run: bash scripts/lane-container.sh bash scripts/quick-check-tests.sh selftest
+        run: bash scripts/ci/lane-container.sh bash scripts/ci/quick-check-tests.sh selftest
       - name: Quick check
-        run: bash scripts/lane-container.sh bash scripts/quick-check.sh run
+        run: bash scripts/ci/lane-container.sh bash scripts/ci/quick-check.sh run
       - name: Summary
         if: always()
         run: |

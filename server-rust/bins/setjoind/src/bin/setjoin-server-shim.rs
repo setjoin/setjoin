@@ -2,7 +2,7 @@
 //!
 //! Execs sibling `setjoind --subsystems=http,protocols,workers` in-place while
 //! preserving PID, inherited systemd socket-activation FDs (`3..12`), and
-//! `--version` compatibility for `scripts/smoke-rust-floor.sh`.
+//! `--version` compatibility for `scripts/ci/smoke-rust-floor.sh`.
 
 #[path = "../shim_exec.rs"]
 mod shim_exec;

@@ -1,7 +1,7 @@
 /**
  * E4-I r5 Astra correction (finding 6) regression: the receipt PRODUCER
  * (`writeCaseResult`) and the receipt VALIDATOR
- * (`scripts/check-connectivity-aware-sync-cases.mjs`) must agree. The
+ * (`scripts/guards/check-connectivity-aware-sync-cases.mjs`) must agree. The
  * validator resolves retained artifacts and fixtures from the REPOSITORY root
  * and requires the run-scoped artifact template plus the exact
  * repo-root-relative fixture identity; the harness now emits exactly that
@@ -29,7 +29,7 @@ import {
 
 const repositoryRoot = repositoryRootDir();
 const manifestPath = path.join(repositoryRoot, 'docs', 'verification', 'connectivity-aware-sync-cases.json');
-const checkerPath = path.join(repositoryRoot, 'scripts', 'check-connectivity-aware-sync-cases.mjs');
+const checkerPath = path.join(repositoryRoot, 'scripts', 'guards', 'check-connectivity-aware-sync-cases.mjs');
 
 /** The validator's run-identity grammar (keep in sync with the checker). */
 const RUN_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;

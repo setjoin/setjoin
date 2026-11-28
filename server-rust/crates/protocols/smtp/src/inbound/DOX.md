@@ -10,7 +10,7 @@ records socket replies, raw stored blobs, normal delivery effects and the additi
 `security-observe.sql` columns. Native replay is in `tests/session.rs`, with Go absent.
 Feature settings use the listener's live `Flags`; the baseline SMTP1 corpora keep
 their disabled-feature fixture. Each new stage has a first failing replay followed
-by the minimal implementation. `scripts/test-smtp-inbound-mutants.py` proves a
+by the minimal implementation. `scripts/dev/test-smtp-inbound-mutants.py` proves a
 passing baseline rejects each deliberately missing stage in a test-only build.
 
 Qualified so far: external-domain warning, exact internal display-name flag,
@@ -144,7 +144,7 @@ untrusted and iMIP stops (frozen Go omitted it). Divergences: `oracle/divergence
 `go_replay: "pinned"` entries (reviewed, owner-approved reason, sha256 of the frozen-Go
 corpus file, expectation under `oracle/security/`); `SECFIX12_WRITE_SECURITY=1`
 regenerates them for diff review, `oracle/derive-secfix12.py` derives the secure-only
-cases, `scripts/test-secfix12-mutants.py` restores each bug.
+cases, `scripts/dev/test-secfix12-mutants.py` restores each bug.
 Forty-six recorded socket sessions cover requests, roles, recurrence, S/MIME and
 full-body DKIM. Notifications are real LISTEN; generated IDs map to UID+mailbox+
 occurrence. The frozen general observer orders journal by mailbox/state, whose

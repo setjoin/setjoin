@@ -8,10 +8,10 @@ Go gates status with Mail-console permissions and mutations with `system.config`
 a domain-scoped holder passed those gates. Owner-approved security fix 2026-11-05 (#539): scan start,
 reconcile, migration start and migration cancel now also need an organization-wide `system.config`
 grant (`setjoin_platform::storage_org_wide`, SQL `admin_org_wide_grant`); a domain-scoped or
-OU/set-confined holder gets the bare 403 and a `console.denied` row. Reads keep Go's gates and (#542) also need an organization-wide grant of a gate permission (`storage_read_org_wide`; mutants `storage-read-scoped-*`, `scripts/test-secfix11-mutants.py`). The
+OU/set-confined holder gets the bare 403 and a `console.denied` row. Reads keep Go's gates and (#542) also need an organization-wide grant of a gate permission (`storage_read_org_wide`; mutants `storage-read-scoped-*`, `scripts/dev/test-secfix11-mutants.py`). The
 `*-scoped` goldens of those four routes are pinned in `platform/divergences.json` with reviewed
 `platform/security/` expectations; mutants `storage-scoped-grant-{scan,reconcile,migrate,cancel}`
-(`scripts/test-secfix10-mutants.py`). Request bodies never supply ownership.
+(`scripts/dev/test-secfix10-mutants.py`). Request bodies never supply ownership.
 The sealed actor binds request transactions and operation receipts. Background
 maintenance uses `DB_WORKER_DSN` (fallback `DB_DSN`), never pooled `SET ROLE`.
 

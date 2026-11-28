@@ -18,7 +18,7 @@ pub enum SqlScope {
     /// Mailbox-scoped `BEGIN READ WRITE` audited-read transaction strictly
     /// admitted under [`ReadCapability`] on `setjoin_app` (e.g., `jmap_email_get`
     /// + `mailbox_audit_log`, `continuity_recovery_receipt_context`).
-    /// Statically verified by `scripts/check-rust-sql-contracts.py` to forbid
+    /// Statically verified by `scripts/guards/check-rust-sql-contracts.py` to forbid
     /// general mutations.
     MailboxAuditedRead,
     /// Mailbox-scoped `BEGIN READ WRITE` transaction under `setjoin_app`
@@ -123,7 +123,7 @@ pub enum SqlAuditPosture {
     /// `audit_write(p_actor, ..., 'core')` (setting PostgreSQL's
     /// transaction-local `app.core_audit_written = '1'` proof).
     ///
-    /// Statically verified by `scripts/check-rust-sql-contracts.py` to appear
+    /// Statically verified by `scripts/guards/check-rust-sql-contracts.py` to appear
     /// ONLY inside `crates/domains/*/src/sql.rs`, to execute a single
     /// top-level `SELECT [public.]<fn>(...)`, and to target a reducer whose
     /// `'core'` `audit_write` is never wrapped inside `EXCEPTION WHEN OTHERS`.

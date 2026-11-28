@@ -20,9 +20,9 @@
             {
               "id": "coverage-wiring-guard",
               "kind": "guard",
-              "path": "scripts/check-test-gate-wiring.sh",
+              "path": "scripts/guards/check-test-gate-wiring.sh",
               "selector": "CONTRACT: future-code-test-gates",
-              "gate": "scripts/check-test-gate-wiring.sh",
+              "gate": "scripts/guards/check-test-gate-wiring.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "local_execution",
@@ -80,7 +80,7 @@
               "kind": "vitest",
               "path": "mailserver/webmail/src/lib/components/admin/RoleMembersPanel.test.ts",
               "selector": "shows remove button enabled for a manageable member",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "exact_case_execution",
@@ -119,7 +119,7 @@
               "kind": "go",
               "path": "shared/threat/policy_failmode_test.go",
               "selector": "TestPolicyEngine_FailClosed_NeverLoaded_BlocksOnLoadError",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "fail_closed",
@@ -152,7 +152,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/guest_app_entitlements.pg",
               "selector": "setjoin_app cannot read another principal''s guest row through FORCE RLS",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "cross_tenant_denial",
@@ -186,7 +186,7 @@
               "kind": "playwright",
               "path": "mailserver/webmail/e2e/guest-invite-lifecycle.spec.ts",
               "selector": "pending → superseded replacement → exact revoke is visible and audited",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "terminal_state_visibility",
@@ -222,7 +222,7 @@
               "kind": "playwright",
               "path": "mailserver/webmail/e2e/guest-invite-accept-ui.spec.ts",
               "selector": "renders a stable mobile disclosure and exposes a complete activation path",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "visual_layout_stability",
@@ -258,7 +258,7 @@
               "kind": "playwright",
               "path": "mailserver/webmail/e2e/csp.spec.ts",
               "selector": "meta locks script-src to hashes and the app still boots",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "csp_lockdown",
@@ -293,7 +293,7 @@
             "kind": "go",
             "path": "authserver/internal/token/service_issue_test.go",
             "selector": "TestIssueThenRotate_ReuseRevokesLoginFamily",
-            "gate": "scripts/check-test-evidence-results.sh",
+            "gate": "scripts/guards/check-test-evidence-results.sh",
             "skipPolicy": "forbid",
             "covers": ["replay_denial", "family_revocation", "exact_case_execution", "result_retention"],
             "result": {
@@ -315,7 +315,7 @@
               "kind": "go",
               "path": "authserver/internal/token/guest_refresh_test.go",
               "selector": "TestGuestRefresh_DisableKillsFamily",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": ["credential_revocation", "exact_case_execution", "result_retention"],
               "result": {
@@ -331,7 +331,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/guest_set_status.pg",
               "selector": "disable: refresh family revoked in the same act (C-7)",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": ["credential_revocation", "lifecycle_coupling", "exact_case_execution", "result_retention"],
               "result": {
@@ -353,7 +353,7 @@
             "kind": "go",
             "path": "authserver/internal/handlers/impersonation_db_test.go",
             "selector": "stale claims say admin but DB has no admin authority",
-            "gate": "scripts/check-test-evidence-results.sh",
+            "gate": "scripts/guards/check-test-evidence-results.sh",
             "skipPolicy": "forbid",
             "covers": ["authorization_denial", "live_authority_check", "exact_case_execution", "result_retention"],
             "result": {
@@ -374,7 +374,7 @@
             "kind": "go",
             "path": "mailserver/internal/jmap/handler_delegate_test.go",
             "selector": "TestParseAccountID_DelegateRevokedMidSession",
-            "gate": "scripts/check-test-evidence-results.sh",
+            "gate": "scripts/guards/check-test-evidence-results.sh",
             "skipPolicy": "forbid",
             "covers": ["cross_account_denial", "mid_session_revocation", "exact_case_execution", "result_retention"],
             "result": {
@@ -395,7 +395,7 @@
             "kind": "go",
             "path": "mailserver/internal/user/secure_account_test.go",
             "selector": "TestSecureAccount_AtomicRollbackOnFailure",
-            "gate": "scripts/check-test-evidence-results.sh",
+            "gate": "scripts/guards/check-test-evidence-results.sh",
             "skipPolicy": "forbid",
             "covers": ["atomicity", "rollback", "no_partial_success", "exact_case_execution", "result_retention"],
             "result": {
@@ -417,7 +417,7 @@
               "kind": "go",
               "path": "shared/dbscope/dbscope_test.go",
               "selector": "TestRunUserScoped_RLSLeakProof",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": ["tenant_context", "cross_tenant_denial", "exact_case_execution", "result_retention"],
               "result": {
@@ -433,7 +433,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/rls_jmap_reducers.pg",
               "selector": "RLS LOAD-BEARING: setjoin_app desync jmap_email_query(p=A, GUC=B) → BZ006 Account not found (V288 mailboxes FORCE RLS denies foreign account)",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": ["tenant_context", "cross_tenant_denial", "non_vacuity", "exact_case_execution", "result_retention"],
               "result": {
@@ -470,7 +470,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/identity_source_link_behavior.pg",
               "selector": "LDAP without a proven immutable anchor is an explicit ambiguity",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "soft_evidence_never_links",
@@ -491,7 +491,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/identity_source_link_behavior.pg",
               "selector": "source subject cannot move to another person even when retained",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "wrong_person_takeover_denied",
@@ -512,7 +512,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/identity_source_link_behavior.pg",
               "selector": "setjoin_app direct link read is denied by FORCE RLS",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "cross_tenant_denial",
@@ -547,7 +547,7 @@
               "kind": "go",
               "path": "authserver/internal/handlers/identity_links_finalize_test.go",
               "selector": "TestFinalizeFederatedIdentityLinkRollsBackOnMappingFailure",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "atomicity",
@@ -586,7 +586,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/identity_auth_transition.pg",
               "selector": "consumed request elevation cannot authorize execution in a later generation",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "one_use_elevation",
@@ -607,7 +607,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/identity_auth_transition.pg",
               "selector": "execute rechecks recovery instead of trusting the preview snapshot",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "recovery_recheck",
@@ -628,7 +628,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/identity_auth_transition.pg",
               "selector": "execute rejects a changed link generation",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "generation_fence",
@@ -649,7 +649,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/identity_auth_transition.pg",
               "selector": "transition writes one durable all-session JWT denylist fence",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "session_revocation",
@@ -670,7 +670,7 @@
               "kind": "go",
               "path": "shared/middleware/runtime_access_test.go",
               "selector": "TestRuntimeFeatureOffStillDeniesKnownRevocation",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "runtime_revocation_enforcement",
@@ -705,7 +705,7 @@
               "kind": "playwright",
               "path": "mailserver/webmail/e2e/identity-model.spec.ts",
               "selector": "renders normalized evidence responsively while all behavior flags remain off",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "flags_off_by_default",
@@ -727,7 +727,7 @@
               "kind": "playwright",
               "path": "mailserver/webmail/e2e/identity-model.spec.ts",
               "selector": "transition preview is fail-closed while admission is off",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "preview_denial",
@@ -764,7 +764,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/identity_operations.pg",
               "selector": "atomic batch settlement completes the backfill job",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "atomic_job_settlement",
@@ -785,7 +785,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/identity_operations.pg",
               "selector": "backfill exposes the exact per-person result",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "exact_person_results",
@@ -806,7 +806,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/identity_operations.pg",
               "selector": "deleted diagnostic cannot be downloaded",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "artifact_lifecycle",
@@ -827,7 +827,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/identity_operations.pg",
               "selector": "a high-frequency clean sync rail spanning 24 hours satisfies the shadow gate",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "shadow_admission_gate",
@@ -848,7 +848,7 @@
               "kind": "pgtap",
               "path": "mailserver/sql/tests/identity_operations.pg",
               "selector": "retirement check never performs destructive migration",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "destructive_retirement_denial",
@@ -889,7 +889,7 @@
               "kind": "vitest",
               "path": "mailserver/webmail/src/lib/components/WelcomeTour.test.ts",
               "selector": "renders four anchored non-modal steps without a blocker, scrim, cutout, or dialog",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "non_modal_semantics",
@@ -925,7 +925,7 @@
               "kind": "playwright",
               "path": "mailserver/webmail/e2e/welcome-tour.spec.ts",
               "selector": "first populated inbox visit shows exact four-step non-modal tour and Skip persists",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "persistence",
@@ -946,7 +946,7 @@
               "kind": "playwright",
               "path": "mailserver/webmail/e2e/welcome-tour.spec.ts",
               "selector": "automatic start preserves focus and the highlighted Search remains usable",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "focus_preservation",
@@ -967,7 +967,7 @@
               "kind": "playwright",
               "path": "mailserver/webmail/e2e/welcome-tour.spec.ts",
               "selector": "Compose interaction suspends the tour and resumes on the next logical step",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "surface_suspension",
@@ -1002,7 +1002,7 @@
               "kind": "playwright",
               "path": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts",
               "selector": "matrix 360 zh light validates four steps and canonical screenshots",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "responsive_geometry",
@@ -1025,7 +1025,7 @@
               "kind": "playwright",
               "path": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts",
               "selector": "matrix 768 en dark validates four steps and canonical screenshots",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "responsive_geometry",
@@ -1048,7 +1048,7 @@
               "kind": "playwright",
               "path": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts",
               "selector": "matrix 1024 zh dark validates four steps and canonical screenshots",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "responsive_geometry",
@@ -1071,7 +1071,7 @@
               "kind": "playwright",
               "path": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts",
               "selector": "matrix 1440 en light validates four steps and canonical screenshots",
-              "gate": "scripts/check-test-evidence-results.sh",
+              "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "responsive_geometry",
@@ -1112,9 +1112,9 @@
             {
               "id": "connectivity-aware-sync-e0-contract-guard",
               "kind": "guard",
-              "path": "scripts/check-connectivity-aware-sync-cases.sh",
+              "path": "scripts/guards/check-connectivity-aware-sync-cases.sh",
               "selector": "CONTRACT: connectivity-aware-sync-e0-contracts",
-              "gate": "scripts/check-connectivity-aware-sync-cases.sh",
+              "gate": "scripts/guards/check-connectivity-aware-sync-cases.sh",
               "skipPolicy": "forbid",
               "covers": [
                 "manifest_validation",

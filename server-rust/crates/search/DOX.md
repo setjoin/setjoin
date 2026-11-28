@@ -6,7 +6,7 @@ Wave 3.3 (`#558`): Mandatory PG ACL re-authorization wired into gateway Mail/Cha
 
 ## Placement & Dependency Posture
 
-- Foundation crate (`server-rust/crates/search`), never under `crates/domains/*`, so domain crates (`setjoin-jmap`, `setjoin-chat`, `setjoin-drive`, `setjoin-compliance`) and binaries (`bins/gateway`) can depend on it while passing `scripts/check-rust-family-isolation.py` (never enables `setjoin-pg/worker-pool` or `setjoin-workqueue/worker`).
+- Foundation crate (`server-rust/crates/search`), never under `crates/domains/*`, so domain crates (`setjoin-jmap`, `setjoin-chat`, `setjoin-drive`, `setjoin-compliance`) and binaries (`bins/gateway`) can depend on it while passing `scripts/guards/check-rust-family-isolation.py` (never enables `setjoin-pg/worker-pool` or `setjoin-workqueue/worker`).
 - 100% permissive MIT/Apache-2.0/BSD dependencies (`cargo deny -L error --locked check` clean, zero `license-exception-reasons.toml` entries, zero `CC-BY-SA`, zero `zstd-sys`, zero GPL/JVM/C extractors):
   - `tantivy` (`default-features = false, features = ["mmap", "lz4-compression"]`)
   - `jieba-rs` (`default-features = false`, pure-Rust HMM + embedded MIT core dictionary, optional external dictionary via `SETJOIN_SEARCH_ZH_DICT_PATH`)

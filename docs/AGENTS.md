@@ -62,12 +62,12 @@ flags until a separate rollout decision.
 
 ## Verification
 
-- R3/R4/R5 verification front doors are `scripts/verify-architecture-r{3,4,5}.sh`
+- R3/R4/R5 verification front doors are `scripts/ci/verify-architecture-r{3,4,5}.sh`
   (`--doctor` before affected runtime work); cases and evidence contracts stay in
   `verification/architecture-r{3,4,5}-*.json`.
 - Confirm every newly referenced path exists.
 - Run `git diff --check`.
-- Run `bash scripts/check-agent-docs.sh` when changing hot agent/TODO context.
+- Run `bash scripts/guards/check-agent-docs.sh` when changing hot agent/TODO context.
 - When changing reducer-error documentation, cross-check codes against `mailserver/sql/` and the Rust reducer-error mapper (`server-rust/bins/gateway/src/jmap/family/reducer_error.rs`).
 
 ## Child DOX Index

@@ -1,6 +1,6 @@
 //! Secure-behaviour tests for the owner-approved security fixes of 2026-11-05
 //! (#492, #493, #488): mail authentication and the inbound listener. Each bug
-//! restored by a mutant (`scripts/test-smtp-secfix-mutants.py`) must fail one of
+//! restored by a mutant (`scripts/dev/test-smtp-secfix-mutants.py`) must fail one of
 //! these. The recorded frozen-Go corpora stay immutable; the cases they lock a bug
 //! in are listed in `oracle/divergences.json`.
 #[path = "support/auth_blobs.rs"]

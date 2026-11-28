@@ -2,14 +2,14 @@
 -- cross-tenant denial proof (the DEFINER meeting_member_role scope-helper
 -- recursion-dodge, V114/V119 pattern, fourth use). Spec:
 -- retired-docs:superpowers/plans/archive/2026-07-12-meet-B1-core.md Task 1.
--- COVERED entry in scripts/rls-denial-allowlist.txt points here for
+-- COVERED entry in scripts/guards/rls-denial-allowlist.txt points here for
 -- meetings/meeting_participants/meeting_join_requests.
 --
 -- Meet B3 Task 1 (V130) extends this file with the meeting_breakouts
 -- FORCE-RLS denial proof (same meeting_member_role scope, fifth use) and the
 -- chat_messages msg_type 'question' CHECK-widening proof. Spec:
 -- retired-docs:superpowers/plans/archive/2026-07-15-meet-B3-qol.md Task 1.
--- COVERED entry in scripts/rls-denial-allowlist.txt for meeting_breakouts:
+-- COVERED entry in scripts/guards/rls-denial-allowlist.txt for meeting_breakouts:
 -- non-participant and cross-meeting participants see no breakout rows; host/cohost-only mutation policy (V134).
 --
 -- V134 (native-RLS W4 write-policy wave, the B1 live-gate flip blocker)

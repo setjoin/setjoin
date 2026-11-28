@@ -6,11 +6,11 @@
 # check-cargo-supply-chain guard enforces that on this file, mirrors the
 # allowlist in clients/deny.toml ([sources] unknown-registry/unknown-git =
 # deny), and validates clients/Cargo.lock against the pinned checksum catalog
-# in scripts/cargo-lock-pins.json. Any documented mirror must be added to all
+# in scripts/guards/cargo-lock-pins.json. Any documented mirror must be added to all
 # three in the same change. The same guard also hash-pins every SDK toolchain
 # binary referenced below (basename+sha256, keyed by path relative to the SDK
 # root): changing, adding or repointing any path in [env]/[target.*] below
-# requires a conscious `node scripts/cargo-lock-catalog.mjs refresh` in the
+# requires a conscious `node scripts/guards/cargo-lock-catalog.mjs refresh` in the
 # same change — a machine without this SDK reports an explicit SDK-SKIP.
 [source.crates-io]
 registry = "sparse+https://index.crates.io/"

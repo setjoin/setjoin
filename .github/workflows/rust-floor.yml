@@ -64,19 +64,19 @@ jobs:
               else
                 /usr/local/bin/qemu-loongarch64 -L "$CROSS_SYSROOT" "$CROSS_SYSROOT/lib64/libc.so.6" | head -1 | grep -F "version $FLOOR_VERSION"
               fi
-              bash scripts/cross-build.sh --rust --arch "$FLOOR_ARCH"
+              bash scripts/ci/cross-build.sh --rust --arch "$FLOOR_ARCH"
             '
       - name: Smoke LoongArch in the new-world runtime image
         if: matrix.arch == 'loongarch64'
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/test-build-rust-floor.py
-          python3 scripts/test-check-glibc-floor.py
-          python3 scripts/test-cross-build-rust.py
-          bash scripts/smoke-rust-floor.test.sh
+          python3 scripts/ci/test-build-rust-floor.py
+          python3 scripts/guards/test-check-glibc-floor.py
+          python3 scripts/ci/test-cross-build-rust.py
+          bash scripts/ci/smoke-rust-floor.test.sh
           docker build -t setjoin-rust-loong-floor:ci - < .github/ci/rust-loong-runtime.Dockerfile
           # The copied libc must be the actual floor, and QEMU must execute it.
           docker run --rm setjoin-rust-loong-floor:ci /lib64/libc.so.6 | head -1 | grep -F 'version 2.36'
           expected=$(cargo metadata --manifest-path server-rust/Cargo.toml --locked --no-deps --format-version=1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "setjoin-gateway"))')
-          SMOKE_EXPECTED_VERSION="$expected" bash scripts/smoke-rust-floor.sh "$GITHUB_WORKSPACE/scripts/smoke-rust-loong-container.sh"
+          SMOKE_EXPECTED_VERSION="$expected" bash scripts/ci/smoke-rust-floor.sh "$GITHUB_WORKSPACE/scripts/ci/smoke-rust-loong-container.sh"

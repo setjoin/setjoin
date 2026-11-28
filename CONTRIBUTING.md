@@ -26,9 +26,9 @@ Versions match `server-rust/Cargo.toml` and the build scripts — install at lea
 
 The pgTAP + Rust server test suites need **only** PostgreSQL (direct, `127.0.0.1:5432`,
 role `mail`). PgBouncer and SeaweedFS are for running the live server
-(`scripts/setup-test-env.sh`), not for `scripts/test.sh`.
+(`scripts/ci/setup-test-env.sh`), not for `scripts/test.sh`.
 
-> **No AI tooling required.** `scripts/test.sh`, `scripts/build.sh`, and everything
+> **No AI tooling required.** `scripts/test.sh`, `scripts/ci/build.sh`, and everything
 > in this guide run without any agent skills or hooks.
 
 ## Clone → green (the counted path)
@@ -40,7 +40,7 @@ cd setjoin
 
 # 2. Preflight — verifies your toolchain + a reachable, baseline-loaded test DB,
 #    failing LOUD with a named fix instead of a cryptic error mid-suite.
-bash scripts/preflight.sh
+bash scripts/deploy/preflight.sh
 
 # 3. Load the test database (MANDATORY before any DB test).
 #    Recreates mailserver_test from the collapsed baseline:
@@ -124,25 +124,25 @@ zero change if you don't set it), so a second worktree just needs its own name:
 DB_NAME=mailserver_test2 bash scripts/load-test-schema.sh
 ```
 
-`scripts/worktree-gate.sh <db-name>` wraps this: it loads the schema into
+`scripts/ci/worktree-gate.sh <db-name>` wraps this: it loads the schema into
 `<db-name>`, then runs the Rust server suite (with `DB_DSN` pointed at
 `<db-name>`) and pgTAP (`pg_prove -d <db-name>`) against it — parameterized so it
 never touches the default `mailserver_test`:
 
 ```bash
-bash scripts/worktree-gate.sh mailserver_test2
+bash scripts/ci/worktree-gate.sh mailserver_test2
 ```
 
 ## Other commands
 
 ```bash
-bash scripts/build.sh            # build setjoin-server, setjoin-auth, mailctl, asrbotd, setjoin-updater
-bash scripts/check-server-rust.sh # run Rust server workspace + conformance gates
-bash scripts/lint.sh             # Rust + web type/ESLint/Stylelint checks
-bash scripts/quality.sh fast     # all authored-language change-time checks
-bash scripts/quality.sh full     # fast + Clippy/platform-owned checks
-bash scripts/e2e.sh [imap|smtp|ldap]   # protocol end-to-end tests
-bash scripts/setup-test-env.sh         # run the live dev server (needs weed)
+bash scripts/ci/build.sh            # build setjoin-server, setjoin-auth, mailctl, asrbotd, setjoin-updater
+bash scripts/guards/check-server-rust.sh # run Rust server workspace + conformance gates
+bash scripts/ci/lint.sh             # Rust + web type/ESLint/Stylelint checks
+bash scripts/ci/quality.sh fast     # all authored-language change-time checks
+bash scripts/ci/quality.sh full     # fast + Clippy/platform-owned checks
+bash scripts/dev/e2e.sh [imap|smtp|ldap]   # protocol end-to-end tests
+bash scripts/ci/setup-test-env.sh         # run the live dev server (needs weed)
 ```
 
 ## Resume whole-codebase security coverage
@@ -150,9 +150,9 @@ bash scripts/setup-test-env.sh         # run the live dev server (needs weed)
 The control plane is read-only by default. From a fresh shell, run:
 
 ```bash
-bash scripts/verify-security-program.sh --doctor
-bash scripts/verify-security-program.sh coverage status
-bash scripts/verify-security-program.sh coverage resume
+bash scripts/ci/verify-security-program.sh --doctor
+bash scripts/ci/verify-security-program.sh coverage status
+bash scripts/ci/verify-security-program.sh coverage resume
 ```
 
 The first two commands must report verified state. `resume` may exit 3 with a
@@ -184,15 +184,15 @@ hash-bound manifest. Run doctor first when the local toolchain or PostgreSQL sta
 unknown:
 
 ```bash
-bash scripts/verify-architecture-r3.sh --doctor
-bash scripts/verify-architecture-r3.sh --help
-bash scripts/verify-architecture-r3.sh
-bash scripts/verify-architecture-r3.sh migration-checkpoint
-bash scripts/verify-architecture-r3.sh mam-lifecycle --self-test
-bash scripts/verify-architecture-r3.sh aal2 --json --verbose
-bash scripts/verify-architecture-r3.sh evidence
-bash scripts/verify-architecture-r3.sh evidence --run-id <run-directory>
-bash scripts/check-architecture-r3-evidence.sh --self-test
+bash scripts/ci/verify-architecture-r3.sh --doctor
+bash scripts/ci/verify-architecture-r3.sh --help
+bash scripts/ci/verify-architecture-r3.sh
+bash scripts/ci/verify-architecture-r3.sh migration-checkpoint
+bash scripts/ci/verify-architecture-r3.sh mam-lifecycle --self-test
+bash scripts/ci/verify-architecture-r3.sh aal2 --json --verbose
+bash scripts/ci/verify-architecture-r3.sh evidence
+bash scripts/ci/verify-architecture-r3.sh evidence --run-id <run-directory>
+bash scripts/guards/check-architecture-r3-evidence.sh --self-test
 ```
 
 The no-argument command attempts all eight named focused lanes. Every lane's
@@ -215,19 +215,19 @@ device, retained-binary and live-media cases stay separate release gates and
 cannot be satisfied by local surrogate evidence.
 Once every focused lane is green for the same source state, `evidence` composes and
 checks the merge dossier. Release evidence uses
-`node scripts/aggregate-architecture-r3-evidence.mjs --gate release --release-root <dir>`.
+`node scripts/guards/aggregate-architecture-r3-evidence.mjs --gate release --release-root <dir>`.
 For the DX timing contract, run
-`bash scripts/verify-architecture-r3.sh benchmark`: two discarded warmups followed
+`bash scripts/ci/verify-architecture-r3.sh benchmark`: two discarded warmups followed
 by 20 same-fingerprint quick samples, nearest-rank p95 ≤300 seconds.
 
 For route, app-navigation, worker-lifecycle, feature-registry, upgrade-hold, or
 native-bridge changes, start with the five-minute front door:
 
 ```bash
-bash scripts/verify-architecture-r2.sh --doctor
-bash scripts/verify-architecture-r2.sh --help
-bash scripts/verify-architecture-r2.sh
-bash scripts/verify-architecture-r2.sh route --self-test
+bash scripts/ci/verify-architecture-r2.sh --doctor
+bash scripts/ci/verify-architecture-r2.sh --help
+bash scripts/ci/verify-architecture-r2.sh
+bash scripts/ci/verify-architecture-r2.sh route --self-test
 ```
 
 The no-argument command runs the six hermetic lanes and publishes atomic,

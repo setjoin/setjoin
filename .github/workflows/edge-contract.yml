@@ -16,8 +16,8 @@ on:
       - 'server-rust/crates/contracts/**'
       - 'server-rust/crates/pg/**'
       - 'server-rust/bins/gateway/**'
-      - 'scripts/check-edge-contract-*'
-      - 'scripts/check-openapi-proc-macro-ban*'
+      - 'scripts/guards/check-edge-contract-*'
+      - 'scripts/guards/check-openapi-proc-macro-ban*'
       - '.github/workflows/edge-contract.yml'
   pull_request:
     paths:
@@ -30,8 +30,8 @@ on:
       - 'server-rust/crates/contracts/**'
       - 'server-rust/crates/pg/**'
       - 'server-rust/bins/gateway/**'
-      - 'scripts/check-edge-contract-*'
-      - 'scripts/check-openapi-proc-macro-ban*'
+      - 'scripts/guards/check-edge-contract-*'
+      - 'scripts/guards/check-openapi-proc-macro-ban*'
       - '.github/workflows/edge-contract.yml'
   workflow_dispatch:
 
@@ -76,24 +76,24 @@ jobs:
         env:
           EDGE_CONTRACT_REQUIRE_TOOLS: '1'
         run: |
-          bash scripts/check-edge-contract-drift-selftest.sh
-          bash scripts/check-edge-contract-drift.sh
+          bash scripts/guards/check-edge-contract-drift-selftest.sh
+          bash scripts/guards/check-edge-contract-drift.sh
 
       - name: Breaking-change gate (oasdiff + 12-month compatibility window)
         env:
           EDGE_CONTRACT_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || 'origin/main' }}
         run: |
-          bash scripts/check-edge-contract-breaking-selftest.sh
-          bash scripts/check-edge-contract-breaking.sh
+          bash scripts/guards/check-edge-contract-breaking-selftest.sh
+          bash scripts/guards/check-edge-contract-breaking.sh
 
       - name: OpenAPI proc-macro ban across domains/contracts/pg/edge-contract
         run: |
-          bash scripts/check-openapi-proc-macro-ban-selftest.sh
-          bash scripts/check-openapi-proc-macro-ban.sh
+          bash scripts/guards/check-openapi-proc-macro-ban-selftest.sh
+          bash scripts/guards/check-openapi-proc-macro-ban.sh
 
       - name: Monotonic EdgeContract coverage ratchet
         env:
           RATCHET_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || 'origin/main' }}
         run: |
-          bash scripts/check-edge-contract-ratchet-selftest.sh
-          bash scripts/check-edge-contract-ratchet.sh --diff-base "$RATCHET_DIFF_BASE"
+          bash scripts/guards/check-edge-contract-ratchet-selftest.sh
+          bash scripts/guards/check-edge-contract-ratchet.sh --diff-base "$RATCHET_DIFF_BASE"

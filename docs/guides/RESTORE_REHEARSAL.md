@@ -84,10 +84,10 @@ requires retention, record its owner, expiry, network isolation, and deletion
 ticket. A restore proof older than 90 days is shown as stale-warning evidence;
 it is not silently treated as a current rehearsal.
 
-The repository contract smoke is `bash scripts/check-upgrade-contracts.sh`. The
-reusable disposable runtime entry is `scripts/transactional-updater-rehearsal.sh`
+The repository contract smoke is `bash scripts/guards/check-upgrade-contracts.sh`. The
+reusable disposable runtime entry is `scripts/deploy/transactional-updater-rehearsal.sh`
 after provisioning one or more named nodes with
-`scripts/unified-deployment-readiness.sh`; `PROVISION_ENVS="a b"` selects the
+`scripts/deploy/unified-deployment-readiness.sh`; `PROVISION_ENVS="a b"` selects the
 minimal two-node source/isolated-target topology and `RESUME_INSTALL=1` is the
 guarded retry path for an interrupted disposable install. The 2026-08-01 Ubuntu
 run completed every check above under recovery set

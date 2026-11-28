@@ -23,9 +23,9 @@ It names every prerequisite, command, expected result, and focused edit loop.
 For Architecture Deepening Round 3 work, start here:
 
 ```bash
-bash scripts/verify-architecture-r3.sh --doctor
-bash scripts/verify-architecture-r3.sh --help
-bash scripts/verify-architecture-r3.sh
+bash scripts/ci/verify-architecture-r3.sh --doctor
+bash scripts/ci/verify-architecture-r3.sh --help
+bash scripts/ci/verify-architecture-r3.sh
 ```
 
 The no-argument command runs all eight merge-focused lanes and retains
@@ -35,9 +35,9 @@ media are separate release gates; missing real receipts fail closed.
 For whole-codebase security coverage, use the read-only fresh-shell path:
 
 ```bash
-bash scripts/verify-security-program.sh --doctor
-bash scripts/verify-security-program.sh coverage status
-bash scripts/verify-security-program.sh coverage resume
+bash scripts/ci/verify-security-program.sh --doctor
+bash scripts/ci/verify-security-program.sh coverage status
+bash scripts/ci/verify-security-program.sh coverage resume
 ```
 
 `resume` only explains the verified state and safe next action; it never starts a
