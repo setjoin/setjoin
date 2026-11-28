@@ -542,7 +542,9 @@ production-origin configuration, then installs it beside WS and Chat presence.
 All three use one registry; the two push transports also share the client
 counter and direct-DSN notification hub. Idle SSE streams emit server-side
 `: keepalive\n\n` comment frames every 30 s when the client sends no `ping`
-or a larger interval, and jitter periodic 300 s session re-validation by ±20% (#390). The SSE inventory row is ON; the
+or a larger interval, apply the 120 s write deadline per write (so healthy idle
+streams survive past 120 s across keepalives), and jitter periodic 300 s session
+re-validation by ±20% (#390). The SSE inventory row is ON; the
 [family contract](../../crates/domains/jmap/DOX.md) and
 [recorded oracle](../../tests/conformance/jmap/sse/README.md) define lifetime,
 query, wire and native HS256/SM2 (#356a) parity. No shared-effect worker or

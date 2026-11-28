@@ -150,7 +150,12 @@ async fn run_inner(case: &str, mutant: bool) -> Result<(), BoxError> {
             let mut ws = setjoin_gateway::jmap::push::WebSocketRoute::new(commands,db.direct.clone());
             if case.starts_with("prod-"){ws.production=true;ws.allowed_host="mail.test".into();}
             let presence=setjoin_gateway::jmap::presence::PresenceRoute{commands:ws.commands.clone(),registry:ws.registry.clone()};
-            let sse=setjoin_gateway::jmap::sse::EventSourceRoute::new(&ws);
+            let mut sse=setjoin_gateway::jmap::sse::EventSourceRoute::new(&ws);
+            // Frozen Go's `write-deadline.json` specifically records Go's legacy
+            // 120s whole-stream `http.Server.WriteTimeout` cutoff.
+            if case=="write-deadline" {
+                sse=sse.with_stream_write_deadline(Some(Duration::from_secs(120)));
+            }
             let table=if mutant{RouteTable::proxy_all().with(StatusMutant(std::sync::Arc::new(sse)))}else{RouteTable::proxy_all().with(sse)};
             table.with(ws).with(presence)
         };
@@ -571,6 +576,179 @@ async fn sse_idle_without_ping_receives_keepalive_and_closes_on_revocation() -> 
                 .await?;
             stream.ended(Duration::from_secs(5)).await?;
             stream_large.ended(Duration::from_secs(5)).await?;
+            Ok::<_, BoxError>(())
+        }
+        .await;
+        server.abort();
+        let _ = server.await;
+        observed
+    }
+    .await;
+    fixture::remove(&owner, &account).await?;
+    result
+}
+
+#[tokio::test]
+async fn sse_idle_keepalive_survives_past_120s_and_revalidates_within_jitter_bound(
+) -> Result<(), BoxError> {
+    let _serial = SERIAL.lock().await;
+    let Some(db) = Db::for_case("sse-keepalive-past-120s") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let account = fixture::account(&owner, "jmap5-keepalive-long").await?;
+    let result = async {
+        let commands = std::sync::Arc::new(setjoin_gateway::jmap::JmapCommands {
+            services: None,
+            exec: common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?,
+            worker: None,
+            keys: common::recovery_keys(),
+            issuer: "mailserver".into(),
+            denylist: None,
+        });
+        let ws = setjoin_gateway::jmap::push::WebSocketRoute::new(commands, db.direct.clone());
+        // Production defaults: 30s server keepalive, per-write 120s timeout (NO whole-stream
+        // 120s cutoff), and jittered [240s, 360s] periodic re-validation (#390).
+        let sse = setjoin_gateway::jmap::sse::EventSourceRoute::new(&ws);
+        let inventory: Value = serde_json::from_str(include_str!("../route-inventory.json"))?;
+        let gateway = Gateway::new(
+            Config {
+                upstream: None,
+                trusted_proxies: TrustedProxies::parse("")?,
+                upstream_header_timeout: Duration::from_secs(30),
+                edge_limit: None,
+            },
+            RouteTable::proxy_all().with(sse),
+        )?
+        .with_inventory(&inventory.to_string())?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let server = tokio::spawn(gateway.serve(listener));
+        let observed = async {
+            let live_token = common::recovery_token(account.user);
+            let expiring_token = common::recovery_token_with(
+                account.user,
+                json!({"exp": chrono::Utc::now().timestamp() + 2}),
+            );
+            let open_idle = |tok: String| async move {
+                let resp = common::send(
+                    address,
+                    Request::builder()
+                        .uri(format!("http://{address}/jmap/eventsource"))
+                        .header("authorization", format!("Bearer {tok}"))
+                        .body(common::full(""))?,
+                )
+                .await;
+                if resp.status() != 200 {
+                    return Err::<Frames, BoxError>(
+                        format!("SSE idle connect failed: {}", resp.status()).into(),
+                    );
+                }
+                let mut s = Frames {
+                    body: resp.into_body(),
+                    buffer: Vec::new(),
+                };
+                let initial = s.next().await?;
+                if !initial.starts_with("event: state\n") {
+                    return Err(format!("expected initial state, got {initial:?}").into());
+                }
+                Ok(s)
+            };
+            let mut live = open_idle(live_token).await?;
+            let mut expiring = open_idle(expiring_token).await?;
+            // Let `expiring`'s wall-clock JWT `exp` pass before advancing the Tokio clock.
+            tokio::time::sleep(Duration::from_secs(3)).await;
+
+            // Advance across 7 × 30s = 210s (+3s = 213s): well past 120s, safely below the
+            // 240s lower revalidation jitter bound. Both idle streams MUST receive `: keepalive\n\n`
+            // on every tick and MUST NOT abort at 120s.
+            for tick in 1..=7 {
+                tokio::time::pause();
+                tokio::time::advance(Duration::from_secs(30)).await;
+                tokio::time::resume();
+                let f_live = live.next().await?;
+                let f_exp = expiring.next().await?;
+                if f_live != ": keepalive\n\n" || f_exp != ": keepalive\n\n" {
+                    return Err(format!(
+                        "tick {tick}: expected `: keepalive\\n\\n`, got live={f_live:?} expiring={f_exp:?}"
+                    )
+                    .into());
+                }
+            }
+
+            // Advance across ticks 8..=13 (to ~393s > 360s upper revalidation jitter bound)
+            // in 30s steps so `live` receives keepalives (never hitting the 120s per-write
+            // budget) while `expiring` closes cleanly once jittered re-validation fires
+            // inside [240s, 360s].
+            let mut expiring_closed = false;
+            for tick in 8..=13 {
+                tokio::time::pause();
+                tokio::time::advance(Duration::from_secs(30)).await;
+                tokio::time::resume();
+                let f_live = live.next().await?;
+                if f_live != ": keepalive\n\n" {
+                    return Err(
+                        format!("tick {tick}: expected `: keepalive\\n\\n` on live, got {f_live:?}")
+                            .into(),
+                    );
+                }
+                if !expiring_closed {
+                    match expiring.next().await {
+                        Ok(f) if f == ": keepalive\n\n" => {}
+                        Ok(other) => {
+                            return Err(format!(
+                                "tick {tick}: unexpected frame on expiring stream: {other:?}"
+                            )
+                            .into());
+                        }
+                        Err(err) if err.to_string().contains("SSE stream ended before expected frame") => {
+                            // Stream ended cleanly after revalidation closed it.
+                            expiring_closed = true;
+                        }
+                        Err(err) => {
+                            return Err(format!(
+                                "tick {tick}: expiring stream ended abruptly instead of cleanly: {err}"
+                            )
+                            .into());
+                        }
+                    }
+                }
+            }
+            if !expiring_closed {
+                expiring.ended(Duration::from_secs(5)).await?;
+            }
+
+            // `live` MUST STILL be open past 360s, deliver new events, and then close cleanly
+            // upon `session_revoke`.
+            owner
+                .query(
+                    "SELECT pg_notify($1,$2)",
+                    &[
+                        &format!("chat:{}", account.user),
+                        &r#"{"marker":"alive-past-360s"}"#,
+                    ],
+                )
+                .await?;
+            loop {
+                let frame = live.next().await?;
+                if frame == ": keepalive\n\n" {
+                    continue;
+                }
+                if !frame.contains("alive-past-360s") {
+                    return Err(format!("unexpected frame after 360s: {frame:?}").into());
+                }
+                break;
+            }
+            let payload = json!({
+                "user_id": account.user,
+                "scope": "jti",
+                "jti": "blobs1-test"
+            })
+            .to_string();
+            owner
+                .query("SELECT pg_notify('session_revoke',$1)", &[&payload])
+                .await?;
+            live.ended(Duration::from_secs(5)).await?;
             Ok::<_, BoxError>(())
         }
         .await;

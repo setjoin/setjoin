@@ -20,6 +20,12 @@ use std::{
 /// client sends no `ping` query parameter or a larger interval.
 pub const DEFAULT_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
+/// Default per-write stall timeout for SSE frames (120 s).
+/// Applies per individual write so healthy idle streams survive past 120 s across
+/// 30 s keepalives and reach jittered periodic re-validation (`[240s, 360s]`),
+/// while genuinely stalled slow-client writes still abort (#390).
+pub const DEFAULT_WRITE_TIMEOUT: Duration = Duration::from_secs(120);
+
 pub struct EventSourceRoute<K: KeySource + 'static> {
     pub commands: Arc<JmapCommands<K>>,
     pub hub: Arc<super::hub::PushHub>,
@@ -33,6 +39,7 @@ pub struct EventSourceRoute<K: KeySource + 'static> {
     production: bool,
     allowed_host: String,
     keepalive_interval: Option<Duration>,
+    stream_write_deadline: Option<Duration>,
 }
 impl<K: KeySource + 'static> EventSourceRoute<K> {
     pub fn new(ws: &WebSocketRoute<K>) -> Self {
@@ -49,11 +56,19 @@ impl<K: KeySource + 'static> EventSourceRoute<K> {
             production: ws.production,
             allowed_host: ws.allowed_host.clone(),
             keepalive_interval: Some(DEFAULT_KEEPALIVE_INTERVAL),
+            stream_write_deadline: None,
         }
     }
 
     pub fn with_keepalive_interval(mut self, interval: Option<Duration>) -> Self {
         self.keepalive_interval = interval.filter(|d| !d.is_zero());
+        self
+    }
+
+    /// Optional whole-stream write deadline (used for frozen-Go `http.Server.WriteTimeout`
+    /// conformance replays). Production defaults to `None` (per-write `DEFAULT_WRITE_TIMEOUT`).
+    pub fn with_stream_write_deadline(mut self, deadline: Option<Duration>) -> Self {
+        self.stream_write_deadline = deadline.filter(|d| !d.is_zero());
         self
     }
 
@@ -102,8 +117,10 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
         let production = self.production;
         let allowed_host = self.allowed_host.clone();
         let keepalive_interval = self.keepalive_interval;
+        let stream_write_deadline = self.stream_write_deadline;
         Box::pin(async move {
-            let write_deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+            let stream_deadline =
+                stream_write_deadline.map(|d| tokio::time::Instant::now() + d);
             let bearer = r
                 .headers()
                 .get("authorization")
@@ -291,7 +308,8 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
             let aborted = Arc::new(AtomicBool::new(false));
             let output = StreamOutput {
                 send,
-                deadline: write_deadline,
+                stream_deadline,
+                write_timeout: DEFAULT_WRITE_TIMEOUT,
                 aborted: aborted.clone(),
             };
             let task = tokio::spawn(async move {
@@ -577,12 +595,16 @@ impl Drop for StreamTask {
 type StreamFrame = Result<hyper::body::Frame<bytes::Bytes>, crate::BoxError>;
 struct StreamOutput {
     send: tokio::sync::mpsc::Sender<StreamFrame>,
-    deadline: tokio::time::Instant,
+    stream_deadline: Option<tokio::time::Instant>,
+    write_timeout: Duration,
     aborted: Arc<AtomicBool>,
 }
 impl Drop for StreamOutput {
     fn drop(&mut self) {
-        if tokio::time::Instant::now() >= self.deadline {
+        if self
+            .stream_deadline
+            .is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
+        {
             self.aborted.store(true, Ordering::SeqCst);
         }
     }
@@ -592,12 +614,24 @@ async fn write(
     closed: &mut tokio::sync::watch::Receiver<bool>,
     data: String,
 ) -> bool {
-    if *closed.borrow() || tokio::time::Instant::now() >= output.deadline {
+    if *closed.borrow() {
+        return false;
+    }
+    let now = tokio::time::Instant::now();
+    let per_write = now + output.write_timeout;
+    let deadline = output
+        .stream_deadline
+        .map_or(per_write, |stream| stream.min(per_write));
+    if now >= deadline {
+        output.aborted.store(true, Ordering::SeqCst);
         return false;
     }
     tokio::select! {
      biased;
-     _=tokio::time::sleep_until(output.deadline)=>false,
+     _=tokio::time::sleep_until(deadline)=>{
+         output.aborted.store(true, Ordering::SeqCst);
+         false
+     },
      _=closed.changed()=>false,
      result=output.send.send(Ok(hyper::body::Frame::data(bytes::Bytes::from(data))))=>result.is_ok(),
     }

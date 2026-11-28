@@ -207,16 +207,17 @@ pub async fn run(case: &str) -> Result<(), BoxError> {
                     }
                     "expiry"=>{
                         if recording {frames.push(terminal(&mut socket,Some(1008)).await?);} else {
+                            // Account for the initial 11s wall sleep before the advance loop:
+                            // periodic revalidation is jittered in [240s, 360s] (300s ±20%, #390),
+                            // so `ready()` is only required while `11 + elapsed < 235` (at 231s,
+                            // safely below 240s), and Close(1008) must arrive by 411s (> 360s).
                             tokio::time::sleep(Duration::from_secs(11)).await;
-                            // Periodic revalidation is jittered in [240s, 360s] (300s ±20%, #390).
-                            // Advance in <=50s steps (below the 70s pong timeout): stay alive
-                            // before 240s, and close with Policy (1008) within 360s.
-                            let mut elapsed = 0_u64;
+                            let mut elapsed = 11_u64;
                             let mut closed = None;
-                            for delta in [50_u64, 50, 50, 50, 39, 41, 40, 41] {
+                            for delta in [50_u64, 50, 50, 50, 20, 45, 45, 45, 45] {
                                 tokio::time::pause();tokio::time::advance(Duration::from_secs(delta)).await;tokio::time::resume();
                                 elapsed += delta;
-                                if elapsed < 240 {
+                                if elapsed < 235 {
                                     ready(&mut socket).await?;
                                 } else if let Some(frame) = ready_or_close(&mut socket, 1008).await? {
                                     closed = Some(frame);

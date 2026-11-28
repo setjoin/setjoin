@@ -136,6 +136,23 @@ mod tests {
         assert!(!map.debounced_at(1, at_600ms));
         assert_eq!(map.len(), MAX_STAMPS);
 
+        // Updating an existing stale key when at cap must overwrite in place
+        // without evicting a fresh neighbor.
+        let mut stale_map = DebounceMap::default();
+        let t0 = Instant::now();
+        assert!(!stale_map.debounced_at(1, t0));
+        let t_fresh = t0 + Duration::from_millis(800);
+        for ch in 2..=(MAX_STAMPS as i64) {
+            assert!(!stale_map.debounced_at(ch, t_fresh));
+        }
+        assert_eq!(stale_map.len(), MAX_STAMPS);
+        let t_refresh = t0 + Duration::from_millis(1200);
+        // Channel 1 is stale (>=1s old) while channels 2..=4096 are still fresh (400ms old).
+        assert!(!stale_map.debounced_at(1, t_refresh));
+        assert_eq!(stale_map.len(), MAX_STAMPS);
+        // Neighbor channel 2 was NOT evicted and remains debounced.
+        assert!(stale_map.debounced_at(2, t_refresh));
+
         // Once all entries are stale (>=1s old), retain prunes them cleanly.
         let after_window = at_600ms + Duration::from_secs(2);
         assert!(!map.debounced_at(99_999, after_window));

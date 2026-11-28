@@ -47,7 +47,12 @@ pub async fn run() -> Result<(), BoxError> {
    let commands=Arc::new(JmapCommands{services:None,exec:common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn),4)?,worker:None,keys:common::recovery_keys(),issuer:"mailserver".into(),denylist:None});
    let ws=WebSocketRoute::new(commands,db.direct.clone());
    let presence=setjoin_gateway::jmap::presence::PresenceRoute{commands:ws.commands.clone(),registry:ws.registry.clone()};
-   RouteTable::proxy_all().with(EventSourceRoute::new(&ws)).with(presence)
+   // Frozen Go's `periodic-authorization.json` records Go's legacy 120s whole-stream
+   // `WriteTimeout` truncation at the 300s revalidation cutoff without server keepalives.
+   let sse=EventSourceRoute::new(&ws)
+       .with_keepalive_interval(None)
+       .with_stream_write_deadline(Some(Duration::from_secs(120)));
+   RouteTable::proxy_all().with(sse).with(presence)
   };
   let inventory:Value=serde_json::from_str(include_str!("../../route-inventory.json"))?;
   if !recording&&!inventory["routes"].as_array().unwrap().iter().any(|r|r["path"]=="/jmap/eventsource"&&r["state"]=="ON"&&r["upstream"]=="local-rust"){return Err("bundled SSE route is not ON".into())}
