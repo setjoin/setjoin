@@ -22,8 +22,7 @@ gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "server-rust-lane.yml"
-ALL = ["plan", "debug", "build", "roots", "pgtap", "guards", "shard", "coverage-build", "coverage-shard",
-       "queue"]
+ALL = ["plan", "debug", "build", "roots", "pgtap", "guards", "shard", "queue"]
 
 
 def needs(mode, results=None, debug="false"):
@@ -44,8 +43,8 @@ def check(n, event):
         return gate.verdict(n, event)
 
 
-FULL = ok("plan", "build", "roots", "pgtap", "guards", "shard", "coverage-build", "coverage-shard")
-CACHE = ok("plan", "build", "coverage-build")
+FULL = ok("plan", "build", "roots", "pgtap", "guards", "shard")
+CACHE = ok("plan", "build")
 
 OWN_REF = "refs/heads/gh-readonly-queue/main/pr-5-aaa"
 OWN = "a" * 40

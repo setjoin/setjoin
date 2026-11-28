@@ -21,7 +21,7 @@ name: server-rust lane
 # pr-precheck.yml (light pre-check + selected integration tests), and the merge queue then requires this workflow's `aggregate`
 # on the batch. Apply only with the merge-queue ruleset active.
 # What main does (the plan job's `mode` output; the queue already tested what lands on main):
-#   push to main     mode=cache  CACHE REFRESH ONLY: build + coverage-build save the caches, no
+#   push to main     mode=cache  CACHE REFRESH ONLY: build saves the instrumented cargo cache, no
 #                                test, coverage, replay or guard job runs; the run is NOT a test pass
 #   schedule 02:30   mode=full   the FULL lane plus coverage, the backstop (also saves caches); mode=skip
 #                                (green, summary says why) when main had no commit in the last 26 hours
@@ -31,14 +31,13 @@ name: server-rust lane
 # The lane jobs:
 #   queue           first on every run: a merge_group entry with the switch on decides head|gone (waits while a
 #                   later entry is queued, see above); every other run prints head without any network call
-#   plan            decides debug, full, cache, skip or gone, and the shard lists
-#   build           one nextest archive of every workspace test binary + the expected test list
+#   plan            decides debug, full, cache, skip or gone, and the shard list
+#   build           one instrumented nextest archive of every workspace test binary + the expected test list
 #   roots           static guards, cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read
 #   pgtap           reducer pgTAP suites (mailserver + authserver) on the lane Postgres
 #   guards          every scripts/check-*.sh structural/security guard via run-guards.sh, self-tests first
-#   shard 1..N      nextest partition k/N + every N-th replay/mutant, each shard its own VM and Postgres
-#   coverage-build  one instrumented archive of the coverage binaries only
-#   coverage 1..M   every M-th oracle coverage entry
+#   shard 1..N      route-aligned shard k/N (lane-shard-plan.py): nextest tests + JUnit replay/mutant verification
+#                   + single-pass coverage profile capture & llvm-cov verification, each shard its own VM and Postgres
 #   aggregate       the required check: every job green AND every test, replay, mutant and
 #                   coverage entry ran exactly once (scripts/ci/merge-lane-shards.py)
 # workflow_dispatch keeps the debug inputs: filter or adequacy_only runs ONE job, never a lane result.
@@ -55,9 +54,6 @@ on:
       shards:
         description: Test shards (1-12)
         default: '8'
-      coverage_shards:
-        description: Coverage shards (1-12)
-        default: '6'
       jobs:
         description: Concurrent tests per shard
         default: '4'
@@ -134,8 +130,6 @@ jobs:
       mode: ${{ steps.mode.outputs.mode }}
       shards: ${{ steps.plan.outputs.shards }}
       shard_count: ${{ steps.plan.outputs.shard_count }}
-      coverage_shards: ${{ steps.plan.outputs.coverage_shards }}
-      coverage_count: ${{ steps.plan.outputs.coverage_count }}
     steps:
       # Fail fast and loudly while the image pins are still the bootstrap placeholders (every other
       # job needs plan, so nothing else starts and nothing hangs).
@@ -177,14 +171,12 @@ jobs:
         env:
           DEBUG: ${{ inputs.filter }}${{ inputs.adequacy_only }}
           SHARDS: ${{ inputs.shards || '8' }}
-          COVERAGE: ${{ inputs.coverage_shards || '6' }}
         run: |
           python3 - >> "$GITHUB_OUTPUT" <<'PY'
           import json, os
-          n, m = (max(1, min(12, int(os.environ[k]))) for k in ("SHARDS", "COVERAGE"))
+          n = max(1, min(12, int(os.environ["SHARDS"])))
           print("debug=" + ("true" if os.environ["DEBUG"] else "false"))
           print(f"shards={json.dumps(list(range(1, n + 1)))}\nshard_count={n}")
-          print(f"coverage_shards={json.dumps(list(range(1, m + 1)))}\ncoverage_count={m}")
           PY
 
   debug:
@@ -230,6 +222,7 @@ jobs:
     timeout-minutes: 240
     env:
       LANE_JOB_TAG: build
+      RUSTFLAGS: -C instrument-coverage
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/lane-setup
@@ -238,15 +231,18 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: server -> ../../../../lane-build/target
-          shared-key: lane
+          shared-key: lane-coverage
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Build the test archive and the expected test list
+      - name: Build the instrumented test archive and the expected test list
         run: |
-          bash scripts/ci/lane-container.sh bash -c 'set -euo pipefail; cd server
-            cargo nextest archive --workspace --locked --archive-file "$LANE_BUILD/lane-tests.tar.zst"
-            cargo nextest list --workspace --locked --message-format json >"$LANE_ARTIFACT_DIR/lane-list.json"'
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/build-profiles"
+          LLVM_PROFILE_FILE="$RUNNER_TEMP/build-profiles/%p-%m.profraw" \
+            bash scripts/ci/lane-container.sh bash -c 'set -euo pipefail; cd server
+              cargo nextest archive --workspace --locked --archive-file "$LANE_BUILD/lane-tests.tar.zst"
+              cargo nextest list --workspace --locked --message-format json >"$LANE_ARTIFACT_DIR/lane-list.json"'
           ls -la "$LANE_BUILD/lane-tests.tar.zst"
-          # an ignored test is red, as in run_root (the shards cannot see it: partitions count as skipped)
+          # an ignored test is red, as in run_root (the shards cannot see it: filtered runs count as skipped)
           python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); bad=[f"{b}::{t}" for b,s in d["rust-suites"].items() for t,c in s["testcases"].items() if c.get("ignored")]; print("\n".join(bad)); sys.exit(f"{len(bad)} ignored test(s)" if bad else 0)' lane-artifacts/lane-list.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -275,7 +271,7 @@ jobs:
         with:
           workspaces: server -> ../../../../lane-build/target
           shared-key: lane
-          save-if: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Static guards, cargo-deny, pilot, schema-simulation, bench-mark-read, doc tests, SAML ACS mutants
         run: bash scripts/ci/lane-container.sh bash scripts/ci/server-rust-parallel-lane.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -444,11 +440,11 @@ jobs:
         shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     env:
       LANE_JOB_TAG: shard-${{ matrix.shard }}
-      LANE_COVERAGE: '0'
+      LANE_COVERAGE: '1'
       LANE_ADEQUACY_VERIFY_JUNIT: '1'
       SERVER_RUST_STAGES: workspace,adequacy
-      SERVER_RUST_NEXTEST_PARTITION: hash:${{ matrix.shard }}/${{ needs.plan.outputs.shard_count }}
       LANE_ADEQUACY_SHARD: ${{ matrix.shard }}/${{ needs.plan.outputs.shard_count }}
+      LLVM_PROFILE_FILE: /dev/null
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/lane-setup
@@ -456,97 +452,33 @@ jobs:
         with:
           name: lane-archive
           path: ${{ runner.temp }}/archive
-      - name: Shard ${{ matrix.shard }} (nextest partition and JUnit replay verification)
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: lane-list
+          path: ${{ runner.temp }}/list
+      - name: Shard ${{ matrix.shard }} (route-aligned nextest, JUnit replays, and single-pass coverage)
         run: |
+          set -euo pipefail
+          PLAN_DIR="$LANE_BUILD/shard-plan"
+          PROF_DIR="$LANE_BUILD/coverage-profiles"
+          mkdir -p "$PLAN_DIR" "$PROF_DIR"
+          python3 scripts/ci/lane-binaries.py "$RUNNER_TEMP/list/lane-list.json" >"$LANE_ARTIFACT_DIR/binaries.json"
+          python3 scripts/ci/lane-shard-plan.py --root "$PWD" \
+            --lane-list "$RUNNER_TEMP/list/lane-list.json" \
+            --shard "$LANE_ADEQUACY_SHARD" \
+            --out-dir "$PLAN_DIR"
           SERVER_RUST_NEXTEST_ARCHIVE="$RUNNER_TEMP/archive/lane-tests.tar.zst" \
           SERVER_RUST_NEXTEST_EXTRACT_TO="$LANE_BUILD" \
+          SERVER_RUST_NEXTEST_FILTER_FILE="$PLAN_DIR/shard-filter.toml" \
+          LANE_ADEQUACY_BINARIES="$LANE_ARTIFACT_DIR/binaries.json" \
+          LANE_COVERAGE_MAP="$PLAN_DIR/coverage-cases.tsv" \
+          LANE_COVERAGE_PROF_DIR="$PROF_DIR" \
+          LANE_COVERAGE_SHARD_ENTRIES="$PLAN_DIR/shard-coverage-entries.json" \
             bash scripts/ci/lane-container.sh bash scripts/ci/server-rust-parallel-lane.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: lane-result-shard-${{ matrix.shard }}
-          path: lane-artifacts/
-          retention-days: 14
-
-  coverage-build:
-    needs: plan
-    if: needs.plan.outputs.debug != 'true' && needs.plan.outputs.mode != 'skip' && needs.plan.outputs.mode != 'gone'
-    runs-on: ubuntu-latest
-    timeout-minutes: 300
-    env:
-      LANE_JOB_TAG: coverage-build
-      RUSTFLAGS: -C instrument-coverage
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: ./.github/actions/lane-setup
-        with:
-          postgres: 'false'
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: server -> ../../../../lane-build/target
-          shared-key: lane-coverage
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Build the instrumented archive (coverage binaries only)
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/build-profiles"
-          LANE_COVERAGE_TARGETS="$(python3 scripts/guards/check-gofree-oracle-adequacy.py --print-coverage-targets)" \
-          LLVM_PROFILE_FILE="$RUNNER_TEMP/build-profiles/%p-%m.profraw" \
-            bash scripts/ci/lane-container.sh bash -c 'set -euo pipefail; cd server
-              read -r -a sel <<<"$LANE_COVERAGE_TARGETS"
-              cargo nextest archive "${sel[@]}" --locked --archive-file "$LANE_BUILD/coverage-tests.tar.zst"
-              cargo nextest list "${sel[@]}" --locked --message-format json >"$LANE_ARTIFACT_DIR/coverage-list.json"'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: lane-coverage-archive
-          path: ${{ env.LANE_BUILD }}/coverage-tests.tar.zst
-          retention-days: 1
-          compression-level: 0
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: lane-coverage-list
-          path: lane-artifacts/coverage-list.json
-          retention-days: 14
-
-  coverage-shard:
-    needs: [plan, coverage-build]
-    if: needs.plan.outputs.mode == 'full'
-    runs-on: ubuntu-latest
-    timeout-minutes: 300
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: ${{ fromJSON(needs.plan.outputs.coverage_shards) }}
-    env:
-      LANE_JOB_TAG: coverage-${{ matrix.shard }}
-      LANE_COVERAGE: '1'
-      LANE_ADEQUACY_COVERAGE_ONLY: '1'
-      SERVER_RUST_STAGES: adequacy
-      LANE_ADEQUACY_SHARD: ${{ matrix.shard }}/${{ needs.plan.outputs.coverage_count }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: ./.github/actions/lane-setup
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: lane-coverage-archive
-          path: ${{ runner.temp }}/archive
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: lane-coverage-list
-          path: ${{ runner.temp }}/list
-      - name: Coverage shard ${{ matrix.shard }}
-        run: |
-          python3 scripts/ci/lane-binaries.py "$RUNNER_TEMP/list/coverage-list.json" >"$LANE_ARTIFACT_DIR/binaries.json"
-          LANE_COVERAGE_ARCHIVE="$RUNNER_TEMP/archive/coverage-tests.tar.zst" \
-          LANE_ADEQUACY_BINARIES="$LANE_ARTIFACT_DIR/binaries.json" \
-            bash scripts/ci/lane-container.sh bash -c 'set -euo pipefail
-              (cd server && cargo nextest list --archive-file "$LANE_COVERAGE_ARCHIVE" --workspace-remap . \
-                --extract-to "$LANE_BUILD" --extract-overwrite >/dev/null)
-              bash scripts/ci/server-rust-parallel-lane.sh'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: always()
-        with:
-          name: lane-result-coverage-${{ matrix.shard }}
           path: lane-artifacts/
           retention-days: 14
 
@@ -557,7 +489,7 @@ jobs:
   # so in the step summary. merge_group and workflow_dispatch are red unless plan chose mode=full, so a
   # mis-planned or skipped queue run can never pass vacuously.
   aggregate:
-    needs: [plan, debug, build, roots, pgtap, guards, shard, coverage-build, coverage-shard, queue]
+    needs: [plan, debug, build, roots, pgtap, guards, shard, queue]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -577,7 +509,7 @@ jobs:
         run: |
           if [ "$MODE" = cache ]; then
             echo "### server-rust lane: cache refresh only, no tests" >> "$GITHUB_STEP_SUMMARY"
-            echo "A push to main only rebuilds and saves the cargo caches (build, coverage-build). No test, replay, coverage or guard job ran: this is **not** a test pass. The merge queue tested this commit before it landed; the nightly full lane is the backstop." >> "$GITHUB_STEP_SUMMARY"
+            echo "A push to main only rebuilds and saves the instrumented cargo cache (build). No test, replay, coverage or guard job ran: this is **not** a test pass. The merge queue tested this commit before it landed; the nightly full lane is the backstop." >> "$GITHUB_STEP_SUMMARY"
           elif [ "$MODE" = skip ]; then
             echo "### server-rust lane: nightly skipped" >> "$GITHUB_STEP_SUMMARY"
             echo "No commit landed on main in the last 26 hours, so no full lane was due. Nothing ran: this is **not** a test pass." >> "$GITHUB_STEP_SUMMARY"
@@ -599,11 +531,10 @@ jobs:
         if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full' && needs.build.result == 'success'
         env:
           SHARDS: ${{ needs.plan.outputs.shard_count }}
-          COVERAGE: ${{ needs.plan.outputs.coverage_count }}
         run: |
           set -o pipefail
           python3 scripts/ci/merge-lane-shards.py --list results/lane-list/lane-list.json --results results \
-            --shards "$SHARDS" --coverage-shards "$COVERAGE" | tee -a "$GITHUB_STEP_SUMMARY"
+            --shards "$SHARDS" --coverage-shards 0 | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full'
         with:

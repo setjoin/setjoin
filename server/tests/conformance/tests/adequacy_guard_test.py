@@ -1162,7 +1162,7 @@ echo "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
         tokens = printed.stdout.split()
         self.assertTrue(tokens and all(token in ("-p", "--test") or not token.startswith("-") for token in tokens))
         self.assertIn("setjoin-gateway", tokens)
-        self.assertIn("jmap_recorded", tokens)
+        self.assertIn("suite_serial_mailsec_jmap", tokens)
 
 
 class JmapFragments(unittest.TestCase):
@@ -1600,6 +1600,176 @@ class ConsolidatedSuites(unittest.TestCase):
             res = self.run_preflight(root)
             self.assertNotEqual(res.returncode, 0)
             self.assertIn("missing executable replay selector", res.stderr)
+
+
+class VerifyCoverageProfiles(unittest.TestCase):
+    """Exercise --verify-coverage-profiles + --shard-entries against synthetic profiles & llvm-cov."""
+
+    def scaffold(self, directory):
+        root = Path(directory)
+        (root / "server").mkdir()
+        handler = root / "handler.rs"
+        handler.write_text("pub fn handle() -> u32 { 1 }\n")
+        fake_bin = root / "fake-bin"
+        fake_bin.write_text("#!/bin/sh\nexit 0\n")
+        fake_bin.chmod(0o755)
+        binaries = root / "binaries.json"
+        binaries.write_text(json.dumps({"fake-package::recorded": str(fake_bin)}))
+
+        route = {"listener": "gateway", "method": "POST", "path": "/example", "family": "F12"}
+        cases = [{"kind": kind, "golden": f"{kind}.json", "row_golden": f"{kind}-rows.json",
+                  "replay": {"package": "fake-package", "target": "recorded", "test": kind}}
+                 for kind in ("success", "cross-tenant", "invalid-input", "repeat")]
+        (root / "inventory.json").write_text(json.dumps({"version": 1, "routes": [
+            {**route, "state": "ON", "upstream": "local-rust",
+             "oracle_commands": [""], "oracle_mutators": [""]},
+        ]}))
+        (root / "catalog.json").write_text(json.dumps({"version": 1, "routes": [
+            {**route, "mutator": True, "handler_sources": ["handler.rs"], "cases": cases,
+             "family_mutants": FAMILY_MUTANTS,
+             "mutant": {"package": "fake-package", "target": "recorded", "test": "mutant",
+                        "name": "changed-status"}},
+        ]}))
+        for case in cases:
+            (root / case["golden"]).write_text(json.dumps({
+                "format": 1, "route": "POST /example", "case": case["kind"], "go_source": "a" * 40,
+                "observation": {"request": {"method": "POST", "path": "/example"},
+                                "response": {"status": 200}, "effects": [{"state": 1}],
+                                "audit": [{"action": "write"}],
+                                "notify": [{"channel": "changes", "payload": "1"}]},
+            }))
+            (root / case["row_golden"]).write_text(json.dumps({
+                "format": 1, "route": "POST /example", "case": case["kind"] + "-row-effects",
+                "go_source": "a" * 40, "effects": [{"table": "example", "before": [], "after": [{"state": 1}]}],
+            }))
+
+        expected = [
+            ("success", "GOLDEN-REPLAY: POST /example :: success"),
+            ("cross-tenant", "GOLDEN-REPLAY: POST /example :: cross-tenant"),
+            ("invalid-input", "GOLDEN-REPLAY: POST /example :: invalid-input"),
+            ("repeat", "GOLDEN-REPLAY: POST /example :: repeat"),
+            ("mutant", "MUTANT-REJECTED: POST /example :: changed-status"),
+            ("double-bump", "MUTANT-REJECTED: POST /example :: double-bump"),
+            ("no-audit", "MUTANT-REJECTED: POST /example :: no-audit"),
+            ("no-notify", "MUTANT-REJECTED: POST /example :: no-notify"),
+            ("no-tenant-filter", "MUTANT-REJECTED: POST /example :: no-tenant-filter"),
+        ]
+        junit = root / "junit.xml"
+        VerifyNextestJunit.write_junit(junit, [(t, r + "\n", None, None) for t, r in expected])
+
+        # Compute exact manifest hash using --print-manifest
+        printed = subprocess.run(
+            [sys.executable, str(GUARD), "--root", str(root), "--print-manifest",
+             "--inventory", str(root / "inventory.json"), "--catalog", str(root / "catalog.json")],
+            capture_output=True, text=True, check=True,
+        )
+        manifest = json.loads(printed.stdout.strip().splitlines()[-1])
+
+        prof_dir = root / "profiles"
+        prof_dir.mkdir()
+        (prof_dir / "0.profdata").write_bytes(b"fake-profdata")
+        (prof_dir / "0.cases").write_text(
+            "".join(f"fake-package::recorded\t{k}\n" for k in ("success", "cross-tenant", "invalid-input", "repeat"))
+        )
+        shard_entries = root / "shard-coverage-entries.json"
+        shard_entries.write_text(json.dumps({
+            "version": 1,
+            "shard": "1/2",
+            "manifest_hash": manifest["hash"],
+            "entries": [{
+                "entry_idx": 0,
+                "route_name": "POST /example",
+                "key": {"listener": "gateway", "method": "POST", "path": "/example", "family": "F12", "command": ""},
+                "cases": [["fake-package::recorded", k] for k in ("success", "cross-tenant", "invalid-input", "repeat")],
+            }],
+        }))
+        fake_cov = root / "fake-llvm-cov"
+        self.write_fake_cov(fake_cov, handler.resolve(), lines_count=10, lines_covered=8)
+        return root, handler, binaries, junit, prof_dir, shard_entries, fake_cov, expected
+
+    @staticmethod
+    def write_fake_cov(path, filename, *, lines_count=10, lines_covered=8, omit_file=False):
+        files = [] if omit_file else [{
+            "filename": str(filename),
+            "summary": {
+                "lines": {"count": lines_count, "covered": lines_covered, "percent": 80.0},
+                "regions": {"count": 4, "covered": 3, "percent": 75.0},
+            },
+        }]
+        payload = json.dumps({"data": [{"files": files}]})
+        path.write_text(f"#!/bin/sh\nprintf '%s\\n' '{payload}'\n")
+        path.chmod(0o755)
+
+    def run_verify(self, root, binaries, junit, prof_dir, shard_entries, fake_cov, extra=()):
+        env = {**os.environ, "LANE_LLVM_COV": str(fake_cov)}
+        return subprocess.run(
+            [sys.executable, str(GUARD), "--skip-preflight", "--root", str(root),
+             "--verify-nextest-junit", str(junit),
+             "--verify-coverage-profiles", str(prof_dir),
+             "--shard-entries", str(shard_entries),
+             "--shard", "1/2",
+             "--binaries", str(binaries),
+             "--inventory", str(root / "inventory.json"), "--catalog", str(root / "catalog.json"),
+             *extra],
+            env=env, capture_output=True, text=True, check=False,
+        )
+
+    def test_valid_profiles_pass_and_write_combined_receipt(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-prof-ok-") as d:
+            root, _, binaries, junit, prof_dir, shard_entries, fake_cov, expected = self.scaffold(d)
+            receipt = root / "receipt.json"
+            res = self.run_verify(root, binaries, junit, prof_dir, shard_entries, fake_cov,
+                                  ["--receipt", str(receipt)])
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            self.assertIn("coverage POST /example", res.stdout)
+            self.assertIn("lines 8/10; regions 3/4", res.stdout)
+            self.assertIn("coverage summary: 1 entries measured", res.stdout)
+            doc = json.loads(receipt.read_text())
+            self.assertEqual(doc["shard"], "nextest:1/2")
+            self.assertEqual(len(doc["replays"]), len(expected))
+            self.assertEqual(doc["coverage"], ["POST /example"])
+
+    def test_missing_case_in_cases_ledger_fails_closed(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-prof-nocase-") as d:
+            root, _, binaries, junit, prof_dir, shard_entries, fake_cov, _ = self.scaffold(d)
+            (prof_dir / "0.cases").write_text(
+                "".join(f"fake-package::recorded\t{k}\n" for k in ("success", "cross-tenant", "invalid-input"))
+            )
+            res = self.run_verify(root, binaries, junit, prof_dir, shard_entries, fake_cov)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("missing non-empty profile proof", res.stderr)
+            self.assertIn("fake-package::recorded::repeat", res.stderr)
+
+    def test_failed_or_skipped_case_in_junit_fails_closed(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-prof-junit-") as d:
+            root, _, binaries, junit, prof_dir, shard_entries, fake_cov, expected = self.scaffold(d)
+            # Mark a coverage case as skipped in junit.xml and run with --keep-going so coverage check runs too.
+            items = [(t, r + "\n", None, "skipped" if t == "cross-tenant" else None) for t, r in expected]
+            VerifyNextestJunit.write_junit(junit, items)
+            res = self.run_verify(root, binaries, junit, prof_dir, shard_entries, fake_cov, ["--keep-going"])
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("coverage case fake-package::recorded::cross-tenant failed or skipped", res.stdout + res.stderr)
+
+            # Emit a skip marker on stderr of a passing coverage case.
+            items = [(t, r + "\n", "CONFORMANCE-SKIP (reason=no-db)\n" if t == "success" else None, None)
+                     for t, r in expected]
+            VerifyNextestJunit.write_junit(junit, items)
+            res = self.run_verify(root, binaries, junit, prof_dir, shard_entries, fake_cov, ["--keep-going"])
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("coverage case fake-package::recorded::success emitted skip marker", res.stdout + res.stderr)
+
+    def test_zero_lines_or_missing_handler_source_fails_closed(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-prof-cov-") as d:
+            root, handler, binaries, junit, prof_dir, shard_entries, fake_cov, _ = self.scaffold(d)
+            self.write_fake_cov(fake_cov, handler.resolve(), lines_count=0, lines_covered=0)
+            res = self.run_verify(root, binaries, junit, prof_dir, shard_entries, fake_cov)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("no executable coverage lines", res.stderr)
+
+            self.write_fake_cov(fake_cov, handler.resolve(), omit_file=True)
+            res = self.run_verify(root, binaries, junit, prof_dir, shard_entries, fake_cov)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("no coverage mapping", res.stderr)
 
 
 if __name__ == "__main__":

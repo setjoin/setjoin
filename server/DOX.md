@@ -507,7 +507,7 @@ repos/setjoin/setjoin/rulesets/27288657 --input restore.json`), confirm `ALLGREE
 timeout 360 on that ruleset, then cancel the in-progress merge_group runs whose `queue` job is still waiting
 (`gh run list -w server-rust-lane.yml -e merge_group -s in_progress`, then `gh run cancel <id>`) before requeueing.
 A push to `main` runs CACHE REFRESH ONLY
-(`plan` output `mode=cache`: `build`, `coverage-build` and `gomod-cache` save the cargo and Go module caches; no test,
+(`plan` output `mode=cache`: `build` saves the instrumented cargo cache; no test,
 coverage, replay or guard job; step summary "cache refresh only, no tests"; not a test pass, the queue already tested it).
 A nightly `schedule` (`30 2 * * *`, main) runs the full lane plus coverage as the backstop (`mode=full`) and skips
 cleanly (`mode=skip`) when main has no commit in the last 26 hours. The rules live in `scripts/ci/lane-job-gate.py` (tests: `python3 scripts/ci/test-lane-job-gate.py`, run by `aggregate` and `pre-ci.sh`). `aggregate` accepts `cache` only on push and
@@ -515,26 +515,26 @@ cleanly (`mode=skip`) when main has no commit in the last 26 hours. The rules li
 requests run only `pr-precheck.yml` (gate job `aggregate` over `light`: `scripts/ci/quick-check.sh`, changed-package
 clippy/`--lib` tests and cheap guards, and `integration`: the `tests/*.rs` targets `scripts/ci/precheck-integration.py`
 selects, run by `server-rust-parallel-lane.sh` with `SERVER_RUST_STAGES=workspace` and `SERVER_RUST_NEXTEST_SELECT`,
-30-minute cap, see `.github/CI-RUNNERS.md`); the ruleset requires `aggregate` on both, so the full lane gates every merge. The concurrency group falls back to `github.ref` (unique per queue entry). `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
+30-minute cap, see `.github/CI-RUNNERS.md`); the ruleset requires `aggregate` on both, so the full lane gates every merge. The concurrency group falls back to `github.ref` (unique per queue entry). `workflow_dispatch` takes `shards` (default 8), `jobs` (4) and the
 debug inputs `filter`/`adequacy_only`/`adequacy_entries`, which run one `debug` job and are never a
-lane result. Jobs: `queue` (merge-queue batching decision, head or gone; prints head on every run unless batching is on); `plan` (mode, shard lists; debug or full); `build` (one `cargo nextest archive` of every
-workspace test binary plus the expected test list `nextest list`); `roots` (static guards,
+lane result. Jobs: `queue` (merge-queue batching decision, head or gone; prints head on every run unless batching is on); `plan` (mode, shard list; debug or full); `build` (one instrumented `cargo nextest archive` of every
+workspace test binary plus the expected test list `nextest list`, saved under `shared-key: lane-coverage`); `roots` (static guards,
 cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read: `SERVER_RUST_STAGES=static,roots`);
-`shard 1..N` (nextest `--partition hash:k/N` of the archive plus every N-th replay and mutant);
-`coverage-build` (instrumented archive of the coverage binaries only) and `coverage-shard 1..M`
-(every M-th coverage entry); `aggregate`, the required check. Each job is its own VM with its own
+`shard 1..N` (route-aligned `scripts/ci/lane-shard-plan.py` filter file of the archive, capturing sparse `.profdata`
+in `scripts/nextest-db-wrapper.sh` and verifying JUnit replays/mutants plus local `llvm-cov export` coverage in one pass);
+`aggregate`, the required check. Each job is its own VM with its own
 Postgres, so host state cannot collide across shards; inside a shard the serial groups stay.
 `aggregate` runs `scripts/ci/merge-lane-shards.py`: red unless every job wrote `lane-complete.txt`
 `rc=0`, every non-ignored test of the build's list ran exactly once and passed, no log prints a
-`*-SKIP (reason=` marker, the shards together replayed every replay and mutant of the manifest and
-the coverage shards measured every coverage entry (`python3 scripts/ci/test-merge-lane-shards.py`).
+`*-SKIP (reason=` marker, and the shards together verified every replay, mutant, and coverage entry
+of the manifest (`python3 scripts/ci/test-merge-lane-shards.py`).
 Evidence is the `lane-results-<sha>` artifact (30 days); there is no serial or compare mode on
 hosted runners (`LANE_MODE=serial` and `scripts/ci/compare-lane-runs.py` stay for a dev host).
 
 `scripts/guards/check-server-rust.sh` is unchanged by default; hosted CI selects with
 `SERVER_RUST_STAGES` (static, workspace, roots, adequacy), `SERVER_RUST_NEXTEST_ARCHIVE`/`_EXTRACT_TO`/
-`_PARTITION`, `LANE_ADEQUACY_SHARD=K/N`, `LANE_ADEQUACY_BINARIES` (replays and coverage launch the
-archive's binaries through the clone runner instead of `cargo test`), `LANE_COVERAGE=0` (no
+`_PARTITION`/`_FILTER_FILE`, `LANE_ADEQUACY_SHARD=K/N`, `LANE_ADEQUACY_BINARIES`, `LANE_COVERAGE_MAP`/
+`_PROF_DIR`/`_SHARD_ENTRIES` (single-pass profile capture + `llvm-cov export` verification), `LANE_COVERAGE=0` (no
 coverage) and `LANE_ADEQUACY_COVERAGE_ONLY=1`. `CARGO_BIN_EXE_*` and `CARGO_MANIFEST_DIR` are
 compiled in, so every job uses the same absolute `CARGO_TARGET_DIR` (`$HOME/lane-build/target`) and
 checkout path, and the archive is extracted to `$HOME/lane-build`. Replays and mutants run

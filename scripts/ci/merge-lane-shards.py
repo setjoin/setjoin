@@ -48,9 +48,11 @@ def manifest():
     return json.loads(out.strip().splitlines()[-1])
 
 
-def check_receipts(results, names, selectors, key, expected, manifest_hash, problems):
+def check_receipts(results, names, selectors, key, expected, manifest_hash, problems, *, allow_nextest=None):
     """Every job's receipt must be bound to the manifest hash and its selector; the items they
     name, taken together, must equal the manifest's multiset."""
+    if allow_nextest is None:
+        allow_nextest = "optional" if key == "replays" else "never"
     ran = []
     for name, selector in zip(names, selectors):
         path = results / name / "adequacy-receipt.json"
@@ -62,7 +64,12 @@ def check_receipts(results, names, selectors, key, expected, manifest_hash, prob
         if document.get("manifest_hash") != manifest_hash:
             problems.append(f"{name}: receipt manifest hash {document.get('manifest_hash')!r} is not the build's {manifest_hash!r}")
             continue
-        allowed_shards = (selector, f"nextest:{selector}") if key == "replays" else (selector,)
+        if allow_nextest == "only":
+            allowed_shards = (f"nextest:{selector}",)
+        elif allow_nextest == "optional":
+            allowed_shards = (selector, f"nextest:{selector}")
+        else:
+            allowed_shards = (selector,)
         if document.get("shard") not in allowed_shards:
             problems.append(f"{name}: receipt selector {document.get('shard')!r}, expected {selector!r}")
             continue
@@ -139,18 +146,28 @@ def main():
         problems.append(f"replays: {found}/{args.shards} shard summaries, {passed} passed, {bad} failed, manifest {replays}")
     if coverage:
         check_receipts(args.results, coverage, [f"{k}/{args.coverage_shards}" for k in range(1, args.coverage_shards + 1)],
-                       "coverage", document["coverage"], document["hash"], problems)
+                       "coverage", document["coverage"], document["hash"], problems, allow_nextest="never")
         found, (measured, _) = summed([args.results / n / "lane.log" for n in coverage],
                                       r"^coverage summary: (\d+) entries measured()$")
         if found != args.coverage_shards or measured != entries:
             problems.append(f"coverage: {found}/{args.coverage_shards} shard summaries, {measured} measured, manifest {entries}")
+    else:
+        # Single-pass coverage mode: every shard 1..N verifies its own route-aligned coverage
+        # entries and writes them into its `nextest:k/N` adequacy-receipt.json.
+        check_receipts(args.results, shards, [f"{k}/{args.shards}" for k in range(1, args.shards + 1)],
+                       "coverage", document["coverage"], document["hash"], problems, allow_nextest="only")
+        found, (measured, _) = summed([args.results / n / "lane.log" for n in shards],
+                                      r"^coverage summary: (\d+) entries measured()$")
+        if found != args.shards or measured != entries:
+            problems.append(f"coverage: {found}/{args.shards} shard summaries, {measured} measured, manifest {entries}")
     print(f"### server-rust lane: {len(seen)} tests over {args.shards} shards, {replays} replays"
-          + (f", {entries} coverage entries over {args.coverage_shards} shards" if coverage else ""))
+          + (f", {entries} coverage entries over {args.coverage_shards} shards"
+             if coverage else f", {entries} coverage entries (single-pass)"))
     for problem in problems:
         print(f"- ✗ {problem}")
     if problems:
         sys.exit(1)
-    print("- ✓ every test, replay and mutant ran once and passed" + ("; coverage complete" if coverage else ""))
+    print("- ✓ every test, replay and mutant ran once and passed; coverage complete")
 
 
 if __name__ == "__main__":

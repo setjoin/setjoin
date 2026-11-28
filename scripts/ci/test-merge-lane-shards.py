@@ -238,6 +238,51 @@ class MergeLaneShards(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("selector", out)
 
+    def test_single_pass_coverage_shards_zero_is_green(self):
+        self.make("lane-result-shard-1", junit([("a::x", "t1"), ("a::x", "t2")]),
+                  "replay summary: 6 passed, 0 failed\ncoverage summary: 2 entries measured\n",
+                  receipt=receipt("nextest:1/2", REPLAYS[:6], COVERAGE[:2]))
+        self.make("lane-result-shard-2", junit([("b::y", "t1"), ("b::y", "t2")]),
+                  "replay summary: 4 passed, 0 failed\ncoverage summary: 1 entries measured\n",
+                  receipt=receipt("nextest:2/2", REPLAYS[6:], COVERAGE[2:]))
+        code, out = self.run_merge(coverage=False)
+        self.assertEqual(code, 0, out)
+        self.assertIn("single-pass", out)
+        self.assertIn("coverage complete", out)
+
+    def test_single_pass_missing_coverage_entry_is_red(self):
+        self.make("lane-result-shard-1", junit([("a::x", "t1"), ("a::x", "t2")]),
+                  "replay summary: 6 passed, 0 failed\ncoverage summary: 1 entries measured\n",
+                  receipt=receipt("nextest:1/2", REPLAYS[:6], COVERAGE[:1]))
+        self.make("lane-result-shard-2", junit([("b::y", "t1"), ("b::y", "t2")]),
+                  "replay summary: 4 passed, 0 failed\ncoverage summary: 1 entries measured\n",
+                  receipt=receipt("nextest:2/2", REPLAYS[6:], COVERAGE[2:]))
+        code, out = self.run_merge(coverage=False)
+        self.assertEqual(code, 1, out)
+        self.assertIn("coverage entries never ran", out)
+
+    def test_single_pass_duplicate_coverage_entry_is_red(self):
+        self.make("lane-result-shard-1", junit([("a::x", "t1"), ("a::x", "t2")]),
+                  "replay summary: 6 passed, 0 failed\ncoverage summary: 2 entries measured\n",
+                  receipt=receipt("nextest:1/2", REPLAYS[:6], COVERAGE[:2]))
+        self.make("lane-result-shard-2", junit([("b::y", "t1"), ("b::y", "t2")]),
+                  "replay summary: 4 passed, 0 failed\ncoverage summary: 1 entries measured\n",
+                  receipt=receipt("nextest:2/2", REPLAYS[6:], ["c0"]))
+        code, out = self.run_merge(coverage=False)
+        self.assertEqual(code, 1, out)
+        self.assertIn("coverage entries ran twice", out)
+
+    def test_single_pass_rejects_plain_shard_selector_for_coverage(self):
+        self.make("lane-result-shard-1", junit([("a::x", "t1"), ("a::x", "t2")]),
+                  "replay summary: 6 passed, 0 failed\ncoverage summary: 2 entries measured\n",
+                  receipt=receipt("1/2", REPLAYS[:6], COVERAGE[:2]))
+        self.make("lane-result-shard-2", junit([("b::y", "t1"), ("b::y", "t2")]),
+                  "replay summary: 4 passed, 0 failed\ncoverage summary: 1 entries measured\n",
+                  receipt=receipt("nextest:2/2", REPLAYS[6:], COVERAGE[2:]))
+        code, out = self.run_merge(coverage=False)
+        self.assertEqual(code, 1, out)
+        self.assertIn("selector", out)
+
 
 if __name__ == "__main__":
     unittest.main()

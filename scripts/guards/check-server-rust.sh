@@ -139,8 +139,8 @@ nextest_tests() {
     leak_guard on || return 1
     lane_disk_sampler start
     # Hosted CI: run the build job's archive (extracted to the same absolute target dir) and
-    # only this shard's partition; doc tests then run in the roots stage.
-    local build=(--workspace --locked --offline) partition=() filter=()
+    # only this shard's partition or route-aligned filter file; doc tests then run in the roots stage.
+    local build=(--workspace --locked --offline) partition=() filter=() filter_cfg=()
     if [[ -n "${SERVER_RUST_NEXTEST_ARCHIVE:-}" ]]; then
       build=(--archive-file "$SERVER_RUST_NEXTEST_ARCHIVE" --workspace-remap "$dir"
              --extract-to "${SERVER_RUST_NEXTEST_EXTRACT_TO:?SERVER_RUST_NEXTEST_EXTRACT_TO is required with an archive}" --extract-overwrite)
@@ -151,8 +151,20 @@ nextest_tests() {
     fi
     [[ -n "${SERVER_RUST_NEXTEST_PARTITION:-}" ]] && partition=(--partition "$SERVER_RUST_NEXTEST_PARTITION")
     [[ -n "${SERVER_RUST_NEXTEST_FILTER:-}" ]] && filter=(-E "$SERVER_RUST_NEXTEST_FILTER")
+    [[ -n "${SERVER_RUST_NEXTEST_FILTER_FILE:-}" ]] && filter_cfg=(--tool-config-file "shard:$SERVER_RUST_NEXTEST_FILTER_FILE")
+    if [[ -n "${LANE_COVERAGE_MAP:-}" && -n "${LANE_COVERAGE_PROF_DIR:-}" ]]; then
+      mkdir -p "$LANE_COVERAGE_PROF_DIR"
+      rm -rf "${LANE_COVERAGE_PROF_DIR:?}"/*
+      if [[ -z "${LANE_LLVM_PROFDATA:-}" ]]; then
+        local host_triple sysroot cand_profdata
+        host_triple="$(rustc -vV 2>/dev/null | sed -n 's/^host: //p')"
+        sysroot="$(rustc --print sysroot 2>/dev/null || true)"
+        cand_profdata="$sysroot/lib/rustlib/$host_triple/bin/llvm-profdata"
+        [[ -n "$sysroot" && -n "$host_triple" && -x "$cand_profdata" ]] && export LANE_LLVM_PROFDATA="$cand_profdata"
+      fi
+    fi
     (cd "$dir" && "$CARGO" nextest run "${build[@]}" ${partition[@]+"${partition[@]}"} ${filter[@]+"${filter[@]}"} --no-fail-fast --profile lane \
-      --tool-config-file "lane:$groups" -j "${LANE_JOBS:-5}" --success-output immediate --failure-output immediate-final \
+      --tool-config-file "lane:$groups" ${filter_cfg[@]+"${filter_cfg[@]}"} -j "${LANE_JOBS:-5}" --success-output immediate --failure-output immediate-final \
       --color never 2>&1) || rc=1
     if [[ "$rc" -eq 0 && -n "${SERVER_RUST_NEXTEST_FILTER:-}" ]]; then
       local ign_out
@@ -234,8 +246,8 @@ run_root() {
     fi
     np="$(sed -nE 's/.* ([0-9]+) passed.*/\1/p' <<<"$summary")"
     nk="$(sed -nE 's/.* ([0-9]+) skipped.*/\1/p' <<<"$summary")"
-    # a partition shard or -E filter counts non-selected tests as skipped (ignored tests are rejected separately)
-    [[ -n "${SERVER_RUST_NEXTEST_PARTITION:-}" || -n "${SERVER_RUST_NEXTEST_FILTER:-}" ]] && nk=0
+    # a partition shard, -E filter, or shard filter file counts non-selected tests as skipped (ignored tests are rejected separately)
+    [[ -n "${SERVER_RUST_NEXTEST_PARTITION:-}" || -n "${SERVER_RUST_NEXTEST_FILTER:-}" || -n "${SERVER_RUST_NEXTEST_FILTER_FILE:-}" ]] && nk=0
     passed=$((passed + ${np:-0}))
     ignored=$((ignored + ${nk:-0}))
   fi
@@ -383,8 +395,14 @@ check_tree() {
         return 1
       fi
     fi
-    if [[ -n "$verify_junit" && ${#coverage[@]} -eq 0 ]]; then
-      python3 "$ROOT/scripts/guards/check-gofree-oracle-adequacy.py" --verify-nextest-junit "$verify_junit" ${shard_args[@]+"${shard_args[@]}"} --cargo "$CARGO" ${keep_going[@]+"${keep_going[@]}"} || rc=1
+    local profile_args=()
+    if [[ -n "${LANE_COVERAGE_PROF_DIR:-}" && -n "$verify_junit" && ${#coverage[@]} -gt 0 ]]; then
+      profile_args+=(--verify-coverage-profiles "$LANE_COVERAGE_PROF_DIR")
+      [[ -n "${LANE_COVERAGE_SHARD_ENTRIES:-}" ]] && profile_args+=(--shard-entries "$LANE_COVERAGE_SHARD_ENTRIES")
+    fi
+    if [[ -n "$verify_junit" && ( ${#coverage[@]} -eq 0 || ${#profile_args[@]} -gt 0 ) ]]; then
+      python3 "$ROOT/scripts/guards/check-gofree-oracle-adequacy.py" --verify-nextest-junit "$verify_junit" \
+        ${profile_args[@]+"${profile_args[@]}"} ${shard_args[@]+"${shard_args[@]}"} --cargo "$CARGO" ${keep_going[@]+"${keep_going[@]}"} || rc=1
     else
       if [[ -n "${LANE_ADMIN_DSN:-}" && -n "${LANE_TEMPLATE_DB:-}" && -n "${LANE_BASE_DB:-}" ]]; then
         local host_triple runner_var

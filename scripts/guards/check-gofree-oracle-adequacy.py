@@ -9,13 +9,17 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import threading
 import time
 import sys
 import tempfile
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python <3.11; only required by preflight/serial-groups
+    tomllib = None
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -579,14 +583,8 @@ def execute_replays(root, cargo, replays, failures=None, jobs=None, prebuilt=Non
         failures.append(("replay/mutant", label, errors[index]))
 
 
-def verify_nextest_junit(junit_path, replays, shard=None, failures=None):
-    """Verify replay and mutant receipts directly from a cargo nextest JUnit XML
-    (with store-success-output = true), avoiding duplicate execution of every
-    manifest replay/mutant already executed under REQUIRE_DB=1 + lane-db + leak_guard.
-    In sharded mode (`shard` is not None), verifies every manifest entry present in
-    this shard's junit.xml (merge-lane-shards.py enforces exact multiset equality
-    across all N shards). In unsharded mode (`shard` is None), every manifest entry
-    must be present in junit.xml."""
+def parse_nextest_junit(junit_path):
+    """Parse a cargo nextest JUnit XML into {(classname, name): (failed, skipped, output)}."""
     try:
         root = ET.parse(junit_path).getroot()
     except (OSError, ET.ParseError) as error:
@@ -604,6 +602,19 @@ def verify_nextest_junit(junit_path, replays, shard=None, failures=None):
         cases[key] = (failed, skipped, output)
     if not cases:
         raise ValueError(f"nextest JUnit XML {junit_path} contains zero testcases")
+    return cases
+
+
+def verify_nextest_junit(junit_path, replays, shard=None, failures=None, cases=None):
+    """Verify replay and mutant receipts directly from a cargo nextest JUnit XML
+    (with store-success-output = true), avoiding duplicate execution of every
+    manifest replay/mutant already executed under REQUIRE_DB=1 + lane-db + leak_guard.
+    In sharded mode (`shard` is not None), verifies every manifest entry present in
+    this shard's junit.xml (merge-lane-shards.py enforces exact multiset equality
+    across all N shards). In unsharded mode (`shard` is None), every manifest entry
+    must be present in junit.xml."""
+    if cases is None:
+        cases = parse_nextest_junit(junit_path)
     if shard is None:
         selected = list(replays)
     else:
@@ -637,6 +648,207 @@ def verify_nextest_junit(junit_path, replays, shard=None, failures=None):
         print(f"replay summary FAIL {label}", flush=True)
         failures.append(("replay/mutant", label, errors[index]))
     return [replay_label(*selected[i]) for i in range(len(selected)) if i not in errors]
+
+
+def find_llvm_cov():
+    """Locate llvm-cov: LANE_LLVM_COV override, then rustup sysroot llvm-tools, then PATH."""
+    override = os.environ.get("LANE_LLVM_COV")
+    if override:
+        path = Path(override)
+        if not path.is_file():
+            raise ValueError(f"LANE_LLVM_COV is not a file: {override}")
+        return path
+    host = next(
+        line.split(": ", 1)[1]
+        for line in subprocess.run(["rustc", "-vV"], capture_output=True, text=True, check=True).stdout.splitlines()
+        if line.startswith("host: ")
+    )
+    sysroot = subprocess.run(["rustc", "--print", "sysroot"], capture_output=True, text=True, check=True).stdout.strip()
+    cov = Path(sysroot) / "lib/rustlib" / host / "bin/llvm-cov"
+    if cov.is_file():
+        return cov
+    found = shutil.which("llvm-cov")
+    if found:
+        return Path(found)
+    raise ValueError("Rust llvm-tools component is required for coverage")
+
+
+def verify_coverage_profiles(root, prof_dir, junit_cases, suites, prebuilt, *,
+                             shard_entries=None, expected_manifest_hash=None,
+                             expected_shard=None, failures=None, workers=4):
+    """Verify per-entry sparse profiles captured during the single-pass nextest run.
+
+    For each coverage entry assigned to this shard:
+      1. Every case passed in junit.xml with zero `*-SKIP (reason=` markers.
+      2. Every case appears in `<PROF_DIR>/<eid>.cases` (proving it emitted non-empty `.profraw`).
+      3. `llvm-cov export` against `<PROF_DIR>/<eid>.profdata` maps every `handler_source`
+         with `lines.count > 0`.
+    """
+    if prebuilt is None:
+        raise ValueError("--verify-coverage-profiles requires --binaries")
+    prof_dir = Path(prof_dir)
+    if not prof_dir.is_dir():
+        raise ValueError(f"coverage profile directory does not exist: {prof_dir}")
+    cov_bin = find_llvm_cov()
+
+    if shard_entries is not None:
+        if shard_entries.get("version") != 1:
+            raise ValueError(f"unsupported shard-entries version: {shard_entries.get('version')!r}")
+        if expected_manifest_hash is not None and shard_entries.get("manifest_hash") != expected_manifest_hash:
+            raise ValueError(
+                f"shard-entries manifest_hash {shard_entries.get('manifest_hash')!r} "
+                f"does not match {expected_manifest_hash!r}"
+            )
+        if expected_shard is not None and shard_entries.get("shard") != expected_shard:
+            raise ValueError(
+                f"shard-entries shard {shard_entries.get('shard')!r} does not match {expected_shard!r}"
+            )
+        entry_indices = []
+        seen = set()
+        for item in shard_entries.get("entries", []):
+            eid = item["entry_idx"]
+            if not isinstance(eid, int) or eid < 0 or eid >= len(suites) or eid in seen:
+                raise ValueError(f"invalid or duplicate entry_idx in shard-entries: {eid!r}")
+            seen.add(eid)
+            route_name, suite = suites[eid]
+            if item.get("route_name") != route_name:
+                raise ValueError(f"shard-entries mismatch for entry {eid}: {item.get('route_name')!r} != {route_name!r}")
+            expected_key = {
+                "listener": suite["listener"],
+                "method": suite["method"],
+                "path": suite["path"],
+                "family": suite["family"],
+                "command": suite.get("command", ""),
+            }
+            if item.get("key") != expected_key:
+                raise ValueError(f"shard-entries key mismatch for entry {eid}: {item.get('key')!r} != {expected_key!r}")
+            entry_indices.append(eid)
+    else:
+        entry_indices = list(range(len(suites)))
+
+    root_resolved = root.resolve()
+
+    def verify_one(eid):
+        route_name, suite = suites[eid]
+        lines = []
+        try:
+            sources = suite.get("handler_sources")
+            if not isinstance(sources, list) or not sources:
+                raise ValueError("missing handler coverage sources")
+            resolved_sources = []
+            for source in sources:
+                path = (root / source).resolve()
+                if not path.is_relative_to(root_resolved) or not path.is_file():
+                    raise ValueError(f"invalid handler coverage source {source}")
+                resolved_sources.append((source, path))
+
+            expected_cases = [
+                (f"{case['replay']['package']}::{case['replay']['target']}", case["replay"]["test"])
+                for case in suite["cases"]
+            ]
+            for bin_id, test_name in expected_cases:
+                key = (bin_id, test_name)
+                if key not in junit_cases:
+                    raise ValueError(f"coverage case {bin_id}::{test_name} did not run in JUnit XML")
+                failed, skipped, output = junit_cases[key]
+                if failed or skipped:
+                    raise ValueError(f"coverage case {bin_id}::{test_name} failed or skipped in JUnit XML:\n{output}")
+                if re.search(r"[A-Z][A-Z0-9-]*-SKIP \(reason=", output):
+                    raise ValueError(f"coverage case {bin_id}::{test_name} emitted skip marker in JUnit XML:\n{output}")
+
+            cases_path = prof_dir / f"{eid}.cases"
+            if not cases_path.is_file():
+                raise ValueError(f"missing coverage profile case ledger: {cases_path}")
+            recorded_cases = set()
+            for raw_line in cases_path.read_text(errors="replace").splitlines():
+                if not raw_line.strip():
+                    continue
+                parts = raw_line.split("\t")
+                if len(parts) == 2:
+                    recorded_cases.add((parts[0], parts[1]))
+            missing_recorded = [f"{b}::{t}" for b, t in expected_cases if (b, t) not in recorded_cases]
+            if missing_recorded:
+                raise ValueError(
+                    f"coverage case(s) missing non-empty profile proof in {cases_path.name}: "
+                    + ", ".join(missing_recorded)
+                )
+
+            profdata = prof_dir / f"{eid}.profdata"
+            if not profdata.is_file() or profdata.stat().st_size == 0:
+                raise ValueError(f"missing or empty coverage profdata: {profdata}")
+
+            command_binaries = []
+            for target in suite_targets(suite):
+                binary_key = f"{target[0]}::{target[1]}"
+                binary_path = prebuilt.get(binary_key)
+                if not binary_path or not Path(binary_path).is_file():
+                    raise ValueError(f"coverage binary {binary_key} missing from --binaries or disk")
+                command_binaries.append(str(Path(binary_path).resolve()))
+            if not command_binaries:
+                raise ValueError("coverage entry has no test binaries")
+
+            command = [
+                str(cov_bin), "export", "--format=text", "--skip-functions", "--skip-expansions",
+                f"--instr-profile={profdata}", command_binaries[0],
+            ]
+            for extra in command_binaries[1:]:
+                command.extend(["--object", extra])
+            command.extend(["--sources", *(str(path) for _, path in resolved_sources)])
+
+            result = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
+            if result.returncode:
+                raise ValueError(f"llvm-cov export failed:\n{result.stdout}{result.stderr}")
+            try:
+                data = json.loads(result.stdout)
+            except json.JSONDecodeError as error:
+                raise ValueError(f"llvm-cov export returned invalid JSON: {error}") from error
+            files = {
+                Path(file["filename"]).resolve(): file
+                for group in data.get("data", [])
+                for file in group.get("files", [])
+            }
+            report_files = []
+            for source, resolved in resolved_sources:
+                file = files.get(resolved)
+                if file is None:
+                    raise ValueError(f"handler source has no coverage mapping: {source}")
+                summary = file["summary"]
+                if not summary["lines"]["count"]:
+                    raise ValueError(f"handler source has no executable coverage lines: {source}")
+                file_lines, regions = summary["lines"], summary["regions"]
+                lines.append(
+                    f"coverage {route_name} {resolved}: lines {file_lines['covered']}/{file_lines['count']}; "
+                    f"regions {regions['covered']}/{regions['count']}"
+                )
+                report_files.append({"file": str(resolved), "lines": file_lines, "regions": regions})
+            report = {"route": route_name, "tests": [t for _, t in expected_cases], "files": report_files}
+            return eid, route_name, report, lines, None
+        except ValueError as error:
+            return eid, route_name, None, lines, str(error)
+
+    results_by_eid = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        future_map = {pool.submit(verify_one, eid): eid for eid in entry_indices}
+        for future in concurrent.futures.as_completed(future_map):
+            eid, route_name, report, lines, error = future.result()
+            results_by_eid[eid] = (route_name, report, error)
+            for line in lines:
+                print(line, flush=True)
+            if error is not None:
+                print(f"coverage FAIL {route_name}", flush=True)
+                if failures is None:
+                    raise ValueError(f"{route_name}: {error}")
+
+    reports = []
+    ran_coverage = []
+    for eid in entry_indices:
+        route_name, report, error = results_by_eid[eid]
+        if error is not None:
+            failures.append(("coverage", route_name, f"{route_name}: {error}"))
+        else:
+            reports.append(report)
+            ran_coverage.append(route_name)
+    return reports, ran_coverage
 
 
 def measure_coverage(root, cargo, suites, failures=None, jobs=None, prebuilt=None):
@@ -1020,6 +1232,11 @@ def main():
     parser.add_argument("--verify-nextest-junit", type=Path, metavar="PATH",
                         help="verify replay and mutant receipts from a cargo nextest JUnit XML "
                              "(with store-success-output = true) instead of re-executing tests")
+    parser.add_argument("--verify-coverage-profiles", type=Path, metavar="PROF_DIR",
+                        help="verify single-pass coverage profiles captured during nextest in PROF_DIR "
+                             "(requires --verify-nextest-junit and --binaries)")
+    parser.add_argument("--shard-entries", type=Path, metavar="PATH",
+                        help="JSON list of coverage entry indices assigned to this shard (from lane-shard-plan.py)")
     parser.add_argument("--coverage", action="store_true")
     parser.add_argument("--coverage-output", type=Path)
     parser.add_argument("--coverage-jobs", type=int, default=None,
@@ -1063,13 +1280,24 @@ def main():
         unknown = sorted(set(stages) - set(STAGES))
         if not stages or unknown:
             parser.error(f"--only takes stages from {', '.join(STAGES)}; got {args.only!r}")
-        if args.execute or args.coverage or args.verify_nextest_junit is not None:
-            parser.error("--only replaces --execute, --verify-nextest-junit, and --coverage")
+        if args.execute or args.coverage or args.verify_nextest_junit is not None or args.verify_coverage_profiles is not None:
+            parser.error("--only replaces --execute, --verify-nextest-junit, --verify-coverage-profiles, and --coverage")
         args.execute, args.coverage = "replays" in stages, "coverage" in stages
     elif args.entries is not None:
         parser.error("--entries needs --only")
     elif args.verify_nextest_junit is not None and args.execute:
         parser.error("--verify-nextest-junit cannot be combined with --execute")
+    elif args.verify_coverage_profiles is not None:
+        if args.verify_nextest_junit is None:
+            parser.error("--verify-coverage-profiles requires --verify-nextest-junit")
+        if args.coverage:
+            parser.error("--verify-coverage-profiles cannot be combined with --coverage")
+        if args.binaries is None:
+            parser.error("--verify-coverage-profiles requires --binaries")
+        if args.shard is not None and args.shard_entries is None:
+            parser.error("--verify-coverage-profiles with --shard requires --shard-entries")
+    elif args.shard_entries is not None:
+        parser.error("--shard-entries requires --verify-coverage-profiles")
     elif args.coverage and not args.execute and args.verify_nextest_junit is None and args.shard is None:
         parser.error("--coverage requires --execute")
     entries = None
@@ -1113,18 +1341,24 @@ def main():
     if args.shard is not None:
         shard = parse_shard(args.shard)
         if args.verify_nextest_junit is not None:
-            suites = shard_items(suites, shard)
-            print(f"gofree-oracle-adequacy: SHARD nextest:{args.shard} (JUnit {args.verify_nextest_junit}, "
-                  f"{len(suites)} coverage entries)", flush=True)
+            if args.verify_coverage_profiles is None:
+                suites = shard_items(suites, shard)
+                print(f"gofree-oracle-adequacy: SHARD nextest:{args.shard} (JUnit {args.verify_nextest_junit}, "
+                      f"{len(suites)} coverage entries)", flush=True)
+            else:
+                print(f"gofree-oracle-adequacy: SHARD nextest:{args.shard} (JUnit {args.verify_nextest_junit}, "
+                      f"profiles {args.verify_coverage_profiles})", flush=True)
         else:
             replays, suites = shard_items(replays, shard), shard_items(suites, shard)
             print(f"gofree-oracle-adequacy: SHARD {args.shard} ({len(replays)} replays, {len(suites)} coverage entries)", flush=True)
     prebuilt = json.loads(args.binaries.read_text()) if args.binaries else None
     failures = [] if args.keep_going else None
     ran_replays, ran_coverage = None, None
+    junit_cases = None
     if args.verify_nextest_junit is not None:
         started = time.monotonic()
-        ran_replays = verify_nextest_junit(args.verify_nextest_junit, replays, args.shard, failures)
+        junit_cases = parse_nextest_junit(args.verify_nextest_junit)
+        ran_replays = verify_nextest_junit(args.verify_nextest_junit, replays, args.shard, failures, cases=junit_cases)
         print(f"gofree-oracle-adequacy: JUnit replay verification took {time.monotonic() - started:.0f}s", flush=True)
     elif args.execute:
         started = time.monotonic()
@@ -1132,7 +1366,22 @@ def main():
         print(f"gofree-oracle-adequacy: replays and mutants took {time.monotonic() - started:.0f}s", flush=True)
         failed_labels = {label for kind, label, _ in failures or [] if kind == "replay/mutant"}
         ran_replays = [replay_label(*item) for item in replays if replay_label(*item) not in failed_labels]
-    if args.coverage:
+    if args.verify_coverage_profiles is not None:
+        started = time.monotonic()
+        shard_entries_doc = json.loads(args.shard_entries.read_text()) if args.shard_entries else None
+        reports, ran_coverage = verify_coverage_profiles(
+            args.root, args.verify_coverage_profiles, junit_cases, suites, prebuilt,
+            shard_entries=shard_entries_doc,
+            expected_manifest_hash=manifest["hash"],
+            expected_shard=args.shard,
+            failures=failures,
+            workers=args.coverage_jobs or 4,
+        )
+        print(f"coverage summary: {len(reports)} entries measured", flush=True)
+        print(f"gofree-oracle-adequacy: coverage profile verification took {time.monotonic() - started:.0f}s", flush=True)
+        if args.coverage_output:
+            args.coverage_output.write_text(json.dumps(reports, indent=2) + "\n")
+    elif args.coverage:
         started = time.monotonic()
         reports = measure_coverage(args.root, args.cargo, suites, failures, args.coverage_jobs, prebuilt)
         print(f"coverage summary: {len(reports)} entries measured", flush=True)
