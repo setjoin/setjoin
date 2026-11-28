@@ -479,7 +479,7 @@ process-local caches running until Go is deleted; no shared-effect worker is
 transferred here. Production origin policy mirrors Go's `TLS_CERT_FILE` and `HTTP_MODE=proxy` test
 (built-in `TLS_AUTOCERT_DOMAINS` was retired in Release N+1, `#560`), including its
 second upgrader check.
-Cookie authentication, 1000-client and 10MiB bounds, ping30/pong70/revalidate300,
+Cookie authentication, 1000-client and 10MiB bounds, ping30/pong70/revalidate300 (±20% jitter, #390),
 app admission and targeted revocation are exercised over live sockets.
 HS256/SM2 push credentials are verified natively by the shared legacy key seam
 (#356a, `tests/jmap_push_profiles_recorded.rs`); header shape never selects Go.
@@ -540,7 +540,9 @@ contracts: [Federation DOX](../../crates/protocols/federation/DOX.md#native-acti
 F18 SSE (#319): `main.rs` constructs `EventSourceRoute::new(&push)` after WS
 production-origin configuration, then installs it beside WS and Chat presence.
 All three use one registry; the two push transports also share the client
-counter and direct-DSN notification hub. The SSE inventory row is ON; the
+counter and direct-DSN notification hub. Idle SSE streams emit server-side
+`: keepalive\n\n` comment frames every 30 s when the client sends no `ping`
+or a larger interval, and jitter periodic 300 s session re-validation by ±20% (#390). The SSE inventory row is ON; the
 [family contract](../../crates/domains/jmap/DOX.md) and
 [recorded oracle](../../tests/conformance/jmap/sse/README.md) define lifetime,
 query, wire and native HS256/SM2 (#356a) parity. No shared-effect worker or

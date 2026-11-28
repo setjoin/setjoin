@@ -178,18 +178,24 @@ fn json_parsing_matches_recorded_go_edge_cases() {
             .decode(edge["input_base64"].as_str().unwrap())
             .unwrap();
         let result = Manifest::parse(&input);
+        let name = edge["name"].as_str().unwrap();
+        // #279: post-Go deletion (#142), unknown artifact classes are rejected
+        // fail-closed instead of mirroring Go's missing-map-key empty-target bug.
+        let expected_accepted = if name == "unknown-class-empty-target" {
+            false
+        } else {
+            edge["accepted"].as_bool().unwrap()
+        };
         assert_eq!(
             result.is_ok(),
-            edge["accepted"],
-            "{}: {result:?}",
-            edge["name"]
+            expected_accepted,
+            "{name}: {result:?}"
         );
         if let Ok(m) = result {
             assert_eq!(
                 String::from_utf8(m.canonical().unwrap()).unwrap(),
                 edge["canonical"],
-                "{}",
-                edge["name"]
+                "{name}"
             );
         }
     }

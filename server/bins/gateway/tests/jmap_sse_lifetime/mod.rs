@@ -76,7 +76,7 @@ pub async fn run() -> Result<(), BoxError> {
    let before=rows(&owner,&member,&admin).await?;
    if !recording {
     tokio::time::sleep(Duration::from_secs(4)).await;
-    tokio::time::pause();tokio::time::advance(Duration::from_secs(301)).await;tokio::time::resume();
+    tokio::time::pause();tokio::time::advance(Duration::from_secs(361)).await;tokio::time::resume();
    }
    let deadline=if recording{Duration::from_secs(340)}else{Duration::from_secs(5)};
    let mut terminal=Vec::new();for stream in &mut streams {terminal.push(stream.terminal_kind(deadline).await?);}

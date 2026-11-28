@@ -360,7 +360,7 @@ impl Frames {
             loop {
                 if let Some(end) = self.buffer.windows(2).position(|b| b == b"\n\n") {
                     let frame = String::from_utf8(self.buffer.drain(..end + 2).collect())?;
-                    if !frame.starts_with("event: ping\n") {
+                    if !frame.starts_with("event: ping\n") && !frame.starts_with(':') {
                         return Err(format!("unexpected frame before close: {frame}").into());
                     }
                 } else {
@@ -475,6 +475,114 @@ async fn sse_legacy_profile_shape_is_verified_natively() -> Result<(), BoxError>
 async fn sse_executable_serves_without_go() -> Result<(), BoxError> {
     jmap_sse_lifetime::registry::executable().await
 }
+#[tokio::test]
+async fn sse_idle_without_ping_receives_keepalive_and_closes_on_revocation() -> Result<(), BoxError>
+{
+    let _serial = SERIAL.lock().await;
+    let Some(db) = Db::for_case("sse-server-keepalive") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let account = fixture::account(&owner, "jmap5-keepalive").await?;
+    let result = async {
+        let commands = std::sync::Arc::new(setjoin_gateway::jmap::JmapCommands {
+            services: None,
+            exec: common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?,
+            worker: None,
+            keys: common::recovery_keys(),
+            issuer: "mailserver".into(),
+            denylist: None,
+        });
+        let ws = setjoin_gateway::jmap::push::WebSocketRoute::new(commands, db.direct.clone());
+        let sse = setjoin_gateway::jmap::sse::EventSourceRoute::new(&ws)
+            .with_keepalive_interval(Some(Duration::from_millis(50)));
+        let inventory: Value = serde_json::from_str(include_str!("../route-inventory.json"))?;
+        let gateway = Gateway::new(
+            Config {
+                upstream: None,
+                trusted_proxies: TrustedProxies::parse("")?,
+                upstream_header_timeout: Duration::from_secs(30),
+                edge_limit: None,
+            },
+            RouteTable::proxy_all().with(sse),
+        )?
+        .with_inventory(&inventory.to_string())?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let server = tokio::spawn(gateway.serve(listener));
+        let observed = async {
+            let token = common::recovery_token(account.user);
+            // 1. Idle stream with NO `ping` parameter receives server-side `: keepalive\n\n`.
+            let resp = common::send(
+                address,
+                Request::builder()
+                    .uri(format!("http://{address}/jmap/eventsource"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(common::full(""))?,
+            )
+            .await;
+            if resp.status() != 200 {
+                return Err(format!("SSE idle connect failed: {}", resp.status()).into());
+            }
+            let mut stream = Frames {
+                body: resp.into_body(),
+                buffer: Vec::new(),
+            };
+            let initial = stream.next().await?;
+            if !initial.starts_with("event: state\n") {
+                return Err(format!("expected initial state event, got: {initial}").into());
+            }
+            let ka1 = stream.next().await?;
+            let ka2 = stream.next().await?;
+            if ka1 != ": keepalive\n\n" || ka2 != ": keepalive\n\n" {
+                return Err(format!("expected keepalive comments, got {ka1:?} and {ka2:?}").into());
+            }
+            // 2. Client with a larger `ping=60` also receives server-side `: keepalive\n\n`
+            //    without waiting 60 s.
+            let resp_large = common::send(
+                address,
+                Request::builder()
+                    .uri(format!("http://{address}/jmap/eventsource?ping=60"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(common::full(""))?,
+            )
+            .await;
+            if resp_large.status() != 200 {
+                return Err(format!("SSE ping=60 connect failed: {}", resp_large.status()).into());
+            }
+            let mut stream_large = Frames {
+                body: resp_large.into_body(),
+                buffer: Vec::new(),
+            };
+            let _ = stream_large.next().await?;
+            let ka_large = stream_large.next().await?;
+            if ka_large != ": keepalive\n\n" {
+                return Err(format!("expected keepalive on ping=60, got {ka_large:?}").into());
+            }
+            // 3. Session revocation still closes both streams promptly.
+            let payload = json!({
+                "user_id": account.user,
+                "scope": "jti",
+                "jti": "blobs1-test"
+            })
+            .to_string();
+            owner
+                .query("SELECT pg_notify('session_revoke',$1)", &[&payload])
+                .await?;
+            stream.ended(Duration::from_secs(5)).await?;
+            stream_large.ended(Duration::from_secs(5)).await?;
+            Ok::<_, BoxError>(())
+        }
+        .await;
+        server.abort();
+        let _ = server.await;
+        observed
+    }
+    .await;
+    fixture::remove(&owner, &account).await?;
+    result
+}
+
 #[tokio::test]
 async fn sse_status_mutant_is_rejected() -> Result<(), BoxError> {
     run_inner("initial-state", true).await

@@ -22,8 +22,10 @@ Go JSON field matching is ASCII-insensitive plus Unicode SimpleFold equivalents
 (long-s/Kelvin), but duplicate *exact* keys are rejected before folding; later
 case-distinct scalar fields win, null leaves value fields unchanged, and
 case-distinct struct objects merge. `json.rs` adapts serde's parser at that boundary.
-`edge-cases.json` records these semantics and Go's unknown-class/empty-target
-validation defect (mirrored; no divergence).
+`edge-cases.json` records these JSON folding semantics plus frozen Go's historical
+unknown-class/empty-target validation defect; post-Go deletion (#142), Rust rejects
+unknown artifact classes fail-closed and compares arbitrarily large numeric
+prerelease identifiers without `u64` overflow saturation (#279).
 
 Additional updater fixtures are recorded by test-only overlays in `tests/`:
 map `mailserver/internal/updater/testutil/rel1_{record,edges}_test.go` to the
