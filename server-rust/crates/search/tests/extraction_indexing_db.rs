@@ -49,6 +49,18 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn swap_dsn_user(dsn: &str, new_user: &str) -> String {
+    let env_key = match new_user {
+        "setjoin_worker" => Some("DB_WORKER_DSN"),
+        "setjoin_app" => Some("DB_APP_DSN"),
+        _ => None,
+    };
+    if let Some(key) = env_key {
+        if let Ok(val) = std::env::var(key) {
+            if !val.is_empty() {
+                return val;
+            }
+        }
+    }
     if let Some(rest) = dsn.strip_prefix("postgres://") {
         if let Some((_user_part, after_at)) = rest.split_once('@') {
             return format!("postgres://{new_user}@{after_at}");

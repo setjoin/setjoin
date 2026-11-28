@@ -74,7 +74,7 @@ async fn snapshot(c: &tokio_postgres::Client, mailbox: Option<i64>) -> Result<Va
     let mut out = json!({});
     for (table,sql) in [
         ("cases","SELECT to_jsonb(t)::text FROM ediscovery_cases t ORDER BY id"),
-        ("searches","SELECT to_jsonb(t)::text FROM ediscovery_searches t ORDER BY id"),
+        ("searches","SELECT (to_jsonb(t)-'search_provenance')::text FROM ediscovery_searches t ORDER BY id"),
         ("results","SELECT to_jsonb(t)::text FROM ediscovery_search_results t ORDER BY search_id,message_id"),
     ] {
         out[table]=Value::Array(c.query(sql,&[]).await?.iter().map(|r|serde_json::from_str(&r.get::<_,String>(0))).collect::<Result<_,_>>()?);

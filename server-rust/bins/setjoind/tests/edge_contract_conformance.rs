@@ -704,11 +704,14 @@ async fn live_setjoind_conforms_to_edge_openapi_3_1_and_serde_dtos() {
     let (notify_path, notify_sock) = common::bind_notify_socket(tmp.path());
     let http_addr = common::free_addr();
 
+    let app_dsn = common::app_db_dsn();
+    let worker_dsn = common::worker_db_dsn();
     let mut cmd = Command::new(common::setjoind_bin());
     cmd.env_clear()
         .arg("--subsystems=all")
-        .env("DB_DSN", &dsn)
-        .env("DB_DIRECT_DSN", &dsn)
+        .env("DB_DSN", &app_dsn)
+        .env("DB_WORKER_DSN", &worker_dsn)
+        .env("DB_DIRECT_DSN", &worker_dsn)
         .env("CONFIG_PATH", &cfg_path)
         .env("NOTIFY_SOCKET", &notify_path)
         .env("GATEWAY_LISTEN", http_addr.to_string())

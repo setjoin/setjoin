@@ -1064,6 +1064,7 @@ run_rls_preflight_gate() {
 }
 
 echo "=== Setjoin Server Upgrade ==="
+check_no_retired_acme_config "$CONFIG_ENV" || exit 1
 # Wave 1.9 (#547): Pre-stop / pre-swap fail-closed native-RLS & PG CVE-2026-14666
 # gate BEFORE Step 1 so doomed upgrades fail with zero downtime and zero DDL.
 echo "0. Pre-flight native-RLS and PostgreSQL version check (before stopping services)..."
@@ -1088,7 +1089,6 @@ if [ -n "$PREFLIGHT_MAILCTL" ] && [ -n "$PREFLIGHT_SCHEMA_DSN" ]; then
     fi
 fi
 
-check_no_retired_acme_config "$CONFIG_ENV" || exit 1
 backup_gateway_deployment
 
 LEGACY_SETJOIN_PRESENT=0

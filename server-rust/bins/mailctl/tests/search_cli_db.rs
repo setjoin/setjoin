@@ -352,6 +352,7 @@ fn mailctl_search_rebuild_and_verify_e2e_healthy_corrupt_and_mismatch() {
         let stop_bg = std::sync::Arc::clone(&stop_flag);
         let bg_dsn = dsn.clone();
         let bg_worker_dsn = worker_dsn.clone();
+        let old_epoch = i64::try_from(epoch2).expect("epoch2 i64");
         let bg_handle = std::thread::spawn(move || {
             let bg_rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -385,13 +386,23 @@ fn mailctl_search_rebuild_and_verify_e2e_healthy_corrupt_and_mismatch() {
                     {
                         if let Some(id) = rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()) {
                             created.push(id);
-                            // Simulate old-epoch live worker marking this outbox row processed immediately!
+                            // Simulate an epoch-fenced old-epoch live worker marking this outbox
+                            // row processed only while the old epoch is still active in Postgres;
+                            // once rebuild's settlement transaction advances `epoch` and resets
+                            // `processed_at = NULL`, the stale worker cannot overwrite it.
                             let _ = wconn
                                 .query(
                                     "UPDATE public.search_index_outbox \
                                         SET processed_at = now() \
-                                      WHERE corpus = 'mail' AND entity_id = $1 AND processed_at IS NULL",
-                                    &[(&id, setjoin_pg::Type::INT8)],
+                                      WHERE corpus = 'mail' AND entity_id = $1 AND processed_at IS NULL \
+                                        AND EXISTS ( \
+                                            SELECT 1 FROM public.search_index_watermarks \
+                                             WHERE corpus = 'mail' AND epoch = $2 \
+                                        )",
+                                    &[
+                                        (&id, setjoin_pg::Type::INT8),
+                                        (&old_epoch, setjoin_pg::Type::INT8),
+                                    ],
                                 )
                                 .await;
                         }
