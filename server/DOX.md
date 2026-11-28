@@ -565,11 +565,11 @@ requests get a read-only token and no secrets (the lane needs none); caches are 
   generates a self-contained SQL reset script (`scripts/ci/lane-db-pool-meta.py`, `$LANE_DB_POOL_META`)
   from `slot_0`. Each nextest invocation acquires an exclusive slot lockdir (`slot_<i>.busy`), runs
   against `<prefix>slot_<i>`, and before releasing the lock runs the single-round-trip reset script
-  (terminates lingering backends, verifies a strict catalog + `pg_db_role_setting` + matview +
+  (terminates lingering backends, verifies a strict catalog + ACL + `pg_db_role_setting` + matview +
   prepared-xact + large-object fingerprint, truncates/clears dirty initially-empty tables and
-  throwaway `public.domains` rows, verifies exact row counts and content MD5 of every seed table,
-  and restores any shifted sequences). Any non-zero exit, catalog/seed drift, or reset error
-  triggers a fail-safe `DROP DATABASE ... WITH (FORCE)` + `CREATE DATABASE ... TEMPLATE` re-clone
+  throwaway `public.domains` rows, verifies exact row counts and sort-free `(bit_xor, sum)` content
+  checksums of every seed table, and restores any shifted sequences). Any non-zero exit, catalog/seed
+  drift, or reset error triggers a fail-safe `DROP DATABASE ... WITH (FORCE)` + `CREATE DATABASE ... TEMPLATE` re-clone
   before releasing the slot lock; if all slots are busy or `LANE_DB_POOL=0`, the wrapper falls back
   transparently to a fresh per-test clone (`<prefix><24 hex>`). The template is loaded once by
   `scripts/load-test-schema.sh` (`ALLOW_CONNECTIONS false`); roles are cluster-wide and provisioned

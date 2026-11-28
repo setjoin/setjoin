@@ -119,15 +119,22 @@ cleanup() {
     prof_tmp=""
   fi
   if [ "$using_pool" = 1 ]; then
-    local need_reclone=0 slot_admin_dsn reset_mode="fast-reset"
+    local need_reclone=0 slot_admin_dsn reset_mode="fast-reset" reset_err=""
     if [ "$exit_rc" -ne 0 ] || [ "$test_rc" -ne 0 ]; then
       need_reclone=1
       reset_mode="reclone-rc"
     else
       slot_admin_dsn="$(dsn_for_db "$LANE_ADMIN_DSN" "$db")"
-      if ! psql "$slot_admin_dsn" -X -q -v ON_ERROR_STOP=1 -f "$LANE_DB_POOL_META" >/dev/null 2>&1; then
+      if ! reset_err="$(psql "$slot_admin_dsn" -X -q -v ON_ERROR_STOP=1 -f "$LANE_DB_POOL_META" 2>&1)"; then
         need_reclone=1
         reset_mode="reclone-drift"
+        case "$reset_err" in
+          *pool_reset_drift*) ;;
+          *)
+            reset_mode="reclone-err"
+            echo "LANE-DB-SLOT-RESET-ERR: $db ($reset_err)" >&2
+            ;;
+        esac
       fi
     fi
     if [ "$need_reclone" = 1 ]; then
