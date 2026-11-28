@@ -379,3 +379,35 @@ pub async fn snapshot(
         .get(0);
     Ok(json!({"policies":policies,"config":config,"violations":violations,"audit_rows":audit}))
 }
+
+/// Deterministic post-Go #246 expectation normalization over immutable frozen-Go
+/// `dlp-audit-null-message` and `dlp-audit-null-ip` goldens: unresolved clicks with
+/// NULL `message_id` or `client_ip` no longer truncate the rest of the audit list.
+pub fn normalize_issue246_expected(action: &str, label: &str, doc: &mut Value) {
+    if action != "audit" || !matches!(label, "null-message" | "null-ip") {
+        return;
+    }
+    let Some(response) = doc.pointer_mut("/observation/response") else {
+        return;
+    };
+    let (msg1, ip2) = if label == "null-message" {
+        ("null", "\"10.0.0.2\"")
+    } else {
+        ("12", "\"10.0.0.2\"")
+    };
+    let ip_row2 = if label == "null-ip" { "\"\"" } else { "\"::1\"" };
+    let body = format!(
+        "{{\"count\":5,\"items\":[\
+         {{\"id\":\"<l0>\",\"url_hash\":\"hash-a\",\"verdict\":\"safe\",\"scanner\":\"spamhaus\",\"message_id\":11,\"mailbox_id\":\"<mailbox-actor>\",\"client_ip\":\"10.0.0.1\",\"created_at\":\"2026-10-05T10:00:00Z\"}},\
+         {{\"id\":\"<l1>\",\"url_hash\":\"hash-b\",\"verdict\":\"malicious\",\"scanner\":\"safebrowsing\",\"message_id\":{msg1},\"mailbox_id\":\"<mailbox-other>\",\"client_ip\":{ip2},\"created_at\":\"2026-10-04T10:00:00Z\"}},\
+         {{\"id\":\"<l2>\",\"url_hash\":\"hash-a\",\"verdict\":\"unknown\",\"scanner\":\"pipeline\",\"message_id\":13,\"mailbox_id\":\"<mailbox-actor>\",\"client_ip\":{ip_row2},\"created_at\":\"2026-10-03T10:00:00Z\"}},\
+         {{\"id\":\"<l3>\",\"url_hash\":\"hash-c\",\"verdict\":\"safe\",\"scanner\":\"spamhaus\",\"message_id\":14,\"mailbox_id\":\"<mailbox-actor>\",\"client_ip\":\"\",\"created_at\":\"2026-10-02T10:00:00Z\"}},\
+         {{\"id\":\"<l4>\",\"url_hash\":\"hash-d\",\"verdict\":\"safe\",\"scanner\":\"spamhaus\",\"message_id\":15,\"mailbox_id\":\"<mailbox-actor>\",\"client_ip\":\"10.0.0.5\",\"created_at\":\"2026-10-01T10:00:00Z\"}}\
+         ]}}\n"
+    );
+    let len = body.len().to_string();
+    response["body"] = json!(body);
+    if let Some(headers) = response.get_mut("headers").and_then(Value::as_object_mut) {
+        headers.insert("content-length".into(), json!([len]));
+    }
+}

@@ -217,8 +217,9 @@ Record: `GOFREE_RECORD_DRAIN=all GOFREE_GO_SOURCE=<sha>`.
 
 ## Meet leftovers (#410)
 
-- **`/rtc`, `/rtc/`** (plus `/api/rtc`, `/api/rtc/` alias, `src/rtc.rs`, F13, ON): Go's `httputil.ReverseProxy` to the fixed
-  `127.0.0.1:7880` SFU signal port, never behind `requireAuth` (LiveKit checks its own
+- **`/rtc`, `/rtc/`** (plus `/api/rtc`, `/api/rtc/` alias, `src/rtc.rs`, F13, ON): reverse proxy to the
+  LiveKit SFU signal upstream derived from `LIVEKIT_URL` (defaulting to `SFU_SIGNAL` `127.0.0.1:7880`
+  when unset or invalid, `#215`), never behind `requireAuth` (LiveKit checks its own
   token). Mirrors prefix strip over the decoded path (re-escaped), `SetXForwarded`, hop-by-hop
   removal, upgrade tunnel (first side to end closes both), Go's transport gzip (`Accept-Encoding:
   gzip` added and the answer decoded when the client sent neither it nor `Range`), empty 502 on
@@ -227,15 +228,15 @@ Record: `GOFREE_RECORD_DRAIN=all GOFREE_GO_SOURCE=<sha>`.
   via `SessionAdmission` (`RtcRoute::without_guest_belt`), while standalone `RtcRoute` runs
   `admission::check_guest_belt` (active guests follow `guest_allowlist`; disallowed or off-program
   guests answer 404, inactive guests 401, unavailable state 503; unauthenticated or invalid JWTs
-  proxy to Go's SFU for LiveKit token validation). Kill switch: inventory OFF or `GATEWAY_ENABLED=false`. The address is a constructor argument (tests only); production
-  never reads it from the environment. `/meet`, `/meet/` catch-alls stay on Go with the generic
+  proxy to the SFU for LiveKit token validation). Kill switch: inventory OFF or `GATEWAY_ENABLED=false`. `/meet`, `/meet/` catch-alls stay on Go with the generic
   ones (#416).
 - **`meet-reconcile`** (`src/meet_worker.rs`): `RUST_WORKERS_ON=meet-reconcile` with
   `GO_WORKERS_OFF=meet-reconcile` (startup refuses otherwise); worker credential, 60 s tick.
   Legs and gates are Go's (`mailserver/internal/meet/worker*.go`): unconditional drains
   (recording reconcile, ingest, staging reaper, semantic sweep and exports, Drive-History,
   lease expiry) then, when `feature.meet` and LiveKit are on, lobby expiry, `ListRooms`,
-  `DeleteRoom` retries, breakout presence, lost-webhook GC, captions. The semantic export
+  `DeleteRoom` retries, breakout presence, lost-webhook GC, captions (tolerating NULL
+  `captionsSince` without aborting the leg, `#215`). The semantic export
   composer is nil in Go, so claimed exports complete failed with Go's reason. The breakout
   absence grace map is process-local. Oracle: `tests/meet_worker_recorded.rs` (frozen Go with
   only this worker on, first tick 60 s after launch, so each recording takes ~75 s).

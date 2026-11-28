@@ -12,8 +12,68 @@ use setjoin_authz::Authorized;
 use setjoin_mail_security::received::{self, Identity};
 use setjoin_mail_security::trace as db;
 
-/// Go's `http://127.0.0.1/jmap/download` (main.go builds both user trace handlers with it).
+/// Default loopback JMAP download base when no explicit HTTP listen port is configured.
 pub const DEFAULT_JMAP_BASE: &str = "http://127.0.0.1/jmap/download";
+
+/// Derive the plaintext loopback JMAP download base URL from a gateway/HTTP listen address
+/// such as `:8080`, `0.0.0.0:8090`, `[::]:8090`, `127.0.0.1:8090`, `[::1]:8090`, or
+/// `http://127.0.0.1:8090` (#248). Rejects `https://`, TLS port 443, userinfo, and invalid
+/// authority strings, falling back cleanly to [`DEFAULT_JMAP_BASE`].
+pub fn jmap_base_from_listen_addr(addr: &str) -> String {
+    let trimmed = addr.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_JMAP_BASE.to_owned();
+    }
+    let (has_http_scheme, authority) = if let Some(idx) = trimmed.find("://") {
+        let scheme = &trimmed[..idx];
+        if !scheme.eq_ignore_ascii_case("http") {
+            return DEFAULT_JMAP_BASE.to_owned();
+        }
+        let rest = &trimmed[idx + 3..];
+        (true, rest.split(['/', '?', '#']).next().unwrap_or(""))
+    } else {
+        if trimmed.contains(['/', '?', '#']) {
+            return DEFAULT_JMAP_BASE.to_owned();
+        }
+        (false, trimmed)
+    };
+    if authority.is_empty() || authority.contains('@') || authority.ends_with(':') {
+        return DEFAULT_JMAP_BASE.to_owned();
+    }
+    let candidate = if !has_http_scheme {
+        if let Some(rest) = authority.strip_prefix(':') {
+            format!("127.0.0.1:{rest}")
+        } else if let Some(rest) = authority.strip_prefix("*:") {
+            format!("127.0.0.1:{rest}")
+        } else {
+            authority.to_owned()
+        }
+    } else {
+        authority.to_owned()
+    };
+    let Ok(parsed) = candidate.parse::<hyper::http::uri::Authority>() else {
+        return DEFAULT_JMAP_BASE.to_owned();
+    };
+    let host = parsed.host();
+    if host.is_empty() {
+        return DEFAULT_JMAP_BASE.to_owned();
+    }
+    let port = match parsed.port_u16() {
+        Some(0) | Some(443) => return DEFAULT_JMAP_BASE.to_owned(),
+        Some(p) => p,
+        None if has_http_scheme => 80,
+        None => return DEFAULT_JMAP_BASE.to_owned(),
+    };
+    let target_host = match host {
+        "0.0.0.0" | "[::]" => "127.0.0.1",
+        other => other,
+    };
+    if port == 80 {
+        format!("http://{target_host}/jmap/download")
+    } else {
+        format!("http://{target_host}:{port}/jmap/download")
+    }
+}
 
 /// What the user trace needs besides the database: Go's `serverIdentityHostnames(cfg)`
 /// (from `HOSTNAME` / `INTERNAL_DOMAINS`) and the loopback download base.
@@ -38,18 +98,33 @@ impl TraceConfig {
         } else {
             internal.as_str()
         };
+        let listen = std::env::var("GATEWAY_LISTEN")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| settings.string("listen.addr"));
         Self::new(Some(Identity::from_config(host, internal)))
+            .with_jmap_base(&jmap_base_from_listen_addr(&listen))
     }
     pub fn from_env() -> Self {
-        let host = std::env::var("HOSTNAME").ok().filter(|v| !v.is_empty());
-        let internal = match std::env::var("INTERNAL_DOMAINS").ok() {
+        Self::from_env_lookup(|k| std::env::var(k).ok())
+    }
+    fn from_env_lookup(get: impl Fn(&str) -> Option<String>) -> Self {
+        let host = get("HOSTNAME").filter(|v| !v.is_empty());
+        let internal = match get("INTERNAL_DOMAINS") {
             Some(v) => v,
             None => host.clone().unwrap_or_else(|| "localhost".into()),
         };
-        Self::new(Some(Identity::from_config(
+        let listen = get("GATEWAY_LISTEN")
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| get("LISTEN_ADDR").filter(|v| !v.trim().is_empty()));
+        let cfg = Self::new(Some(Identity::from_config(
             host.as_deref().unwrap_or("localhost"),
             &internal,
-        )))
+        )));
+        match listen {
+            Some(addr) => cfg.with_jmap_base(&jmap_base_from_listen_addr(&addr)),
+            None => cfg,
+        }
     }
     pub fn new(identity: Option<Identity>) -> Self {
         Self {
@@ -246,5 +321,80 @@ pub(crate) async fn handle(
             }
         }
         _ => unreachable!("only trace actions are dispatched here"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jmap_base_derives_from_listen_addr_with_clean_fallback() {
+        assert_eq!(jmap_base_from_listen_addr(":80"), DEFAULT_JMAP_BASE);
+        assert_eq!(jmap_base_from_listen_addr("0.0.0.0:80"), DEFAULT_JMAP_BASE);
+        assert_eq!(jmap_base_from_listen_addr("[::]:80"), DEFAULT_JMAP_BASE);
+        assert_eq!(
+            jmap_base_from_listen_addr("127.0.0.1:80"),
+            DEFAULT_JMAP_BASE
+        );
+        assert_eq!(
+            jmap_base_from_listen_addr(":8080"),
+            "http://127.0.0.1:8080/jmap/download"
+        );
+        assert_eq!(
+            jmap_base_from_listen_addr("0.0.0.0:8090"),
+            "http://127.0.0.1:8090/jmap/download"
+        );
+        assert_eq!(
+            jmap_base_from_listen_addr("[::]:8090"),
+            "http://127.0.0.1:8090/jmap/download"
+        );
+        assert_eq!(
+            jmap_base_from_listen_addr("127.0.0.1:8090"),
+            "http://127.0.0.1:8090/jmap/download"
+        );
+        assert_eq!(
+            jmap_base_from_listen_addr("[::1]:8090"),
+            "http://[::1]:8090/jmap/download"
+        );
+        assert_eq!(
+            jmap_base_from_listen_addr("[::1]:80"),
+            "http://[::1]/jmap/download"
+        );
+        assert_eq!(
+            jmap_base_from_listen_addr("localhost:3000"),
+            "http://localhost:3000/jmap/download"
+        );
+        assert_eq!(
+            jmap_base_from_listen_addr("http://127.0.0.1"),
+            DEFAULT_JMAP_BASE
+        );
+        assert_eq!(
+            jmap_base_from_listen_addr("http://127.0.0.1:8090"),
+            "http://127.0.0.1:8090/jmap/download"
+        );
+        assert_eq!(
+            jmap_base_from_listen_addr("https://127.0.0.1:8443"),
+            DEFAULT_JMAP_BASE
+        );
+        assert_eq!(jmap_base_from_listen_addr(":443"), DEFAULT_JMAP_BASE);
+        assert_eq!(
+            jmap_base_from_listen_addr("bad host:8080"),
+            DEFAULT_JMAP_BASE
+        );
+        assert_eq!(
+            jmap_base_from_listen_addr("user@127.0.0.1:8080"),
+            DEFAULT_JMAP_BASE
+        );
+        assert_eq!(jmap_base_from_listen_addr(""), DEFAULT_JMAP_BASE);
+        assert_eq!(jmap_base_from_listen_addr(":0"), DEFAULT_JMAP_BASE);
+        assert_eq!(jmap_base_from_listen_addr("127.0.0.1:"), DEFAULT_JMAP_BASE);
+        assert_eq!(jmap_base_from_listen_addr("not-an-addr"), DEFAULT_JMAP_BASE);
+
+        let tls_env = TraceConfig::from_env_lookup(|k| match k {
+            "LISTEN_ADDR" => Some(":443".into()),
+            _ => None,
+        });
+        assert_eq!(tls_env.jmap_base, DEFAULT_JMAP_BASE);
     }
 }

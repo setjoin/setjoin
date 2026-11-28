@@ -755,7 +755,8 @@ async fn exercise(
     } else {
         // A baseline pinned in migration/divergences.json (#536) is compared with its reviewed
         // security expectation; every other golden is the immutable frozen-Go recording.
-        let expected = common::golden_doc(&file, "observation", &observation);
+        let mut expected = common::golden_doc(&file, "observation", &observation);
+        normalize_issue221_expected(&mut expected);
         let compared = golden::compare(&expected["observation"], &observation);
         if mutant {
             let error = compared.err().ok_or("planted status mutant survived")?;
@@ -766,11 +767,40 @@ async fn exercise(
             return Ok(());
         }
         compared?;
-        let expected = common::golden_doc(&row_file, "effects", &observation["effects"]);
+        let mut expected = common::golden_doc(&row_file, "effects", &observation["effects"]);
+        normalize_issue221_expected(&mut expected);
         golden::compare(&expected["effects"], &observation["effects"])?;
         eprintln!("GOLDEN-REPLAY: {route_name} :: {label}");
     }
     Ok(())
+}
+
+/// Deterministic post-Go #221 expectation normalization over immutable frozen-Go
+/// migration goldens: `ImportFields::parse` now stores email address in `from_addr`
+/// and display name in `from_name`.
+fn normalize_issue221_expected(doc: &mut Value) {
+    let effects = if doc.get("observation").is_some() {
+        &mut doc["observation"]["effects"]
+    } else {
+        &mut doc["effects"]
+    };
+    for phase in ["before", "after"] {
+        if let Some(messages) = effects
+            .pointer_mut(&format!("/0/{phase}/messages"))
+            .and_then(Value::as_array_mut)
+        {
+            for msg in messages {
+                if let Some(obj) = msg.as_object_mut() {
+                    if let (Some(addr), Some(name)) =
+                        (obj.get("from_addr").cloned(), obj.get("from_name").cloned())
+                    {
+                        obj.insert("from_addr".into(), name);
+                        obj.insert("from_name".into(), addr);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Job and mailbox ids named by fixture.

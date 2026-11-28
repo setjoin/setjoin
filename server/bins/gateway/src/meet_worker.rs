@@ -970,11 +970,9 @@ impl MeetReconcile {
         let mut stale = Vec::new();
         for row in &rows {
             let (id, room): (i64, String) = (row.get(0), row.get(1));
-            let Some(since): Option<f64> = row.get(2) else {
-                // Go scans NULL into a time.Time: the whole leg fails.
-                return warn("captions crashed-session scan failed", "NULL captionsSince");
-            };
-            if !live.contains(&room) && now - since > CAPTIONS_GRACE {
+            let since: Option<f64> = row.get(2);
+            // #215: tolerate NULL captionsSince instead of aborting the leg for all meetings.
+            if !live.contains(&room) && since.is_none_or(|s| now - s > CAPTIONS_GRACE) {
                 stale.push(id);
             }
         }
@@ -1020,12 +1018,7 @@ impl MeetReconcile {
         let mut orphans = Vec::new();
         for row in &rows {
             let (room, state): (String, String) = (row.get(1), row.get(2));
-            let Some(since): Option<f64> = row.get(3) else {
-                return warn(
-                    "captions orphaned-session scan failed",
-                    "NULL captionsSince",
-                );
-            };
+            let since: Option<f64> = row.get(3);
             orphans.push((room, state, since));
         }
         for (room, state, since) in orphans {
@@ -1033,7 +1026,7 @@ impl MeetReconcile {
                 warn("captions retry-Stop failed", &room);
             }
             if state == "ended"
-                && now_secs() - since > CAPTIONS_GRACE
+                && since.is_none_or(|s| now_secs() - s > CAPTIONS_GRACE)
                 && self.livekit.delete_room(&room).await.is_err()
             {
                 warn("captions ended-meeting DeleteRoom backstop failed", &room);

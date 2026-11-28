@@ -87,7 +87,7 @@ pub const LINK_PROTECT_AUDIT_LIST: SqlContract = SqlContract {
           FROM link_protect_audit \
           WHERE (CASE WHEN $1::text IS NULL THEN TRUE ELSE created_at >= $1::text::timestamptz END) \
             AND ($2::text = '' OR url_hash = $2::text) \
-          ORDER BY created_at DESC LIMIT $3::bigint",
+          ORDER BY created_at DESC, id DESC LIMIT $3::bigint",
     params: &[Type::TEXT, Type::TEXT, Type::INT8],
     columns: &[
         ColumnSpec::named("id", Type::INT8),

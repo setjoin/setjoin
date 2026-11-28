@@ -4,9 +4,9 @@
 verbatim into the foundation when SMTP needed it. It owns Go-compatible byte
 strings, header unfolding/decoding, address parsing, body/charset extraction,
 MIME traversal and date parsing. It performs no database, network or crypto I/O.
-`ImportFields` retains its existing import behavior, including Go's historical
-from-name/address reversal; SMTP uses the individual functions with SMTP's
-field order.
+`ImportFields` stores the parsed email address in `from_addr` and display name in
+`from_name` (fixed in `#221`, retiring Go's historical swap); SMTP uses the individual
+functions directly.
 
 F05 re-exports this crate as `setjoin_mailboxes::mimeutil`, preserving existing
 callers. New shared consumers depend on `setjoin-mime` directly. The independent

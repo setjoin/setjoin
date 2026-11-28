@@ -1,8 +1,8 @@
 //! F13 `/rtc` and `/rtc/`: the reverse proxy to the LiveKit SFU's signal port
-//! (#410). Frozen Go registers `httputil.ReverseProxy` with a `Rewrite` on
-//! both patterns when LiveKit is configured, outside `requireAuth` (LiveKit
-//! validates its own access token on the signal WebSocket), pointed at the
-//! fixed loopback address `127.0.0.1:7880`. This module reproduces that proxy:
+//! (#410). Registered on both patterns when LiveKit is configured, outside
+//! `requireAuth` (LiveKit validates its own access token on the signal
+//! WebSocket), deriving its upstream from `LIVEKIT_URL` with fallback to
+//! `SFU_SIGNAL` (`127.0.0.1:7880`, #215). This module reproduces Go's proxy:
 //!
 //! - `Rewrite`: scheme/host fixed, the single `/rtc` mount prefix stripped from
 //!   the decoded path (re-escaped like `url.URL.EscapedPath`), `Forwarded` and
@@ -35,8 +35,73 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Go's hard-coded SFU signal address.
+/// Default SFU signal address when `LIVEKIT_URL` is unset or does not name a valid authority.
 pub const SFU_SIGNAL: &str = "127.0.0.1:7880";
+
+/// Derive the `/rtc` upstream `host:port` authority from a configured `LIVEKIT_URL`
+/// (e.g. `ws://127.0.0.1:7880`, `wss://sfu.internal`, `http://[::1]:17880/rtc`),
+/// preserving scheme default ports (`ws`/`http` → `80`, `wss`/`https` → `443`) and
+/// falling back to [`SFU_SIGNAL`] when empty, port 0, or unparseable (#215).
+pub fn signal_upstream_from_url(livekit_url: &str) -> String {
+    let trimmed = livekit_url.trim();
+    if trimmed.is_empty() {
+        return SFU_SIGNAL.to_owned();
+    }
+    let (default_port, rest) = if let Some(idx) = trimmed.find("://") {
+        let scheme = &trimmed[..idx];
+        let port = if scheme.eq_ignore_ascii_case("ws") || scheme.eq_ignore_ascii_case("http") {
+            80u16
+        } else if scheme.eq_ignore_ascii_case("wss") || scheme.eq_ignore_ascii_case("https") {
+            443u16
+        } else {
+            return SFU_SIGNAL.to_owned();
+        };
+        (Some(port), &trimmed[idx + 3..])
+    } else {
+        if trimmed.contains(['/', '?', '#']) {
+            return SFU_SIGNAL.to_owned();
+        }
+        (None, trimmed)
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let authority = if default_port.is_some() {
+        authority
+            .rsplit_once('@')
+            .map_or(authority, |(_, hostport)| hostport)
+    } else {
+        if authority.contains('@') {
+            return SFU_SIGNAL.to_owned();
+        }
+        authority
+    };
+    if authority.is_empty() || authority.ends_with(':') {
+        return SFU_SIGNAL.to_owned();
+    }
+    let Ok(parsed) = authority.parse::<hyper::http::uri::Authority>() else {
+        return SFU_SIGNAL.to_owned();
+    };
+    let host = parsed.host();
+    if host.is_empty() {
+        return SFU_SIGNAL.to_owned();
+    }
+    let port = match parsed.port_u16() {
+        Some(0) => return SFU_SIGNAL.to_owned(),
+        Some(p) => p,
+        None => match default_port {
+            Some(p) => p,
+            None => return SFU_SIGNAL.to_owned(),
+        },
+    };
+    format!("{host}:{port}")
+}
+
+/// Resolve the `/rtc` signal upstream authority from `LIVEKIT_URL`, defaulting to [`SFU_SIGNAL`] (#215).
+pub fn signal_upstream_from_env() -> String {
+    match std::env::var("LIVEKIT_URL") {
+        Ok(url) => signal_upstream_from_url(&url),
+        Err(_) => SFU_SIGNAL.to_owned(),
+    }
+}
 
 const HOP_BY_HOP: [&str; 8] = [
     "connection",
@@ -54,15 +119,15 @@ pub struct RtcRoute<K: KeySource + 'static> {
     pub keys: Arc<K>,
     pub issuer: String,
     configured: bool,
-    upstream: SocketAddr,
+    upstream: String,
     client: Client<HttpConnector, Body>,
     fallback: Option<Arc<crate::catchall::CatchallRoute>>,
     check_guest: bool,
 }
 
 impl<K: KeySource + 'static> RtcRoute<K> {
-    /// `configured` is Go's `meetCfg.Configured()`; `upstream` is
-    /// [`SFU_SIGNAL`] in production.
+    /// `configured` is Go's `meetCfg.Configured()`; `upstream` defaults to
+    /// [`SFU_SIGNAL`] unless overridden with [`Self::with_signal_upstream`].
     pub fn new(
         exec: ScopedExecutor,
         keys: Arc<K>,
@@ -82,11 +147,17 @@ impl<K: KeySource + 'static> RtcRoute<K> {
             keys,
             issuer,
             configured,
-            upstream,
+            upstream: upstream.to_string(),
             client,
             fallback: None,
             check_guest: true,
         }
+    }
+
+    /// Override the SFU signal upstream authority (e.g. derived from `LIVEKIT_URL`, #215).
+    pub fn with_signal_upstream(mut self, authority: String) -> Self {
+        self.upstream = signal_upstream_from_url(&authority);
+        self
     }
 
     /// Go's root mux, answering `/rtc` while LiveKit is unconfigured (#357).
@@ -160,7 +231,7 @@ impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
         let (configured, upstream, client, check_guest) = (
             self.configured,
-            self.upstream,
+            self.upstream.clone(),
             self.client.clone(),
             self.check_guest,
         );
@@ -218,7 +289,7 @@ impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
                     return response;
                 }
             }
-            serve(req, &c, id, &decoded, upstream, &client).await
+            serve(req, &c, id, &decoded, &upstream, &client).await
         })
     }
 }
@@ -274,7 +345,7 @@ async fn serve(
     c: &RequestContext,
     id: String,
     decoded: &[u8],
-    upstream: SocketAddr,
+    upstream: &str,
     client: &Client<HttpConnector, Body>,
 ) -> Response<Body> {
     let headers = envelope(c, &id);
@@ -776,5 +847,54 @@ mod tests {
         let over_limit = format!("a=1{}", "&a=1".repeat(10_000));
         assert_eq!(clean_query_params(&over_limit), "");
         assert_eq!(clean_query_params(&"&".repeat(10_000)), "");
+    }
+
+    #[test]
+    fn signal_upstream_parses_livekit_url_with_fallback() {
+        assert_eq!(signal_upstream_from_url(""), SFU_SIGNAL);
+        assert_eq!(signal_upstream_from_url("   "), SFU_SIGNAL);
+        assert_eq!(
+            signal_upstream_from_url("ws://127.0.0.1:17880"),
+            "127.0.0.1:17880"
+        );
+        assert_eq!(
+            signal_upstream_from_url("ws://sfu.internal"),
+            "sfu.internal:80"
+        );
+        assert_eq!(
+            signal_upstream_from_url("wss://sfu.internal"),
+            "sfu.internal:443"
+        );
+        assert_eq!(
+            signal_upstream_from_url("wss://sfu.internal:8888/rtc?x=1"),
+            "sfu.internal:8888"
+        );
+        assert_eq!(signal_upstream_from_url("http://[::1]"), "[::1]:80");
+        assert_eq!(signal_upstream_from_url("https://[::1]"), "[::1]:443");
+        assert_eq!(
+            signal_upstream_from_url("http://[::1]:7881/path"),
+            "[::1]:7881"
+        );
+        assert_eq!(
+            signal_upstream_from_url("https://user:pass@livekit.example:7882"),
+            "livekit.example:7882"
+        );
+        assert_eq!(
+            signal_upstream_from_url("127.0.0.1:9999"),
+            "127.0.0.1:9999"
+        );
+        assert_eq!(signal_upstream_from_url("ws://127.0.0.1:0"), SFU_SIGNAL);
+        assert_eq!(signal_upstream_from_url("127.0.0.1:0"), SFU_SIGNAL);
+        assert_eq!(signal_upstream_from_url("ws://127.0.0.1:"), SFU_SIGNAL);
+        assert_eq!(signal_upstream_from_url("ws://[::1]:"), SFU_SIGNAL);
+        assert_eq!(signal_upstream_from_url("not-a-url"), SFU_SIGNAL);
+        assert_eq!(signal_upstream_from_url("foo/bar"), SFU_SIGNAL);
+        assert_eq!(
+            signal_upstream_from_url("mailto:user@example.com"),
+            SFU_SIGNAL
+        );
+        assert_eq!(signal_upstream_from_url("ftp://bad:1234"), SFU_SIGNAL);
+        assert_eq!(signal_upstream_from_url("ws://"), SFU_SIGNAL);
+        assert_eq!(signal_upstream_from_url("ws://bad host:7880"), SFU_SIGNAL);
     }
 }

@@ -61,6 +61,110 @@ async fn executable_active_guest_proxies_rtc_natively() -> Result<(), BoxError> 
     run(Mode::ActiveGuest).await
 }
 
+#[tokio::test]
+async fn executable_proxies_rtc_to_configured_livekit_url_port() -> Result<(), BoxError> {
+    use std::os::unix::process::CommandExt;
+    let _serial = SERIAL.lock().await;
+    let Some(db) = Db::for_case("meet5-rtc-custom-url") else {
+        return Ok(());
+    };
+    let sfu_hits = Arc::new(AtomicUsize::new(0));
+    let seen = sfu_hits.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let sfu_addr = listener.local_addr()?;
+    assert_ne!(sfu_addr.port(), 7880, "test requires a non-default SFU port");
+    let sfu = tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else { return };
+            let seen = seen.clone();
+            tokio::spawn(async move {
+                let svc = hyper::service::service_fn(move |_req| {
+                    let seen = seen.clone();
+                    async move {
+                        seen.fetch_add(1, Ordering::SeqCst);
+                        Ok::<_, std::convert::Infallible>(
+                            Response::builder().status(200).body(common::full("custom-sfu")).unwrap(),
+                        )
+                    }
+                });
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(hyper_util::rt::TokioIo::new(stream), svc)
+                    .await;
+            });
+        }
+    });
+    let jwks = common::fake_upstream(|_| async {
+        Response::builder()
+            .header("content-type", "application/json")
+            .body(common::full(
+                include_bytes!("../../../tests/conformance/jmap/test-jwks.json").as_slice(),
+            ))
+            .unwrap()
+    })
+    .await;
+    let reserved = setjoin_conformance::ports::listener().await;
+    let address = reserved.local_addr()?;
+    drop(reserved);
+    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
+    command.arg0("gofree-meet5-gateway-custom-rtc").env_clear();
+    for (key, value) in [
+        ("GATEWAY_LISTEN", address.to_string()),
+        ("GATEWAY_ENABLED", "true".into()),
+        ("GATEWAY_AUTH_UPSTREAM", format!("http://{jwks}")),
+        ("DB_DSN", db.app_dsn().to_owned()),
+        ("DB_WORKER_DSN", db.worker_dsn().to_owned()),
+        ("DB_DIRECT_DSN", db.direct.clone()),
+        ("DB_ENCRYPTION_KEY", "22".repeat(32)),
+        ("AUTHSERVER_JWKS_URL", format!("http://{jwks}/.well-known/jwks.json")),
+        ("CORE_RATE_LIMIT", "100000".into()),
+        ("ADMIN_RATE_LIMIT", "100000".into()),
+        ("LIVEKIT_API_KEY", "meet5-key".into()),
+        ("LIVEKIT_API_SECRET", "meet5-secret-meet5-secret-meet5-secret".into()),
+        ("LIVEKIT_URL", format!("ws://{sfu_addr}")),
+    ] {
+        command.env(key, value);
+    }
+    let mut child = Owned(
+        command
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn_boot()?,
+    );
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        if let Some(status) = child.0.try_wait()? {
+            sfu.abort();
+            return Err(format!("gateway exited: {status}").into());
+        }
+        if tokio::net::TcpStream::connect(address).await.is_ok() {
+            break;
+        }
+        if tokio::time::Instant::now() > deadline {
+            sfu.abort();
+            return Err("gateway startup timeout".into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let req = Request::builder()
+        .method("GET")
+        .uri("/rtc/rtc/validate?access_token=good")
+        .header("host", "mail.test")
+        .body(common::full(""))?;
+    let resp = common::send(address, req).await;
+    let status = resp.status().as_u16();
+    let body = common::body_bytes(resp).await;
+    drop(child);
+    sfu.abort();
+    let _ = sfu.await;
+    if status != 200 || body.as_ref() != b"custom-sfu" {
+        return Err(format!("expected 200 custom-sfu, got {status} {}", String::from_utf8_lossy(&body)).into());
+    }
+    if sfu_hits.load(Ordering::SeqCst) != 1 {
+        return Err("expected configured LIVEKIT_URL SFU to receive 1 request".into());
+    }
+    Ok(())
+}
+
 struct GuestCleanup {
     saved_toggle: Option<Option<bool>>,
     domain: Option<i64>,

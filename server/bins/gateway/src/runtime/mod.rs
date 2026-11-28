@@ -933,6 +933,12 @@ pub async fn run_with_options(
     let mut gateway_opt = None;
     let mut chain_ready: Option<(ScopedExecutor, String)> = None;
     if subsystems.http {
+        let http_listen_addr = activated
+            .http
+            .as_ref()
+            .and_then(|l| l.local_addr().ok())
+            .map(|a| a.to_string())
+            .unwrap_or_else(|| listen.clone());
         let (route_table, edge_limit) = routes::build(
             &settings,
             routes::RouteDeps {
@@ -954,6 +960,7 @@ pub async fn run_with_options(
                 boot_posture: options.boot_posture.clone(),
                 search_facade: search_facade.clone(),
                 search_work_queue,
+                http_listen_addr: Some(http_listen_addr),
             },
         )
         .await?;

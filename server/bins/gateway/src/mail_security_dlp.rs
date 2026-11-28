@@ -164,7 +164,9 @@ pub(crate) async fn handle(
             Err(_) => bare(500, "database error", c, id),
         },
         Action::AntiPhishPut => {
-            let Ok(body) = input::lenient::<input::AntiPhishBody>(&mut r).await else {
+            let Ok(body) =
+                crate::admin_identity_input::first::<input::AntiPhishBody>(&mut r, 1 << 20).await
+            else {
                 return bare(400, "invalid JSON", c, id);
             };
             let body = db::AntiPhish {
@@ -221,13 +223,16 @@ pub(crate) async fn handle(
             let items = rows
                 .iter()
                 .map(|i| {
+                    let message_id = i
+                        .message_id
+                        .map_or_else(|| "null".to_owned(), |id| id.to_string());
                     format!(
                         "{{\"id\":{},\"url_hash\":{},\"verdict\":{},\"scanner\":{},\"message_id\":{},\"mailbox_id\":{},\"client_ip\":{},\"created_at\":{}}}",
                         i.id,
                         s(&i.url_hash),
                         s(&i.verdict),
                         s(&i.scanner),
-                        i.message_id.unwrap_or_default(),
+                        message_id,
                         i.mailbox_id,
                         s(i.client_ip.as_deref().unwrap_or_default()),
                         s(&local_rfc3339(i.epoch)),

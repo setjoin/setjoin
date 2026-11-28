@@ -36,6 +36,8 @@ pub struct RouteDeps {
     pub boot_posture: Arc<setjoin_boot::BootPosture>,
     pub search_facade: Option<Arc<crate::search_facade::GatewaySearchFacade>>,
     pub search_work_queue: Option<setjoin_workqueue::WorkQueue>,
+    /// Effective HTTP listen address for loopback self-calls such as inbound message trace (#248).
+    pub http_listen_addr: Option<String>,
 }
 
 /// Build the HTTP route table and shared edge rate limiter.
@@ -206,6 +208,7 @@ async fn build_with_keys<K: KeySource + 'static>(
         boot_posture,
         search_facade,
         search_work_queue,
+        http_listen_addr,
     } = deps;
     let issuer = env("JWT_ISSUER").unwrap_or_else(|| "mailserver".into());
     eprintln!(
@@ -315,6 +318,12 @@ async fn build_with_keys<K: KeySource + 'static>(
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
+    let mut trace_config = crate::mail_security_trace::TraceConfig::from_settings(settings);
+    if let Some(listen_addr) = http_listen_addr.as_deref() {
+        trace_config = trace_config.with_jmap_base(
+            &crate::mail_security_trace::jmap_base_from_listen_addr(listen_addr),
+        );
+    }
     let mail_security = crate::mail_security::MailSecurityRoute::new(
         exec.clone(),
         compliance.worker.clone(),
@@ -324,9 +333,7 @@ async fn build_with_keys<K: KeySource + 'static>(
     .with_import_dir(Some(crate::mail_security_tls::import_dir_from_settings(
         settings,
     )))
-    .with_trace(crate::mail_security_trace::TraceConfig::from_settings(
-        settings,
-    ));
+    .with_trace(trace_config);
     let rules = crate::rules::RulesRoute {
         exec: exec.clone(),
         worker: compliance.worker.clone(),
@@ -851,8 +858,8 @@ async fn build_with_keys<K: KeySource + 'static>(
                 env("AUDIT_HMAC_KEY").unwrap_or_default(),
             ),
     );
-    // Go registers /rtc only when the LiveKit sidecar is configured, at the
-    // fixed loopback signal address.
+    // Register /rtc when LiveKit is configured, deriving its signal upstream from LIVEKIT_URL
+    // with fallback to SFU_SIGNAL (127.0.0.1:7880) (#215).
     let rtc = crate::rtc::RtcRoute::new(
         exec.clone(),
         keys.clone(),
@@ -862,6 +869,7 @@ async fn build_with_keys<K: KeySource + 'static>(
             .parse()
             .expect("fixed SFU signal address"),
     )
+    .with_signal_upstream(crate::rtc::signal_upstream_from_env())
     .without_guest_belt();
     let (assist_exec, assist_keys, assist_issuer) = (exec.clone(), keys.clone(), issuer.clone());
     let commands = Arc::new(JmapCommands {

@@ -1,10 +1,11 @@
 //! The slice of Go's `encoding/json` the control API observes.
 //!
-//! Decoding mirrors `json.NewDecoder(r).Decode(&struct{...})`: the first value
-//! must be valid JSON (depth limit 10000), trailing bytes are ignored, keys
-//! match struct fields case-insensitively, `null` leaves a field unset, any
-//! other non-string value for a matched field is an error, invalid UTF-8 and
-//! lone surrogates become U+FFFD. Encoding mirrors `Encoder.Encode` with the
+//! Decoding mirrors `json.NewDecoder(r).Decode(&struct{...})` with strict
+//! single-value framing (#211): the body must contain one valid JSON value
+//! (depth limit 10000) with only optional trailing whitespace, keys match
+//! struct fields case-insensitively, `null` leaves a field unset, any other
+//! non-string value for a matched field is an error, invalid UTF-8 and lone
+//! surrogates become U+FFFD. Encoding mirrors `Encoder.Encode` with the
 //! default HTML escaping.
 
 const MAX_DEPTH: usize = 10_000;
@@ -27,54 +28,60 @@ pub fn decode_string_fields(
     match p.s[p.i] {
         b'n' => {
             p.literal(b"null")?;
-            Ok(out)
         }
         b'{' => {
             p.i += 1;
             p.ws();
             if p.peek()? == b'}' {
-                return Ok(out);
-            }
-            let mut type_error = false;
-            loop {
-                p.ws();
-                if p.peek()? != b'"' {
-                    return Err(DecodeError);
-                }
-                let key = p.string()?;
-                p.ws();
-                if p.peek()? != b':' {
-                    return Err(DecodeError);
-                }
                 p.i += 1;
-                p.ws();
-                let slot = fields.iter().position(|f| fold(f) == fold(&key));
-                match (slot, p.peek()?) {
-                    (Some(slot), b'"') => out[slot] = Some(p.string()?),
-                    (Some(_), b'n') => p.literal(b"null")?,
-                    (Some(_), _) => {
-                        type_error = true;
-                        p.skip_value(1)?;
-                    }
-                    (None, _) => p.skip_value(1)?,
-                }
-                p.ws();
-                match p.peek()? {
-                    b',' => p.i += 1,
-                    b'}' => break,
-                    _ => return Err(DecodeError),
-                }
-            }
-            if type_error {
-                Err(DecodeError)
             } else {
-                Ok(out)
+                let mut type_error = false;
+                loop {
+                    p.ws();
+                    if p.peek()? != b'"' {
+                        return Err(DecodeError);
+                    }
+                    let key = p.string()?;
+                    p.ws();
+                    if p.peek()? != b':' {
+                        return Err(DecodeError);
+                    }
+                    p.i += 1;
+                    p.ws();
+                    let slot = fields.iter().position(|f| fold(f) == fold(&key));
+                    match (slot, p.peek()?) {
+                        (Some(slot), b'"') => out[slot] = Some(p.string()?),
+                        (Some(_), b'n') => p.literal(b"null")?,
+                        (Some(_), _) => {
+                            type_error = true;
+                            p.skip_value(1)?;
+                        }
+                        (None, _) => p.skip_value(1)?,
+                    }
+                    p.ws();
+                    match p.peek()? {
+                        b',' => p.i += 1,
+                        b'}' => {
+                            p.i += 1;
+                            break;
+                        }
+                        _ => return Err(DecodeError),
+                    }
+                }
+                if type_error {
+                    return Err(DecodeError);
+                }
             }
         }
         // Any other valid value decodes into a struct as a type error; an
         // invalid one is a syntax error. Both are a 400 for the handlers.
-        _ => Err(DecodeError),
+        _ => return Err(DecodeError),
     }
+    p.ws();
+    if p.i != p.s.len() {
+        return Err(DecodeError);
+    }
+    Ok(out)
 }
 
 /// Go's `foldName` for the ASCII field names used here, including the two
@@ -354,11 +361,19 @@ mod tests {
     }
 
     #[test]
-    fn decodes_fields_case_insensitively_last_wins_and_ignores_trailing_bytes() {
+    fn decodes_fields_case_insensitively_last_wins_and_rejects_trailing_bytes() {
         let got = room_token(
-            r#"{"ROOM":"a","Token":"t","room":"b","extra":{"x":[1,2.5e3,true,null]}} trailing"#,
+            r#"{"ROOM":"a","Token":"t","room":"b","extra":{"x":[1,2.5e3,true,null]}}  \n\t "#
+                .replace("\\n\\t", "\n\t")
+                .as_str(),
         );
         assert_eq!(got, Ok((Some("b".into()), Some("t".into()))));
+        assert_eq!(
+            room_token(r#"{"room":"a","token":"t"} trailing"#),
+            Err(DecodeError)
+        );
+        assert_eq!(room_token(r#"{} extra"#), Err(DecodeError));
+        assert_eq!(room_token(r#"null 123"#), Err(DecodeError));
     }
 
     #[test]

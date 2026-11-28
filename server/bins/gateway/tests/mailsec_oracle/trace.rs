@@ -3,10 +3,10 @@
 //!
 //! `message_trace` and `outbound_queue` are global tables: a case moves every foreign row
 //! aside and `teardown` puts them back. The user trace reads the actor's own messages; its
-//! inbound path fetches the header block from `http://127.0.0.1/jmap/download/...`, so a
-//! case that needs the download starts a stand-in on 127.0.0.1:80 that both Go and Rust
-//! reach (record and replay alike) and that serves only the exact path and credentials Go
-//! sends.
+//! inbound path fetches the header block from `<jmap_base>/...`, so replay cases start a
+//! stand-in on an ephemeral loopback port wired via `TraceConfig::with_jmap_base` (#248;
+//! historical recording bound `127.0.0.1:80`) that serves only the exact path and credentials
+//! expected.
 use super::{Req, Seed};
 use crate::common::BoxError;
 use serde_json::Value;
@@ -912,13 +912,16 @@ fn jmap_body(label: &str) -> Option<Vec<u8>> {
     })
 }
 
-/// Starts the stand-in on 127.0.0.1:80 (Go's hard-coded base) for the labels that reach it.
+/// Starts the loopback JMAP download stand-in for the labels that reach it.
+/// In replay mode (`!recording`) it binds an ephemeral loopback port (`127.0.0.1:0`) so tests
+/// exercise non-port-80 `TraceConfig.jmap_base` without requiring root privileges (#248).
 pub async fn jmap_standin(
     label: &str,
     a: &Account,
     seed: &Seed,
     token: &str,
-) -> Result<Option<tokio::task::JoinHandle<()>>, BoxError> {
+    recording: bool,
+) -> Result<Option<(tokio::task::JoinHandle<()>, std::net::SocketAddr)>, BoxError> {
     use hyper::service::service_fn;
     use hyper_util::rt::TokioIo;
     if !label.starts_with("inbound") || label == "inbound-no-listener" {
@@ -945,8 +948,15 @@ pub async fn jmap_standin(
     };
     let body = jmap_body(label);
     let redirect = label == "inbound-redirect";
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:80").await?;
-    Ok(Some(tokio::spawn(async move {
+    let bind_addr = if recording {
+        "127.0.0.1:80"
+    } else {
+        "127.0.0.1:0"
+    };
+    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+    let addr = listener.local_addr()?;
+    Ok(Some((
+        tokio::spawn(async move {
         loop {
             let Ok((stream, _)) = listener.accept().await else {
                 return;
@@ -1000,5 +1010,7 @@ pub async fn jmap_standin(
                     .await;
             });
         }
-    })))
+    }),
+        addr,
+    )))
 }
