@@ -60,7 +60,7 @@ describe('E4-I receipt producer/validator agreement (r5 finding 6)', () => {
 			// The receipt's fixture identity is the manifest's
 			// repo-root-relative fixture path, character for character.
 			expect(caseFixturePath(caseId)).toBe(entry!.fixture);
-			expect(caseFixturePath(caseId)).toMatch(/^mailserver\/webmail\//);
+			expect(caseFixturePath(caseId)).toMatch(/^webmail\//);
 		}
 	});
 
