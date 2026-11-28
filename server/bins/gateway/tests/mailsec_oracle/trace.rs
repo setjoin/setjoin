@@ -3,10 +3,10 @@
 //!
 //! `message_trace` and `outbound_queue` are global tables: a case moves every foreign row
 //! aside and `teardown` puts them back. The user trace reads the actor's own messages; its
-//! inbound path fetches the header block from `http://127.0.0.1/jmap/download/...`, so a
-//! case that needs the download starts a stand-in on 127.0.0.1:80 that both Go and Rust
-//! reach (record and replay alike) and that serves only the exact path and credentials Go
-//! sends.
+//! inbound path fetches the header block from `<jmap_base>/...`, so replay cases start a
+//! stand-in on an ephemeral loopback port wired via `TraceConfig::with_jmap_base` (#248;
+//! historical recording bound `127.0.0.1:80`) that serves only the exact path and credentials
+//! expected.
 use super::{Req, Seed};
 use crate::common::BoxError;
 use serde_json::Value;
