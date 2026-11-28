@@ -156,9 +156,9 @@ Tests: `--test meet_c_recorded` (frozen-Go goldens, changed-status mutants for a
 routes, no-tenant-filter shadow-schema mutants for the six user routes, a no-audit mutant
 for the registry, COMMIT-loss for the four reducers), `--test meet_c_dispatch`
 (executable, both kill switches). Go quirks mirrored: a plain member's lease is 404 (row
-security), heartbeat/stop/package for an unknown or foreign lease or recording are 409
-(class conflict on BZ282/BZ278), and a double quote or backslash in a chat/meeting title
-makes the audit hash cast to bytea fail (22P02, 500) in `meeting_create`.
+security), and heartbeat/stop/package for an unknown or foreign lease or recording are 409
+(class conflict on BZ282/BZ278). The legacy 22P02 bytea-cast failure on `"` or `\` in
+chat/meeting titles was fixed in `V300__audit_row_hash_utf8.sql` (`#181`).
 
 ## Mailbox-less guest admission (#188)
 

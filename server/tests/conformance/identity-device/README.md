@@ -37,15 +37,18 @@ security bug policy, hash-pinned, applied only on replay):
   `checkin-event-cap` records that exactly 100 events still work.
 - `checkin-legacy-secret`: the inherited #513 re-seal
   (`crates/authz/src/device.rs:126-140`), before HMAC and idempotent.
+- `#345` `devices.last_seen` heartbeat: frozen Go's `UPDATE devices SET last_seen`
+  ran under `setjoin_app` with no user GUC and matched zero rows under
+  `devices_self` FORCE RLS. `rust_device_checkin` is now worker-owned
+  `SECURITY DEFINER` (`sql/reducers/rust_device_checkin.sql`), advancing
+  `last_seen` to `fresh` for only the proven device (`<device-a>`) on the 14
+  successful check-in cases while leaving `<device-b>` and all 18 failed/rejected
+  check-in cases at `seeded`.
 
 Mirrored Go behaviour: the proof and its committed nonce precede the handler
 (valid-proof HEAD → JSON 405; type errors → 400 after the nonce is spent); a
-zero-byte body that is not provably empty fails closed; the heartbeat runs
-under the caller's credential (no row for `setjoin_app`). The only reader of
-`last_seen` is `mailserver/internal/admin/admin_updates.go:107-109`
-(update-status ordering), so the mirrored no-op only staleness-sorts that
-admin view; follow-up #345. The proof URI is the one authserverd receives
-(authzgates note).
+zero-byte body that is not provably empty fails closed. The proof URI is the
+one authserverd receives (authzgates note).
 
 Transaction: the check-in reducer commits in one acknowledged receipt-free
 protocol transaction (`run_protocol_tx`, #473); COMMIT is sent only after

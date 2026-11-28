@@ -1,0 +1,144 @@
+-- pgTAP: #21 jmap_email_query_deleted has a deterministic total order
+-- (`deleted_at DESC, id DESC`), so position-based pages over messages soft-deleted
+-- at the exact same instant neither repeat nor skip items and keep `ids` and `list`
+-- in identical order.
+BEGIN;
+SELECT plan(12);
+
+CREATE TEMP TABLE _acct AS
+SELECT mk_account('deltiebreak_a') AS mb_a,
+       mk_account('deltiebreak_b') AS mb_b;
+CREATE TEMP TABLE _t AS
+SELECT date_trunc('minute', now()) - interval '1 hour' AS t;
+
+-- 20 soft-deleted messages sharing the EXACT SAME deleted_at, inserted in
+-- permuted id order (k * 7) % 20 (7 is coprime to 20, so heap order != id order).
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_deleted, deleted_at)
+SELECT 21001 + (k * 7) % 20, a.mb_a, get_tag_id('Inbox', a.mb_a),
+       '<deltie' || (21001 + (k * 7) % 20) || '@tie.test>', 'Deleted Tie', 't@ext.com', 100,
+       'thr-deltie-' || k, 's3://raw-deltie-' || k, (SELECT t FROM _t), TRUE, (SELECT t FROM _t)
+FROM _acct a, generate_series(0, 19) AS k ORDER BY k;
+
+-- One older deleted message, one newer deleted message, one live (non-deleted) message in A.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_deleted, deleted_at)
+SELECT v.id, a.mb_a, get_tag_id('Inbox', a.mb_a), '<deltie' || v.id || '@tie.test>', 'Deleted Bound', 't@ext.com', 100,
+       'thr-deltie-' || v.id, 's3://raw-deltie-' || v.id, (SELECT t FROM _t), v.del, v.del_at
+FROM _acct a, (VALUES
+  (21000::BIGINT, TRUE,  (SELECT t FROM _t) - interval '5 minutes'),  -- older deleted
+  (21021::BIGINT, TRUE,  (SELECT t FROM _t) + interval '5 minutes'),  -- newer deleted
+  (21022::BIGINT, FALSE, NULL::timestamptz)                           -- live, must be excluded
+) AS v(id, del, del_at);
+
+-- Foreign mailbox deleted message with the same deleted_at (R1 isolation).
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_deleted, deleted_at)
+SELECT 21099::BIGINT, a.mb_b, get_tag_id('Inbox', a.mb_b), '<deltie-foreign@tie.test>', 'Foreign Deleted', 't@ext.com', 100,
+       'thr-deltie-foreign', 's3://raw-deltie-foreign', (SELECT t FROM _t), TRUE, (SELECT t FROM _t)
+FROM _acct a;
+
+CREATE FUNCTION pg_temp.q_ids(p_pos INT, p_lim INT) RETURNS BIGINT[] LANGUAGE sql AS $$
+  SELECT COALESCE(array_agg(x::BIGINT ORDER BY o), '{}')
+  FROM (
+    SELECT jmap_email_query_deleted((SELECT mb_a FROM _acct), p_lim, p_pos)->'ids' AS ids
+  ) q,
+  LATERAL jsonb_array_elements_text(
+    CASE WHEN jsonb_typeof(q.ids) = 'array' THEN q.ids ELSE '[]'::jsonb END
+  ) WITH ORDINALITY AS e(x, o);
+$$;
+
+CREATE FUNCTION pg_temp.q_list_ids(p_pos INT, p_lim INT) RETURNS BIGINT[] LANGUAGE sql AS $$
+  SELECT COALESCE(array_agg((x->>'id')::BIGINT ORDER BY o), '{}')
+  FROM jsonb_array_elements(
+         jmap_email_query_deleted((SELECT mb_a FROM _acct), p_lim, p_pos)->'list'
+       ) WITH ORDINALITY AS e(x, o);
+$$;
+
+-- Pages of 6 (does not divide 20 or 22) concatenated until empty.
+CREATE FUNCTION pg_temp.paged_ids() RETURNS BIGINT[] LANGUAGE plpgsql AS $$
+DECLARE v_all BIGINT[] := '{}'; v_page BIGINT[]; v_pos INT := 0;
+BEGIN
+  LOOP
+    v_page := pg_temp.q_ids(v_pos, 6);
+    EXIT WHEN cardinality(v_page) = 0;
+    v_all := v_all || v_page;
+    v_pos := v_pos + 6;
+  END LOOP;
+  RETURN v_all;
+END $$;
+
+CREATE FUNCTION pg_temp.paged_list_ids() RETURNS BIGINT[] LANGUAGE plpgsql AS $$
+DECLARE v_all BIGINT[] := '{}'; v_page BIGINT[]; v_pos INT := 0;
+BEGIN
+  LOOP
+    v_page := pg_temp.q_list_ids(v_pos, 6);
+    EXIT WHEN cardinality(v_page) = 0;
+    v_all := v_all || v_page;
+    v_pos := v_pos + 6;
+  END LOOP;
+  RETURN v_all;
+END $$;
+
+CREATE TEMP TABLE _exp AS SELECT
+  ARRAY[21021::BIGINT] || ARRAY(SELECT g::BIGINT FROM generate_series(21020, 21001, -1) g) || ARRAY[21000::BIGINT] AS expected_ids;
+
+SELECT is(
+  (jmap_email_query_deleted((SELECT mb_a FROM _acct), 50, 0)->>'total')::INT,
+  22,
+  'total counts only soft-deleted messages in target mailbox (R1)'
+);
+SELECT is(
+  pg_temp.q_ids(0, 50),
+  (SELECT expected_ids FROM _exp),
+  'whole query ids ordered by deleted_at DESC, id DESC'
+);
+SELECT is(
+  pg_temp.q_list_ids(0, 50),
+  (SELECT expected_ids FROM _exp),
+  'whole query list ordered identically to ids (deleted_at DESC, id DESC)'
+);
+SELECT is(
+  pg_temp.paged_ids(),
+  (SELECT expected_ids FROM _exp),
+  'pages of 6 ids concatenate to the exact whole listing'
+);
+SELECT is(
+  pg_temp.paged_list_ids(),
+  (SELECT expected_ids FROM _exp),
+  'pages of 6 list items concatenate to the exact whole listing'
+);
+SELECT is(
+  (SELECT count(DISTINCT x) FROM unnest(pg_temp.paged_ids()) x),
+  22::BIGINT,
+  'pages of 6 repeat nothing'
+);
+SELECT is(
+  cardinality(pg_temp.paged_ids()),
+  22,
+  'pages of 6 skip nothing'
+);
+SELECT is(
+  pg_temp.q_ids(5, 6),
+  (SELECT expected_ids[6:11] FROM _exp),
+  'a slice inside the tied deleted_at block returns deterministic ids'
+);
+SELECT is(
+  pg_temp.q_list_ids(5, 6),
+  (SELECT expected_ids[6:11] FROM _exp),
+  'a slice inside the tied deleted_at block returns matching list items'
+);
+SELECT ok(
+  NOT (21099 = ANY(pg_temp.q_ids(0, 50))),
+  'foreign mailbox deleted message never leaks (R1)'
+);
+SELECT is(
+  jmap_email_query_deleted((SELECT mb_a FROM _acct), 10, 50)->'ids',
+  'null'::jsonb,
+  'empty page past end preserves null ids shape'
+);
+SELECT is(
+  jmap_email_query_deleted((SELECT mb_a FROM _acct), 10, 50)->'list',
+  '[]'::jsonb,
+  'empty page past end returns empty list array'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

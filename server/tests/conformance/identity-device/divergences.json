@@ -7,8 +7,44 @@
     "issue": "#341",
     "reason": "Go accepts any number of check-in events in its 64 KiB body (~21.8k) in one statement under the 2 s deadline: 500s, possible late commits, duplicate events on retry and unbounded device_events. Rust caps a check-in at 100 events (real clients send 0; Go tests at most 1) and answers 400 before the proof, nonce claim or any effect.",
     "replace": [
-      {"pointer": "/observation/response", "value": {"status": 400, "headers": {"cache-control": "no-store", "content-type": "application/json"}, "body": "{\"error\":\"too many events\"}\n"}},
-      {"pointer": "/observation/effects", "value": {"devices": [{"device": "<device-a>", "last_seen": "seeded", "wipe_requested": false, "enroll_state": "unenrolled", "revoked": false, "secret_key": "v1", "plaintext_secret": false}, {"device": "<device-b>", "last_seen": "seeded", "wipe_requested": false, "enroll_state": "unenrolled", "revoked": false, "secret_key": "v1", "plaintext_secret": false}], "device_events": [], "device_auth_nonces": []}}
+      {
+        "pointer": "/observation/response",
+        "value": {
+          "status": 400,
+          "headers": {
+            "cache-control": "no-store",
+            "content-type": "application/json"
+          },
+          "body": "{\"error\":\"too many events\"}\n"
+        }
+      },
+      {
+        "pointer": "/observation/effects",
+        "value": {
+          "devices": [
+            {
+              "device": "<device-a>",
+              "last_seen": "seeded",
+              "wipe_requested": false,
+              "enroll_state": "unenrolled",
+              "revoked": false,
+              "secret_key": "v1",
+              "plaintext_secret": false
+            },
+            {
+              "device": "<device-b>",
+              "last_seen": "seeded",
+              "wipe_requested": false,
+              "enroll_state": "unenrolled",
+              "revoked": false,
+              "secret_key": "v1",
+              "plaintext_secret": false
+            }
+          ],
+          "device_events": [],
+          "device_auth_nonces": []
+        }
+      }
     ]
   },
   {
@@ -19,9 +55,37 @@
     "issue": "#341",
     "reason": "Row effects of the event cap: the over-cap check-in changes no row.",
     "replace": [
-      {"pointer": "/effects/0/after", "value": [{"device": "<device-a>", "last_seen": "seeded", "wipe_requested": false, "enroll_state": "unenrolled", "revoked": false, "secret_key": "v1", "plaintext_secret": false}, {"device": "<device-b>", "last_seen": "seeded", "wipe_requested": false, "enroll_state": "unenrolled", "revoked": false, "secret_key": "v1", "plaintext_secret": false}]},
-      {"pointer": "/effects/1/after", "value": []},
-      {"pointer": "/effects/2/after", "value": []}
+      {
+        "pointer": "/effects/0/after",
+        "value": [
+          {
+            "device": "<device-a>",
+            "last_seen": "seeded",
+            "wipe_requested": false,
+            "enroll_state": "unenrolled",
+            "revoked": false,
+            "secret_key": "v1",
+            "plaintext_secret": false
+          },
+          {
+            "device": "<device-b>",
+            "last_seen": "seeded",
+            "wipe_requested": false,
+            "enroll_state": "unenrolled",
+            "revoked": false,
+            "secret_key": "v1",
+            "plaintext_secret": false
+          }
+        ]
+      },
+      {
+        "pointer": "/effects/1/after",
+        "value": []
+      },
+      {
+        "pointer": "/effects/2/after",
+        "value": []
+      }
     ]
   },
   {
@@ -29,12 +93,22 @@
     "sha256": "631c9e0b66557a5eeb30883ea9b5e43aa456f53f5cf58269e024328c62efbbc9",
     "reviewed": true,
     "review": "owner-approved security policy (Go-free security bug policy)",
-    "issue": "#513 item 1 (inherited)",
+    "issue": "#513 item 1 (inherited), #345",
     "source": "server-rust/crates/authz/src/device.rs:126-140",
     "reason": "Go's lazy re-seal UPDATE ran without a user GUC and matched no row under devices_self, so the plaintext HMAC secret outlived every proof. Rust re-seals through rust_device_secret_reseal. It runs before HMAC verification (Go's migration position) and is idempotent: keyed on id, the exact plaintext and a NULL envelope.",
     "replace": [
-      {"pointer": "/observation/effects/devices/0/plaintext_secret", "value": false},
-      {"pointer": "/observation/effects/devices/0/secret_key", "value": "v1"}
+      {
+        "pointer": "/observation/effects/devices/0/plaintext_secret",
+        "value": false
+      },
+      {
+        "pointer": "/observation/effects/devices/0/secret_key",
+        "value": "v1"
+      },
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
     ]
   },
   {
@@ -42,12 +116,386 @@
     "sha256": "9c23d14629bf00e14658fe4af48fa26f34ac1b765a453edde09ee3d56ac0f575",
     "reviewed": true,
     "review": "owner-approved security policy (Go-free security bug policy)",
-    "issue": "#513 item 1 (inherited)",
+    "issue": "#513 item 1 (inherited), #345",
     "source": "server-rust/crates/authz/src/device.rs:126-140",
     "reason": "Row effects of the inherited re-seal: the legacy row ends sealed (v1, no plaintext).",
     "replace": [
-      {"pointer": "/effects/0/after/0/plaintext_secret", "value": false},
-      {"pointer": "/effects/0/after/0/secret_key", "value": "v1"}
+      {
+        "pointer": "/effects/0/after/0/plaintext_secret",
+        "value": false
+      },
+      {
+        "pointer": "/effects/0/after/0/secret_key",
+        "value": "v1"
+      },
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-current-version.json",
+    "sha256": "c26cabf278b68bdf93b8ddbef724d18df8ebdeacc929d72cb4e3ccb582029e86",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Frozen Go ran `UPDATE devices SET last_seen = now()` on the request pool without a user GUC, matching zero rows under `devices_self` FORCE RLS. Rust runs `rust_device_checkin` as worker-owned SECURITY DEFINER (#345), updating `last_seen` to fresh for only the proven device (`<device-a>`) while leaving `<device-b>` and failed proofs unchanged.",
+    "replace": [
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-current-version-rows.json",
+    "sha256": "35986c62424eee04c8e91bb819f28b2021e7ed55a8523ad95c7e6c7f9bdbd30f",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Row effects of #345: proven `<device-a>` ends with fresh `last_seen`, while `<device-b>` remains seeded.",
+    "replace": [
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-duplicate-id.json",
+    "sha256": "05505d7dcce39c78c2ce50ea4754531d45f36c3f2cf6bb3a4b0301264ce5a202",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Frozen Go ran `UPDATE devices SET last_seen = now()` on the request pool without a user GUC, matching zero rows under `devices_self` FORCE RLS. Rust runs `rust_device_checkin` as worker-owned SECURITY DEFINER (#345), updating `last_seen` to fresh for only the proven device (`<device-a>`) while leaving `<device-b>` and failed proofs unchanged.",
+    "replace": [
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-duplicate-id-rows.json",
+    "sha256": "54a03f3ac509c5ad4fc47d4b3352551140ddd5569cbba427acbbfc048cb3dde0",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Row effects of #345: proven `<device-a>` ends with fresh `last_seen`, while `<device-b>` remains seeded.",
+    "replace": [
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-event-cap.json",
+    "sha256": "9ac64f726215b01aa71e1252855ff358c70c562aeee60f9949437d70e2989c4f",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Frozen Go ran `UPDATE devices SET last_seen = now()` on the request pool without a user GUC, matching zero rows under `devices_self` FORCE RLS. Rust runs `rust_device_checkin` as worker-owned SECURITY DEFINER (#345), updating `last_seen` to fresh for only the proven device (`<device-a>`) while leaving `<device-b>` and failed proofs unchanged.",
+    "replace": [
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-event-cap-rows.json",
+    "sha256": "5c3f69584ee4d10c42e38f6e52bc959a21535fcb1c33de0c44dde0efb11a9532",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Row effects of #345: proven `<device-a>` ends with fresh `last_seen`, while `<device-b>` remains seeded.",
+    "replace": [
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-folded-keys.json",
+    "sha256": "157c4c990fe4861cdff600334a90824e06fc57cdeb603c55c3c70a1c7ca5d00d",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Frozen Go ran `UPDATE devices SET last_seen = now()` on the request pool without a user GUC, matching zero rows under `devices_self` FORCE RLS. Rust runs `rust_device_checkin` as worker-owned SECURITY DEFINER (#345), updating `last_seen` to fresh for only the proven device (`<device-a>`) while leaving `<device-b>` and failed proofs unchanged.",
+    "replace": [
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-folded-keys-rows.json",
+    "sha256": "451bec93c0a65b0a828b092c91e37e579bd61e7b64c23daa3a21eb3b029ad5b7",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Row effects of #345: proven `<device-a>` ends with fresh `last_seen`, while `<device-b>` remains seeded.",
+    "replace": [
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-group.json",
+    "sha256": "59b15ff566839a01d3019445fd73080adf745e8780f6c065b22757f38d0ad093",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Frozen Go ran `UPDATE devices SET last_seen = now()` on the request pool without a user GUC, matching zero rows under `devices_self` FORCE RLS. Rust runs `rust_device_checkin` as worker-owned SECURITY DEFINER (#345), updating `last_seen` to fresh for only the proven device (`<device-a>`) while leaving `<device-b>` and failed proofs unchanged.",
+    "replace": [
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-group-rows.json",
+    "sha256": "380066f984e25fe59a0f78846f15019a0b3e1edf3b00e599fe43db0997eb7a07",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Row effects of #345: proven `<device-a>` ends with fresh `last_seen`, while `<device-b>` remains seeded.",
+    "replace": [
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-nonce-max.json",
+    "sha256": "f008cfd56ed93ffe7f0d07109d1e66fd46c1432250d03d5590aa3d96aaa7f1ca",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Frozen Go ran `UPDATE devices SET last_seen = now()` on the request pool without a user GUC, matching zero rows under `devices_self` FORCE RLS. Rust runs `rust_device_checkin` as worker-owned SECURITY DEFINER (#345), updating `last_seen` to fresh for only the proven device (`<device-a>`) while leaving `<device-b>` and failed proofs unchanged.",
+    "replace": [
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-nonce-max-rows.json",
+    "sha256": "504cc82683f298bb3841bbd633ec21b143d1f238289822f37d022fb6500bb8a5",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Row effects of #345: proven `<device-a>` ends with fresh `last_seen`, while `<device-b>` remains seeded.",
+    "replace": [
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-nonce-purge.json",
+    "sha256": "b4a122996dc2947f0ea86f825fb826760fdcf5460be57e2879be813ed90b388c",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Frozen Go ran `UPDATE devices SET last_seen = now()` on the request pool without a user GUC, matching zero rows under `devices_self` FORCE RLS. Rust runs `rust_device_checkin` as worker-owned SECURITY DEFINER (#345), updating `last_seen` to fresh for only the proven device (`<device-a>`) while leaving `<device-b>` and failed proofs unchanged.",
+    "replace": [
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-nonce-purge-rows.json",
+    "sha256": "beec56ab1975c518979327dc3fc50421deed33b10be89b0e5fc9dff537797fca",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Row effects of #345: proven `<device-a>` ends with fresh `last_seen`, while `<device-b>` remains seeded.",
+    "replace": [
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-not-modified.json",
+    "sha256": "78d37e4b73535da654de9d5a0c5f5b1c394e86d0c7e14f44e5fa3ed67d14a5a7",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Frozen Go ran `UPDATE devices SET last_seen = now()` on the request pool without a user GUC, matching zero rows under `devices_self` FORCE RLS. Rust runs `rust_device_checkin` as worker-owned SECURITY DEFINER (#345), updating `last_seen` to fresh for only the proven device (`<device-a>`) while leaving `<device-b>` and failed proofs unchanged.",
+    "replace": [
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-not-modified-rows.json",
+    "sha256": "2b50f81a766fab433108041c4c427590276eaa438927554f9eeb418c08e5bc64",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Row effects of #345: proven `<device-a>` ends with fresh `last_seen`, while `<device-b>` remains seeded.",
+    "replace": [
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-null-event.json",
+    "sha256": "1cc0ad9607b98c7ffdb4d771e351b5bca864a717b8378a9b89264f5afcfd0f0d",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Frozen Go ran `UPDATE devices SET last_seen = now()` on the request pool without a user GUC, matching zero rows under `devices_self` FORCE RLS. Rust runs `rust_device_checkin` as worker-owned SECURITY DEFINER (#345), updating `last_seen` to fresh for only the proven device (`<device-a>`) while leaving `<device-b>` and failed proofs unchanged.",
+    "replace": [
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-null-event-rows.json",
+    "sha256": "1fe5014f0d52dd7450ae0b239b9baf14b7c29d1cc55c761f321c6b9609a52acc",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Row effects of #345: proven `<device-a>` ends with fresh `last_seen`, while `<device-b>` remains seeded.",
+    "replace": [
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-repeat.json",
+    "sha256": "1d7c2b03c3d2056088d1d4c7b7332e9e658739c3a9f838e9319b2af9734a4124",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Frozen Go ran `UPDATE devices SET last_seen = now()` on the request pool without a user GUC, matching zero rows under `devices_self` FORCE RLS. Rust runs `rust_device_checkin` as worker-owned SECURITY DEFINER (#345), updating `last_seen` to fresh for only the proven device (`<device-a>`) while leaving `<device-b>` and failed proofs unchanged.",
+    "replace": [
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-repeat-rows.json",
+    "sha256": "347b691ba044b85075d9ccecf76794da5b2c22376eb82432ddc7be6abc6c8353",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Row effects of #345: proven `<device-a>` ends with fresh `last_seen`, while `<device-b>` remains seeded.",
+    "replace": [
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-skew-inside.json",
+    "sha256": "d74545cb8c8c0fd27ad01ffe31e6484a196f01b35e77c9bddc396bf0a9895c2e",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Frozen Go ran `UPDATE devices SET last_seen = now()` on the request pool without a user GUC, matching zero rows under `devices_self` FORCE RLS. Rust runs `rust_device_checkin` as worker-owned SECURITY DEFINER (#345), updating `last_seen` to fresh for only the proven device (`<device-a>`) while leaving `<device-b>` and failed proofs unchanged.",
+    "replace": [
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-skew-inside-rows.json",
+    "sha256": "bf2cc0473cd17a40d5bc94a0c8af7923ad2430798606c80e9fa4cf080622cc35",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Row effects of #345: proven `<device-a>` ends with fresh `last_seen`, while `<device-b>` remains seeded.",
+    "replace": [
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-success.json",
+    "sha256": "095f7e2e823b2a7b413634677990adbbb2727cc648bb4fecefa56b5ce52b11b0",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Frozen Go ran `UPDATE devices SET last_seen = now()` on the request pool without a user GUC, matching zero rows under `devices_self` FORCE RLS. Rust runs `rust_device_checkin` as worker-owned SECURITY DEFINER (#345), updating `last_seen` to fresh for only the proven device (`<device-a>`) while leaving `<device-b>` and failed proofs unchanged.",
+    "replace": [
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-success-rows.json",
+    "sha256": "13c4969012f890dc56dcd0a4e0a99abc514f88dcb9c0e8386a39a3d83fc72a63",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Row effects of #345: proven `<device-a>` ends with fresh `last_seen`, while `<device-b>` remains seeded.",
+    "replace": [
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-wipe.json",
+    "sha256": "d8eee319583510f875820288c48fed100582fef47f80684fe62345df3b4adfbd",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Frozen Go ran `UPDATE devices SET last_seen = now()` on the request pool without a user GUC, matching zero rows under `devices_self` FORCE RLS. Rust runs `rust_device_checkin` as worker-owned SECURITY DEFINER (#345), updating `last_seen` to fresh for only the proven device (`<device-a>`) while leaving `<device-b>` and failed proofs unchanged.",
+    "replace": [
+      {
+        "pointer": "/observation/effects/devices/0/last_seen",
+        "value": "fresh"
+      }
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-wipe-rows.json",
+    "sha256": "640c7adb06700417506a61b74708ce35839a8def590a829a5cb31965519da806",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#345",
+    "reason": "Row effects of #345: proven `<device-a>` ends with fresh `last_seen`, while `<device-b>` remains seeded.",
+    "replace": [
+      {
+        "pointer": "/effects/0/after/0/last_seen",
+        "value": "fresh"
+      }
     ]
   }
 ]

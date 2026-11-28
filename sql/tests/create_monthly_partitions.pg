@@ -3,7 +3,7 @@
 -- login_events) has NO DEFAULT partition, so a missing month hard-fails the
 -- insert and silently kills audit + auth logging on any long-running gateway.
 BEGIN;
-SELECT plan(15);
+SELECT plan(21);
 
 SELECT lives_ok('SELECT create_monthly_partitions()', 'rotator runs clean (default = current + next month)');
 
@@ -79,6 +79,40 @@ SELECT lives_ok('SELECT create_monthly_partitions()', 'rotator is idempotent');
 -- p_months_ahead honored: (2) reaches month+2 (offsets 0..2).
 SELECT lives_ok('SELECT create_monthly_partitions(2)', 'rotator runs clean with p_months_ahead = 2');
 SELECT has_table(('audit_log_' || to_char(now() + interval '2 months', 'YYYY_MM'))::name, 'audit_log month+2 partition');
+
+-- #334 lock-order regression: safety-critical no-DEFAULT tables run first, and
+-- every `mailboxes`-FK parent (`mailbox_audit_log`, `messages`) MUST be created
+-- BEFORE `message_tags` (FK to `tags`) so partition FK locks always acquire
+-- `mailboxes` -> `tags` in the same order as mailbox creation (`INSERT INTO
+-- mailboxes` -> `trg_mailbox_tag_after_insert` -> `INSERT INTO tags`), even if
+-- `messages_YYYY_MM` already existed or timed out.
+-- Month+4 has no pre-existing partitions and no conflict rows, so pg_class.oid
+-- order reflects exact creation order within this call.
+SELECT lives_ok('SELECT create_monthly_partitions(4)', 'rotator creates month+4 partitions cleanly');
+SELECT ok(
+  (SELECT oid FROM pg_class WHERE relname = 'audit_log_' || to_char(now() + interval '4 months', 'YYYY_MM'))
+  < (SELECT oid FROM pg_class WHERE relname = 'messages_' || to_char(now() + interval '4 months', 'YYYY_MM')),
+  'no-DEFAULT audit_log partition is created before messages partition (#334)'
+);
+SELECT ok(
+  (SELECT oid FROM pg_class WHERE relname = 'mailbox_audit_log_' || to_char(now() + interval '4 months', 'YYYY_MM'))
+  < (SELECT oid FROM pg_class WHERE relname = 'message_tags_' || to_char(now() + interval '4 months', 'YYYY_MM')),
+  'mailbox_audit_log partition (FK to mailboxes) is created before message_tags partition (#334)'
+);
+SELECT ok(
+  (SELECT oid FROM pg_class WHERE relname = 'messages_' || to_char(now() + interval '4 months', 'YYYY_MM'))
+  < (SELECT oid FROM pg_class WHERE relname = 'message_tags_' || to_char(now() + interval '4 months', 'YYYY_MM')),
+  'messages partition is created before message_tags partition so FK locks follow mailboxes -> tags (#334)'
+);
+
+-- #334 bounded lock_timeout: preserves caller''s default (0) and tighter custom timeouts.
+SELECT is(current_setting('lock_timeout'), '0',
+  'default lock_timeout is restored after bounded partition DDL (#334)');
+
+SET LOCAL lock_timeout = '500ms';
+SELECT create_monthly_partitions(5);
+SELECT is(current_setting('lock_timeout'), '500ms',
+  'caller tighter lock_timeout is preserved across partition creation (#334)');
 
 SELECT * FROM finish();
 ROLLBACK;
