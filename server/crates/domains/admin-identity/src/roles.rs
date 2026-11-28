@@ -489,19 +489,38 @@ pub async fn effective_permissions(
     ))))
 }
 
-/// `SELECT permissions FROM admin_role_groups`: the bulk routes' Rule A input.
+/// `SELECT permissions, domain_scope FROM admin_role_groups`: the bulk routes' Rule A and domain-scope input.
 pub async fn role_permissions(
     factory: &TxFactory,
     admin: &AdminPermissionProof,
     id: i64,
-) -> Result<Option<Vec<String>>, StatementFailure> {
+) -> Result<Option<(Vec<String>, Option<i64>)>, StatementFailure> {
     let rows = factory
         .run_admin_read_contract(admin, &sql::ROLE_PERMISSIONS, &[&id])
         .await?;
     match rows.first() {
         None => Ok(None),
-        Some(r) => Ok(Some(r.try_get(0).map_err(|_| invalid())?)),
+        Some(r) => Ok(Some((
+            r.try_get(0).map_err(|_| invalid())?,
+            r.try_get(1).map_err(|_| invalid())?,
+        ))),
     }
+}
+
+/// Whether every target user ID belongs to `domain_scope` (Rule B bulk pre-enqueue gate, #165).
+pub async fn users_all_in_domain(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    users: &[i64],
+    domain_scope: i64,
+) -> Result<bool, StatementFailure> {
+    let ids = users.to_vec();
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::USERS_ALL_IN_DOMAIN, &[&ids, &domain_scope])
+        .await?;
+    rows.first()
+        .and_then(|r| r.try_get::<_, bool>(0).ok())
+        .ok_or_else(invalid)
 }
 
 /// Go's `RequireReason`: whether `roles` is a reason-required audit area.

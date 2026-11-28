@@ -346,12 +346,13 @@ pub fn security_expected(
         .find(|e| e["baseline"] == relative)
         .expect("reviewed security divergence");
     assert_eq!(entry["reviewed"], true);
-    assert!(["2026-11-05", "2026-11-06", "2026-11-07", "2026-11-26"]
+    assert!(["2026-11-05", "2026-11-06", "2026-11-07", "2026-11-26", "2026-11-28"]
         .iter()
-        .any(|day| entry["reason"]
-            .as_str()
-            .unwrap()
-            .contains(&format!("owner-approved security fix {day}"))));
+        .any(|day| {
+            let reason = entry["reason"].as_str().unwrap();
+            reason.contains(&format!("owner-approved security fix {day}"))
+                || reason.contains(&format!("owner-approved post-parity fix {day}"))
+        }));
     assert_eq!(
         entry["sha256"],
         format!("{:x}", Sha256::digest(std::fs::read(baseline).unwrap()))

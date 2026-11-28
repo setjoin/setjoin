@@ -57,8 +57,12 @@ BEGIN
         VALUES (
             p_slug,
             p_name,
-            COALESCE(p_combinations, '[]'::jsonb),
-            COALESCE(p_min_acr, 'aal1')
+            CASE
+                WHEN p_combinations IS NULL OR jsonb_typeof(p_combinations) = 'null'
+                THEN '[]'::jsonb
+                ELSE p_combinations
+            END,
+            COALESCE(NULLIF(p_min_acr, ''), 'aal1')
         )
         RETURNING id INTO v_id;
         v_action := 'ca_auth_strength_create';
@@ -79,10 +83,14 @@ BEGIN
         END IF;
 
         UPDATE auth_strengths SET
-            slug        = COALESCE(p_slug, slug),
-            name        = COALESCE(p_name, name),
-            requirement = COALESCE(p_combinations, requirement),
-            min_acr     = COALESCE(p_min_acr, min_acr),
+            slug        = COALESCE(NULLIF(p_slug, ''), slug),
+            name        = COALESCE(NULLIF(p_name, ''), name),
+            requirement = CASE
+                WHEN p_combinations IS NULL OR jsonb_typeof(p_combinations) = 'null'
+                THEN requirement
+                ELSE p_combinations
+            END,
+            min_acr     = COALESCE(NULLIF(p_min_acr, ''), min_acr),
             updated_at  = now()
         WHERE id = v_id AND builtin = false;
         v_action := 'ca_auth_strength_update';

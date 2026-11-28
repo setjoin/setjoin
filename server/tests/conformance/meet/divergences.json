@@ -22,5 +22,27 @@
     "review": "owner-approved security fix 2026-11-05",
     "secure_test": "bins/gateway/tests/meet_recorded.rs::get_foreign",
     "mutant": "sql:meeting-read-org-wide"
+  },
+  {
+    "baseline": "goldens/role-ended.json",
+    "sha256": "1e8cd5e8c0065583612d30264961381c25c673bfa949688ff77733d52390b595",
+    "expectation": "security/role-ended.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#160: meeting_set_role now rejects ended meetings with BZ190 409 Conflict instead of editing roles and returning 204)",
+    "issue": "#160",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/meet_recorded.rs::role_ended"
+  },
+  {
+    "baseline": "goldens/role-ended-row-effects.json",
+    "sha256": "44caf5e1b3b650b67740bc4ef9e04ecc1e4000993708b70a2d28c67c196f2263",
+    "expectation": "security/role-ended-row-effects.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#160: meeting_set_role now rejects ended meetings with BZ190 409 Conflict instead of editing roles and returning 204)",
+    "issue": "#160",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/meet_recorded.rs::role_ended"
   }
 ]

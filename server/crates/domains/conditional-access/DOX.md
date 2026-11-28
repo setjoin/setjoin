@@ -79,11 +79,13 @@ seam, with condition traces, scope/exclusions, grant combination, AAL and remedi
 - `simulate` (#405) is ON: request-credential, fresh `Snapshot::load`, Go body decoding and
   optional sign-in-log context, no runtime cache and no audit writes. The shared evaluator
   renders Go's exact ordered trace bytes (`SimulateWithPolicies`).
-- Mirrored Go facts: raw-write handlers (`impact`, `coverage`, `doctor`, `import`,
-  `templates instantiate`) carry no `Cache-Control`; `diff` answers `removed` in name order (Go ranges
-  a map); empty `cidrs` reach SQL as NULL; `resolve-principals?groups=` reads the absent table
-  `user_groups` and is Go's 500 `database error`; `why-lookup` unknown user is 404 `{"found":false}`;
-  `impact` 22023 is 400 `request failed`.
+- Mirrored Go facts and post-parity fixes (#253): raw-write handlers (`impact`, `coverage`, `doctor`,
+  `import`, `templates instantiate`) carry no `Cache-Control`; `diff` answers `removed` in name order
+  and canonicalizes JSON key order; `ca_named_location_set` coalesces NULL `cidrs`/`countries` to
+  `[]` and rejects malformed CIDRs/bare IPs with 400; `resolve-principals?groups=` resolves active
+  `directory_groups` and `user_group_members`; `ca_auth_strength_set` handles JSON null combinations
+  and partial updates; `signin`/`why` emit `null` for NULL `source_ip`; `why-lookup` unknown user is
+  404 `{"found":false}`; `impact` 22023 is 400 `request failed`.
 - Worker `user-risk` (`bins/gateway/src/user_risk_worker.rs`): `RUST_WORKERS_ON=user-risk` needs
   `GO_WORKERS_OFF=user-risk`; reads `feature.user_risk` from the DB row each tick. Oracle
   `tests/user_risk_worker.rs` (overlay `tests/conformance/conditional-access/user_risk_tick_test.go.txt`).

@@ -716,9 +716,24 @@ pub const EFFECTIVE_SOURCES: SqlContract = SqlContract {
 pub const ROLE_PERMISSIONS: SqlContract = SqlContract {
     id: "admin_identity.role_permissions",
     domain: "admin-identity",
-    sql: "SELECT permissions FROM admin_role_groups WHERE id = $1",
+    sql: "SELECT permissions, domain_scope FROM admin_role_groups WHERE id = $1",
     params: &[Type::INT8],
-    columns: &[ColumnSpec::named("permissions", Type::TEXT_ARRAY)],
+    columns: &[
+        ColumnSpec::named("permissions", Type::TEXT_ARRAY),
+        ColumnSpec::named("domain_scope", Type::INT8),
+    ],
+    scope: SqlScope::AdminRead,
+    rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
+};
+
+pub const USERS_ALL_IN_DOMAIN: SqlContract = SqlContract {
+    id: "admin_identity.users_all_in_domain",
+    domain: "admin-identity",
+    sql: "SELECT NOT EXISTS (SELECT 1 FROM unnest($1::bigint[]) AS u(id) \
+          WHERE NOT EXISTS (SELECT 1 FROM users WHERE id = u.id AND domain_id = $2))",
+    params: &[Type::INT8_ARRAY, Type::INT8],
+    columns: &[ColumnSpec::unnamed(Type::BOOL)],
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
@@ -2755,6 +2770,7 @@ pub const SQL_CONTRACTS: &[SqlContract] = &[
     ROLE_MEMBERS,
     PERMISSIONS_CATALOG,
     USER_IN_DOMAIN,
+    USERS_ALL_IN_DOMAIN,
     EFFECTIVE_AUTHORITY_ROWS,
     EFFECTIVE_SOURCES,
     ROLE_PERMISSIONS,

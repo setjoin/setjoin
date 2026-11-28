@@ -416,8 +416,8 @@ pub(super) async fn serve(
             let Some(role) = role_id(4) else {
                 return full(400, "invalid role id");
             };
-            let held = match db::role_permissions(factory, admin_proof, role).await {
-                Ok(Some(held)) => held,
+            let (held, role_domain_scope) = match db::role_permissions(factory, admin_proof, role).await {
+                Ok(Some(found)) => found,
                 Ok(None) => return full(404, "role not found"),
                 Err(_) => return db_failed(),
             };
@@ -456,6 +456,16 @@ pub(super) async fn serve(
                         return full(400, "expiresAt must be in the future");
                     }
                     expires_at = Some(input::timestamptz(at));
+                }
+            }
+            if scope > 0 {
+                if assign && role_domain_scope != Some(scope) {
+                    return full(403, "cannot assign a role outside your domain");
+                }
+                match db::users_all_in_domain(factory, admin_proof, &users, scope).await {
+                    Ok(true) => {}
+                    Ok(false) => return full(403, "cannot target users outside your domain"),
+                    Err(_) => return db_failed(),
                 }
             }
             let job = db::BulkJob {

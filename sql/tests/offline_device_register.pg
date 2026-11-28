@@ -1,6 +1,6 @@
 -- pgTAP: offline_device_register.pg
 BEGIN;
-SELECT plan(4);
+SELECT plan(5);
 CREATE TEMP TABLE _a AS SELECT mk_account('odr') AS mb;
 -- First call registers a NATIVE device (offline is native-only post-pivot; the
 -- fingerprint is the guard-core native device identity), lands 'pending',
@@ -21,5 +21,18 @@ SELECT isnt(
 SELECT is(
   offline_device_register((SELECT mb FROM _a), 'fp-abc', 'desktop'),
   (SELECT id FROM _r), 'idempotent upsert returns the same row id');
+
+-- #260: jmap_session_device_register must preserve app.current_user_id so it
+-- succeeds under setjoin_app with FORCE RLS on devices and user_devices.
+SELECT (SELECT mb FROM _a) AS mb_id, (SELECT user_id FROM mailboxes WHERE id = (SELECT mb FROM _a)) AS u_id \gset
+SELECT set_config('app.current_user_id', :'u_id', true);
+SELECT set_config('app.current_mailbox_id', :'mb_id', true);
+SET LOCAL ROLE setjoin_app;
+SELECT ok(
+  jmap_session_device_register(:mb_id, 'fp-jmap-rls', 'desktop') > 0,
+  'jmap_session_device_register succeeds under setjoin_app FORCE RLS (#260)'
+);
+RESET ROLE;
+
 SELECT finish();
 ROLLBACK;

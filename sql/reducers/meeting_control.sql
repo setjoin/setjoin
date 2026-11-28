@@ -147,6 +147,7 @@ CREATE OR REPLACE FUNCTION meeting_set_role(
 ) RETURNS void AS $$
 DECLARE
     v_role           text;
+    v_state          text;
     v_target_user_id bigint;
 BEGIN
     -- floor (host or cohost) via the shared authorize-preamble, then the
@@ -156,6 +157,11 @@ BEGIN
     IF v_role <> 'host' THEN
         RAISE EXCEPTION 'host authority required to set participant role in meeting %', p_meeting_id
             USING ERRCODE='BZ186', HINT='{"type":"forbidden"}';
+    END IF;
+    SELECT state INTO v_state FROM meetings WHERE id = p_meeting_id;
+    IF v_state = 'ended' THEN
+        RAISE EXCEPTION 'meeting % has ended', p_meeting_id
+            USING ERRCODE='BZ190', HINT='{"type":"conflict","detail":"meeting has ended"}';
     END IF;
     IF p_role NOT IN ('cohost', 'member') THEN
         RAISE EXCEPTION 'invalid role %', p_role

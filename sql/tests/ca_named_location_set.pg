@@ -1,6 +1,6 @@
 -- pgTAP: ca_named_location_set.pg — CRUD + soft-delete + audit + notify.
 BEGIN;
-SELECT plan(4);
+SELECT plan(10);
 SET app.capture_notify = 'on';
 
 INSERT INTO domains (id, name, is_local) VALUES (95400, 'nl.test', TRUE) ON CONFLICT DO NOTHING;
@@ -56,6 +56,49 @@ SELECT ok(
 SELECT ok(
   EXISTS (SELECT 1 FROM _test_notify_log WHERE channel = 'conditional_access'),
   'ca_named_location_set fires ca_notify_policy_change → conditional_access channel');
+
+-- 5. #253: NULL cidrs / countries default to empty jsonb arrays (no NOT NULL 500).
+SELECT ca_named_location_set(NULL, 'Empty Arrays Loc', '', NULL, NULL, false, false, 84001, '192.0.2.1'::inet) AS empty_loc_id \gset
+SELECT is(
+  (SELECT jsonb_build_object('ip', ip_ranges, 'c', countries)
+     FROM named_locations
+    WHERE id = :empty_loc_id),
+  '{"ip": [], "c": []}'::jsonb,
+  'NULL cidrs and countries coalesce to empty jsonb arrays (#253)'
+);
+
+-- 6-7. #253: rust_ca_named_location_set rejects bare IP and bad CIDR with BZ085 (mapped to 400).
+SELECT throws_ok(
+  $$ SELECT rust_ca_named_location_set(84001, 0, 'Bad CIDR', '', ARRAY['not-a-cidr'], NULL, false, false, '192.0.2.1') $$,
+  'BZ085', NULL,
+  'rust_ca_named_location_set rejects invalid CIDR with BZ085 (#253)'
+);
+SELECT throws_ok(
+  $$ SELECT rust_ca_named_location_set(84001, 0, 'Bare IP', '', ARRAY['10.1.2.3'], NULL, false, false, '192.0.2.1') $$,
+  'BZ085', NULL,
+  'rust_ca_named_location_set rejects bare IP without prefix with BZ085 (#253)'
+);
+
+-- 8-10. #253: rust_ca_resolve_user_groups works without missing user_groups table.
+SELECT is(
+  (SELECT count(*)::int FROM rust_ca_resolve_user_groups(ARRAY[999991::bigint])),
+  0,
+  'rust_ca_resolve_user_groups returns empty set for unknown group id (#253)'
+);
+INSERT INTO directory_groups (domain_id, name, kind, state, visibility)
+  VALUES (95400, 'CA Resolved Dir Group', 'static', 'active', 'org')
+  RETURNING id AS dir_grp_id \gset
+INSERT INTO user_group_members (user_id, group_id) VALUES (84001, 998877) ON CONFLICT DO NOTHING;
+SELECT is(
+  (SELECT name FROM rust_ca_resolve_user_groups(ARRAY[:dir_grp_id::bigint])),
+  'CA Resolved Dir Group',
+  'rust_ca_resolve_user_groups resolves active directory_groups by id (#253)'
+);
+SELECT is(
+  (SELECT count(*)::int FROM rust_ca_resolve_user_groups(ARRAY[998877::bigint])),
+  1,
+  'rust_ca_resolve_user_groups resolves user_group_members group_id (#253)'
+);
 
 SELECT finish();
 ROLLBACK;

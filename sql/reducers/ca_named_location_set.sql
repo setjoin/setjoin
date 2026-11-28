@@ -23,9 +23,9 @@ DECLARE
     v_before JSONB;
     v_after  JSONB;
     v_action TEXT;
-    -- ponytail: cast cidr[] → jsonb array via to_json; avoids a hand-rolled loop
-    v_ranges JSONB := to_json(p_cidrs)::jsonb;
-    v_cntry  JSONB := to_json(p_countries)::jsonb;
+    -- ponytail: cast cidr[] → jsonb array via to_json; NULL means empty array
+    v_ranges JSONB := COALESCE(to_json(p_cidrs)::jsonb, '[]'::jsonb);
+    v_cntry  JSONB := COALESCE(to_json(p_countries)::jsonb, '[]'::jsonb);
 BEGIN
     IF v_id IS NULL THEN
         INSERT INTO named_locations (name, description, ip_ranges, countries, is_trusted)

@@ -131,16 +131,35 @@ VOLATILE
 SECURITY INVOKER
 SET search_path = pg_catalog, public
 AS $$
+DECLARE
+    v_cidrs cidr[];
+    v_raw   text;
 BEGIN
     IF NOT public.rls_caller_is_privileged() THEN
         RAISE EXCEPTION 'insufficient privilege for worker-only reducer'
             USING ERRCODE = '42501';
     END IF;
+    IF p_cidrs IS NOT NULL THEN
+        FOREACH v_raw IN ARRAY p_cidrs LOOP
+            IF v_raw IS NULL OR position('/' IN v_raw) = 0 THEN
+                RAISE EXCEPTION 'invalid CIDR value: %', COALESCE(v_raw, '<null>')
+                    USING ERRCODE = 'BZ085',
+                          HINT = 'cidrs must contain valid CIDR ranges (e.g. 10.0.0.0/8)';
+            END IF;
+        END LOOP;
+        BEGIN
+            v_cidrs := p_cidrs::cidr[];
+        EXCEPTION WHEN invalid_text_representation THEN
+            RAISE EXCEPTION 'invalid CIDR value in cidrs'
+                USING ERRCODE = 'BZ085',
+                      HINT = 'cidrs must contain valid CIDR ranges (e.g. 10.0.0.0/8)';
+        END;
+    END IF;
     RETURN public.ca_named_location_set(
         p_id,
         p_name,
         p_description,
-        p_cidrs::cidr[],
+        v_cidrs,
         p_countries,
         p_trusted,
         p_delete,
@@ -267,9 +286,21 @@ BEGIN
   IF NOT public.rls_caller_is_privileged() THEN
     RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
   END IF;
-  RETURN QUERY EXECUTE
-    'SELECT id, COALESCE(name, '''') FROM public.user_groups WHERE id = ANY($1)'
-    USING p_ids;
+  RETURN QUERY
+    SELECT g.id, COALESCE(g.name, '')
+      FROM public.directory_groups g
+     WHERE g.id = ANY(p_ids)
+       AND g.state = 'active'
+    UNION
+    SELECT DISTINCT ugm.group_id, ''::text
+      FROM public.user_group_members ugm
+     WHERE ugm.group_id = ANY(p_ids)
+       AND NOT EXISTS (
+         SELECT 1 FROM public.directory_groups dg
+          WHERE dg.id = ugm.group_id
+            AND dg.state = 'active'
+       )
+    ORDER BY 1;
 END;
 $$ LANGUAGE plpgsql STABLE SET search_path = pg_catalog, public;
 

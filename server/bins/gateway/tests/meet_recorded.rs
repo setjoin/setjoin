@@ -106,6 +106,115 @@ async fn rejects_no_tenant_filter() -> Result<(), BoxError> {
     reject_effect("no-tenant-filter").await
 }
 
+/// #160: Meet JSON endpoints return 413 Request Entity Too Large (not 400 "invalid JSON")
+/// when the request body exceeds the 1 MiB cap.
+#[tokio::test]
+async fn oversize_body_returns_413() -> Result<(), BoxError> {
+    let _serial = SERIAL.lock().await;
+    let Some(db) = Db::for_case("meet1-oversize") else {
+        return Ok(());
+    };
+    let c = db.connect().await?;
+    let a = fixture::account(&c, "meet1-oversize").await?;
+    let toggle: Option<bool> = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.meet'",
+            &[],
+        )
+        .await?
+        .map(|r| r.get(0));
+    let result = std::panic::AssertUnwindSafe(async {
+        c.execute(
+            "INSERT INTO feature_toggles(key,enabled) VALUES('feature.meet',true) ON CONFLICT (key) DO UPDATE SET enabled=true",
+            &[],
+        )
+        .await?;
+        let created: Value = serde_json::from_str(
+            &c.query_one("SELECT meeting_create($1,$2)::text", &[&a.user, &"Oversize test"])
+                .await?
+                .get::<_, String>(0),
+        )?;
+        let meeting_id = created["meetingId"].as_i64().unwrap();
+        let adapter = setjoin_gateway::meet::MeetRoute::new(
+            setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 1)
+                .map_err(|e| e.0)?
+                .with_audit_keys("22".repeat(32), String::new()),
+            std::sync::Arc::new(common::recovery_keys()),
+            "mailserver".into(),
+            setjoin_gateway::meet_livekit::LiveKit::new(
+                "meet1-key",
+                "meet1-secret",
+                "ws://127.0.0.1:1",
+                false,
+                false,
+            ),
+        );
+        let gateway = Gateway::new(
+            Config {
+                upstream: None,
+                trusted_proxies: TrustedProxies::parse("")?,
+                upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
+                edge_limit: None,
+            },
+            RouteTable::proxy_all().with(adapter),
+        )?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let server = tokio::spawn(gateway.serve(listener));
+        let oversize = format!("{{\"title\":\"{}\"}}", "x".repeat((1 << 20) + 128));
+        for uri in [
+            "/api/meet".to_owned(),
+            format!("/api/meet/{meeting_id}/role"),
+            format!("/api/meet/{meeting_id}/kick"),
+        ] {
+            let resp = common::send(
+                addr,
+                Request::builder()
+                    .method("POST")
+                    .uri(&uri)
+                    .header("host", "mail.test")
+                    .header("origin", "http://mail.test")
+                    .header("authorization", format!("Bearer {}", token(a.user, "meet1-oversize")))
+                    .header("content-type", "application/json")
+                    .header("x-request-id", "meet1-oversize")
+                    .body(common::full(oversize.clone()))
+                    .unwrap(),
+            )
+            .await;
+            let status = resp.status().as_u16();
+            let body = String::from_utf8(common::body_bytes(resp).await.to_vec())?;
+            assert_eq!(status, 413, "{uri}: expected 413, got {status}: {body}");
+            assert!(
+                body.contains("exceeds the allowed size"),
+                "{uri}: unexpected 413 body: {body}"
+            );
+        }
+        server.abort();
+        let _ = server.await;
+        Ok::<_, BoxError>(())
+    })
+    .catch_unwind()
+    .await;
+    cleanup(&c, &[&a]).await?;
+    match toggle {
+        Some(v) => {
+            c.execute(
+                "UPDATE feature_toggles SET enabled=$1 WHERE key='feature.meet'",
+                &[&v],
+            )
+            .await?;
+        }
+        None => {
+            c.execute("DELETE FROM feature_toggles WHERE key='feature.meet'", &[])
+                .await?;
+        }
+    }
+    match result {
+        Ok(r) => r,
+        Err(p) => std::panic::resume_unwind(p),
+    }
+}
+
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn route_spec(route: &str) -> (&'static str, &'static str, bool) {
@@ -136,6 +245,7 @@ fn expected_status(route: &str, case: &str) -> u16 {
         "missing" => 403,
         "bad_body" | "bad_time" | "wrong_type" | "go_json" | "language" => 400,
         "empty_title" | "bad_window" | "unowned_event" | "bad_role" => 422,
+        "ended" if route == "role" => 409,
         "foreign" if matches!(route, "create" | "lock" | "settings" | "role") => 403,
         _ if route == "create" => 201,
         _ if writing => 204,
@@ -643,9 +753,8 @@ async fn run_inner(
             let expected: Value = common::golden_doc(&path, "observation", &observation);
             setjoin_conformance::golden::compare(&expected["observation"], &observation)?;
             if writing {
-                let recorded: Value = serde_json::from_slice(&std::fs::read(
-                    path.with_file_name(format!("{route}-{case}-row-effects.json")),
-                )?)?;
+                let row_path = path.with_file_name(format!("{route}-{case}-row-effects.json"));
+                let recorded: Value = common::golden_doc(&row_path, "effects", &rows(&observation));
                 setjoin_conformance::golden::compare(&recorded["effects"], &rows(&observation))?;
             }
             println!("GOLDEN-REPLAY: {label} :: {route}-{case}");

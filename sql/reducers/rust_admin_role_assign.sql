@@ -58,7 +58,7 @@ BEGIN
   SELECT id INTO v_dummy FROM admin_scope_sets WHERE id=p_scope_id FOR UPDATE;
   IF NOT FOUND THEN RETURN jsonb_build_object('status',400,'detail','scope-set not found'); END IF;
  END IF;
- IF NOT admin_scope_within(p_actor,p_scope_type,p_scope_id,NULL) THEN
+ IF NOT admin_scope_within(p_actor,p_scope_type,p_scope_id,COALESCE(p_domain_override,v_role_scope)) THEN
   RETURN jsonb_build_object('status',403,'detail','cannot grant a scope broader than your own reach');
  END IF;
  PERFORM admin_protection_check(p_actor,p_user,'assign_role',p_role);

@@ -1,12 +1,13 @@
--- Frozen Go's RemoveMember: Rule B reach checks, admin_protection_check, the
--- assignment DELETE and the role_revoke audit, as one transaction (Go has no
--- authority fence here). Returns {status,detail,id}; any status other than 204
--- means roll back. admin_protection_check raises BZ064/BZ065/BZ066.
+-- RemoveMember transaction: V172 authority fence, Rule B reach checks,
+-- admin_protection_check, the assignment DELETE and the role_revoke audit, as
+-- one transaction. Returns {status,detail,id}; any status other than 204 means
+-- roll back. admin_protection_check raises BZ064/BZ065/BZ066.
 CREATE OR REPLACE FUNCTION rust_admin_role_remove(
  p_actor bigint,p_scope bigint,p_role bigint,p_user bigint,p_ip text
 ) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY INVOKER AS $$
 DECLARE v_id bigint;
 BEGIN
+ PERFORM admin_authority_fence();
  IF p_scope>0 AND NOT EXISTS(SELECT 1 FROM users WHERE id=p_user AND domain_id=p_scope) THEN
   RETURN jsonb_build_object('status',404,'detail','assignment not found');
  END IF;

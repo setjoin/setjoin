@@ -1,6 +1,6 @@
 -- pgTAP: ca_auth_strength_set.pg — CRUD + built-in guard + notify.
 BEGIN;
-SELECT plan(3);
+SELECT plan(6);
 SET app.capture_notify = 'on';
 
 INSERT INTO domains (id, name, is_local) VALUES (95401, 'as.test', TRUE) ON CONFLICT DO NOTHING;
@@ -46,6 +46,23 @@ SELECT throws_ok(
 SELECT ok(
   EXISTS (SELECT 1 FROM _test_notify_log WHERE channel = 'conditional_access'),
   'ca_auth_strength_set fires ca_notify_policy_change → conditional_access channel');
+
+-- 4-6. #253: raw JSON null combinations + empty min_acr default cleanly; partial name-only update preserves existing fields.
+SELECT ca_auth_strength_set(NULL, 'null-comb-str', 'Null Comb', 'null'::jsonb, '', false, 84002, '192.0.2.2'::inet) AS null_str_id \gset
+SELECT is(
+  (SELECT jsonb_build_object('req', requirement, 'acr', min_acr) FROM auth_strengths WHERE id = :null_str_id),
+  '{"req": [], "acr": "aal1"}'::jsonb,
+  'JSON null combinations and empty min_acr default to [] and aal1 (#253)'
+);
+SELECT lives_ok(
+  format($$ SELECT ca_auth_strength_set(%s, '', 'Renamed Only', NULL, '', false, 84002, '192.0.2.2'::inet) $$, :null_str_id),
+  'partial update with only name succeeds (#253)'
+);
+SELECT is(
+  (SELECT jsonb_build_object('slug', slug, 'name', name, 'acr', min_acr) FROM auth_strengths WHERE id = :null_str_id),
+  '{"slug": "null-comb-str", "name": "Renamed Only", "acr": "aal1"}'::jsonb,
+  'partial update preserves slug and min_acr (#253)'
+);
 
 SELECT finish();
 ROLLBACK;

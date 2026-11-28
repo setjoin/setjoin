@@ -1002,7 +1002,7 @@ Workers use the established worker credential; these wrappers add no grants.
 
 | Function | File | Purpose | Key Parameters | Notifies/State Bumps |
 |----------|------|---------|----------------|----------------------|
-| `jmap_session_device_register` | jmap_session_device_register.sql | Invoker adapter preserving Go CallScoped's mailbox-only GUC; app-role RLS failure falls back to base capabilities. Function-local user GUC restores on return. | authenticated mailbox, signed device fingerprint, native platform | existing offline_device_register effects on the pre-flip owner credential |
+| `jmap_session_device_register` | jmap_session_device_register.sql | Invoker adapter delegating to `offline_device_register` under the caller's authenticated `app.current_user_id` and `app.current_mailbox_id` GUCs (`#260`). | authenticated mailbox, signed device fingerprint, native platform | existing `offline_device_register` effects under `setjoin_app` RLS |
 
 ### JMAP atomic Identity edits (#316)
 

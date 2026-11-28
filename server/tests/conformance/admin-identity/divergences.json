@@ -478,5 +478,137 @@
     "review": "owner-approved security fix 2026-11-05",
     "secure_test": "bins/gateway/tests/secfix4.rs::ad_conflicts_and_email_policies_follow_the_grant",
     "mutant": "eap-foreign"
+  },
+  {
+    "baseline": "goldens/member-assign-scoped.json",
+    "sha256": "b59904e0d0763e1141a74877e47a4f4eaa9e45bd32a25dc1cf294fca01b9cb82",
+    "expectation": "security/member-assign-scoped.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#165: rust_admin_role_assign passes effective grant domain COALESCE(p_domain_override, v_role_scope) to admin_scope_within instead of NULL so domain-scoped admins can assign roles within their own domain)",
+    "issue": "#165",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/admin_identity_roles.rs::member_assign_scoped"
+  },
+  {
+    "baseline": "goldens/member-assign-scoped-row-effects.json",
+    "sha256": "35535d9fb908e79533b71440ad348c7e5fb7b2c181eee0f7876be1e4a7c589fd",
+    "expectation": "security/member-assign-scoped-row-effects.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#165: rust_admin_role_assign passes effective grant domain COALESCE(p_domain_override, v_role_scope) to admin_scope_within instead of NULL so domain-scoped admins can assign roles within their own domain)",
+    "issue": "#165",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/admin_identity_roles.rs::member_assign_scoped"
+  },
+  {
+    "baseline": "goldens/member-assign-scoped-override.json",
+    "sha256": "029d0567569cd63f6aaa04d16f8f6d90b1421856a79d97df5ba34e1913a6ce69",
+    "expectation": "security/member-assign-scoped-override.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#165: rust_admin_role_assign passes effective grant domain COALESCE(p_domain_override, v_role_scope) to admin_scope_within instead of NULL so domain-scoped admins can assign roles with matching domainOverride)",
+    "issue": "#165",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/admin_identity_roles.rs::member_assign_scoped_override"
+  },
+  {
+    "baseline": "goldens/member-assign-scoped-override-row-effects.json",
+    "sha256": "6d5d1a691d776cff0a2a3a33735142c4149e674e3428542c2896959d0cdc9220",
+    "expectation": "security/member-assign-scoped-override-row-effects.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#165: rust_admin_role_assign passes effective grant domain COALESCE(p_domain_override, v_role_scope) to admin_scope_within instead of NULL so domain-scoped admins can assign roles with matching domainOverride)",
+    "issue": "#165",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/admin_identity_roles.rs::member_assign_scoped_override"
+  },
+  {
+    "baseline": "goldens/bulk-assign-foreign.json",
+    "sha256": "4991f1a673cc24ef5a1014c4e8d3caa0579a380bc02c9ad4753ce8fe7d4dae13",
+    "expectation": "security/bulk-assign-foreign.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#165: bulk role assign now enforces domain scope before enqueuing jobs, rejecting out-of-domain roles/users with 403 instead of 202)",
+    "issue": "#165",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/admin_identity_roles.rs::bulk_assign_cross_tenant"
+  },
+  {
+    "baseline": "goldens/bulk-assign-foreign-row-effects.json",
+    "sha256": "894204b29247b4a8b062545b4b6fbd46449699425d0d1c7406561f9c9d98c6b8",
+    "expectation": "security/bulk-assign-foreign-row-effects.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#165: bulk role assign now enforces domain scope before enqueuing jobs, rejecting out-of-domain roles/users with 403 instead of 202)",
+    "issue": "#165",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/admin_identity_roles.rs::bulk_assign_cross_tenant"
+  },
+  {
+    "baseline": "goldens/bulk-revoke-foreign.json",
+    "sha256": "17a6ad2e4a82b52d4b64dcec422a4a438c22998bcc434c14dd5400a64e93c368",
+    "expectation": "security/bulk-revoke-foreign.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#165: bulk role revoke now enforces domain scope on target users before enqueuing jobs, rejecting out-of-domain users with 403 instead of 202)",
+    "issue": "#165",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/admin_identity_roles.rs::bulk_revoke_cross_tenant"
+  },
+  {
+    "baseline": "goldens/bulk-revoke-foreign-row-effects.json",
+    "sha256": "aa1f8fba4893af7204030aad97fa0740450449c5bce3ab8de6e6bd37b1c8e631",
+    "expectation": "security/bulk-revoke-foreign-row-effects.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#165: bulk role revoke now enforces domain scope on target users before enqueuing jobs, rejecting out-of-domain users with 403 instead of 202)",
+    "issue": "#165",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/admin_identity_roles.rs::bulk_revoke_cross_tenant"
+  },
+  {
+    "baseline": "goldens/scope-sets-create-bad-domain.json",
+    "sha256": "9fe6852dc7fd07a83344070d9afd55d0dc38d8dd25a665be6c08fe3b48cd7db1",
+    "expectation": "security/scope-sets-create-bad-domain.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#166: creating a scope set with an unknown domainId maps FK 23503 to 400 Bad Request instead of 500)",
+    "issue": "#166",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/admin_scope_sets.rs::create_bad_domain"
+  },
+  {
+    "baseline": "goldens/scope-sets-create-bad-domain-row-effects.json",
+    "sha256": "67e30e318730196a80682f06a2de57683902759d1547b31db0fb986ee4130abb",
+    "expectation": "security/scope-sets-create-bad-domain-row-effects.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#166: creating a scope set with an unknown domainId maps FK 23503 to 400 Bad Request instead of 500)",
+    "issue": "#166",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/admin_scope_sets.rs::create_bad_domain"
+  },
+  {
+    "baseline": "goldens/scope-sets-update-empty-name.json",
+    "sha256": "374ce07da675f06c1ecd669719fb86405e415403df7c1e8472ecce35f003e3d8",
+    "expectation": "security/scope-sets-update-empty-name.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#166: updating a scope set with an empty name is rejected with 400 instead of renaming to empty string)",
+    "issue": "#166",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/admin_scope_sets.rs::update_empty_name"
+  },
+  {
+    "baseline": "goldens/scope-sets-update-empty-name-row-effects.json",
+    "sha256": "c2e121c91a89a5537c1bb1e01c89991e4a0cddcec129016a5753372f72019a00",
+    "expectation": "security/scope-sets-update-empty-name-row-effects.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#166: updating a scope set with an empty name is rejected with 400 instead of renaming to empty string)",
+    "issue": "#166",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/admin_scope_sets.rs::update_empty_name"
   }
 ]
