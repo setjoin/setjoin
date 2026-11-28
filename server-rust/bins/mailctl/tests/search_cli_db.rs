@@ -387,24 +387,32 @@ fn mailctl_search_rebuild_and_verify_e2e_healthy_corrupt_and_mismatch() {
                         if let Some(id) = rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()) {
                             created.push(id);
                             // Simulate an epoch-fenced old-epoch live worker marking this outbox
-                            // row processed only while the old epoch is still active in Postgres;
-                            // once rebuild's settlement transaction advances `epoch` and resets
-                            // `processed_at = NULL`, the stale worker cannot overwrite it.
-                            let _ = wconn
-                                .query(
-                                    "UPDATE public.search_index_outbox \
-                                        SET processed_at = now() \
-                                      WHERE corpus = 'mail' AND entity_id = $1 AND processed_at IS NULL \
-                                        AND EXISTS ( \
-                                            SELECT 1 FROM public.search_index_watermarks \
-                                             WHERE corpus = 'mail' AND epoch = $2 \
-                                        )",
-                                    &[
-                                        (&id, setjoin_pg::Type::INT8),
-                                        (&old_epoch, setjoin_pg::Type::INT8),
-                                    ],
-                                )
-                                .await;
+                            // row processed only while the old epoch is still active in Postgres.
+                            // Locking the watermark row FOR SHARE inside the same transaction
+                            // serializes strictly before or after rebuild's settlement transaction
+                            // (which locks `search_index_watermarks FOR UPDATE` before re-queuing).
+                            if wconn.query("BEGIN", &[]).await.is_ok() {
+                                let same_epoch = wconn
+                                    .query(
+                                        "SELECT 1 FROM public.search_index_watermarks \
+                                          WHERE corpus = 'mail' AND epoch = $1 FOR SHARE",
+                                        &[(&old_epoch, setjoin_pg::Type::INT8)],
+                                    )
+                                    .await
+                                    .map(|r| !r.is_empty())
+                                    .unwrap_or(false);
+                                if same_epoch {
+                                    let _ = wconn
+                                        .query(
+                                            "UPDATE public.search_index_outbox \
+                                                SET processed_at = now() \
+                                              WHERE corpus = 'mail' AND entity_id = $1 AND processed_at IS NULL",
+                                            &[(&id, setjoin_pg::Type::INT8)],
+                                        )
+                                        .await;
+                                }
+                                let _ = wconn.query("COMMIT", &[]).await;
+                            }
                         }
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
