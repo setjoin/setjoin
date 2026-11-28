@@ -1,6 +1,6 @@
 //! #291 frozen-Go HTTP/effect parity at the front door.
-mod chat_compliance_oracle;
-mod common;
+use crate::chat_compliance_oracle;
+use crate::common;
 #[tokio::test]
 async fn policies_success() -> Result<(), common::BoxError> {
     chat_compliance_oracle::run("policies", "success", "").await

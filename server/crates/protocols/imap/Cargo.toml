@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [features]
 # Test-only: restores the frozen-Go IDLE slot leak (SETJOIN_SECFIX3_MUTANT).
@@ -28,3 +29,7 @@ rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", 
 setjoin-conformance = { path = "../../../tests/conformance" }
 tokio-postgres = "0.7.18"
 tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }
+
+[[test]]
+name = "suite_misc"
+path = "tests/suite_misc.rs"

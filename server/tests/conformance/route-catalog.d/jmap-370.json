@@ -45,8 +45,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-get-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_get_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_get_success"
           }
         },
         {
@@ -54,8 +54,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-get-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_get_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_get_cross_tenant"
           }
         },
         {
@@ -63,8 +63,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-get-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_get_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_get_invalid_input"
           }
         },
         {
@@ -72,8 +72,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-get-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_get_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_get_delegate_personal"
           }
         },
         {
@@ -81,23 +81,23 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-get-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_get_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_get_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_370",
-        "test": "contact_card_get_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_370::contact_card_get_changed_status_mutant",
         "name": "changed-status"
       },
       "family_mutants": [
         {
           "name": "no-tenant-filter",
           "package": "setjoin-gateway",
-          "target": "jmap_family_370",
-          "test": "contact_card_get_no_tenant_filter_mutant"
+          "target": "suite_jmap_family",
+          "test": "jmap_family_370::contact_card_get_no_tenant_filter_mutant"
         }
       ]
     },
@@ -121,8 +121,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-query-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_query_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_query_success"
           }
         },
         {
@@ -130,8 +130,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-query-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_query_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_query_cross_tenant"
           }
         },
         {
@@ -139,8 +139,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-query-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_query_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_query_invalid_input"
           }
         },
         {
@@ -148,8 +148,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-query-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_query_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_query_delegate_personal"
           }
         },
         {
@@ -157,15 +157,15 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-query-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_query_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_query_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_370",
-        "test": "contact_card_query_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_370::contact_card_query_changed_status_mutant",
         "name": "changed-status"
       }
     },
@@ -189,8 +189,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-changes-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_changes_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_changes_success"
           }
         },
         {
@@ -198,8 +198,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-changes-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_changes_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_changes_cross_tenant"
           }
         },
         {
@@ -207,8 +207,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-changes-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_changes_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_changes_invalid_input"
           }
         },
         {
@@ -216,8 +216,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-changes-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_changes_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_changes_delegate_personal"
           }
         },
         {
@@ -225,8 +225,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-changes-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_changes_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_changes_entitlement_denied"
           }
         },
         {
@@ -234,15 +234,15 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-changes-state-mismatch.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_changes_state_mismatch"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_changes_state_mismatch"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_370",
-        "test": "contact_card_changes_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_370::contact_card_changes_changed_status_mutant",
         "name": "changed-status"
       }
     },
@@ -266,8 +266,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-set-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_set_success"
           },
           "row_golden": "server/tests/conformance/jmap/families/contact_card/contact-card-set-success-row-effects.json"
         },
@@ -276,8 +276,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-set-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_set_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_set_cross_tenant"
           },
           "row_golden": "server/tests/conformance/jmap/families/contact_card/contact-card-set-cross-tenant-row-effects.json"
         },
@@ -286,8 +286,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-set-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_set_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_set_invalid_input"
           },
           "row_golden": "server/tests/conformance/jmap/families/contact_card/contact-card-set-invalid-input-row-effects.json"
         },
@@ -296,8 +296,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-set-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_set_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_set_delegate_personal"
           },
           "row_golden": "server/tests/conformance/jmap/families/contact_card/contact-card-set-delegate-personal-row-effects.json"
         },
@@ -306,8 +306,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-set-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_set_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_set_entitlement_denied"
           },
           "row_golden": "server/tests/conformance/jmap/families/contact_card/contact-card-set-entitlement-denied-row-effects.json"
         },
@@ -316,16 +316,16 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-set-repeat.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_set_repeat"
           },
           "row_golden": "server/tests/conformance/jmap/families/contact_card/contact-card-set-repeat-row-effects.json"
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_370",
-        "test": "contact_card_set_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_370::contact_card_set_changed_status_mutant",
         "name": "changed-status"
       }
     },
@@ -349,8 +349,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-find-duplicates-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_find_duplicates_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_find_duplicates_success"
           }
         },
         {
@@ -358,8 +358,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-find-duplicates-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_find_duplicates_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_find_duplicates_cross_tenant"
           }
         },
         {
@@ -367,8 +367,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-find-duplicates-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_find_duplicates_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_find_duplicates_invalid_input"
           }
         },
         {
@@ -376,8 +376,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-find-duplicates-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_find_duplicates_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_find_duplicates_delegate_personal"
           }
         },
         {
@@ -385,15 +385,15 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-find-duplicates-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_find_duplicates_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_find_duplicates_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_370",
-        "test": "contact_card_find_duplicates_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_370::contact_card_find_duplicates_changed_status_mutant",
         "name": "changed-status"
       }
     },
@@ -417,8 +417,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-merge-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_merge_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_merge_success"
           },
           "row_golden": "server/tests/conformance/jmap/families/contact_card/contact-card-merge-success-row-effects.json"
         },
@@ -427,8 +427,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-merge-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_merge_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_merge_cross_tenant"
           },
           "row_golden": "server/tests/conformance/jmap/families/contact_card/contact-card-merge-cross-tenant-row-effects.json"
         },
@@ -437,8 +437,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-merge-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_merge_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_merge_invalid_input"
           },
           "row_golden": "server/tests/conformance/jmap/families/contact_card/contact-card-merge-invalid-input-row-effects.json"
         },
@@ -447,8 +447,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-merge-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_merge_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_merge_delegate_personal"
           },
           "row_golden": "server/tests/conformance/jmap/families/contact_card/contact-card-merge-delegate-personal-row-effects.json"
         },
@@ -457,8 +457,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-merge-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_merge_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_merge_entitlement_denied"
           },
           "row_golden": "server/tests/conformance/jmap/families/contact_card/contact-card-merge-entitlement-denied-row-effects.json"
         },
@@ -467,16 +467,16 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-merge-repeat.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_merge_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_merge_repeat"
           },
           "row_golden": "server/tests/conformance/jmap/families/contact_card/contact-card-merge-repeat-row-effects.json"
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_370",
-        "test": "contact_card_merge_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_370::contact_card_merge_changed_status_mutant",
         "name": "changed-status"
       }
     },
@@ -500,8 +500,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-gal-search-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_gal_search_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_gal_search_success"
           }
         },
         {
@@ -509,8 +509,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-gal-search-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_gal_search_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_gal_search_cross_tenant"
           }
         },
         {
@@ -518,8 +518,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-gal-search-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_gal_search_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_gal_search_invalid_input"
           }
         },
         {
@@ -527,8 +527,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-gal-search-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_gal_search_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_gal_search_delegate_personal"
           }
         },
         {
@@ -536,15 +536,15 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-gal-search-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_gal_search_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_gal_search_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_370",
-        "test": "contact_card_gal_search_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_370::contact_card_gal_search_changed_status_mutant",
         "name": "changed-status"
       }
     },
@@ -568,8 +568,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-tree-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_tree_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_tree_success"
           }
         },
         {
@@ -577,8 +577,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-tree-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_tree_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_tree_cross_tenant"
           }
         },
         {
@@ -586,8 +586,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-tree-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_tree_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_tree_invalid_input"
           }
         },
         {
@@ -595,8 +595,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-tree-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_tree_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_tree_delegate_personal"
           }
         },
         {
@@ -604,15 +604,15 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-tree-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_tree_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_tree_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_370",
-        "test": "contact_card_directory_tree_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_370::contact_card_directory_tree_changed_status_mutant",
         "name": "changed-status"
       }
     },
@@ -636,8 +636,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-members-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_members_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_members_success"
           }
         },
         {
@@ -645,8 +645,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-members-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_members_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_members_cross_tenant"
           }
         },
         {
@@ -654,8 +654,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-members-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_members_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_members_invalid_input"
           }
         },
         {
@@ -663,8 +663,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-members-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_members_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_members_delegate_personal"
           }
         },
         {
@@ -672,15 +672,15 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-members-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_members_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_members_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_370",
-        "test": "contact_card_directory_members_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_370::contact_card_directory_members_changed_status_mutant",
         "name": "changed-status"
       }
     },
@@ -704,8 +704,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-search-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_search_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_search_success"
           }
         },
         {
@@ -713,8 +713,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-search-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_search_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_search_cross_tenant"
           }
         },
         {
@@ -722,8 +722,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-search-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_search_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_search_invalid_input"
           }
         },
         {
@@ -731,8 +731,8 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-search-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_search_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_search_delegate_personal"
           }
         },
         {
@@ -740,15 +740,15 @@
           "golden": "server/tests/conformance/jmap/families/contact_card/contact-card-directory-search-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_370",
-            "test": "contact_card_directory_search_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_370::contact_card_directory_search_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "package": "setjoin-gateway",
-        "target": "jmap_family_370",
-        "test": "contact_card_directory_search_changed_status_mutant",
+        "target": "suite_jmap_family",
+        "test": "jmap_family_370::contact_card_directory_search_changed_status_mutant",
         "name": "changed-status"
       }
     }

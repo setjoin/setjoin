@@ -1,7 +1,6 @@
 //! Frozen-Go oracle replays and mutants for #373 (`Task/*`, `TaskComment/*`,
 //! `TaskList/*`, `TaskListMember/set`, `TaskAssigned/*`).
-mod common;
-mod jmap_family_oracle;
+use crate::jmap_family_oracle;
 
 use jmap_family_oracle::{run, Case, Mutation};
 use serde_json::Value;

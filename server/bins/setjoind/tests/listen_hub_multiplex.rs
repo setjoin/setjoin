@@ -2,7 +2,7 @@
 //! single `DB_DIRECT_DSN` PostgreSQL backend serves all active subsystems in
 //! `setjoind --subsystems=all`, and delivers `NOTIFY` events across channels (#543).
 
-mod common;
+use crate::common;
 
 use std::process::Command;
 use std::time::Duration;

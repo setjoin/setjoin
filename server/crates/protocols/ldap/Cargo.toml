@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [features]
 oracle-mutants = []
@@ -25,3 +26,7 @@ serde_json = "=1.0.145"
 [dev-dependencies]
 rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
 setjoin-conformance = { path = "../../../tests/conformance" }
+
+[[test]]
+name = "suite_misc"
+path = "tests/suite_misc.rs"

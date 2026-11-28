@@ -42,8 +42,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-get-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_get_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_get_success"
           }
         },
         {
@@ -51,8 +51,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-get-ids-not-found.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_get_ids_and_not_found"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_get_ids_and_not_found"
           }
         },
         {
@@ -60,8 +60,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-get-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_get_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_get_cross_tenant"
           }
         },
         {
@@ -69,8 +69,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-get-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_get_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_get_invalid_input"
           }
         },
         {
@@ -78,8 +78,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-get-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_get_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_get_delegate_personal"
           }
         },
         {
@@ -87,23 +87,23 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-get-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_get_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_get_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_371",
-        "test": "calendar_get_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_371::calendar_get_status_mutant"
       },
       "family_mutants": [
         {
           "name": "no-tenant-filter",
           "package": "setjoin-gateway",
-          "target": "jmap_family_371",
-          "test": "calendar_get_no_tenant_filter_mutant"
+          "target": "suite_jmap_family",
+          "test": "jmap_family_371::calendar_get_no_tenant_filter_mutant"
         }
       ]
     },
@@ -127,8 +127,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-changes-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_changes_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_changes_success"
           }
         },
         {
@@ -136,8 +136,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-changes-state-mismatch.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_changes_state_mismatch"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_changes_state_mismatch"
           }
         },
         {
@@ -145,8 +145,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-changes-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_changes_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_changes_invalid_input"
           }
         },
         {
@@ -154,8 +154,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-changes-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_changes_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_changes_cross_tenant"
           }
         },
         {
@@ -163,8 +163,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-changes-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_changes_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_changes_delegate_personal"
           }
         },
         {
@@ -172,16 +172,16 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-changes-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_changes_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_changes_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_371",
-        "test": "calendar_changes_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_371::calendar_changes_status_mutant"
       }
     },
     {
@@ -205,8 +205,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-set-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_set_success"
           }
         },
         {
@@ -215,8 +215,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-set-no-update-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_set_no_update"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_set_no_update"
           }
         },
         {
@@ -225,8 +225,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-set-foreign-calendar-no-effect-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_set_foreign_calendar_no_effect"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_set_foreign_calendar_no_effect"
           }
         },
         {
@@ -235,8 +235,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-set-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_set_repeat"
           }
         },
         {
@@ -245,8 +245,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-set-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_set_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_set_cross_tenant"
           }
         },
         {
@@ -255,8 +255,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-set-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_set_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_set_invalid_input"
           }
         },
         {
@@ -265,8 +265,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-set-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_set_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_set_delegate_personal"
           }
         },
         {
@@ -275,8 +275,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-set-delegate-revoked-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_set_delegate_revoked"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_set_delegate_revoked"
           }
         },
         {
@@ -285,16 +285,16 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-set-entitlement-denied-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_set_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_set_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_371",
-        "test": "calendar_set_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_371::calendar_set_status_mutant"
       }
     },
     {
@@ -317,8 +317,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-get-shared-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_get_shared_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_get_shared_success"
           }
         },
         {
@@ -326,8 +326,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-get-shared-foreign-object.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_get_shared_foreign_object"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_get_shared_foreign_object"
           }
         },
         {
@@ -335,8 +335,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-get-shared-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_get_shared_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_get_shared_cross_tenant"
           }
         },
         {
@@ -344,8 +344,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-get-shared-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_get_shared_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_get_shared_invalid_input"
           }
         },
         {
@@ -353,8 +353,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-get-shared-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_get_shared_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_get_shared_delegate_personal"
           }
         },
         {
@@ -362,16 +362,16 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-get-shared-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_get_shared_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_get_shared_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_371",
-        "test": "calendar_get_shared_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_371::calendar_get_shared_status_mutant"
       }
     },
     {
@@ -394,8 +394,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-share-get-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_get_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_get_success"
           }
         },
         {
@@ -403,8 +403,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-share-get-foreign-object.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_get_foreign_object"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_get_foreign_object"
           }
         },
         {
@@ -412,8 +412,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-share-get-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_get_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_get_cross_tenant"
           }
         },
         {
@@ -421,8 +421,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-share-get-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_get_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_get_invalid_input"
           }
         },
         {
@@ -430,8 +430,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-share-get-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_get_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_get_delegate_personal"
           }
         },
         {
@@ -439,16 +439,16 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-share-get-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_get_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_get_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_371",
-        "test": "calendar_share_get_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_371::calendar_share_get_status_mutant"
       }
     },
     {
@@ -472,8 +472,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-share-set-success-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_set_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_set_success"
           }
         },
         {
@@ -482,8 +482,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-share-set-revoke-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_set_revoke"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_set_revoke"
           }
         },
         {
@@ -492,8 +492,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-share-set-admin-grantee-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_set_admin_grantee"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_set_admin_grantee"
           }
         },
         {
@@ -502,8 +502,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-share-set-repeat-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_set_repeat"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_set_repeat"
           }
         },
         {
@@ -512,8 +512,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-share-set-cross-tenant-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_set_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_set_cross_tenant"
           }
         },
         {
@@ -522,8 +522,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-share-set-foreign-object-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_set_foreign_object"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_set_foreign_object"
           }
         },
         {
@@ -532,8 +532,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-share-set-delegate-insufficient-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_set_delegate_insufficient"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_set_delegate_insufficient"
           }
         },
         {
@@ -542,8 +542,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-share-set-delegate-personal-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_set_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_set_delegate_personal"
           }
         },
         {
@@ -552,8 +552,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-share-set-delegate-revoked-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_set_delegate_revoked"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_set_delegate_revoked"
           }
         },
         {
@@ -562,8 +562,8 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-share-set-invalid-input-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_set_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_set_invalid_input"
           }
         },
         {
@@ -572,16 +572,16 @@
           "row_golden": "server/tests/conformance/jmap/families/calendar/calendar-share-set-entitlement-denied-row-effects.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_set_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_share_set_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_371",
-        "test": "calendar_share_set_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_371::calendar_share_set_status_mutant"
       }
     },
     {
@@ -604,8 +604,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-delegate-list-success.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_delegate_list_success"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_delegate_list_success"
           }
         },
         {
@@ -613,8 +613,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-delegate-list-cross-tenant.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_delegate_list_cross_tenant"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_delegate_list_cross_tenant"
           }
         },
         {
@@ -622,8 +622,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-delegate-list-invalid-input.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_delegate_list_invalid_input"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_delegate_list_invalid_input"
           }
         },
         {
@@ -631,8 +631,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-delegate-list-delegate-personal.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_delegate_list_delegate_personal"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_delegate_list_delegate_personal"
           }
         },
         {
@@ -640,8 +640,8 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-delegate-list-delegate-revoked.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_delegate_list_delegate_revoked"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_delegate_list_delegate_revoked"
           }
         },
         {
@@ -649,16 +649,16 @@
           "golden": "server/tests/conformance/jmap/families/calendar/calendar-delegate-list-entitlement-denied.json",
           "replay": {
             "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_delegate_list_entitlement_denied"
+            "target": "suite_jmap_family",
+            "test": "jmap_family_371::calendar_delegate_list_entitlement_denied"
           }
         }
       ],
       "mutant": {
         "name": "status",
         "package": "setjoin-gateway",
-        "target": "jmap_family_371",
-        "test": "calendar_delegate_list_status_mutant"
+        "target": "suite_jmap_family",
+        "test": "jmap_family_371::calendar_delegate_list_status_mutant"
       }
     }
   ]

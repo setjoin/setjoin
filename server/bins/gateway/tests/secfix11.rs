@@ -4,8 +4,8 @@
 //! (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/dev/test-secfix11-mutants.py)
 //! restore frozen Go's behaviour and must make these tests fail.
 //! Airgap tests need `GOFREE_AIRGAP_FIXTURE_ROOT=/dev/shm` on the shared host.
-mod common;
-mod platform_oracle;
+use crate::common;
+use crate::platform_oracle;
 use common::BoxError;
 use hyper::Request;
 use serde_json::{json, Value};

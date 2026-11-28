@@ -12,7 +12,7 @@
 //! 3. Exact JSON round-trip equality (`live JSON Value == DTO -> JSON Value`)
 //!    through `setjoin_edge_contract::generated::*` plain `serde` DTOs.
 
-mod common;
+use crate::common;
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;

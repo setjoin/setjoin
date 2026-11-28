@@ -1,6 +1,6 @@
 //! #364: the byte-level problem+json check rejects what Go never writes and
 //! accepts what it does (the 413 title pin is in the lib unit tests too).
-mod common;
+use crate::common;
 use common::problem_bytes::assert_go_problem_bytes;
 
 #[test]

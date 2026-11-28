@@ -15,7 +15,7 @@
 //!   `STORE` still emits `* <seq> FETCH (UID <uid> MODSEQ (<new>))`; empty or litigation-held
 //!   `EXPUNGE` omits `[HIGHESTMODSEQ ...]`; `STATUS (HIGHESTMODSEQ)` activates `CONDSTORE`;
 //!   and `QRESYNC` 4th-arg `seq-match-data` validates strictly and bounds lower vanished UIDs.
-mod common;
+use crate::common;
 use common::{executor, serial, worker_executor};
 use setjoin_imap::{Server, ThreatPolicy, WebhookPolicy};
 use std::{sync::Arc, time::Duration};

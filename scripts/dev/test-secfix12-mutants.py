@@ -18,21 +18,21 @@ root = Path(__file__).resolve().parents[2] / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 
-SESSION = ["--test", "session"]
+SESSION = ["--test", "suite_misc"]
 LIB = ["--lib"]
 # mutant id -> [(cargo target args, test name)]
 MUTANTS = {
-    "inbound-imip-body-attendee": [(SESSION, "secfix12_imip_request_binds_attendee_to_envelope_recipient")],
-    "inbound-imip-ignore-revocation": [(SESSION, "secfix12_imip_stops_for_a_revoked_signer")],
+    "inbound-imip-body-attendee": [(SESSION, "session::secfix12_imip_request_binds_attendee_to_envelope_recipient")],
+    "inbound-imip-ignore-revocation": [(SESSION, "session::secfix12_imip_stops_for_a_revoked_signer")],
     "smime-trailing-parts-ignored": [
         (LIB, "nothing_unsigned_may_ride_on_a_valid_signature"),
-        (SESSION, "secfix12_trailing_unsigned_part_is_not_fully_signed"),
+        (SESSION, "session::secfix12_trailing_unsigned_part_is_not_fully_signed"),
     ],
     "smime-line-boundary": [
         (LIB, "an_unsigned_part_cannot_hide_behind_a_second_content_type_or_the_preamble"),
-        (SESSION, "secfix12_preamble_part_cannot_hide_behind_a_signed_message"),
+        (SESSION, "session::secfix12_preamble_part_cannot_hide_behind_a_signed_message"),
     ],
-    "smtp-phish-silent-drop": [(SESSION, "secfix12_anti_phish_rejection_is_refused_not_silently_dropped")],
+    "smtp-phish-silent-drop": [(SESSION, "session::secfix12_anti_phish_rejection_is_refused_not_silently_dropped")],
 }
 
 

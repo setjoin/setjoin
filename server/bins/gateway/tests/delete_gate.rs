@@ -7,7 +7,7 @@
 //! never copy observed output into EXPECT. The guard pins the Hop cells.
 use crate::common::boot::Child;
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use base64::Engine;
 use common::{body_bytes, full, send, BoxError};
 use hyper::Request;

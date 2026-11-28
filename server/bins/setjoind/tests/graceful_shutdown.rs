@@ -5,7 +5,7 @@
 //! - Listener stops accepting new connections immediately.
 //! - Active subsystems drain concurrently and exit 0 well inside the 30s budget.
 
-mod common;
+use crate::common;
 
 use std::net::TcpStream;
 use std::process::Command;

@@ -1,5 +1,5 @@
 //! #417: real public HTTP health with fake LiveKit, Egress and ASR services.
-mod common;
+use crate::common;
 use common::BoxError;
 use http_body_util::BodyExt;
 use hyper::{Request, Response};

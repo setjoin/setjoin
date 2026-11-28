@@ -1,6 +1,6 @@
 //! F02 slice 1 (AD administration) frozen-Go oracle, replayed without a Go upstream.
-mod common;
-mod dirsync_oracle;
+use crate::common;
+use crate::dirsync_oracle;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

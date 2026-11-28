@@ -1,7 +1,5 @@
 //! Frozen-Go parity oracle for #370 (`ContactCard/*`, 10 methods).
-mod common;
-#[allow(dead_code)]
-mod jmap_family_oracle;
+use crate::jmap_family_oracle;
 
 use jmap_family_oracle::{run, Case, Mutation};
 

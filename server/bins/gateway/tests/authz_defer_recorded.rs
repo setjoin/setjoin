@@ -1,7 +1,7 @@
 //! #406: terminal admission answers through the real front-door HTTP seam.
 use crate::common::boot::Child;
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use common::{body_bytes, full, send};
 use hyper::Request;
 use setjoin_gateway::jmap::limit::{EdgeLimit, Limiter};

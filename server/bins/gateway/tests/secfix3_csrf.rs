@@ -2,7 +2,7 @@
 //! the over-budget branch. With the budget exhausted and the limiter's flag read
 //! OFF, the request used to skip the gate (the only other gate runs without an
 //! edge limiter) and reach the routes. Mutant: `csrf-after-over-budget`.
-mod common;
+use crate::common;
 use common::{body_bytes, full, send};
 use hyper::{Request, Response, StatusCode};
 use setjoin_gateway::RouteTable;

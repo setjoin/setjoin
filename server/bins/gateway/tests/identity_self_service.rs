@@ -1,9 +1,6 @@
 //! #494: actual front-door HTTP plus committed user-owned database effects.
-mod common;
-#[allow(dead_code)]
-#[path = "common/fake_imap.rs"]
-mod fake_imap;
-mod identity_self_service_oracle;
+use crate::common;
+use crate::identity_self_service_oracle;
 macro_rules! case {
     ($name:ident, $route:literal, $kind:literal) => {
         #[tokio::test]

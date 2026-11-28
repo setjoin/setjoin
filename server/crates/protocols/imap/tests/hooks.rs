@@ -3,7 +3,7 @@
 //! authored from `handleLogin` rather than recorded; the policy goldens that
 //! replay through the listener belong to #420. They pin the ORDER of calls and
 //! the wire/audit outcome for each decision.
-mod common;
+use crate::common;
 use common::*;
 use futures_util::future::BoxFuture;
 use setjoin_imap::{

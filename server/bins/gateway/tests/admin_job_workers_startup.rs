@@ -2,7 +2,7 @@
 //! under `RUST_WORKERS_ON=<name>` unless `GO_WORKERS_OFF` lists that exact name.
 use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
-mod common;
+use crate::common;
 use common::{full, BoxError};
 use hyper::Response;
 use setjoin_conformance::harness::Db;

@@ -1,6 +1,6 @@
 //! F01 slice `users` frozen-Go oracle, replayed without a Go upstream.
-mod admin_identity_oracle;
-mod common;
+use crate::admin_identity_oracle;
+use crate::common;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

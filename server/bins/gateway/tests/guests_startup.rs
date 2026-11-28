@@ -1,7 +1,7 @@
 //! Bundled F11 admission and both operator rollback switches through the executable.
 use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
-mod common;
+use crate::common;
 use common::{body_bytes, full, send, BoxError};
 use hyper::{Request, Response};
 use setjoin_conformance::{fixture, harness::Db};

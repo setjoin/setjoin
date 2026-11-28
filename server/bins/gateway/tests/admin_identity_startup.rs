@@ -1,7 +1,7 @@
 //! Bundled F01 slices `users`, `roles`, `scope-sets`, `sod`, `user-lifecycle`, `idv2-sources`, `idv2-transitions`, `idv2-upgrade` and `org-policies` admission and both operator rollback switches through the executable.
 use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
-mod common;
+use crate::common;
 use common::{body_bytes, full, send, BoxError};
 use hyper::{Request, Response};
 use setjoin_conformance::{fixture, harness::Db};

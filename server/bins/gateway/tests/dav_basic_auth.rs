@@ -1,5 +1,5 @@
 //! Runtime-gate integration coverage for #355a native DAV and Drive Basic auth.
-mod common;
+use crate::common;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use common::BoxError;

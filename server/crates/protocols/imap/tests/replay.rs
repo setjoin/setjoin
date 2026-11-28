@@ -1,6 +1,6 @@
 //! Immutable frozen-Go IMAP transcripts replayed at the listener's TCP boundary,
 //! with the recorded audit/credential effects compared per session.
-mod common;
+use crate::common;
 use common::*;
 use setjoin_imap::{ProtocolSessionRegistry, RevocationRow};
 use std::{

@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [lib]
 name = "setjoin_gateway"
@@ -147,3 +148,139 @@ ssh-key = { version = "=0.7.0-rc.11", default-features = false, features = ["rsa
 aes = "=0.8.4"
 sha1 = "=0.10.7"
 tempfile = "=3.27.0"
+
+[[test]]
+name = "admin_identity_v2"
+path = "tests/admin_identity_v2.rs"
+
+[[test]]
+name = "admin_job_workers_recorded"
+path = "tests/admin_job_workers_recorded.rs"
+
+[[test]]
+name = "backup_worker"
+path = "tests/backup_worker.rs"
+
+[[test]]
+name = "booking_expiry"
+path = "tests/booking_expiry.rs"
+
+[[test]]
+name = "caldav"
+path = "tests/caldav.rs"
+
+[[test]]
+name = "carddav"
+path = "tests/carddav.rs"
+
+[[test]]
+name = "chat_cron_recorded"
+path = "tests/chat_cron_recorded.rs"
+
+[[test]]
+name = "cron_catalog_recorded"
+path = "tests/cron_catalog_recorded.rs"
+
+[[test]]
+name = "drive_dispatch"
+path = "tests/drive_dispatch.rs"
+
+[[test]]
+name = "identity_source_runtime"
+path = "tests/identity_source_runtime.rs"
+
+[[test]]
+name = "ldap_runtime"
+path = "tests/ldap_runtime.rs"
+
+[[test]]
+name = "meet_a_dispatch"
+path = "tests/meet_a_dispatch.rs"
+
+[[test]]
+name = "meet_b_dispatch"
+path = "tests/meet_b_dispatch.rs"
+
+[[test]]
+name = "meet_c_dispatch"
+path = "tests/meet_c_dispatch.rs"
+
+[[test]]
+name = "meet_dispatch"
+path = "tests/meet_dispatch.rs"
+
+[[test]]
+name = "setup_control_recorded"
+path = "tests/setup_control_recorded.rs"
+
+[[test]]
+name = "subscription_sync"
+path = "tests/subscription_sync.rs"
+
+[[test]]
+name = "suite_admin"
+path = "tests/suite_admin.rs"
+
+[[test]]
+name = "suite_blobs"
+path = "tests/suite_blobs.rs"
+
+[[test]]
+name = "suite_calendar_mail"
+path = "tests/suite_calendar_mail.rs"
+
+[[test]]
+name = "suite_chat"
+path = "tests/suite_chat.rs"
+
+[[test]]
+name = "suite_drive"
+path = "tests/suite_drive.rs"
+
+[[test]]
+name = "suite_jmap_family"
+path = "tests/suite_jmap_family.rs"
+
+[[test]]
+name = "suite_meet"
+path = "tests/suite_meet.rs"
+
+[[test]]
+name = "suite_misc"
+path = "tests/suite_misc.rs"
+
+[[test]]
+name = "suite_recovery"
+path = "tests/suite_recovery.rs"
+
+[[test]]
+name = "suite_serial_drain"
+path = "tests/suite_serial_drain.rs"
+
+[[test]]
+name = "suite_serial_mailsec_jmap"
+path = "tests/suite_serial_mailsec_jmap.rs"
+
+[[test]]
+name = "suite_serial_platform"
+path = "tests/suite_serial_platform.rs"
+
+[[test]]
+name = "suite_serial_rtc"
+path = "tests/suite_serial_rtc.rs"
+
+[[test]]
+name = "suite_serial_tls"
+path = "tests/suite_serial_tls.rs"
+
+[[test]]
+name = "suite_settings"
+path = "tests/suite_settings.rs"
+
+[[test]]
+name = "suite_static_misc"
+path = "tests/suite_static_misc.rs"
+
+[[test]]
+name = "user_risk_worker"
+path = "tests/user_risk_worker.rs"

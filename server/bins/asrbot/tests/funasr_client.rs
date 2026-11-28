@@ -1,6 +1,6 @@
 //! The FunASR client against the in-process fake runtime.
 
-mod support;
+use crate::support;
 
 use setjoin_asrbot::funasr::{Client, FunResult, Recognizer};
 use std::time::Duration;

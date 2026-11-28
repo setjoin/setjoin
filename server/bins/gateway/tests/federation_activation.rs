@@ -353,7 +353,7 @@ async fn executable_starts_federation_service_and_reaper_without_go_workers_off(
     }
 }
 
-mod common;
+use crate::common;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn admitted_http_typing_crosses_native_peer_once_and_denies_foreign_users(
 ) -> Result<(), common::BoxError> {

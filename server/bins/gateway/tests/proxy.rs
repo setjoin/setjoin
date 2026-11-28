@@ -1,6 +1,6 @@
 //! Black-box tests: client -> setjoin-gateway -> fake upstream (#220).
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 

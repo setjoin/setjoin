@@ -1,5 +1,5 @@
 //! Full finalization effects plus independently framed ClamAV and S3 peers.
-mod common;
+use crate::common;
 use common::BoxError;
 use hyper::{Request, Response};
 use serde_json::{json, Value};

@@ -23,8 +23,8 @@ root = repo / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 
-SECFIX = "oidc_secfix7"
-CONFIG = "oidc_config"
+SECFIX = ("suite_misc", "oidc_secfix7")
+CONFIG = ("suite_misc", "oidc_config")
 COMPLETE = (SECFIX, "completion_requires_post_with_csrf_and_the_callback_is_bound_to_the_session")
 LEGACY = (SECFIX, "legacy_cfb_tokens_are_dead_and_every_token_is_bound_to_its_stored_row")
 REUSE = (SECFIX, "reusing_a_rotated_refresh_token_revokes_its_whole_family")
@@ -62,11 +62,12 @@ def without_lock(path):
     return text.replace(LOCK, "")
 
 
-def cargo(target, name, env_extra, features):
+def cargo(target_spec, name, env_extra, features):
+    target, mod = target_spec
     cmd = ["cargo", "test", "--locked", "-p", "setjoin-auth"]
     if features:
         cmd += ["--features", "oracle-mutants"]
-    cmd += ["--test", target, name, "--", "--test-threads=1"]
+    cmd += ["--test", target, f"{mod}::{name}", "--", "--test-threads=1"]
     return subprocess.run(
         cmd, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         env={**os.environ, **env_extra},

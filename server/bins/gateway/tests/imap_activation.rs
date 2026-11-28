@@ -2,7 +2,7 @@
 //! Go's listener off, the threat gate required, TLS and limits wired, and a real
 //! login through the gateway's wiring on the constrained database role.
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 
 use futures_util::future::BoxFuture;
 use setjoin_gateway::imap_runtime;

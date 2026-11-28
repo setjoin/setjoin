@@ -5,7 +5,7 @@
 //! own domain's object (allowed) and an organization-wide admin (allowed). The mutants
 //! (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/dev/test-secfix4-mutants.py)
 //! restore frozen Go's behaviour and must make these tests fail.
-mod common;
+use crate::common;
 use common::BoxError;
 use serde_json::json;
 use setjoin_admin_identity::{org_policies, scope_sets, sod};

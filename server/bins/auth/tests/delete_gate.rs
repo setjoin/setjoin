@@ -7,7 +7,7 @@
 //! MATRIX_HOPS = 0). A mismatch is a finding: fix the code or get the EXPECT
 //! change reviewed. Never copy observed output into EXPECT. The guard pins the
 //! Hop cells.
-mod common;
+use crate::common;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};

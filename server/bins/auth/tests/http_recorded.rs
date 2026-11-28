@@ -1,4 +1,4 @@
-mod common;
+use crate::common;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};

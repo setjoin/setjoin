@@ -3,7 +3,7 @@
 //! mutants (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/dev/test-secfix6-mutants.py)
 //! restore frozen Go's behaviour and must make these tests (or the re-baselined recorded
 //! replays named in the mutant script) fail.
-mod common;
+use crate::common;
 use common::BoxError;
 use serde_json::{json, Value};
 use setjoin_conformance::{fixture, harness::Db};

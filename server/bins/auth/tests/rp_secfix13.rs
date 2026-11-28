@@ -3,7 +3,7 @@
 //! the secure behaviour at the real front door; `scripts/dev/test-secfix13-mutants.py` restores the
 //! defect (feature `oracle-mutants`, `SETJOIN_SECFIX13_MUTANT`, or a bug-restored reducer) and
 //! requires the matching test to fail.
-mod common;
+use crate::common;
 include!("rp_oracle/harness.rs");
 #[path = "rp_oracle/flows.rs"]
 mod flows;

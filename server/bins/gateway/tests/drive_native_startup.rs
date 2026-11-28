@@ -1,6 +1,6 @@
 //! Deployment key floor must be checked before the native signer serves.
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 #[test]
 fn weak_native_signing_secret_is_rejected_before_listening() {
     use std::os::unix::process::CommandExt;

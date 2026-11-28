@@ -1,5 +1,6 @@
 //! Mixed WS/SSE presence and the default shared1000 connection budget.
-use crate::{common, BoxError, Frames};
+use super::super::{BoxError, Frames};
+use crate::common;
 use futures_util::{SinkExt, StreamExt};
 use hyper::{body::Incoming, Request, Response};
 use serde_json::{json, Value};

@@ -1,6 +1,6 @@
 //! F05 slice `migration`, job runner routes (#431), replayed from frozen-Go goldens.
-mod common;
-mod migration_runner_oracle;
+use crate::common;
+use crate::migration_runner_oracle;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

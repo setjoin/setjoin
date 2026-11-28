@@ -6,7 +6,7 @@
 //! to Go; an unverified credential still proxies natively to Go's SFU.
 use crate::common::boot::Child;
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 #[path = "common/meet_fixture.rs"]
 mod meet_fixture;
 use common::BoxError;

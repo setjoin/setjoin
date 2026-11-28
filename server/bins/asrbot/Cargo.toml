@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [lib]
 name = "setjoin_asrbot"
@@ -39,3 +40,11 @@ prost = "=0.14.4"
 [dev-dependencies]
 tokio = { version = "=1.54.1", features = ["test-util", "process"] }
 libc = "=0.2.191"
+
+[[test]]
+name = "control_oracle"
+path = "tests/control_oracle.rs"
+
+[[test]]
+name = "suite_misc"
+path = "tests/suite_misc.rs"

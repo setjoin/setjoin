@@ -1,6 +1,6 @@
 //! F01 slice `idv2-upgrade` frozen-Go oracle, replayed without a Go upstream.
-mod admin_identity_v2_upgrade_oracle;
-mod common;
+use crate::admin_identity_v2_upgrade_oracle;
+use crate::common;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

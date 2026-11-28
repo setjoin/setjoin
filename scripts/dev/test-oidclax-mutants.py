@@ -22,7 +22,7 @@ def cargo(env_extra, features):
     cmd = ["cargo", "test", "--locked", "-p", "setjoin-auth"]
     if features:
         cmd += ["--features", "oracle-mutants"]
-    cmd += ["--test", "rp_oidclax", TEST, "--", "--test-threads=1"]
+    cmd += ["--test", "suite_serial_auth_3", f"rp_oidclax::{TEST}", "--", "--test-threads=1"]
     return subprocess.run(cmd, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           env={**os.environ, **env_extra})
 
@@ -44,7 +44,7 @@ if not sys.argv[1:] or "regeneration" in sys.argv[1:]:
     shutil.copy(corpus / "divergences.json", keep / "divergences.json")
     try:
         result = subprocess.run(
-            ["cargo", "test", "--locked", "-p", "setjoin-auth", "--test", "rp_oracle", "--", "--test-threads=1", "--exact", "login_success"],
+            ["cargo", "test", "--locked", "-p", "setjoin-auth", "--test", "suite_serial_auth_3", "--", "--test-threads=1", "--exact", "rp_oracle::login_success"],
             cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             env={**os.environ, "SECFIX8_WRITE_SECURITY": "1", "SECFIX8_WRITE_ONLY": "login-success"},
         )

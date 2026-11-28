@@ -1,5 +1,5 @@
 //! #266: real front-door requests and committed effects, recorded once from Go.
-mod common;
+use crate::common;
 use common::BoxError;
 use http_body_util::BodyExt;
 use hyper::{Request, Response};

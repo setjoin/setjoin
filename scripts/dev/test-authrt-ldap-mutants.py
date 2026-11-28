@@ -23,7 +23,7 @@ markers = [
 for name, marker in zip(selectors, markers):
     result = subprocess.run(
         ["cargo", "test", "--locked", "-p", "setjoin-ldap", "--features", "oracle-mutants",
-         "--test", "listener", name, "--", "--test-threads=1"],
+         "--test", "suite_misc", f"listener::{name}", "--", "--test-threads=1"],
         cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
     if result.returncode != 101 or "test result: FAILED." not in result.stdout or marker not in result.stdout:
@@ -34,7 +34,7 @@ for name, marker in zip(selectors, markers):
 # left by the deliberately rejected policy bypass.
 for name in selectors:
     result = subprocess.run(
-        ["cargo", "test", "--locked", "-p", "setjoin-ldap", "--test", "listener", name,
+        ["cargo", "test", "--locked", "-p", "setjoin-ldap", "--test", "suite_misc", f"listener::{name}",
          "--", "--test-threads=1"], cwd=root,
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )

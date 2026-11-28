@@ -1,7 +1,7 @@
 //! The frozen Go federation listener's recorded sessions, replayed byte for
 //! byte against the Rust service at its TCP boundary, with the recorded
 //! database effects compared per case. No Go participates in replay.
-mod common;
+use crate::common;
 use common::*;
 use serde_json::Value;
 use setjoin_federation::{

@@ -2,7 +2,7 @@
 //! answer natively (slash redirect, SPA or 404), never Go auth; the redirect runs after
 //! CSRF, both budgets and admission; adapter-less local rows keep today's Go fallback.
 //! A2: without a deployment verifier the guest belt fails closed (D-357a-1).
-mod common;
+use crate::common;
 use common::mux_oracle::{run, MuxCase, Website};
 use common::BoxError;
 use futures_util::FutureExt;

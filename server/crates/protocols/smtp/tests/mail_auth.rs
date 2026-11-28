@@ -1,6 +1,5 @@
 //! Public authentication input/output metadata, independently recorded from Go.
-#[path = "support/auth_dns.rs"]
-mod auth_dns;
+use crate::auth_dns;
 use base64::Engine;
 use std::sync::Arc;
 /// Recorded Go verdicts that remain valid under the secure verifier. Cases whose

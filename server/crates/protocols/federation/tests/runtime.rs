@@ -47,7 +47,7 @@ fn reaper_requires_both_worker_switches_even_without_a_listener() {
     assert!(reaper_from_env(&env(&pairs)).unwrap().is_some());
 }
 
-mod common;
+use crate::common;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn production_cache_reloads_authoritatively_and_revokes_live_delivery() {
     let _serial = SERIAL.lock().await;

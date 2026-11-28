@@ -1,7 +1,7 @@
 //! Wave 2.3 (#550): Live-DB integration, concurrency race, WORM/403, shadow
 //! zero-deletion, legacy `blob_cleanup` fencing, and function-security tests for
 //! Mark-and-Sweep S3 Blob GC.
-mod common;
+use crate::common;
 
 use common::BoxError;
 use setjoin_conformance::{fixture, harness::Db};

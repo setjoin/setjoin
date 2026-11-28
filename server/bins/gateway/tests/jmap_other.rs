@@ -1,7 +1,6 @@
 //! JMAP2 recorded HTTP parity, Go upstream absent during replay.
-mod common;
-#[allow(dead_code, unused_imports)]
-mod jmap_email_oracle;
+#[allow(unused_imports)]
+use crate::jmap_email_oracle;
 use jmap_email_oracle::{Mutation, run};
 use setjoin_conformance::harness::{BoxError, Db};
 macro_rules! replay {

@@ -1,6 +1,6 @@
 //! #526: process-local trust caches observe changes in Go and Rust concurrently.
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 
 use common::BoxError;
 use setjoin_conformance::harness::Db;

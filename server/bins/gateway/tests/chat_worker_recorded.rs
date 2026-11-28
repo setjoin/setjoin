@@ -1,5 +1,5 @@
 //! #268: actual frozen-Go one-tick worker effects, replayed without Go.
-mod common;
+use crate::common;
 static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 use common::BoxError;
 use serde_json::{json, Value};

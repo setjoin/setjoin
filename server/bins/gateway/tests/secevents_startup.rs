@@ -2,7 +2,7 @@
 //! switched off, and with no production sink admitted (Go's posture) it stays
 //! inert: seeded outbox rows and their attempts are left untouched.
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use common::BoxError;
 use setjoin_conformance::harness::Db;
 use std::process::{Command, Stdio};

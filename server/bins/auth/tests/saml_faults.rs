@@ -1,12 +1,12 @@
 //! Real PostgreSQL cuts before/after COMMIT, through the public auth/front door.
-mod common;
+#[allow(unused_imports)]
+use crate::common;
 include!("saml_oracle/harness.rs");
 #[path = "saml_oracle/flows.rs"]
 mod flows;
 #[path = "saml_oracle/links.rs"]
 mod links;
-#[path = "common/webauthn_commit.rs"]
-mod wire;
+use crate::webauthn_commit as wire;
 struct Proxy(tokio::task::JoinHandle<std::io::Result<wire::CommitCut>>);
 impl Drop for Proxy {
     fn drop(&mut self) {

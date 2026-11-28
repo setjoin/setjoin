@@ -1,7 +1,6 @@
 //! TOTP transport failures at the public auth boundary, with fresh-session recovery.
-#[path = "../../gateway/tests/common/commit.rs"]
-mod commit;
-mod common;
+use crate::commit;
+use crate::common;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};

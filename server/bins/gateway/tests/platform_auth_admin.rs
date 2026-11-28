@@ -1,6 +1,5 @@
 //! F21 `gateway * /auth/admin/` (#365) native deny-by-default oracle tests.
-mod common;
-mod platform_oracle;
+use crate::platform_oracle;
 
 async fn check(label: &str) {
     platform_oracle::auth_admin::run(label, false)

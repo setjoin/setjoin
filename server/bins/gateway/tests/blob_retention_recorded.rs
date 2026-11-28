@@ -1,6 +1,6 @@
 //! Seed + real PUT + cleanup ticks: WORM producer/consumer handoff at S3/DB seams.
-mod common;
-mod drain_oracle;
+use crate::common;
+use crate::drain_oracle;
 use http_body_util::BodyExt;
 use hyper::{Method, Request, Response};
 use serde::Deserialize;

@@ -29,31 +29,31 @@ if os.environ.get("REQUIRE_DB") != "1":
 GATEWAY = "setjoin-gateway"
 SEC = ("secfix4",)
 # (test target, test filter) pairs; every pair must fail under the mutant.
-ALIAS = [("secfix4", "alias_must_belong_to_the_mailbox_domain_for_a_scoped_admin")]
+ALIAS = [("suite_misc", "secfix4::alias_must_belong_to_the_mailbox_domain_for_a_scoped_admin")]
 FIELD = [
-    ("secfix4", "field_policy_is_readable_only_inside_the_callers_reach"),
-    ("directory_sync", "policy_get_scoped_foreign"),
+    ("suite_misc", "secfix4::field_policy_is_readable_only_inside_the_callers_reach"),
+    ("suite_admin", "directory_sync::policy_get_scoped_foreign"),
 ]
 SETS = [
-    ("secfix4", "scope_sets_are_confined_to_the_callers_domain"),
-    ("admin_scope_sets", "cross_tenant"),
+    ("suite_misc", "secfix4::scope_sets_are_confined_to_the_callers_domain"),
+    ("suite_admin", "admin_scope_sets::cross_tenant"),
 ]
 JIT = [
-    ("secfix4", "activation_policy_is_confined_to_roles_the_caller_owns"),
-    ("admin_sod", "policy_get_foreign"),
+    ("suite_misc", "secfix4::activation_policy_is_confined_to_roles_the_caller_owns"),
+    ("suite_admin", "admin_sod::policy_get_foreign"),
 ]
 DEPT = [
-    ("secfix4", "departments_are_organization_wide_objects"),
-    ("admin_org_policies", "dept_create_foreign"),
+    ("suite_misc", "secfix4::departments_are_organization_wide_objects"),
+    ("suite_admin", "admin_org_policies::dept_create_foreign"),
 ]
-CONF = [("secfix4", "confined_holders_without_a_domain_get_nothing")]
-CAREACH = [("secfix4", "ca_reach_uses_policy_grants_and_logs_follow_it")]
-ADC = [("secfix4", "ad_conflicts_and_email_policies_follow_the_grant")]
-PRIO = [("secfix4", "scoped_policies_stay_behind_org_wide_policies")]
+CONF = [("suite_misc", "secfix4::confined_holders_without_a_domain_get_nothing")]
+CAREACH = [("suite_misc", "secfix4::ca_reach_uses_policy_grants_and_logs_follow_it")]
+ADC = [("suite_misc", "secfix4::ad_conflicts_and_email_policies_follow_the_grant")]
+PRIO = [("suite_misc", "secfix4::scoped_policies_stay_behind_org_wide_policies")]
 CAP = [
-    ("secfix4", "conditional_access_policies_are_confined_to_the_callers_reach"),
-    ("ca_policies", "list_foreign"),
-    ("ca_remaining", "export_foreign"),
+    ("suite_misc", "secfix4::conditional_access_policies_are_confined_to_the_callers_reach"),
+    ("suite_admin", "ca_policies::list_foreign"),
+    ("suite_admin", "ca_remaining::export_foreign"),
 ]
 
 # mutant id -> list of (target, filter); a "sql:" id reloads a bug-restored reducer.

@@ -1,6 +1,6 @@
 //! Frozen-Go HTTP/effect oracle for #290.
-mod common;
-mod retention_audit_oracle;
+use crate::common;
+use crate::retention_audit_oracle;
 #[tokio::test]
 async fn policies_success() -> Result<(), common::BoxError> {
     retention_audit_oracle::run("policies", "success", "").await

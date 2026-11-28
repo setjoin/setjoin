@@ -9,10 +9,8 @@
 //! Record: `GOFREE_RECORD_DRAIN=all|case,case` (+ `GOFREE_GO_SOURCE`); delete a
 //! golden to re-record it. Replay needs no Go (it needs python3 and openssl for
 //! the peer, as the mailctl push oracle does).
-mod common;
-mod drain_oracle;
-#[path = "drain_oracle/peers.rs"]
-mod peers;
+use crate::drain_oracle;
+use crate::peers;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use drain_oracle::{repo_root, settle, BoxError, GoTick};
 use peers::{FakeS3, PushPeer};

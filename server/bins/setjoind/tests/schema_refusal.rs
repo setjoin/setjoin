@@ -1,7 +1,7 @@
 //! Suite 4: Strict pre-bind schema-version mismatch refusal (`actual < expected`
 //! and `actual > expected`) BEFORE binding any listener or sending `READY=1` (#543).
 
-mod common;
+use crate::common;
 
 use std::net::TcpStream;
 use std::process::Command;

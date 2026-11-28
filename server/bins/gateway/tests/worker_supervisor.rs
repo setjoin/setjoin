@@ -9,7 +9,7 @@
 //!   retention, `WORM_MODE=invalid`, DLQ gauge + `health_check()` + DLQ replay
 //! - Legacy drain-then-retire parity (`bulk_role_jobs`, `eap_apply_jobs`, `guest_notification_intents`)
 
-mod common;
+use crate::common;
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;

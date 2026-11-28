@@ -1,6 +1,6 @@
 //! F19 slice `profile`: frozen-Go oracle replayed without a Go upstream.
-mod common;
-mod settings_oracle;
+use crate::common;
+use crate::settings_oracle;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

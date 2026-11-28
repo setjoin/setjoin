@@ -1,7 +1,7 @@
 //! F08 slice `terms-remaining`, group `branding`: the brand name and logo, replayed without a
 //! Go upstream and against a fake object store.
-mod common;
-mod platform_oracle;
+use crate::common;
+use crate::platform_oracle;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

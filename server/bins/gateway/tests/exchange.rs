@@ -1,6 +1,6 @@
 //! Frozen-Go Exchange replacement HTTP oracle (#294).
-mod common;
-mod exchange_oracle;
+use crate::common;
+use crate::exchange_oracle;
 #[tokio::test]
 async fn registry_success() -> Result<(), common::BoxError> {
     exchange_oracle::run("registry", "seeded").await

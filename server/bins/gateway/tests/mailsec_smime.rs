@@ -1,6 +1,6 @@
 //! F06 slice `smime`: frozen-Go oracle replayed without a Go upstream.
-mod common;
-mod mailsec_oracle;
+use crate::common;
+use crate::mailsec_oracle;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]
@@ -119,8 +119,7 @@ fault!(
 
 case!(import_duplicate_extension, "import", "duplicate-extension");
 
-mod drain_oracle;
-mod divfix;
+use crate::divfix;
 #[tokio::test]
 async fn cert_status_presented_valid() -> Result<(), common::BoxError> {
     divfix::status("valid").await

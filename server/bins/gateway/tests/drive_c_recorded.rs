@@ -2,9 +2,8 @@
 //! sharing/ACL, lock, watch and as-of routes (20 transferred registrations).
 //! Replay needs no Go; recording needs `GOFREE_RECORD_GO_BINARY` and
 //! `GOFREE_GO_SOURCE` and writes exclusive-create goldens.
-mod common;
-#[path = "common/office_fixture.rs"]
-mod fixture;
+use crate::common;
+use crate::fixture;
 use common::BoxError;
 use futures_util::FutureExt;
 use hyper::{Request, Response};

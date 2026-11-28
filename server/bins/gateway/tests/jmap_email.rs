@@ -1,8 +1,7 @@
 //! JMAP1 (#315) `email-methods` slice replayed from frozen-Go recordings
 //! without a Go upstream. Cases live in `jmap_email_oracle/cases.rs`.
-mod common;
-#[allow(dead_code, unused_imports)]
-mod jmap_email_oracle;
+#[allow(unused_imports)]
+use crate::jmap_email_oracle;
 
 use jmap_email_oracle::{run, Mutation};
 use setjoin_conformance::harness::{BoxError, Db};

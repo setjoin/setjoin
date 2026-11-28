@@ -5,8 +5,7 @@
 //! Approved security divergences replay against Rust contracts with the Go
 //! golden kept as evidence. `native_*` cases pin Rust-only invariants. Corpus:
 //! tests/conformance/identity-threat (README has the dispatch inputs).
-#[allow(dead_code)]
-mod common;
+use crate::common;
 use base64::Engine as _;
 use http_body_util::BodyExt;
 use hyper::Request;

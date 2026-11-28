@@ -1,6 +1,6 @@
 //! F06 slice `spam`: frozen-Go oracle replayed without a Go upstream.
-mod common;
-mod mailsec_oracle;
+use crate::common;
+use crate::mailsec_oracle;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

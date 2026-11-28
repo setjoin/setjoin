@@ -2,7 +2,7 @@
 //! off (`GO_WORKERS_OFF=exchange-assessment-deletion`), needs the object store, and uses the
 //! worker credential, never the request DSN.
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use common::BoxError;
 use setjoin_conformance::harness::Db;
 use std::{

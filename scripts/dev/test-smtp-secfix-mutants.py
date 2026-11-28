@@ -48,7 +48,7 @@ def cargo(crate, target, name, env_extra, features):
     cmd = ["cargo", "test", "-p", crate]
     if features:
         cmd += ["--features", "oracle-mutants"]
-    cmd += ["--test", target, name, "--", "--test-threads=1"]
+    cmd += ["--test", "suite_misc", f"{target}::{name}", "--", "--test-threads=1"]
     return subprocess.run(
         cmd, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         env={**os.environ, **env_extra},

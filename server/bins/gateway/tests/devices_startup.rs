@@ -1,7 +1,7 @@
 //! All36 F07 routes default native; both executable rollback switches restore Go.
 use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
-mod common;
+use crate::common;
 use common::{body_bytes, full, send, BoxError};
 use hyper::{Request, Response};
 use setjoin_conformance::{fixture, harness::Db};

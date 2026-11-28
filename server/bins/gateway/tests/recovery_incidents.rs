@@ -1,5 +1,5 @@
 //! HTTP seam for the user recovery incident list.
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};

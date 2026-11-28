@@ -29,23 +29,23 @@ if os.environ.get("REQUIRE_DB") != "1":
 
 GW, IMAP = "setjoin-gateway", "setjoin-imap"
 # (package, test target, test filter) triples; every one must fail under the mutant.
-UNDO = [(GW, "secfix6", "undo_send_never_deletes_another_tenants_queue_row"), (GW, "jmap_submission", "submission_undo_shared_id")]
-PURGE = [(GW, "secfix6", "purge_blob_check_ignores_another_tenants_message")]
-SYSTAG = [(GW, "secfix6", "mailbox_set_system_tag_precheck_is_mailbox_scoped")]
-DOWNLOAD = [(GW, "jmap_other", "jmap_download_cross_tenant")]
-EXECUTE = [(GW, "mailboxes", "execute_foreign")]
-CAP = [(GW, "secfix6", "subscription_cap_counts_under_the_rls_bound_credential")]
-CONSENT = [(GW, "secfix6", "m365_consent_url_is_built_from_trusted_inputs"), (GW, "migration", "m365_connect_escape_client_id")]
-SCIM = [(GW, "scim", "groups_create_rls_members"), (GW, "scim", "groups_patch_rls_members")]
-ZIP_GOLDEN = [(GW, "jmap_messages", "zip_success")]
-MEET = [(GW, "meet_recorded", "get_foreign"), (GW, "meet_recorded", "by_slug_foreign")]
-AUDIT = [(GW, "retention_audit_recorded", "audit_set_audit_failure")]
-KQL = [(GW, "secfix6", "kql_refuses_a_quoted_nul"), (GW, "retention_audit_recorded", "refuses_a_nul_kql_locally"), (GW, "compliance_recorded", "nul_kql_is_refused_and_worm_legal_hold_runs_natively")]
-IDLE = [(IMAP, "extra", "disconnect_during_idle_frees_the_connection_slot")]
-UPDATES = [(GW, "secfix6", "update_devices_are_confined_to_the_callers_reach")]
+UNDO = [(GW, "suite_misc", "secfix6::undo_send_never_deletes_another_tenants_queue_row"), (GW, "suite_serial_mailsec_jmap", "jmap_submission::submission_undo_shared_id")]
+PURGE = [(GW, "suite_misc", "secfix6::purge_blob_check_ignores_another_tenants_message")]
+SYSTAG = [(GW, "suite_misc", "secfix6::mailbox_set_system_tag_precheck_is_mailbox_scoped")]
+DOWNLOAD = [(GW, "suite_serial_mailsec_jmap", "jmap_other::jmap_download_cross_tenant")]
+EXECUTE = [(GW, "suite_calendar_mail", "mailboxes::execute_foreign")]
+CAP = [(GW, "suite_misc", "secfix6::subscription_cap_counts_under_the_rls_bound_credential")]
+CONSENT = [(GW, "suite_misc", "secfix6::m365_consent_url_is_built_from_trusted_inputs"), (GW, "suite_calendar_mail", "migration::m365_connect_escape_client_id")]
+SCIM = [(GW, "suite_admin", "scim::groups_create_rls_members"), (GW, "suite_admin", "scim::groups_patch_rls_members")]
+ZIP_GOLDEN = [(GW, "suite_serial_mailsec_jmap", "jmap_messages::zip_success")]
+MEET = [(GW, "suite_meet", "meet_recorded::get_foreign"), (GW, "suite_meet", "meet_recorded::by_slug_foreign")]
+AUDIT = [(GW, "suite_chat", "retention_audit_recorded::audit_set_audit_failure")]
+KQL = [(GW, "suite_misc", "secfix6::kql_refuses_a_quoted_nul"), (GW, "suite_chat", "retention_audit_recorded::refuses_a_nul_kql_locally"), (GW, "suite_chat", "compliance_recorded::nul_kql_is_refused_and_worm_legal_hold_runs_natively")]
+IDLE = [(IMAP, "suite_misc", "extra::disconnect_during_idle_frees_the_connection_slot")]
+UPDATES = [(GW, "suite_misc", "secfix6::update_devices_are_confined_to_the_callers_reach")]
 TZ = [(GW, "caldav", "propfind_timezone_foreign")]
 GAL = [(GW, "carddav", "edge_gal_query_hidden_manager")]
-ZIP = [(GW, "secfix6", "attachments_zip_neutralises_dot_names_and_bounds_entries")]
+ZIP = [(GW, "suite_misc", "secfix6::attachments_zip_neutralises_dot_names_and_bounds_entries")]
 
 # mutant id -> list of (package, target, filter); a "sql:" id reloads a bug-restored reducer.
 MUTANTS = {
@@ -159,7 +159,7 @@ def cargo(package, target, name, env_extra, features):
     result = cargo_run(package, target, name, env_extra, features)
     if package == IMAP:
         scrub_imap()
-    if target == "secfix6":
+    if name.startswith("secfix6::"):
         scrub()
     return result
 

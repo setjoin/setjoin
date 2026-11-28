@@ -1,7 +1,7 @@
 //! Named worker handover checked through the actual gateway process.
 use crate::common::boot::Child;
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use std::os::unix::process::CommandExt;
 use std::{
     process::{Command, Stdio},
@@ -49,8 +49,7 @@ fn outbound_worker_starts_without_go_workers_off_guard() {
     );
 }
 
-#[path = "../../../crates/protocols/smtp/tests/support/outbound.rs"]
-mod outbound_oracle;
+use crate::outbound_oracle;
 #[tokio::test]
 async fn stored_raw_blobs_match_frozen_go_through_native_s3() {
     outbound_oracle::replay(

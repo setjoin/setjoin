@@ -3,7 +3,7 @@
 //! (never the request DSN) and decrypts device tokens under the deployment
 //! encryption key.
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use common::BoxError;
 use setjoin_conformance::harness::Db;
 use std::process::{Command, Stdio};

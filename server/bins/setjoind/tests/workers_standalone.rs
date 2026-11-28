@@ -1,7 +1,7 @@
 //! Suite 3: Standalone `--subsystems=workers` binds ZERO HTTP/auth/protocol
 //! listeners and drains cleanly on SIGTERM (#543).
 
-mod common;
+use crate::common;
 
 use std::net::TcpStream;
 use std::process::Command;

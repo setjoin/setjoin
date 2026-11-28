@@ -1,8 +1,7 @@
 //! Frozen-Go seed-plus-one-tick oracle for #295. No Go process during replay.
-mod common;
-mod drain_oracle;
-#[path = "common/meet_peripherals.rs"]
-mod meet_peripherals;
+use crate::common;
+use crate::drain_oracle;
+use crate::meet_peripherals;
 use drain_oracle::{BoxError, GoTick};
 use serde_json::json;
 use setjoin_conformance::{fixture, harness::Db};

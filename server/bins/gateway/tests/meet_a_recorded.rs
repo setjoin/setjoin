@@ -3,11 +3,10 @@
 //! twirp endpoint; replay unsets Go and serves the routes natively against an
 //! identical fake. Peripherals are recorded, never authority: every call the
 //! routes make to the SFU is part of the observation.
-mod common;
+use crate::common;
 #[path = "common/meet_fixture.rs"]
 mod meet_fixture;
-#[path = "common/meet_peripherals.rs"]
-mod peripherals;
+use crate::peripherals;
 use common::BoxError;
 use futures_util::FutureExt;
 use hyper::{Request, Response};

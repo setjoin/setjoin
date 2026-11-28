@@ -1,7 +1,7 @@
 //! Native AuthServer routes and Go http.ServeMux fallback parity (#357 Part B).
 //! Threat admission (#349), device proof (#350), CA/device-trust (#351), DPoP (#352),
 //! and unmatched/wrong-method fallbacks (#357 Part B) are all native with zero Go forwards.
-mod common;
+use crate::common;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use http_body_util::BodyExt;
 use hyper::{Request, Response};

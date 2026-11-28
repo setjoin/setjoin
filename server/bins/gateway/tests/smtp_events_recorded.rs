@@ -1,6 +1,6 @@
 //! Frozen Go SMTP delivery events replay through the shared gateway Dispatcher.
-mod common;
-mod drain_oracle;
+use crate::common;
+use crate::drain_oracle;
 use common::webhook_receiver as hooks;
 use drain_oracle::{settle, BoxError, GoTick};
 use serde_json::{json, Value};

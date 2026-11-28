@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [features]
 oracle-mutants = ["setjoin-contracts/oracle-mutants", "setjoin-authz/oracle-mutants"]
@@ -25,3 +26,7 @@ tokio = { version = "=1.54.1", features = ["sync", "time"] }
 [dev-dependencies]
 setjoin-conformance = { path = "../../../tests/conformance" }
 tokio-postgres = "=0.7.18"
+
+[[test]]
+name = "suite_misc"
+path = "tests/suite_misc.rs"

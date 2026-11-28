@@ -2,7 +2,7 @@
 //! `--version` compatibility, fail-closed subsystem immutability, and unified
 //! `setjoind --subsystems=all` static-TLS & ACME smoke tests (#544).
 
-mod common;
+use crate::common;
 
 use std::net::TcpListener;
 use std::os::fd::AsRawFd;

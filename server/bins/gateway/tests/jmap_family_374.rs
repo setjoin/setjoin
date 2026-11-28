@@ -1,8 +1,7 @@
 //! #374: frozen-Go MailWork/* JMAP family HTTP/effect oracle, replayed with no upstream.
 
-mod common;
-#[allow(dead_code, unused_imports)]
-mod jmap_family_oracle;
+#[allow(unused_imports)]
+use crate::jmap_family_oracle;
 
 use jmap_family_oracle::{run, Case, Mutation};
 use setjoin_conformance::harness::{BoxError, Db};

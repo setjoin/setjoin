@@ -1,5 +1,5 @@
 //! Runtime admission must enforce policy and refuse uncertainty before local dispatch.
-mod common;
+use crate::common;
 use futures_util::FutureExt;
 use hyper::{Request, Response};
 use serde_json::json;

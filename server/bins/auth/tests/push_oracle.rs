@@ -1,9 +1,7 @@
 //! Frozen-Go push/possession HTTP and committed-effect oracle.
-#[path = "common/webauthn_commit.rs"]
-mod commit;
-mod common;
-#[path = "common/revoke.rs"]
-mod revoke;
+use crate::commit;
+use crate::common;
+use crate::revoke;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};

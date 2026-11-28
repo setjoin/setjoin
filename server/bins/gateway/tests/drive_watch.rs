@@ -1,7 +1,7 @@
 //! #276 drive-watch worker: frozen-Go seed + one `drive` NOTIFY tick, then the
 //! per-watcher `drive-watch:<uid>` pushes. Replay runs the Rust worker with Go
 //! unset; recording runs only Go's `drive-watch` worker (others are off).
-mod common;
+use crate::common;
 use common::BoxError;
 use serde_json::{json, Value};
 use setjoin_conformance::{fixture as accounts, golden, harness::Db};

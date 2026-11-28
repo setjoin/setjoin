@@ -1,7 +1,6 @@
 //! #501: replays every frozen-Go submission session (AUTH, threat gate, envelope
 //! ownership, reducer failures, per-user limit) over real TCP + STARTTLS.
-#[path = "support/auth_blobs.rs"]
-mod auth_blobs;
+use crate::auth_blobs;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

@@ -5,7 +5,7 @@
 //!    and distinct per-call `OperationId`s.
 //! 3. Ordered preflight before Call 0 (zero partial writes / zero Rust audits).
 //! 4. Non-Family delegated accounts permission matrix under V090 FORCE-RLS (`setjoin_app`).
-mod common;
+use crate::common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

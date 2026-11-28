@@ -1,7 +1,7 @@
 //! Behaviour the frozen-Go corpus cannot hold: random UID validity, staged
 //! commands, hostile transports and admission. Each is derived from the Go
 //! source named beside it.
-mod common;
+use crate::common;
 use common::*;
 use std::{sync::Arc, time::Duration};
 use tokio::{

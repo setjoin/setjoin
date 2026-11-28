@@ -2,7 +2,7 @@
 //! `LISTEN_PID`) + `SdNotify` (`READY=1`, `STOPPING=1`) + fail-closed rejection
 //! of unexpected or unknown FD slots (#543).
 
-mod common;
+use crate::common;
 
 use std::net::TcpListener;
 use std::os::fd::AsRawFd;

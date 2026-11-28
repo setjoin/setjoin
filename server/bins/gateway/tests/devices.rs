@@ -1,6 +1,6 @@
 //! F07 slice `mdm` frozen-Go oracle, replayed without a Go upstream.
-mod common;
-mod devices_oracle;
+use crate::common;
+use crate::devices_oracle;
 macro_rules! case {
     ($name:ident, $action:literal, $kind:literal) => {
         #[tokio::test]

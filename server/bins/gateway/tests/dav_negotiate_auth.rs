@@ -1,7 +1,7 @@
 //! End-to-end DB + real libgssapi integration coverage for #355b native
 //! Kerberos/SPNEGO (`Authorization: Negotiate`) on CalDAV, CardDAV, and Drive
 //! `/api/drive/native-token`.
-mod common;
+use crate::common;
 
 use aes::{
     cipher::{BlockEncrypt, KeyInit},

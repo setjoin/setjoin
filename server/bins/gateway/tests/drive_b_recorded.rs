@@ -1,13 +1,10 @@
 //! #275: frozen-Go HTTP, committed rows and notifications at spec seams.
-mod common;
-#[path = "common/drive_b_wire.rs"]
-mod drive_wire;
-#[path = "common/office_fixture.rs"]
-mod fixture;
+use crate::common;
+use crate::drive_wire;
+use crate::fixture;
 #[path = "common/drive_b_observation.rs"]
 mod observation;
-#[path = "common/drive_b_s3.rs"]
-mod storage_wire;
+use crate::storage_wire;
 use common::BoxError;
 /// A CPU-starved shared host can exceed the adapter's default 1 s pool wait / 2 s
 /// statement deadline, which forwards the request to Go and masquerades as a parity

@@ -19,8 +19,8 @@ root = repo / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 
-OIDC = ("setjoin-auth", "setjoin_auth", "SETJOIN_SECFIX10_MUTANT", "oidc_secfix10")
-STORAGE = ("setjoin-gateway", "setjoin_gateway", "SETJOIN_SECFIX3_MUTANT", "platform_storage_runtime")
+OIDC = ("setjoin-auth", "setjoin_auth", "SETJOIN_SECFIX10_MUTANT", "suite_misc", "oidc_secfix10")
+STORAGE = ("setjoin-gateway", "setjoin_gateway", "SETJOIN_SECFIX3_MUTANT", "suite_serial_platform", "platform_storage_runtime")
 # mutant id -> (spec, test name)
 MUTANTS = {
     "oidc-direct-refresh-anchor": (OIDC, "the_refresh_grant_derives_its_user_from_the_presented_hash"),
@@ -34,11 +34,11 @@ MUTANTS = {
 
 
 def cargo(spec, name, env_extra, features):
-    package, _, _, target = spec
+    package, _, _, target, mod = spec
     cmd = ["cargo", "test", "--locked", "-p", package]
     if features:
         cmd += ["--features", "oracle-mutants"]
-    cmd += ["--test", target, name, "--", "--test-threads=1"]
+    cmd += ["--test", target, f"{mod}::{name}", "--", "--test-threads=1"]
     return subprocess.run(
         cmd, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         env={**os.environ, **env_extra},

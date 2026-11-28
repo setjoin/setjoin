@@ -20,12 +20,12 @@ if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 DSN = os.environ["TEST_DB_DSN"]
 
-AUTH = ("setjoin-auth", "secfix3")
-GATE = ("setjoin-gateway", "secfix3_rules")
-CA = ("setjoin-gateway", "secfix3_policy")
-AUTHZ_G = ("setjoin-authz", "runtime_gates")
-AUTHZ_D = ("setjoin-authz", "device_credential")
-IDENT = ("setjoin-identity", None)  # lib tests
+AUTH = ("setjoin-auth", "suite_misc", "secfix3::")
+GATE = ("setjoin-gateway", "suite_misc", "secfix3_rules::")
+CA = ("setjoin-gateway", "suite_misc", "secfix3_policy::")
+AUTHZ_G = ("setjoin-authz", "suite_misc", "runtime_gates::")
+AUTHZ_D = ("setjoin-authz", "suite_misc", "device_credential::")
+IDENT = ("setjoin-identity", None, "")  # lib tests
 
 REFRESH_SQL = (
     "sql/reducers/rust_identity_refresh.sql",
@@ -40,7 +40,7 @@ PASSWORD_SQL = (
 # (mutant id, (package, test target), test filter, optional sql revert)
 MUTANTS = [
     ("login-no-dummy-hash", AUTH, "unknown_email_login_costs_a_password_hash_under_every_profile", None),
-    ("login-no-dummy-hash", ("setjoin-auth", "fail_closed"), "unreadable_login_hash_matches_absent", None),
+    ("login-no-dummy-hash", ("setjoin-auth", "suite_misc", "fail_closed::"), "unreadable_login_hash_matches_absent", None),
     ("revocations-fail-open", AUTH, "revocations_fail_closed_until_the_first_load", None),
     ("unbounded-request-bodies", AUTH, "oversized_password_and_internal_key_bodies_are_refused", None),
     ("password-keyed-on-email", AUTH, "password_change_is_keyed_on_the_signed_uid_not_the_signed_email", PASSWORD_SQL),
@@ -60,15 +60,15 @@ MUTANTS = [
     ("safetynet-accepted", IDENT, "a_fresh_chained_response_is_refused", None),
     ("login-dummy-always-bcrypt", AUTH, "unknown_email_login_costs_a_password_hash_under_every_profile", None),
     ("dpop-replay-evicts-live", AUTHZ_G, "dpop_replay_cache_refuses_new_proofs_instead_of_evicting_live_ones", None),
-    ("csrf-after-over-budget", ("setjoin-gateway", "secfix3_csrf"), "over_budget_cross_site_mutation_is_denied_by_csrf", None),
+    ("csrf-after-over-budget", ("setjoin-gateway", "suite_misc", "secfix3_csrf::"), "over_budget_cross_site_mutation_is_denied_by_csrf", None),
 ]
 
 
-def cargo(pkg, target, name, mutant):
+def cargo(pkg, target, prefix, name, mutant):
     cmd = ["cargo", "test", "--locked", "-p", pkg]
     if mutant:
         cmd += ["--features", "oracle-mutants"]
-    cmd += (["--test", target] if target else ["--lib"]) + [name, "--", "--test-threads=1"]
+    cmd += (["--test", target] if target else ["--lib"]) + [prefix + name, "--", "--test-threads=1"]
     env = dict(os.environ)
     if mutant:
         env["SETJOIN_SECFIX3_MUTANT"] = mutant
@@ -89,14 +89,14 @@ def load(path_or_text, is_text=False):
 
 only = set(sys.argv[1:])
 chosen = [m for m in MUTANTS if not only or m[0] in only]
-for mutant, (pkg, target), name, sql in chosen:
+for mutant, (pkg, target, prefix), name, sql in chosen:
     if sql:
         file, fixed, bug = sql
         text = (repo / file).read_text()
         assert fixed in text, f"fixed text not found in {file}"
         load(text.replace(fixed, bug, 1), True)
     try:
-        r = cargo(pkg, target, name, mutant)
+        r = cargo(pkg, target, prefix, name, mutant)
     finally:
         if sql:
             load(repo / sql[0])
@@ -104,8 +104,8 @@ for mutant, (pkg, target), name, sql in chosen:
         print(r.stdout[-3000:])
         sys.exit(f"mutant not rejected: {mutant} / {name}")
     print(f"MUTANT-REJECTED: {mutant} / {name}", flush=True)
-for mutant, (pkg, target), name, sql in chosen:
-    r = cargo(pkg, target, name, None)
+for mutant, (pkg, target, prefix), name, sql in chosen:
+    r = cargo(pkg, target, prefix, name, None)
     if r.returncode:
         print(r.stdout[-3000:])
         sys.exit(f"ordinary build failed: {name}")

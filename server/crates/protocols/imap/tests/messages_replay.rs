@@ -1,7 +1,7 @@
 //! Immutable frozen-Go FETCH/SEARCH/STORE/UID transcripts (#344) replayed at the
 //! listener's TCP boundary: reply bytes, nothing unrecorded behind them, and the
 //! recorded message flag, tag counter and audit effects.
-mod common;
+use crate::common;
 use common::server;
 use std::{sync::Arc, time::Duration};
 use tokio::{

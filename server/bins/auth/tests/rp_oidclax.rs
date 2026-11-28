@@ -3,7 +3,8 @@
 //! SameSite=Lax so the IdP's cross-site redirect to the callback carries them.
 //! `scripts/dev/test-oidclax-mutants.py` restores Strict (feature `oracle-mutants`,
 //! `SETJOIN_OIDCLAX_MUTANT`) and requires this test to fail.
-mod common;
+#[allow(unused_imports)]
+use crate::common;
 include!("rp_oracle/harness.rs");
 #[path = "rp_oracle/flows.rs"]
 mod flows;

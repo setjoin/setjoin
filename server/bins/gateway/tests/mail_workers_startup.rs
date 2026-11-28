@@ -1,9 +1,8 @@
 //! #295 worker transfer through the real executable, with Go absent.
 use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
-mod common;
-#[path = "common/meet_peripherals.rs"]
-mod meet_peripherals;
+use crate::common;
+use crate::meet_peripherals;
 use common::BoxError;
 use setjoin_conformance::harness::Db;
 use std::{

@@ -1,7 +1,6 @@
 //! #273: the sharing HTTP seam, recorded from frozen Go through the gateway.
-mod common;
-#[path = "common/drive_wire.rs"]
-mod drive_wire;
+use crate::common;
+use crate::drive_wire_2 as drive_wire;
 use common::BoxError;
 use futures_util::FutureExt;
 use hyper::{Request, Response};

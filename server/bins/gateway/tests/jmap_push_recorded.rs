@@ -1,5 +1,5 @@
 //! Frozen-Go live push sessions replayed through the public front door.
-mod common;
+use crate::common;
 #[path = "jmap_push_lifetime/mod.rs"]
 mod lifetime;
 #[path = "jmap_push_lifetime/registry.rs"]

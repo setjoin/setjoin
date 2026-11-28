@@ -1,5 +1,5 @@
 //! Consent is compared through HTTP and committed PostgreSQL effects.
-mod common;
+use crate::common;
 use hyper::{Request, Response};
 use setjoin_conformance::{fixture, harness::Db};
 use setjoin_gateway::{

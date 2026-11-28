@@ -1,6 +1,6 @@
 //! #323: the executable takes `tls-rpt-report` only once Go's copy is switched off.
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 
 use common::BoxError;
 use setjoin_conformance::harness::Db;

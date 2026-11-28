@@ -1,5 +1,5 @@
 //! The SMTP batch store's frozen-Go gauges reach the real authenticated dashboard.
-mod common;
+use crate::common;
 use futures_util::FutureExt;
 use http_body_util::BodyExt;
 use hyper::Request;

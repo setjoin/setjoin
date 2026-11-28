@@ -1,6 +1,6 @@
 //! #276: the executable only takes `drive-watch` once Go's copy is switched off.
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use common::BoxError;
 use setjoin_conformance::harness::Db;
 use std::process::{Command, Stdio};

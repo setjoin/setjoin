@@ -4,7 +4,7 @@
 //! subscription receive one signed CloudEvent. With the outbox on (the reducer enrolled
 //! the publication), no matching subscription, an inactive one, or another user's self
 //! subscription, nothing is sent.
-mod common;
+use crate::common;
 use common::{body_bytes, full, send, BoxError};
 use hyper::{Request, Response};
 use serde_json::json;

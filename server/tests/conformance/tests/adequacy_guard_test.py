@@ -1520,5 +1520,87 @@ class VerifyNextestJunit(unittest.TestCase):
             self.assertIn("did not emit receipt GOLDEN-REPLAY: POST /example2 :: success", res.stderr)
 
 
+class ConsolidatedSuites(unittest.TestCase):
+    """Exercise module-qualified test selectors and autotests = false resolution."""
+
+    def scaffold(self, directory, *, target="suite_chat", test_prefix="chat_mod::", autotests=False,
+                 declare_suite=True):
+        root = Path(directory)
+        pkg_dir = root / "server/bins/fake"
+        (pkg_dir / "src").mkdir(parents=True)
+        (pkg_dir / "tests").mkdir(parents=True)
+        (pkg_dir / "src/handler.rs").write_text("pub fn handle() {}\n")
+        (pkg_dir / "tests/chat_mod.rs").write_text("#[test] fn success() {}\n")
+        (pkg_dir / "tests/suite_chat.rs").write_text('#[path = "chat_mod.rs"] mod chat_mod;\n')
+        manifest = '[package]\nname = "fake-package"\nversion = "0.1.0"\nedition = "2021"\n'
+        if autotests is False:
+            manifest += "autotests = false\n"
+        if declare_suite:
+            manifest += '\n[[test]]\nname = "suite_chat"\npath = "tests/suite_chat.rs"\n'
+        (pkg_dir / "Cargo.toml").write_text(manifest)
+        route = {"listener": "gateway", "method": "POST", "path": "/example", "family": "F12"}
+        cases = [{"kind": kind, "golden": f"{kind}.json", "row_golden": f"{kind}-rows.json",
+                  "replay": {"package": "fake-package", "target": target, "test": f"{test_prefix}{kind}"}}
+                 for kind in ("success", "cross-tenant", "invalid-input", "repeat")]
+        fms = [{"name": n, "package": "fake-package", "target": target, "test": f"{test_prefix}{n}"}
+               for n in ("no-audit", "no-notify", "no-tenant-filter", "double-bump")]
+        (root / "inventory.json").write_text(json.dumps({"version": 1, "routes": [
+            {**route, "state": "ON", "upstream": "local-rust",
+             "oracle_commands": [""], "oracle_mutators": [""]},
+        ]}))
+        (root / "catalog.json").write_text(json.dumps({"version": 1, "routes": [
+            {**route, "mutator": True, "handler_sources": ["server/bins/fake/src/handler.rs"],
+             "cases": cases, "family_mutants": fms,
+             "mutant": {"package": "fake-package", "target": target, "test": f"{test_prefix}mutant",
+                        "name": "changed-status"}},
+        ]}))
+        for case in cases:
+            (root / case["golden"]).write_text(json.dumps({
+                "format": 1, "route": "POST /example", "case": case["kind"], "go_source": "a" * 40,
+                "observation": {"request": {"method": "POST", "path": "/example"},
+                                "response": {"status": 200}, "effects": [{"state": 1}],
+                                "audit": [{"action": "write"}],
+                                "notify": [{"channel": "changes", "payload": "1"}]},
+            }))
+            (root / case["row_golden"]).write_text(json.dumps({
+                "format": 1, "route": "POST /example", "case": case["kind"] + "-row-effects",
+                "go_source": "a" * 40, "effects": [{"table": "example", "before": [], "after": [{"state": 1}]}],
+            }))
+        return root
+
+    def run_preflight(self, root):
+        return subprocess.run(
+            [sys.executable, str(GUARD), "--preflight-only", "--root", str(root),
+             "--inventory", str(root / "inventory.json"), "--catalog", str(root / "catalog.json")],
+            capture_output=True, text=True, check=False,
+        )
+
+    def test_module_qualified_selectors_and_autotests_false_pass_preflight(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-suite-ok-") as directory:
+            root = self.scaffold(directory, target="suite_chat", test_prefix="chat_mod::sub::", autotests=False)
+            res = self.run_preflight(root)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            self.assertIn("preflight ok", res.stdout)
+
+    def test_autotests_false_rejects_undeclared_test_file(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-suite-undeclared-") as directory:
+            root = self.scaffold(directory, target="chat_mod", test_prefix="", autotests=False)
+            res = self.run_preflight(root)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("has no test target 'chat_mod'", res.stdout + res.stderr)
+
+    def test_colons_rejected_in_target_and_malformed_test_selector(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-suite-bad-") as directory:
+            root = self.scaffold(directory, target="suite::chat", test_prefix="chat_mod::")
+            res = self.run_preflight(root)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("missing executable replay selector", res.stderr)
+        with tempfile.TemporaryDirectory(prefix="gofree-suite-badtest-") as directory:
+            root = self.scaffold(directory, target="suite_chat", test_prefix="chat_mod:::")
+            res = self.run_preflight(root)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("missing executable replay selector", res.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

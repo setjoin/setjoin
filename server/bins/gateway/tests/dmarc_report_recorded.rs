@@ -1,8 +1,7 @@
 //! Frozen-Go seed-plus-one-tick oracle for the `dmarc-report` worker (#324). Recording runs
 //! one `sendReports` pass of Go's real worker (overlay test) in the CI image; replay seeds the
 //! same rows and runs ONE tick of the Rust worker. No Go process during replay.
-mod common;
-mod drain_oracle;
+use crate::drain_oracle;
 use drain_oracle::{BoxError, GoTick};
 use serde_json::{json, Value};
 use setjoin_conformance::harness::Db;

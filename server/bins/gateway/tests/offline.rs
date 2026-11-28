@@ -1,6 +1,6 @@
 //! F07 offline HTTP/effects oracle.
-mod common;
-mod offline_oracle;
+use crate::common;
+use crate::offline_oracle;
 #[tokio::test]
 async fn policies_success() -> Result<(), common::BoxError> {
     offline_oracle::run("policies", "success", None).await

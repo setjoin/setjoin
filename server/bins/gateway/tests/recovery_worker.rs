@@ -1,5 +1,5 @@
 use crate::common::boot::CommandBootExt;
-mod common;
+use crate::common;
 use http_body_util::BodyExt;
 
 use setjoin_conformance::{fixture, harness::Db};

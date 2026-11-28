@@ -3,10 +3,8 @@
 //! resolution at webhook registration. Each test states the secure behaviour at the real front
 //! door; the mutants (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`,
 //! scripts/dev/test-secfix13-mutants.py) restore frozen Go's behaviour and must make them fail.
-mod common;
-#[allow(dead_code)]
-#[path = "common/fake_imap.rs"]
-mod fake_imap;
+use crate::common;
+use crate::fake_imap;
 use common::BoxError;
 use hyper::Request;
 use serde_json::{json, Value};

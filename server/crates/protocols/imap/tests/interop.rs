@@ -8,7 +8,7 @@
 //! IMAP4rev1 in CAPABILITY, which frozen Go (and so Rust) deliberately does not
 //! advertise. Staged scope: login, capability, namespace, SELECT/EXAMINE;
 //! message-level commands are exercised by #344/#345.
-mod common;
+use crate::common;
 use common::*;
 use std::{process::Command, sync::Arc};
 use tokio::{net::TcpListener, sync::watch};

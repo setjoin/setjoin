@@ -2,7 +2,7 @@
 //! #512). Each test states the secure behaviour at the real seam; the mutants (feature
 //! `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/dev/test-secfix8-mutants.py) restore frozen
 //! Go's behaviour and must make these tests fail.
-mod common;
+use crate::common;
 use common::BoxError;
 use serde_json::json;
 use setjoin_conformance::{fixture, harness::Db};

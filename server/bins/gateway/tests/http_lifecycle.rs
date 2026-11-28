@@ -1,5 +1,5 @@
 //! Shutdown observed through the gateway's HTTP listener.
-mod common;
+use crate::common;
 
 use common::{body_bytes, full, send, within};
 use http_body_util::{BodyExt, Full};

@@ -1,8 +1,7 @@
 //! #268: Part B HTTP parity, constrained app credential and real committed effects.
-mod common;
+use crate::common;
 static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-#[path = "common/office_s3.rs"]
-mod image_s3;
+use crate::image_s3;
 use common::BoxError;
 use hyper::{Request, Response};
 use serde_json::{json, Value};

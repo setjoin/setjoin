@@ -1,5 +1,5 @@
 //! Live first-party access/refresh swap, plus Go-free immutable signature replay.
-mod common;
+use crate::common;
 include!("rp_oracle/harness.rs");
 #[path = "rp_oracle/flows.rs"]
 mod flows;

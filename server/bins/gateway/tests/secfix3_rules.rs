@@ -1,6 +1,6 @@
 //! Owner-approved security fixes of 2026-11-05 (#484). Mutants: feature
 //! `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT` (see scripts/dev/test-secfix3-mutants.py).
-mod common;
+use crate::common;
 use common::BoxError;
 use setjoin_conformance::{fixture, harness::Db};
 use std::sync::Arc;

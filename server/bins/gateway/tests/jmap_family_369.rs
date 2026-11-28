@@ -1,8 +1,6 @@
 //! #369: JMAP CalendarEvent/* (13 methods) recorded Go-parity oracle and mutants.
-#[allow(dead_code, unused_imports)]
-mod common;
-#[allow(dead_code, unused_imports)]
-mod jmap_family_oracle;
+#[allow(unused_imports)]
+use crate::jmap_family_oracle;
 
 use jmap_family_oracle::{run, verify_rust_journal_advances, Case, Mutation};
 use serde_json::Value;

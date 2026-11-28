@@ -49,7 +49,7 @@ for mutant, test in MUTANTS:
     if selected and mutant not in selected:
         continue
     command = ['cargo', 'test', '--locked', '-p', 'setjoin-smtp', '--features', 'oracle-mutants',
-               '--test', 'session', test, '--', '--exact', '--test-threads=1']
+               '--test', 'suite_misc', f'session::{test}', '--', '--exact', '--test-threads=1']
     if test not in baselines:
         baseline = subprocess.run(command, cwd=ROOT, capture_output=True, text=True,
                                   env={k: v for k, v in os.environ.items() if k != 'SETJOIN_SMTP_MUTANT'})

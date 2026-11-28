@@ -1,6 +1,6 @@
 //! F17 slice `contacts` frozen-Go oracle, replayed without a Go upstream.
-mod common;
-mod contacts_oracle;
+use crate::common;
+use crate::contacts_oracle;
 
 macro_rules! case {
     ($name:ident, $route:literal, $label:literal) => {

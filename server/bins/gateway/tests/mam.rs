@@ -1,6 +1,6 @@
 //! F07 MAM: frozen-Go HTTP/effects, replayed without Go.
-mod common;
-mod mam_oracle;
+use crate::common;
+use crate::mam_oracle;
 macro_rules! case {
     ($name:ident,$action:literal,$kind:literal) => {
         #[tokio::test]

@@ -1,5 +1,5 @@
 //! #413 external listener seam: TLS/ALPN, prior-knowledge h2c, certificates and resumption.
-mod common;
+use crate::common;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Empty};
 use hyper::{Request, Version};

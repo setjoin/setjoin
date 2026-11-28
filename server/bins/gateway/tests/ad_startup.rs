@@ -4,7 +4,7 @@
 //! the gateway cannot read Go's config file.
 use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
-mod common;
+use crate::common;
 use common::BoxError;
 use hyper::Response;
 use setjoin_conformance::harness::Db;

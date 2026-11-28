@@ -12,9 +12,8 @@ async fn ews_rejects_non_https_before_authentication() {
         "invalid EWS server URL: EWS server URL must use https scheme"
     );
 }
-mod common;
-#[path = "common/fake_microsoft.rs"]
-mod fake_microsoft;
+use crate::common;
+use crate::fake_microsoft;
 
 #[tokio::test]
 async fn ews_https_session_enumerates_mail_calendar_contacts_and_checkpoints(

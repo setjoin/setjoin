@@ -45,7 +45,9 @@
 # "skipped") and DB-skip markers stay red. Needs LANE_ADMIN_DSN/LANE_TEMPLATE_DB/LANE_BASE_DB.
 # SERVER_RUST_NEXTEST_SELECT (the PR pre-check, pr-precheck.yml job `integration`) replaces
 # `--workspace` in that run with the cargo selection scripts/ci/precheck-integration.py printed
-# (`-p PKG ... --test NAME ...`) and skips `cargo test --doc`; every check above still applies.
+# (`-p PKG ... --test NAME ...`) and skips `cargo test --doc`; SERVER_RUST_NEXTEST_FILTER passes
+# its `-E` expression (so consolidated `suite_*` binaries run only the matched submodules, while
+# still rejecting any ignored test inside the filter); every check above still applies.
 #
 # No cargo on PATH → prints `SERVER-RUST-SKIP (reason=cargo-not-found)` and
 # exits 0: greppable, never a silent pass. CI's toolchain image ships Rust, so
@@ -138,7 +140,7 @@ nextest_tests() {
     lane_disk_sampler start
     # Hosted CI: run the build job's archive (extracted to the same absolute target dir) and
     # only this shard's partition; doc tests then run in the roots stage.
-    local build=(--workspace --locked --offline) partition=()
+    local build=(--workspace --locked --offline) partition=() filter=()
     if [[ -n "${SERVER_RUST_NEXTEST_ARCHIVE:-}" ]]; then
       build=(--archive-file "$SERVER_RUST_NEXTEST_ARCHIVE" --workspace-remap "$dir"
              --extract-to "${SERVER_RUST_NEXTEST_EXTRACT_TO:?SERVER_RUST_NEXTEST_EXTRACT_TO is required with an archive}" --extract-overwrite)
@@ -148,9 +150,21 @@ nextest_tests() {
       read -r -a build <<<"--locked --offline $SERVER_RUST_NEXTEST_SELECT"
     fi
     [[ -n "${SERVER_RUST_NEXTEST_PARTITION:-}" ]] && partition=(--partition "$SERVER_RUST_NEXTEST_PARTITION")
-    (cd "$dir" && "$CARGO" nextest run "${build[@]}" ${partition[@]+"${partition[@]}"} --no-fail-fast --profile lane \
+    [[ -n "${SERVER_RUST_NEXTEST_FILTER:-}" ]] && filter=(-E "$SERVER_RUST_NEXTEST_FILTER")
+    (cd "$dir" && "$CARGO" nextest run "${build[@]}" ${partition[@]+"${partition[@]}"} ${filter[@]+"${filter[@]}"} --no-fail-fast --profile lane \
       --tool-config-file "lane:$groups" -j "${LANE_JOBS:-5}" --success-output immediate --failure-output immediate-final \
       --color never 2>&1) || rc=1
+    if [[ "$rc" -eq 0 && -n "${SERVER_RUST_NEXTEST_FILTER:-}" ]]; then
+      local ign_out
+      if ! ign_out="$(cd "$dir" && "$CARGO" nextest list "${build[@]}" --run-ignored ignored-only -E "$SERVER_RUST_NEXTEST_FILTER" --color never 2>/dev/null)"; then
+        echo "✗ server-rust: $label nextest ignored-test check failed" >&2
+        rc=1
+      elif [[ -n "$ign_out" ]]; then
+        echo "✗ server-rust: $label has ignored test(s) matching filter:" >&2
+        echo "$ign_out" >&2
+        rc=1
+      fi
+    fi
     lane_disk_sampler stop
     leak_guard off || rc=1
     lane_clones report "after nextest"
@@ -220,8 +234,8 @@ run_root() {
     fi
     np="$(sed -nE 's/.* ([0-9]+) passed.*/\1/p' <<<"$summary")"
     nk="$(sed -nE 's/.* ([0-9]+) skipped.*/\1/p' <<<"$summary")"
-    # a partition shard counts the other shards' tests as skipped; the build job rejects ignored tests
-    [[ -n "${SERVER_RUST_NEXTEST_PARTITION:-}" ]] && nk=0
+    # a partition shard or -E filter counts non-selected tests as skipped (ignored tests are rejected separately)
+    [[ -n "${SERVER_RUST_NEXTEST_PARTITION:-}" || -n "${SERVER_RUST_NEXTEST_FILTER:-}" ]] && nk=0
     passed=$((passed + ${np:-0}))
     ignored=$((ignored + ${nk:-0}))
   fi
