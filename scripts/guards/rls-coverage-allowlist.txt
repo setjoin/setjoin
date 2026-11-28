@@ -4,7 +4,7 @@
 #
 # Every backtick / double-quoted SQL literal in mailserver/internal (non-test)
 # that touches any table in the runtime-derived FORCE'd set (extracted from
-# mailserver/sql/dbschema V*.sql by the guard since D-1,
+# sql/dbschema V*.sql by the guard since D-1,
 # 2026-09-18-debt-consolidation.md) must have an entry here, classifying HOW
 # that site is covered against the FORCE flip. A site with no entry FAILS the
 # guard.

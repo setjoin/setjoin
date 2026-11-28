@@ -14,13 +14,13 @@ Complete Phase 15 by creating the remaining monitoring dashboards (Grafana + Zab
 | Prometheus `/metrics` endpoint | `mailserver/internal/metrics/handler.go` (258 lines) | ✅ |
 | Metrics HTTP middleware | `mailserver/internal/middleware/metrics.go` | ✅ |
 | Health endpoints `/health` `/ready` | `mailserver/internal/health/handler.go` | ✅ |
-| DB health checks (9 checks) | `mailserver/sql/reducers/health_check.sql` | ✅ |
+| DB health checks (9 checks) | `sql/reducers/health_check.sql` | ✅ |
 | 3-node HA design | `docs/guides/HA_OVERVIEW.md` (225 lines) | ✅ |
-| Pgpool-II config template | `mailserver/deploy/pgpool.conf.template` | ✅ |
-| Failover script | `mailserver/deploy/failover.sh.template` | ✅ |
+| Pgpool-II config template | `deploy/pgpool.conf.template` | ✅ |
+| Failover script | `deploy/failover.sh.template` | ✅ |
 | SeaweedFS HA planner | `mailserver/internal/deploy/seaweedfs_ha.go` | ✅ |
-| systemd units | `mailserver/deploy/mailserver.service` | ✅ |
-| Deploy scripts | `mailserver/deploy/scripts/install.sh` `backup.sh` `upgrade.sh` | ✅ |
+| systemd units | `deploy/mailserver.service` | ✅ |
+| Deploy scripts | `deploy/scripts/install.sh` `backup.sh` `upgrade.sh` | ✅ |
 
 ## What we're building
 
@@ -57,11 +57,11 @@ Zabbix agent reads these via a userparameter script that curls the gateway's `/m
 
 ### 3. config.env.sample
 
-A comprehensive environment variable template at `mailserver/deploy/config.env.sample` documenting every configuration option with defaults, descriptions, and HA-specific notes. This file is referenced by `install.sh` and `docs/guides/HA_OVERVIEW.md` but doesn't currently exist.
+A comprehensive environment variable template at `deploy/config.env.sample` documenting every configuration option with defaults, descriptions, and HA-specific notes. This file is referenced by `install.sh` and `docs/guides/HA_OVERVIEW.md` but doesn't currently exist.
 
 ### 4. Patroni + HAProxy Playbook Templates
 
-Formalized YAML templates in `mailserver/deploy/` for Patroni and HAProxy. These were "deferred to ops playbook" in Phase 15.2 — we're now creating the templates with documentation, but they remain deployment-specific (admin customizes IPs, passwords, SSL certs).
+Formalized YAML templates in `deploy/` for Patroni and HAProxy. These were "deferred to ops playbook" in Phase 15.2 — we're now creating the templates with documentation, but they remain deployment-specific (admin customizes IPs, passwords, SSL certs).
 
 ### 5. Features.md Update
 
@@ -73,9 +73,9 @@ Mark Phase 15 items as done: Prometheus metrics, HA deployment, production deplo
 
 - `mailserver/internal/metrics/handler.go` — existing Prometheus metrics (13 metric families)
 - `mailserver/internal/health/handler.go` — `/health` + `/ready` endpoints
-- `mailserver/sql/reducers/health_check.sql` — PL/pgSQL health checks
+- `sql/reducers/health_check.sql` — PL/pgSQL health checks
 - `docs/guides/HA_OVERVIEW.md` — 3-node HA design, Zabbix metrics reference
-- `mailserver/deploy/pgpool.conf.template` — Pgpool-II 3-node config
+- `deploy/pgpool.conf.template` — Pgpool-II 3-node config
 - `mailserver/internal/deploy/seaweedfs_ha.go` — SeaweedFS HA planner
 - Prometheus data model: https://prometheus.io/docs/concepts/data_model/
 - Grafana dashboard JSON model: https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/

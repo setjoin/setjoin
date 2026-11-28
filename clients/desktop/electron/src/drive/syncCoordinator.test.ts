@@ -3,10 +3,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FetchLike } from '../../../../../mailserver/webmail/src/lib/drive/sync/types.js';
+import type { FetchLike } from '../../../../../webmail/src/lib/drive/sync/types.js';
 import type { NativeBinding } from '../native.js';
 import { buildBridge } from '../bridge.js';
-import { SqlMirrorIndex, applySchema } from '../../../../../mailserver/webmail/src/lib/drive/sync/schema.js';
+import { SqlMirrorIndex, applySchema } from '../../../../../webmail/src/lib/drive/sync/schema.js';
 import { FolderMirror } from './mirror.js';
 import { makeDriveMirrorHandlers, MirrorService } from './service.js';
 

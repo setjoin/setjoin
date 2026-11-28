@@ -5,7 +5,7 @@
 # source, ban and advisory policy, the recorded-oracle floor, selected replay/mutant tests,
 # and per-route Rust coverage (Python 3.11+, cargo-deny 0.19.0, llvm-tools).
 # Runs every server-rust Cargo root with `cargo test --locked`:
-#   1. server-rust/                        — workspace: bins/gateway (front door,
+#   1. server/                        — workspace: bins/gateway (front door,
 #                                            fake-upstream proxy tests), authz, contracts,
 #                                            db, domains/jmap, domains/recording, pg, push, schema,
 #                                            sql-catalog (#541), tests/conformance (DB-backed parity
@@ -16,9 +16,9 @@
 #      Includes shared auth runtime/protocol admission in crates/threat (#420).
 #      Includes the CI-only setjoin-release and shared release-format crate (#357),
 #      and the standalone setjoin-updater process/installer oracles (#358).
-#   2. server-rust/pilot/                  — Seen-intent pilot (own package + lockfile, sha2 =0.11.1)
-#   3. server-rust/tools/schema-simulation — independent tooling workspace (Rust 1.99, resolver 3)
-#   4. server-rust/tools/bench-mark-read   — #217 Rust-vs-Go mark-read harness (own package, std only)
+#   2. server/pilot/                  — Seen-intent pilot (own package + lockfile, sha2 =0.11.1)
+#   3. server/tools/schema-simulation — independent tooling workspace (Rust 1.99, resolver 3)
+#   4. server/tools/bench-mark-read   — #217 Rust-vs-Go mark-read harness (own package, std only)
 # The workspace runs `--no-fail-fast`, so one red binary no longer skips every later suite
 # (the lane is still red; the full list of failing targets is reported once, #421).
 # A failing, ignored, or non-compiling test, a stale lockfile, or a root that
@@ -40,7 +40,7 @@
 #
 # SERVER_RUST_NEXTEST=1 (the parallel full lane, #550) runs the workspace root with
 # `cargo nextest run --profile lane` (one cloned database per test, serial groups for host
-# state, see server-rust/.config/nextest.toml and scripts/ci/server-rust-parallel-lane.sh)
+# state, see server/.config/nextest.toml and scripts/ci/server-rust-parallel-lane.sh)
 # plus `cargo test --doc`, and keeps every check below: zero tests, ignored (nextest
 # "skipped") and DB-skip markers stay red. Needs LANE_ADMIN_DSN/LANE_TEMPLATE_DB/LANE_BASE_DB.
 # SERVER_RUST_NEXTEST_SELECT (the PR pre-check, pr-precheck.yml job `integration`) replaces
@@ -277,7 +277,7 @@ cargo_deny_retry() {
 }
 
 check_tree() {
-  local base="$ROOT/server-rust" rc=0
+  local base="$ROOT/server" rc=0
   if ! command -v "$CARGO" >/dev/null 2>&1; then
     echo "SERVER-RUST-SKIP (reason=cargo-not-found cargo=$CARGO) — Rust server tests NOT run"
     return 0

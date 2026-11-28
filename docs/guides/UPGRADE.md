@@ -116,7 +116,7 @@ tells you to apply migrations with a matching `mailctl` first.
 
 ## Database schema migrations
 
-The gateway embeds the forward migrations (`mailserver/sql/dbschema/V<NNN>__*.sql`)
+The gateway embeds the forward migrations (`sql/dbschema/V<NNN>__*.sql`)
 and **refuses to start** unless `MAX(schema_migrations.version)` is at least the
 highest it ships. `upgrade.sh` applies them automatically before start. To check
 or apply by hand (uses `DB_DIRECT_DSN` for DDL, falling back to `DB_DSN` — both

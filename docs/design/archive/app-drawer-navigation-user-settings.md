@@ -315,8 +315,8 @@ No "sync engine" required. The secret is shared once during device setup, then e
 
 - DingTalk 8.0 "Fern" (2025): App drawer workspace panel, 我的 → 设置与隐私 → 安全中心
 - Lark/飞书: 我的 → 设置 → 账号与安全 → 管理登录设备, 安全体检分
-- `mailserver/webmail/src/routes/apps/+page.svelte` — existing app grid page
-- `mailserver/webmail/src/routes/+layout.svelte` — existing toolbar + sidebar + app launcher popover
+- `webmail/src/routes/apps/+page.svelte` — existing app grid page
+- `webmail/src/routes/+layout.svelte` — existing toolbar + sidebar + app launcher popover
 - `docs/design/clients/phase12-client-architecture.md` — Q6: "Navigation must be designed for 6-8 modules from day one"
 - `docs/design/clients/liquid-glass-design-language.md` — Section 7: Per-screen layout specs
 - `docs/design/security/mam-and-encryption-platform.md` — MAM policy engine, device identity, encryption

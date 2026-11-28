@@ -20,7 +20,7 @@ A new `SandboxClient` in the SMTP package wraps the CAPE sandbox REST API. On in
 | `mailserver/gateway/internal/smtp/inbound.go` | **Modify** | Wire `SandboxClient` into delivery pipeline after ClamAV, before reducer commit; add `SetSandbox()` + health check |
 | `mailserver/gateway/internal/smtp/helpers.go` | **Modify** | Add `detectAttachmentTypes()` helper: classify MIME parts into sandbox-relevant categories |
 | `mailserver/gateway/internal/config/config.go` | **Modify** | Add env vars: `SANDBOX_CAPE_URL`, `SANDBOX_CAPE_API_KEY`, `SANDBOX_TIMEOUT`, `SANDBOX_FAIL_MODE`, `SANDBOX_ENABLED` |
-| `mailserver/sql/migrations/V0NN__sandbox_config.sql` | **Create** | Per-domain sandbox settings: `sandbox_enabled`, `sandbox_action` (reject/quarantine), `sandbox_file_types` |
+| `sql/migrations/V0NN__sandbox_config.sql` | **Create** | Per-domain sandbox settings: `sandbox_enabled`, `sandbox_action` (reject/quarantine), `sandbox_file_types` |
 | `authserver/internal/handlers/admin_domains.go` | **Modify** | Expose sandbox config in domain admin API (if domain CRUD already exists; otherwise defer to Phase 13 admin console) |
 
 ## Key Design Decisions

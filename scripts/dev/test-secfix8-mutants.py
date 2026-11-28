@@ -19,7 +19,7 @@ import sys
 import tempfile
 
 repo = Path(__file__).resolve().parents[2]
-root = repo / "server-rust"
+root = repo / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 
@@ -42,7 +42,7 @@ MUTANTS = {
     "blob-cleanup-no-bypass-check": (GW, "blob_cleanup_refuses_a_credential_without_bypassrls"),
     "sql:meet-ids-unrelated": (GW, "meeting_projection_hides_channel_and_event_ids_from_unrelated_callers"),
 }
-REDUCERS = repo / "mailserver/sql/reducers"
+REDUCERS = repo / "sql/reducers"
 MAP = REDUCERS / "rust_identity_rp_map.sql"
 MEET = REDUCERS / "meeting_read.sql"
 

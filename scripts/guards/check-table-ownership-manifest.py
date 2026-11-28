@@ -5,13 +5,13 @@ Checks:
   1. Comment-aware SQL schema & RLS extractor over V*.sql in numeric version order.
   2. Manifest completeness, owner/security_class validation, FORCE RLS verification,
      and monotonic legacy pending-RLS / legacy cross-domain write ratchets.
-  3. Cross-domain SQL read/write enforcement across server-rust/crates/domains/*.
+  3. Cross-domain SQL read/write enforcement across server/crates/domains/*.
   4. R1-R3 ownership predicate verification for mailbox_scoped / user_scoped tables.
 
 Environment overrides (used by self-tests):
   TABLE_MANIFEST          Path to table-ownership-manifest.json
   TABLE_SCHEMA_DIR        Path to V*.sql migrations directory
-  TABLE_RUST_DOMAINS_DIR  Path to server-rust/crates/domains directory
+  TABLE_RUST_DOMAINS_DIR  Path to server/crates/domains directory
 """
 
 from __future__ import annotations
@@ -1602,7 +1602,7 @@ def check_rust_domains(
             )
         except ValueError:
             rel_inner = path.relative_to(crate_dir)
-            return f"server-rust/crates/domains/{crate}/{rel_inner}".replace("\\", "/")
+            return f"server/crates/domains/{crate}/{rel_inner}".replace("\\", "/")
 
     for crate_dir in sorted(domains_dir.iterdir()):
         if not crate_dir.is_dir():
@@ -1662,8 +1662,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     _ = argv
     repo_root = Path(__file__).resolve().parents[2]
     default_manifest = str(repo_root / "config/table-ownership-manifest.json")
-    default_schema = str(repo_root / "mailserver/sql/dbschema")
-    default_domains = str(repo_root / "server-rust/crates/domains")
+    default_schema = str(repo_root / "sql/dbschema")
+    default_domains = str(repo_root / "server/crates/domains")
 
     manifest_path = Path(os.environ.get("TABLE_MANIFEST", default_manifest))
     schema_dir = Path(os.environ.get("TABLE_SCHEMA_DIR", default_schema))

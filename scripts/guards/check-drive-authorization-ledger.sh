@@ -29,13 +29,13 @@ count_literal() {
 
 inventory() {
   local f rel member_role space_members recursive
-  find "$ROOT/mailserver/sql/reducers" -maxdepth 1 -type f -name '*.sql' -print \
+  find "$ROOT/sql/reducers" -maxdepth 1 -type f -name '*.sql' -print \
     | sort -u | while IFS= read -r f; do
     member_role=$(count_literal 'drive_member_role' "$f")
     space_members=$(count_literal 'drive_space_members' "$f")
     recursive=0
     case "$f" in
-      "$ROOT"/mailserver/sql/reducers/drive_*)
+      "$ROOT"/sql/reducers/drive_*)
         recursive=$(count_literal 'WITH RECURSIVE' "$f")
         ;;
     esac
@@ -98,8 +98,8 @@ run_guard() {
 if [ "${1:-}" = "--self-test" ]; then
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
-  mkdir -p "$tmp/mailserver/sql/reducers" "$tmp/docs/verification"
-  printf '%s\n' 'SELECT drive_member_role(1, 2);' > "$tmp/mailserver/sql/reducers/drive_fixture.sql"
+  mkdir -p "$tmp/sql/reducers" "$tmp/docs/verification"
+  printf '%s\n' 'SELECT drive_member_role(1, 2);' > "$tmp/sql/reducers/drive_fixture.sql"
   printf '%s\n' '# path	class	member_role	space_members	recursive	phase' \
     > "$tmp/docs/verification/2026-08-03-drive-acl-authorization-sites.tsv"
   ROOT="$tmp"
@@ -109,7 +109,7 @@ if [ "${1:-}" = "--self-test" ]; then
     exit 1
   fi
   printf '%s\n' \
-    'mailserver/sql/reducers/drive_fixture.sql	exact_authorization	0	0	0	A6' \
+    'sql/reducers/drive_fixture.sql	exact_authorization	0	0	0	A6' \
     >> "$tmp/docs/verification/2026-08-03-drive-acl-authorization-sites.tsv"
   if run_guard >/dev/null 2>&1; then
     echo "check-drive-authorization-ledger: SELF-TEST FAIL — wrong count was accepted" >&2

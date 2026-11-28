@@ -18,7 +18,7 @@
 #
 # WHAT IT DOES. For every FORCE'd table (schema-derived, same regex as
 # check-rls-denial.sh) that BOTH (a) a reducer actually writes
-# (INSERT/UPDATE/DELETE anywhere in mailserver/sql/reducers/*.sql) AND
+# (INSERT/UPDATE/DELETE anywhere in sql/reducers/*.sql) AND
 # (b) carries at least one RLS policy capable of admitting a write (FOR ALL /
 # INSERT / UPDATE / DELETE, or no FOR clause at all — default ALL) — this
 # guard requires a human-recorded entry in scripts/guards/rls-allow-allowlist.txt
@@ -34,7 +34,7 @@
 # very next run without anyone touching the allowlist.
 #
 # Classification (mirrors check-rls-denial.sh's convention exactly):
-#   · COVERED — names the mailserver/sql/tests/*.pg file + a stable substring
+#   · COVERED — names the sql/tests/*.pg file + a stable substring
 #               of that file's own success assertion. The guard verifies the
 #               file exists, still contains a SET [LOCAL] ROLE line, AND
 #               still contains the substring — a deleted/gutted/renamed test
@@ -60,9 +60,9 @@ source "$(dirname "$0")/../_base.sh"
 
 export LC_ALL=C
 
-SCHEMA_DIR="${RLS_ALLOW_SCHEMA_DIR:-$ROOT/mailserver/sql/dbschema}"
-REDUCERS_DIR="${RLS_ALLOW_REDUCERS_DIR:-$ROOT/mailserver/sql/reducers}"
-TESTS_DIR="${RLS_ALLOW_TESTS_DIR:-$ROOT/mailserver/sql/tests}"
+SCHEMA_DIR="${RLS_ALLOW_SCHEMA_DIR:-$ROOT/sql/dbschema}"
+REDUCERS_DIR="${RLS_ALLOW_REDUCERS_DIR:-$ROOT/sql/reducers}"
+TESTS_DIR="${RLS_ALLOW_TESTS_DIR:-$ROOT/sql/tests}"
 ALLOWLIST_FILE="${RLS_ALLOW_ALLOWLIST_FILE:-$(dirname "$0")/rls-allow-allowlist.txt}"
 
 echo "==> RLS ALLOW-side coverage guard (#A4)"

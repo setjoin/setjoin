@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Static blob-reference manifest and SQL catalog parity guard (Issue #550).
 
-Enforces 5 named invariants over mailserver/sql/dbschema/V*.sql,
-config/blob-reference-manifest.json, and mailserver/sql/reducers/blob_gc.sql:
+Enforces 5 named invariants over sql/dbschema/V*.sql,
+config/blob-reference-manifest.json, and sql/reducers/blob_gc.sql:
   1. DUPLICATE_MANIFEST_ENTRY   - no (table, column) appears twice in manifest
   2. UNMANIFESTED_BLOB_COLUMN   - every candidate blob/sha256/ref/key column classified
   3. STALE_MANIFEST_ENTRY       - every manifest entry exists in final replayed schema
@@ -14,7 +14,7 @@ config/blob-reference-manifest.json, and mailserver/sql/reducers/blob_gc.sql:
 Environment overrides (used by selftests and unit tests):
   BLOB_MANIFEST       Path to blob-reference-manifest.json
   BLOB_SCHEMA_DIR     Path to V*.sql migrations directory
-  BLOB_GC_SQL_FILE    Path to mailserver/sql/reducers/blob_gc.sql
+  BLOB_GC_SQL_FILE    Path to sql/reducers/blob_gc.sql
 """
 
 from __future__ import annotations
@@ -853,13 +853,13 @@ def main() -> int:
     schema_dir = Path(
         os.environ.get(
             "BLOB_SCHEMA_DIR",
-            str(repo_root / "mailserver" / "sql" / "dbschema"),
+            str(repo_root / "sql" / "dbschema"),
         )
     )
     gc_sql_path = Path(
         os.environ.get(
             "BLOB_GC_SQL_FILE",
-            str(repo_root / "mailserver" / "sql" / "reducers" / "blob_gc.sql"),
+            str(repo_root / "sql" / "reducers" / "blob_gc.sql"),
         )
     )
 

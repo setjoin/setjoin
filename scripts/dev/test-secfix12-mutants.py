@@ -14,7 +14,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-root = Path(__file__).resolve().parents[2] / "server-rust"
+root = Path(__file__).resolve().parents[2] / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 

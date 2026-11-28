@@ -395,7 +395,7 @@ fn test_stmt_allowlist_rejects_pragma_and_attach() {
 //
 // The MAIL_SCHEMA fixture above is a MINIATURE, not the application schema.
 // The REAL mail DDL lives in the webmail migration manifest —
-// mailserver/webmail/src/lib/offline/migrations.ts, whose bundled
+// webmail/src/lib/offline/migrations.ts, whose bundled
 // MAIL_MIGRATION_MANIFEST owns the versioned statements (E4-I moved it out of
 // store-native.ts's single MAIL_SCHEMA block; store-native.ts's init() applies
 // the same statements through applyMailMigrations) — and it is read here
@@ -416,7 +416,7 @@ fn test_stmt_allowlist_rejects_pragma_and_attach() {
 // path the shipped shells actually call.
 
 const MIGRATIONS_TS: &str =
-    include_str!("../../../../mailserver/webmail/src/lib/offline/migrations.ts");
+    include_str!("../../../../webmail/src/lib/offline/migrations.ts");
 
 /// Extract every schema statement of the bundled migration manifest from the
 /// TS source, verbatim, in manifest order (v1 base, then v2 optional work).

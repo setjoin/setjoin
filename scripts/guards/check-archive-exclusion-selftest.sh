@@ -100,14 +100,14 @@ build_minirepo() {
   mkdir -p "$WORK"
   mkdir -p \
     "$WORK/scripts" \
-    "$WORK/mailserver/sql/dbschema" \
-    "$WORK/mailserver/sql/tests" \
-    "$WORK/mailserver/sql/reducers" \
-    "$WORK/mailserver/sql/_archive/schema" \
-    "$WORK/mailserver/sql/_archive/migrations" \
-    "$WORK/authserver/sql/reducers" \
-    "$WORK/authserver/sql/_archive/schema" \
-    "$WORK/authserver/sql/_archive/migrations"
+    "$WORK/sql/dbschema" \
+    "$WORK/sql/tests" \
+    "$WORK/sql/reducers" \
+    "$WORK/sql/_archive/schema" \
+    "$WORK/sql/_archive/migrations" \
+    "$WORK/sql/auth/reducers" \
+    "$WORK/sql/auth/_archive/schema" \
+    "$WORK/sql/auth/_archive/migrations"
   cat >"$WORK/scripts/provision-roles.sql" <<'SQL'
 CREATE ROLE setjoin_app NOLOGIN;
 SQL
@@ -116,18 +116,18 @@ SQL
 # synthetic benign loader: an execution-context line with no archive reference
 psql -h 127.0.0.1 -f "$1"
 SH
-  printf 'CREATE TABLE baseline_probe(id int);\n' >"$WORK/mailserver/sql/dbschema/V001__baseline.sql"
-  printf 'CREATE TABLE fwd_probe(id int);\n' >"$WORK/mailserver/sql/dbschema/V002__forward_probe.sql"
-  printf '\\dt\n' >"$WORK/mailserver/sql/tests/_fixtures.sql"
+  printf 'CREATE TABLE baseline_probe(id int);\n' >"$WORK/sql/dbschema/V001__baseline.sql"
+  printf 'CREATE TABLE fwd_probe(id int);\n' >"$WORK/sql/dbschema/V002__forward_probe.sql"
+  printf '\\dt\n' >"$WORK/sql/tests/_fixtures.sql"
   printf 'CREATE OR REPLACE FUNCTION probe_fn() RETURNS void LANGUAGE sql AS $$ SELECT 1 $$;\n' \
-    >"$WORK/mailserver/sql/reducers/001_probe.sql"
-  cp "$WORK/mailserver/sql/reducers/001_probe.sql" "$WORK/authserver/sql/reducers/001_probe.sql"
+    >"$WORK/sql/reducers/001_probe.sql"
+  cp "$WORK/sql/reducers/001_probe.sql" "$WORK/sql/auth/reducers/001_probe.sql"
   local rel
   for rel in \
-    "mailserver/sql/_archive/schema/024_client_versions.sql" \
-    "mailserver/sql/_archive/migrations/V003__probe.sql" \
-    "authserver/sql/_archive/schema/020_orphan.sql" \
-    "authserver/sql/_archive/migrations/V009__probe.sql"; do
+    "sql/_archive/schema/024_client_versions.sql" \
+    "sql/_archive/migrations/V003__probe.sql" \
+    "sql/auth/_archive/schema/020_orphan.sql" \
+    "sql/auth/_archive/migrations/V009__probe.sql"; do
     {
       printf '%s\n' "$SENTINEL"
       printf 'CREATE TABLE archived_probe(id int);\n'
@@ -199,8 +199,8 @@ fi
 
 echo "(B1) guard vs archive file missing its sentinel"
 build_minirepo
-tail -n +2 "$WORK/authserver/sql/_archive/schema/020_orphan.sql" >"$WORK/strip.tmp"
-mv "$WORK/strip.tmp" "$WORK/authserver/sql/_archive/schema/020_orphan.sql"
+tail -n +2 "$WORK/sql/auth/_archive/schema/020_orphan.sql" >"$WORK/strip.tmp"
+mv "$WORK/strip.tmp" "$WORK/sql/auth/_archive/schema/020_orphan.sql"
 run_guard
 if [ "$rc" -ne 0 ]; then
   ok "(B1) sentinel-stripped archive file fails the guard"
@@ -237,9 +237,9 @@ build_minirepo
   printf '%s\n' "$SENTINEL"
   printf 'CREATE TABLE baseline_probe(id int);\n'
 } \
-  >"$WORK/mailserver/sql/_archive/migrations/V001__baseline.sql"
-ln -sfn "$WORK/mailserver/sql/_archive/migrations/V001__baseline.sql" \
-  "$WORK/mailserver/sql/dbschema/V001__baseline.sql"
+  >"$WORK/sql/_archive/migrations/V001__baseline.sql"
+ln -sfn "$WORK/sql/_archive/migrations/V001__baseline.sql" \
+  "$WORK/sql/dbschema/V001__baseline.sql"
 reset_calls
 rc=0
 out="$(PATH="$FAKE_BIN:$PATH" MIGRATIONS_ROOT="$WORK" bash "$LOAD_TEST_SCHEMA" 2>&1)" || rc=$?
@@ -251,9 +251,9 @@ build_minirepo
   printf '%s\n' "$SENTINEL"
   printf 'CREATE TABLE client_versions_probe(id int);\n'
 } \
-  >"$WORK/mailserver/sql/_archive/schema/V024__client_versions.sql"
-ln -sfn "$WORK/mailserver/sql/_archive/schema/V024__client_versions.sql" \
-  "$WORK/mailserver/sql/dbschema/V024__client_versions.sql"
+  >"$WORK/sql/_archive/schema/V024__client_versions.sql"
+ln -sfn "$WORK/sql/_archive/schema/V024__client_versions.sql" \
+  "$WORK/sql/dbschema/V024__client_versions.sql"
 reset_calls
 rc=0
 out="$(PATH="$FAKE_BIN:$PATH" MIGRATIONS_ROOT="$WORK" bash "$LOAD_TEST_SCHEMA" 2>&1)" || rc=$?
@@ -271,9 +271,9 @@ build_minirepo
   printf '%s\n' "$SENTINEL"
   printf 'CREATE OR REPLACE FUNCTION archived_fn() RETURNS void LANGUAGE sql AS $$ SELECT 1 $$;\n'
 } \
-  >"$WORK/authserver/sql/_archive/schema/099_probe_reducer.sql"
-ln -sfn "$WORK/authserver/sql/_archive/schema/099_probe_reducer.sql" \
-  "$WORK/authserver/sql/reducers/099_probe_reducer.sql"
+  >"$WORK/sql/auth/_archive/schema/099_probe_reducer.sql"
+ln -sfn "$WORK/sql/auth/_archive/schema/099_probe_reducer.sql" \
+  "$WORK/sql/auth/reducers/099_probe_reducer.sql"
 reset_calls
 rc=0
 out="$(PATH="$FAKE_BIN:$PATH" REDUCERS_ROOT="$WORK" bash "$RELOAD_REDUCERS" 2>&1)" || rc=$?

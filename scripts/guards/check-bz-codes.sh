@@ -13,7 +13,7 @@ used=$(mktemp); doc=$(mktemp)
 trap 'rm -f "$used" "$doc"' EXIT
 
 # Codes actually raised in reducers.
-grep -rhoE "ERRCODE[[:space:]]*=[[:space:]]*'BZ[0-9]+'" mailserver/sql/reducers/*.sql \
+grep -rhoE "ERRCODE[[:space:]]*=[[:space:]]*'BZ[0-9]+'" sql/reducers/*.sql \
   | grep -oE 'BZ[0-9]+' | sort -u > "$used"
 
 # Codes documented anywhere in the registry — a `**BZxxx**` table row OR a

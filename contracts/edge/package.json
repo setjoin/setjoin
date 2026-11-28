@@ -6,8 +6,8 @@
   "description": "Schema-first TypeSpec definitions and OpenAPI 3.1 baseline for Setjoin HTTP edge APIs.",
   "scripts": {
     "compile": "tsp compile main.tsp",
-    "gen:ts": "openapi-typescript openapi/edge.v1.yaml -o ../../mailserver/webmail/src/lib/edge/schema.d.ts",
-    "gen:rust": "node scripts/gen-rust-dtos.mjs openapi/edge.v1.yaml ../../server-rust/crates/edge-contract/src/generated.rs",
+    "gen:ts": "openapi-typescript openapi/edge.v1.yaml -o ../../webmail/src/lib/edge/schema.d.ts",
+    "gen:rust": "node scripts/gen-rust-dtos.mjs openapi/edge.v1.yaml ../../server/crates/edge-contract/src/generated.rs",
     "build": "npm run compile && npm run gen:ts && npm run gen:rust"
   },
   "devDependencies": {

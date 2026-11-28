@@ -48,9 +48,9 @@ Both servers initialize pgxpool identically — DSN parsing, max conns, direct c
 
 ### 5. PL/pgSQL Reducer Discoverability (LOW)
 
-26 reducer files in `mailserver/sql/reducers/` with no index. Phases.md documents some but not all.
+26 reducer files in `sql/reducers/` with no index. Phases.md documents some but not all.
 
-**Target:** Add `mailserver/sql/reducers/README.md` with every function, its parameters, purpose, side effects (state bumps, NOTIFY).
+**Target:** Add `sql/reducers/README.md` with every function, its parameters, purpose, side effects (state bumps, NOTIFY).
 
 ---
 

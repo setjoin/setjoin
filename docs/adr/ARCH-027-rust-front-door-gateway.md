@@ -22,7 +22,7 @@ and scheme it resolves through its trusted-proxy rules (`shared/clientip`, the
 
 ## Decision
 
-1. **Rust is the front door.** `server-rust/bins/gateway` (`setjoin-gateway`) receives
+1. **Rust is the front door.** `server/bins/gateway` (`setjoin-gateway`) receives
    client traffic and reverse-proxies every request to the Go mailserver unless its route
    table claims the request. It has no business logic of its own; its only local response is
    its liveness probe, `GET /_gateway/healthz`.

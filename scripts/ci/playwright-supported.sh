@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-WEBMAIL="$ROOT/mailserver/webmail"
+WEBMAIL="$ROOT/webmail"
 RUNTIME="${PLAYWRIGHT_BROWSER_RUNTIME:-auto}"
 CONNECT_ENDPOINT="${PLAYWRIGHT_CONNECT_WS_ENDPOINT:-}"
 FLAVOR="${PLAYWRIGHT_IMAGE_FLAVOR:-noble}"

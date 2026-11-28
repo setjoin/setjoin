@@ -19,18 +19,18 @@
       "sources": [
         {
           "path": "docs/verification/architecture-r3-cases.json",
-          "sha256": "39061a0c82a912e41d7923014bb477b36f19177284f4215b4fdf95c25ed5d9e7"
+          "sha256": "ec3bb856c8dc7a28240d2efb6a2b62e19cb279cf40970adfcb6a9cc13dee5d19"
         },
         {
           "path": "scripts/ci/verify-architecture-r3.sh",
-          "sha256": "2346cbfb5b1cd15a8de66b446c73432a9c2634c5468d018d5a567f107d14c657"
+          "sha256": "1e0fe4ef1ff1994418858d40efdb26116dbf45f8d9d287ef996d8b7a34ee28c8"
         },
         {
-          "path": "mailserver/webmail/src/lib/chat/store.svelte.ts",
+          "path": "webmail/src/lib/chat/store.svelte.ts",
           "sha256": "559333ab36611a513226242ab3186c6dd35ff24592a989c083b46be57d4dfbd2"
         },
         {
-          "path": "mailserver/webmail/src/lib/chat/store.svelte.test.ts",
+          "path": "webmail/src/lib/chat/store.svelte.test.ts",
           "sha256": "49f1a70dc8aa35b5a35bb8e46f31e93179a4f366bf3fd706cbd6bba49c950708"
         }
       ]
@@ -55,7 +55,7 @@
         {
           "id": "bundle-authority-commit",
           "ownerKind": "reducer",
-          "ownerPath": "mailserver/sql/reducers/exchange_assessment_artifact_commit.sql",
+          "ownerPath": "sql/reducers/exchange_assessment_artifact_commit.sql",
           "ownerSymbol": "exchange_assessment_artifact_commit"
         },
         {
@@ -67,13 +67,13 @@
         {
           "id": "publication-authority-commit",
           "ownerKind": "reducer",
-          "ownerPath": "mailserver/sql/reducers/exchange_assessment_publish_signed.sql",
+          "ownerPath": "sql/reducers/exchange_assessment_publish_signed.sql",
           "ownerSymbol": "exchange_assessment_publish_signed"
         },
         {
           "id": "deletion-request",
           "ownerKind": "reducer",
-          "ownerPath": "mailserver/sql/reducers/exchange_assessment_delete_request.sql",
+          "ownerPath": "sql/reducers/exchange_assessment_delete_request.sql",
           "ownerSymbol": "exchange_assessment_delete_request"
         },
         {
@@ -85,13 +85,13 @@
         {
           "id": "active-store-deletion-finalize",
           "ownerKind": "reducer",
-          "ownerPath": "mailserver/sql/reducers/exchange_assessment_delete_finalize.sql",
+          "ownerPath": "sql/reducers/exchange_assessment_delete_finalize.sql",
           "ownerSymbol": "exchange_assessment_delete_finalize"
         },
         {
           "id": "backup-expiry-attestation",
           "ownerKind": "reducer",
-          "ownerPath": "mailserver/sql/reducers/exchange_assessment_attestation_create.sql",
+          "ownerPath": "sql/reducers/exchange_assessment_attestation_create.sql",
           "ownerSymbol": "exchange_assessment_attestation_create"
         }
       ],
@@ -105,23 +105,23 @@
           "sha256": "c5e3a98b2405bc064f8bf95baf16c3f0b6f44424afa0dc20d7f9af074d25248e"
         },
         {
-          "path": "mailserver/sql/reducers/exchange_assessment_artifact_commit.sql",
+          "path": "sql/reducers/exchange_assessment_artifact_commit.sql",
           "sha256": "8a1170b1a631c28abfb1022745bc79d6e05105f17b6750076414aba037c548f6"
         },
         {
-          "path": "mailserver/sql/reducers/exchange_assessment_publish_signed.sql",
+          "path": "sql/reducers/exchange_assessment_publish_signed.sql",
           "sha256": "760cbcbe0e7d528a42be3c2d9e30a09e6e86b9e7ccb224b1a4b7eacb73dbcf04"
         },
         {
-          "path": "mailserver/sql/reducers/exchange_assessment_delete_request.sql",
+          "path": "sql/reducers/exchange_assessment_delete_request.sql",
           "sha256": "1acdab51b42d9202d389ca61777db9e096034d92e8b5e3d14fc615b87f936c2b"
         },
         {
-          "path": "mailserver/sql/reducers/exchange_assessment_delete_finalize.sql",
+          "path": "sql/reducers/exchange_assessment_delete_finalize.sql",
           "sha256": "bb29ab3c8e6b45d9fb4f305c62e7ecbca764660bbcff3b1e975a80e9d8bde623"
         },
         {
-          "path": "mailserver/sql/reducers/exchange_assessment_attestation_create.sql",
+          "path": "sql/reducers/exchange_assessment_attestation_create.sql",
           "sha256": "73e6322eafbefd5cbd7302401af07220e7ca1fad2ed6adcc8042c10dc53694ad"
         }
       ]
@@ -143,22 +143,22 @@
       "sources": [
         {
           "path": "docs/verification/architecture-r3-cases.json",
-          "sha256": "39061a0c82a912e41d7923014bb477b36f19177284f4215b4fdf95c25ed5d9e7"
+          "sha256": "ec3bb856c8dc7a28240d2efb6a2b62e19cb279cf40970adfcb6a9cc13dee5d19"
         },
         {
           "path": "scripts/ci/verify-architecture-r3.sh",
-          "sha256": "2346cbfb5b1cd15a8de66b446c73432a9c2634c5468d018d5a567f107d14c657"
+          "sha256": "1e0fe4ef1ff1994418858d40efdb26116dbf45f8d9d287ef996d8b7a34ee28c8"
         },
         {
-          "path": "mailserver/webmail/src/lib/stores/composeStore.svelte.ts",
+          "path": "webmail/src/lib/stores/composeStore.svelte.ts",
           "sha256": "c7a0801e21475a7f20c383f896492fabf2f4442ca93a480c2ea22189ac58aead"
         },
         {
-          "path": "mailserver/webmail/src/lib/stores/composeStore.svelte.test.ts",
+          "path": "webmail/src/lib/stores/composeStore.svelte.test.ts",
           "sha256": "7a96dcec3a27abf1634893cbb1117714e21e92aa152fc85774ce771377f7d64f"
         },
         {
-          "path": "mailserver/webmail/src/lib/components/ComposeScreen.test.ts",
+          "path": "webmail/src/lib/components/ComposeScreen.test.ts",
           "sha256": "5f802103ebd91b4884380df16aa824dee5b0e00b61eee43e9884ae1c37a6430d"
         }
       ]
@@ -166,7 +166,7 @@
     {
       "caseId": "R5-CALENDAR-OWNER-RECONCILIATION",
       "disposition": "no-change",
-      "ownerPath": "mailserver/webmail/src/lib/stores/calendarActionStore.svelte.ts",
+      "ownerPath": "webmail/src/lib/stores/calendarActionStore.svelte.ts",
       "threshold": {
         "minimumDistinctTransitions": 2,
         "minimumOutsideOwnerProductionSitesPerTransition": 2,
@@ -178,7 +178,7 @@
           "id": "create",
           "stateChanging": true,
           "productionSites": [
-            "mailserver/webmail/src/lib/components/CalendarApp.svelte:779"
+            "webmail/src/lib/components/CalendarApp.svelte:779"
           ],
           "redTestIds": [
             "CalendarActionStore.dispatch \u2014 create / update:create passes eventData through and reloads"
@@ -189,7 +189,7 @@
           "id": "update",
           "stateChanging": true,
           "productionSites": [
-            "mailserver/webmail/src/lib/components/CalendarApp.svelte:779"
+            "webmail/src/lib/components/CalendarApp.svelte:779"
           ],
           "redTestIds": [
             "CalendarActionStore.dispatch \u2014 create / update:update passes id + eventData through and reloads"
@@ -200,7 +200,7 @@
           "id": "delete",
           "stateChanging": true,
           "productionSites": [
-            "mailserver/webmail/src/lib/components/CalendarApp.svelte:827"
+            "webmail/src/lib/components/CalendarApp.svelte:827"
           ],
           "redTestIds": [
             "CalendarActionStore.dispatch \u2014 delete:deletes and reloads; a second delete during flight is a no-op"
@@ -211,7 +211,7 @@
           "id": "rsvp",
           "stateChanging": true,
           "productionSites": [
-            "mailserver/webmail/src/lib/components/CalendarApp.svelte:840"
+            "webmail/src/lib/components/CalendarApp.svelte:840"
           ],
           "redTestIds": [
             "CalendarActionStore.dispatch \u2014 rsvp:holds the in-flight status for the busy button, RSVPs, and reloads"
@@ -222,7 +222,7 @@
           "id": "drag-commit",
           "stateChanging": true,
           "productionSites": [
-            "mailserver/webmail/src/lib/components/CalendarApp.svelte:707"
+            "webmail/src/lib/components/CalendarApp.svelte:707"
           ],
           "redTestIds": [
             "CalendarActionStore.dispatch \u2014 dragCommit:INVARIANT (a) rollback 1/3"
@@ -233,7 +233,7 @@
           "id": "apply-scope",
           "stateChanging": true,
           "productionSites": [
-            "mailserver/webmail/src/lib/components/CalendarApp.svelte:816"
+            "webmail/src/lib/components/CalendarApp.svelte:816"
           ],
           "redTestIds": [
             "CalendarActionStore.dispatch \u2014 applyScope:INVARIANT (a) rollback 2/3"
@@ -243,19 +243,19 @@
       ],
       "sources": [
         {
-          "path": "mailserver/webmail/src/lib/stores/calendarActionStore.svelte.ts",
+          "path": "webmail/src/lib/stores/calendarActionStore.svelte.ts",
           "sha256": "f8a552213171a53108152e00450457e08d74fe46c4e33013e6122bb44f9cf775"
         },
         {
-          "path": "mailserver/webmail/src/lib/components/CalendarApp.svelte",
+          "path": "webmail/src/lib/components/CalendarApp.svelte",
           "sha256": "1784481285f4ca20aca8315c8882bec4a3287380b877bc254fda8f5f7cb92ec1"
         },
         {
-          "path": "mailserver/webmail/src/lib/stores/calendarActionStore.svelte.test.ts",
+          "path": "webmail/src/lib/stores/calendarActionStore.svelte.test.ts",
           "sha256": "5f0cc0645e95a9bc955c0d873ab1caf1f4c913d8227759c84f583eefa33f0890"
         },
         {
-          "path": "mailserver/webmail/src/lib/components/CalendarApp.test.ts",
+          "path": "webmail/src/lib/components/CalendarApp.test.ts",
           "sha256": "4bd51a4e18945876253a5905706f4c7ee4c59bdd9de7ec8b9f6b7f5e59e49238"
         }
       ]
@@ -273,19 +273,19 @@
       "claimsCapabilityImplemented": false,
       "sources": [
         {
-          "path": "mailserver/webmail/src/lib/offline/storeFacade.ts",
+          "path": "webmail/src/lib/offline/storeFacade.ts",
           "sha256": "28f20c447a5426465f266524f5cad7043a50759c3ac3981c55a4f222a19db309"
         },
         {
-          "path": "mailserver/webmail/src/lib/offline/storeFacade.test.ts",
+          "path": "webmail/src/lib/offline/storeFacade.test.ts",
           "sha256": "4f2141594d9efd51406c34e440aa3f588ebbd4fff93693e7cb1edfafe618e20d"
         },
         {
-          "path": "mailserver/webmail/src/lib/offline/store.ts",
+          "path": "webmail/src/lib/offline/store.ts",
           "sha256": "a51260e3d80d30d39a6ab68e85f2b01a9840d0af4fba93ce0d4fc55527052c5a"
         },
         {
-          "path": "mailserver/webmail/src/routes/settings/storage/+page.svelte",
+          "path": "webmail/src/routes/settings/storage/+page.svelte",
           "sha256": "7408ced845fcb376960c94bc88992de0d9c7bd8c23c6ca0b193a1876fb17efc0"
         }
       ]

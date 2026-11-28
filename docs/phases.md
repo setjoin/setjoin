@@ -386,7 +386,7 @@ maintainers will start work that has to be torn up:
 - [x] **20.1** Platform Abstraction Layer (PAL) — OS-level abstractions for cross-platform ports (FreeBSD, macOS). See `shared/pal/`
 - [x] **20.2** National Cryptographic Standards SM2/SM3/SM4 — CryptoProvider interface: SM2 signing, SM3 hashing, SM4 encryption, PBKDF2-SM3 passwords, JWT SM2, TLS SM2. See `shared/cryptokey/smx*.go`
 - [ ] **20.3** AI Email Features — DEFERRED: needs further discussion on local LLM vs cloud API integration
-- [x] **20.4** Conference/Room Booking Calendar UI — SchedulingAssistant Svelte component, AvailabilityGrid, RoomFinder, Go batch free/busy endpoint. See `mailserver/webmail/src/routes/calendar/`
+- [x] **20.4** Conference/Room Booking Calendar UI — SchedulingAssistant Svelte component, AvailabilityGrid, RoomFinder, Go batch free/busy endpoint. See `webmail/src/routes/calendar/`
 - [x] **20.5** Conditional Access Policy Engine — PolicyEngine with JSON policies, DeviceTrustResolver, IPRiskScorer, wired into authserver login flow. See `shared/threat/policy.go`
 - [x] **20.6** Enhanced Mobile MDM — Moved to authserver (Jun 2026). DevicePolicy service, check-in endpoint, admin CRUD, quarantine middleware unified with conditional access engine. See `authserver/internal/device/`
 
@@ -911,7 +911,7 @@ See `npm test`, `go test ./...`, and `pg_prove sql/tests/*.pg` for run commands.
 - [x] **31.1.4** Schema — extend `users` table (non-breaking): `push_mfa_enabled`,
   `totp_backup_codes_enc`, `saml_idp_entity_id`, `last_login_country`.
 - [x] **31.1.5** Seed: auth server uses the same `feature_toggles` table as the gateway.
-- [x] **31.1.6** Migration: `authserver/sql/migrations/V001__initial_schema.sql`.
+- [x] **31.1.6** Migration: `sql/auth/migrations/V001__initial_schema.sql`.
 - [x] **31.1.7** Auth config (`internal/config/config.go`): env-driven, same pattern as gateway.
 - [x] **31.1.8** `cmd/authserverd/main.go` — startup sequence: DB → toggles → JWT → routes → server.
 
@@ -1349,7 +1349,7 @@ See `npm test`, `go test ./...`, and `pg_prove sql/tests/*.pg` for run commands.
 > every real deployment; the gating pgTAP test unconditionally skipped all 12
 > assertions and never caught it. Reverted to the plain GIN indexes that were
 > live all along (`@@ websearch_to_tsquery`, `ts_rank` ranking, `ts_headline`
-> snippets — see `mailserver/sql/AGENTS.md` "Full-text search"). 36.1 below is
+> snippets — see `sql/AGENTS.md` "Full-text search"). 36.1 below is
 > the **aspirational** BM25 plan, kept for history; treat 36.1.1–36.1.4 as
 > **not actually live**.
 

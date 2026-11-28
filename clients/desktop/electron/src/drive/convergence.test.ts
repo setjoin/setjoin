@@ -19,10 +19,10 @@ import { mkdir, mkdtemp, readFile, readdir, rm, rename, stat, unlink, writeFile 
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { applySchema, SqlMirrorIndex } from '../../../../../mailserver/webmail/src/lib/drive/sync/schema.js';
-import { memDb } from '../../../../../mailserver/webmail/src/lib/drive/sync/schema.test.js';
-import { DriveHttp } from '../../../../../mailserver/webmail/src/lib/drive/sync/protocol.js';
-import { SyncEngine } from '../../../../../mailserver/webmail/src/lib/drive/sync/engine.js';
+import { applySchema, SqlMirrorIndex } from '../../../../../webmail/src/lib/drive/sync/schema.js';
+import { memDb } from '../../../../../webmail/src/lib/drive/sync/schema.test.js';
+import { DriveHttp } from '../../../../../webmail/src/lib/drive/sync/protocol.js';
+import { SyncEngine } from '../../../../../webmail/src/lib/drive/sync/engine.js';
 import { FolderMirror } from './mirror.js';
 import { FakeDriveServer } from './testing/fakeDriveServer.js';
 

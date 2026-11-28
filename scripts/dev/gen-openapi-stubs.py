@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ──────────────────────────────────────────────────────────────────────────
 # gen-openapi-stubs.py — bulk-document the registered-but-undocumented gateway
-# routes ledgered in mailserver/api/openapi-pending.txt.
+# routes ledgered in api/openapi-pending.txt.
 #
 # WHY: the pending ledger carried ~420 routes. Hand-authoring 420 rich path
 # items is intractable; this generator emits VALID, MINIMAL OpenAPI 3 path
@@ -40,7 +40,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MAIN_GO = ROOT / "mailserver/cmd/mailserverd/main.go"
-SPEC = ROOT / "mailserver/api/openapi.yaml"
+SPEC = ROOT / "api/openapi.yaml"
 COVERAGE_GUARD = ROOT / "scripts/guards/check-openapi-coverage.sh"
 
 METHODS = ("GET", "POST", "PUT", "DELETE", "PATCH")

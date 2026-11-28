@@ -119,7 +119,7 @@ sudo systemctl enable --now postgresql-16
 ```bash
 psql -U postgres -c "CREATE USER mail WITH PASSWORD 'your-password';"
 psql -U postgres -c "CREATE DATABASE mailserver OWNER mail;"
-cd /opt/setjoin/mailserver/sql/dbschema
+cd /opt/setjoin/sql/dbschema
 psql -U mail -d mailserver -f V001__baseline.sql
 # 然后应用前向迁移（V002+）：mailctl schema apply  （或 deploy/scripts/install.sh 一并完成）
 ```

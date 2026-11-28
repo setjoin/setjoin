@@ -4,7 +4,7 @@
 Enforces:
 - PROC_MACRO_FORBIDDEN: zero `proc-macro = true` in `crates/sql-catalog` or
   `tests/sql-contracts`, zero `syn`/`quote`/`sqlx` in `crates/sql-catalog`, and
-  zero `sqlx`/`sqlx-macros` in `server-rust/Cargo.lock`.
+  zero `sqlx`/`sqlx-macros` in `server/Cargo.lock`.
 - SQL_INTERPOLATION_FORBIDDEN: zero runtime `format!` SQL interpolation in
   catalog-enforced crates and monotonic downward ratchet on legacy crates.
 - UNCATALOGED_SQL: zero uncataloged raw SQL literals outside `src/sql.rs` in
@@ -12,7 +12,7 @@ Enforces:
 - AUDIT_POSTURE_*: `SqlAuditPosture::ReducerWritesCoreAudit` is permitted ONLY
   in `crates/domains/*/src/sql.rs`, must parse strictly as a single top-level
   `SELECT [public.]<fn>(...)`, and must target a PL/pgSQL reducer in
-  `mailserver/sql/reducers/*.sql` that invokes `audit_write(..., 'core')`
+  `sql/reducers/*.sql` that invokes `audit_write(..., 'core')`
   outside any `EXCEPTION WHEN OTHERS` handler (#546a).
 """
 
@@ -519,7 +519,7 @@ def check_proc_macro_ban(server_rust: pathlib.Path, errors: list[str]) -> None:
         lock_text = lock_file.read_text(encoding="utf-8", errors="ignore")
         if SQLX_LOCK_RE.search(lock_text):
             errors.append(
-                "PROC_MACRO_FORBIDDEN: server-rust/Cargo.lock contains sqlx or "
+                "PROC_MACRO_FORBIDDEN: server/Cargo.lock contains sqlx or "
                 "sqlx-macros"
             )
 
@@ -757,9 +757,9 @@ def _extract_dollar_quoted_body(src: str, start_pos: int) -> str | None:
 
 
 def load_reducer_bodies(root: pathlib.Path) -> dict[str, list[tuple[str, str]]]:
-    """Load `CREATE [OR REPLACE] FUNCTION` bodies from `mailserver/sql/reducers/`."""
+    """Load `CREATE [OR REPLACE] FUNCTION` bodies from `sql/reducers/`."""
     bodies: dict[str, list[tuple[str, str]]] = {}
-    reducers_dir = root / "mailserver/sql/reducers"
+    reducers_dir = root / "sql/reducers"
     if not reducers_dir.is_dir():
         return bodies
     for sql_file in sorted(reducers_dir.glob("*.sql")):
@@ -1103,7 +1103,7 @@ def check_audit_posture_contracts(
                         errors.append(
                             f"AUDIT_POSTURE_REDUCER_MISSING: {rel}:{line} "
                             f"(reducer '{fn_name}' not found in "
-                            "mailserver/sql/reducers/*.sql)"
+                            "sql/reducers/*.sql)"
                         )
                         i = j
                         continue
@@ -1369,7 +1369,7 @@ def main() -> int:
         "--root",
         type=pathlib.Path,
         default=default_root,
-        help="Repository root containing server-rust/ and config/",
+        help="Repository root containing server/ and config/",
     )
     parser.add_argument(
         "--ratchet",
@@ -1385,7 +1385,7 @@ def main() -> int:
     args = parser.parse_args()
 
     root = args.root.resolve()
-    server_rust = root / "server-rust"
+    server_rust = root / "server"
     ratchet_path = (
         args.ratchet.resolve()
         if args.ratchet is not None

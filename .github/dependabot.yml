@@ -10,7 +10,7 @@ updates:
 
   - package-ecosystem: "npm"
     directories:
-      - "/mailserver/webmail"
+      - "/webmail"
       - "/clients/desktop"
       - "/clients/desktop/electron"
       - "/clients/rust/desktop-native"

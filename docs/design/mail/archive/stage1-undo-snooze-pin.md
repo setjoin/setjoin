@@ -14,9 +14,9 @@
 
 | Action | File | What |
 |--------|------|------|
-| **New** | `mailserver/sql/migrations/V017__pin_to_top.sql` | `ALTER TABLE messages ADD COLUMN pinned_at TIMESTAMPTZ` + index |
-| **Modify** | `mailserver/sql/reducers/jmap_email.sql` | `jmap_email_get`: include `pinnedAt` in output; `jmap_email_query`: prepend `m.pinned_at IS NOT NULL DESC` to sort order |
-| **Modify** | `mailserver/sql/reducers/jmap_email_submission.sql` | Accept `onSendUndoWindowSeconds` (default 30) — thread submission through scheduled-send pipeline when non-zero |
+| **New** | `sql/migrations/V017__pin_to_top.sql` | `ALTER TABLE messages ADD COLUMN pinned_at TIMESTAMPTZ` + index |
+| **Modify** | `sql/reducers/jmap_email.sql` | `jmap_email_get`: include `pinnedAt` in output; `jmap_email_query`: prepend `m.pinned_at IS NOT NULL DESC` to sort order |
+| **Modify** | `sql/reducers/jmap_email_submission.sql` | Accept `onSendUndoWindowSeconds` (default 30) — thread submission through scheduled-send pipeline when non-zero |
 
 ### Gateway (Go)
 
@@ -29,17 +29,17 @@
 
 | Action | File | What |
 |--------|------|------|
-| **Modify** | `mailserver/webmail/src/lib/components/ComposeModal.svelte` | Post-send undo toast with countdown; wire `sendAt` to `emailSubmissionSet` |
-| **Modify** | `mailserver/webmail/src/routes/inbox/+page.svelte` | Pin/unpin toggle in email toolbar; pinned sort section above inbox message list |
-| **New** | `mailserver/webmail/src/lib/components/SnoozePicker.svelte` | Date/time presets ("Later today", "Tomorrow", "This weekend", "Next week", custom) |
-| **Modify** | `mailserver/webmail/src/routes/inbox/+page.svelte` | Integrate SnoozePicker into email action bar; snooze count badge on Snoozed folder |
-| **Modify** | `mailserver/webmail/src/lib/jmap/client.ts` | Add `emailSubmissionCancel()` and `emailSubmissionSet` send-at parameter |
+| **Modify** | `webmail/src/lib/components/ComposeModal.svelte` | Post-send undo toast with countdown; wire `sendAt` to `emailSubmissionSet` |
+| **Modify** | `webmail/src/routes/inbox/+page.svelte` | Pin/unpin toggle in email toolbar; pinned sort section above inbox message list |
+| **New** | `webmail/src/lib/components/SnoozePicker.svelte` | Date/time presets ("Later today", "Tomorrow", "This weekend", "Next week", custom) |
+| **Modify** | `webmail/src/routes/inbox/+page.svelte` | Integrate SnoozePicker into email action bar; snooze count badge on Snoozed folder |
+| **Modify** | `webmail/src/lib/jmap/client.ts` | Add `emailSubmissionCancel()` and `emailSubmissionSet` send-at parameter |
 
 ### SQL Tests
 
 | Action | File | What |
 |--------|------|------|
-| **New** | `mailserver/sql/tests/undo_snooze_pin.pg` | pgTAP tests for pin sort order, undo-cancel flow, snooze-until timer |
+| **New** | `sql/tests/undo_snooze_pin.pg` | pgTAP tests for pin sort order, undo-cancel flow, snooze-until timer |
 
 ---
 

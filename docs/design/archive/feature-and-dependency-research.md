@@ -58,8 +58,8 @@ Cyrus IMAP is the oldest continuously maintained mail server in existence (Carne
 **Why:** SetJoin's current spam scoring is rules-based (SpamAssassin-style weighted rules). Stalwart's approach learns per-user preferences from Junk folder moves -- no manual rule tuning. The FTRL algorithm is simple enough to implement directly (no library needed; the core update is ~50 lines of Go). Feature hashing avoids the unbounded vocabulary problem of Bayesian classifiers.
 **Files to modify:**
 - `mailserver/internal/smtp/antispam.go` -- add FTRL classifier
-- `mailserver/sql/reducers/` -- new reducer `spam_train(p_account_id, p_message_id, p_is_spam)`
-- `mailserver/sql/migrations/` -- new table `spam_model(user_id, model_bytes, updated_at)`
+- `sql/reducers/` -- new reducer `spam_train(p_account_id, p_message_id, p_is_spam)`
+- `sql/migrations/` -- new table `spam_model(user_id, model_bytes, updated_at)`
 
 #### 2.2 Composable Check/Modify/Deliver Pipeline (from Maddy)
 
@@ -105,7 +105,7 @@ Cyrus IMAP is the oldest continuously maintained mail server in existence (Carne
 
 **What it is:** Cyrus uses Xapian (C++ search library) as a separate full-text search index. The research initially recommended Bleve (pure Go) or Meilisearch (Rust, HTTP API) as SetJoin's search backend.
 
-**Status:** Implemented via **pg_search** (ParadeDB BM25 extension) — `mailserver/sql/schema/036_pg_search.sql`. Replaces 3 GIN indexes (`messages_body_tsv_idx`, `messages_subject_tsv_idx`, `messages_from_tsv_idx`) with a single BM25 index on `(id, body_tsv, subject_tsv, from_tsv, received_at)`. Uses ICU tokenizer for CJK support. Paradb.score(id) provides relevance ranking. This is a better fit than Bleve or Meilisearch — it lives inside PostgreSQL (zero external services), uses the same connection pool, and benefits from existing backup/replication infrastructure.
+**Status:** Implemented via **pg_search** (ParadeDB BM25 extension) — `sql/schema/036_pg_search.sql`. Replaces 3 GIN indexes (`messages_body_tsv_idx`, `messages_subject_tsv_idx`, `messages_from_tsv_idx`) with a single BM25 index on `(id, body_tsv, subject_tsv, from_tsv, received_at)`. Uses ICU tokenizer for CJK support. Paradb.score(id) provides relevance ranking. This is a better fit than Bleve or Meilisearch — it lives inside PostgreSQL (zero external services), uses the same connection pool, and benefits from existing backup/replication infrastructure.
 
 **Why pg_search > Bleve for SetJoin:**
 - No external service — same PostgreSQL cluster, same backups, same HA
@@ -121,8 +121,8 @@ Cyrus IMAP is the oldest continuously maintained mail server in existence (Carne
 **Why:** Spam is subjective -- what one user considers spam, another considers a desired newsletter. Per-user models solve this. SetJoin already has the infrastructure: Junk folder tagging (Phase 17 tag system), a spam scoring pipeline (`internal/smtp/antispam.go`), and server-side rules. Adding per-user model persistence and training is a natural extension.
 **Files to modify:**
 - `mailserver/internal/smtp/antispam.go` -- per-user model loading, scoring, training on Junk/Not-Junk moves
-- `mailserver/sql/reducers/` -- `spam_train`, `spam_score`
-- `mailserver/sql/migrations/` -- `spam_model` table
+- `sql/reducers/` -- `spam_train`, `spam_score`
+- `sql/migrations/` -- `spam_model` table
 - `mailserver/internal/notify/` -- trigger model retraining on tag changes (`message_tags` INSERT/DELETE for Junk)
 
 #### 2.7 Milter Protocol Support (from Maddy / Cyrus)
@@ -177,7 +177,7 @@ Cyrus IMAP is the oldest continuously maintained mail server in existence (Carne
 
 | Dependency | Version | License | Replaces | Why Better | Effort |
 |---|---|---|---|---|---|
-| `github.com/blevesearch/bleve` | 2.5.x | Apache-2.0 | N/A (NOT NEEDED) | ~~Embedded full-text search in pure Go.~~ **Implemented via pg_search BM25 extension** (`mailserver/sql/schema/036_pg_search.sql`) — ParadeDB inside PostgreSQL, zero external services, ICU CJK tokenizer, relevance scoring. Better fit than Bleve for SetJoin's DB-centric architecture. | 0 days (already done) |
+| `github.com/blevesearch/bleve` | 2.5.x | Apache-2.0 | N/A (NOT NEEDED) | ~~Embedded full-text search in pure Go.~~ **Implemented via pg_search BM25 extension** (`sql/schema/036_pg_search.sql`) — ParadeDB inside PostgreSQL, zero external services, ICU CJK tokenizer, relevance scoring. Better fit than Bleve for SetJoin's DB-centric architecture. | 0 days (already done) |
 | `github.com/go-acme/lego/v4` | 4.x | MIT | None (new capability) | ACME client with 50+ DNS provider plugins. Used by Caddy, Traefik. Would power item 2.3 (ACME automation). More mature than `golang.org/x/crypto/acme` alone -- Lego adds the DNS provider ecosystem. | 2 days |
 | `github.com/google/koanf` | 2.x | Apache-2.0 | `internal/config/config.go` (env-var parsing) | Structured config with hot reload, multiple providers (env, file, S3, Vault), multiple formats (TOML, YAML, JSON, HCL). Stalwart's `registry` crate follows the same philosophy but in Rust. Koanf would let SetJoin move beyond env-var-only config to file-based config with hot reload -- same capability without the rewrite Stalwart did. | 3 days |
 | `github.com/prometheus/client_golang` | 1.22.x | Apache-2.0 | `internal/metrics/` (hand-rolled) | Prometheus metrics export. Both Maddy and Stalwart expose OpenMetrics/Prometheus endpoints. SetJoin already has metrics instrumentation (`internal/metrics/`) but no Prometheus exporter. Adding this enables Grafana dashboards and alerting for on-premise deployments. | 1 day |

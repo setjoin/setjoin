@@ -11,7 +11,7 @@
 # 2 accounts x 2,000 messages x 40 attachments, cold per pair.
 #
 # REUSE, not reinvention: the stack itself is started by the repo's existing
-# E2E loopback stack manager (mailserver/webmail/e2e/scripts/
+# E2E loopback stack manager (webmail/e2e/scripts/
 # start-test-stack.sh) via its documented E2E_* env surface — schema load,
 # cluster guard (scripts/ci/e2e-test-db-guard.sh), runtime roles, SeaweedFS,
 # authserver, gateway and rate-limit posture all come from that script. This
@@ -49,7 +49,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-STACK_SCRIPT="$ROOT/mailserver/webmail/e2e/scripts/start-test-stack.sh"
+STACK_SCRIPT="$ROOT/webmail/e2e/scripts/start-test-stack.sh"
 SEED_SQL="$ROOT/scripts/e6-fixture/seed-corpus.sql"
 RESET_SQL="$ROOT/scripts/e6-fixture/reset-pair.sql"
 ROUTES_JSON="$ROOT/docs/verification/connectivity-e6-class-routes.json"
@@ -294,7 +294,7 @@ EOF
   # E2E_* env surface. It loads the schema + runtime roles + e2e seed and
   # starts SeaweedFS, authserver and gateway on the fixture's ports.
   local skip_build=0
-  [ -f "$ROOT/mailserver/webmail/build/index.html" ] && skip_build=1
+  [ -f "$ROOT/webmail/build/index.html" ] && skip_build=1
 
   # The stack manager hardcodes LISTEN_ADDR=":${AUTH_PORT}" for the
   # authserver; the authserver's AUTHSERVERD-005 cleartext posture refuses

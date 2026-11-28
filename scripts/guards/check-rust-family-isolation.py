@@ -147,7 +147,7 @@ def scan_domain_sources(root: pathlib.Path, errors: list[str]) -> None:
 root = pathlib.Path(
     sys.argv[1]
     if len(sys.argv) > 1
-    else pathlib.Path(__file__).resolve().parents[2] / "server-rust"
+    else pathlib.Path(__file__).resolve().parents[2] / "server"
 ).resolve()
 try:
     command = [

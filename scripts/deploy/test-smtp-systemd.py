@@ -20,7 +20,7 @@ import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-ORACLE = ROOT / 'server-rust/crates/protocols/smtp/oracle'
+ORACLE = ROOT / 'server/crates/protocols/smtp/oracle'
 
 def run(*args, **kw):
     return subprocess.run(args, check=True, capture_output=True, text=True, **kw).stdout.strip()
@@ -99,7 +99,7 @@ def verify(binary):
         units = list(mappings.values()); installed=[]
         resolver=directory/'resolv.conf'; resolver.write_text('nameserver 127.26.5.26\noptions timeout:1 attempts:1\n'); resolver.chmod(0o644)
         print('Owned SMTP resources:',directory,units,'(removed on exit)',flush=True)
-        fixture = ROOT / 'server-rust/tests/conformance/directory-sync/ldap-fixture'
+        fixture = ROOT / 'server/tests/conformance/directory-sync/ldap-fixture'
         for original,target in [('server.pem','cert.pem'),('server.p8','key.pem')]:
             shutil.copyfile(fixture/original,directory/target); (directory/target).chmod(0o644)
         reservations=[]
@@ -130,7 +130,7 @@ def verify(binary):
         (directory/'gateway.env').write_text(f'CONFIG_PATH={bootstrap}\nGATEWAY_RUST_AUTH_UPSTREAM=http://127.0.0.1:9\nGO_LISTENERS_OFF=smtp,submission\nWORM_MODE=\n')
         env=dict(os.environ,INSTALL_DIR=str(directory),RUNTIME_DIR=str(directory),CONFIG_ENV=str(config),GATEWAY_ENV=str(directory/'gateway.env'),SMTP_ENV=str(directory/'smtp.env'),GATEWAY_LISTEN=f'127.0.0.1:{http_port}',FEDERATION_ENABLED='false')
         try:
-            run('bash','-c','source "$1"; configure_smtp_front "$2"; render_smtp_env "$3" "$2" /nonexistent; render_gateway_unit "$4" "$5"','render',str(ROOT/'mailserver/deploy/scripts/lib-livekit.sh'),str(config),str(directory/'smtp.env'),str(ROOT/'mailserver/deploy/setjoin-gateway.service.template'),str(directory/'setjoin-gateway.service'),env=env)
+            run('bash','-c','source "$1"; configure_smtp_front "$2"; render_smtp_env "$3" "$2" /nonexistent; render_gateway_unit "$4" "$5"','render',str(ROOT/'deploy/scripts/lib-livekit.sh'),str(config),str(directory/'smtp.env'),str(ROOT/'deploy/setjoin-gateway.service.template'),str(directory/'setjoin-gateway.service'),env=env)
             assert 'SMTP_FRONT_ENABLED=true' in config.read_text()
             for original,target in mappings.items():
                 text=(directory/original).read_text()
@@ -149,7 +149,7 @@ def verify(binary):
                 flags=dict(case['mail_auth']);flags['feature.smtp_inbound']=True;flags['feature.smtp_submission']=True
                 # NewStatic in the recorder explicitly disables every registered key.
                 # Missing DB rows otherwise inherit default-ON, so materialize them.
-                toggle_dir = ROOT / 'server-rust/crates/domains/platform/testdata/toggle'
+                toggle_dir = ROOT / 'server/crates/domains/platform/testdata/toggle'
                 newest_registry = max(toggle_dir.glob('registry-v*.json'), key=lambda p: int(re.search(r'v(\d+)', p.stem).group(1)))
                 keys = [d['key'] for d in json.loads(newest_registry.read_text())['definitions']]
                 seed='INSERT INTO feature_toggles(key,enabled) VALUES '+','.join('('+quote(k)+',false)' for k in keys)+' ON CONFLICT(key) DO UPDATE SET enabled=false;'

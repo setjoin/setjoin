@@ -2,7 +2,7 @@
 # ──────────────────────────────────────────────────────────────────────────
 # check-xinchuang-matrix.sh — the Xinchuang certification-matrix tripwire.
 #
-# mailserver/sql/xinchuang/ attests per-engine reducer compatibility, but its
+# sql/xinchuang/ attests per-engine reducer compatibility, but its
 # artifacts used to be hand-maintained in two directions at once: the README
 # claimed coverage the CSV never carried (and a "108/108" completeness claim
 # with a false denominator), while the CSV carried rows for functions that no
@@ -23,7 +23,7 @@
 #      one row per engine x dimension (gaussdb included; a missing engine row
 #      fails).
 #   3. SET CONSISTENCY (the mutation-stubbed step): every CSV row resolves to
-#      a live `CREATE FUNCTION` in mailserver/sql/reducers/; no duplicate
+#      a live `CREATE FUNCTION` in sql/reducers/; no duplicate
 #      rows; and unattested_functions.csv is the EXACT canonical complement —
 #      disjoint from the CSV, duplicate-free, live, universe-covering, and
 #      byte-identical to a regeneration (r2.3).
@@ -61,11 +61,11 @@ export LC_ALL=C
 
 ROOT="${XINCHUANG_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 GEN="$ROOT/scripts/dev/gen-xinchuang-doc.sh"
-REDUCERS_DIR="${XINCHUANG_REDUCERS_DIR:-$ROOT/mailserver/sql/reducers}"
-MATRIX_CSV="${XINCHUANG_MATRIX_CSV:-$ROOT/mailserver/sql/xinchuang/compatibility_matrix.csv}"
-CAPS_CSV="${XINCHUANG_CAPS_CSV:-$ROOT/mailserver/sql/xinchuang/engine_capabilities.csv}"
-README="${XINCHUANG_README:-$ROOT/mailserver/sql/xinchuang/README.md}"
-INVENTORY="${XINCHUANG_INVENTORY:-$ROOT/mailserver/sql/xinchuang/unattested_functions.csv}"
+REDUCERS_DIR="${XINCHUANG_REDUCERS_DIR:-$ROOT/sql/reducers}"
+MATRIX_CSV="${XINCHUANG_MATRIX_CSV:-$ROOT/sql/xinchuang/compatibility_matrix.csv}"
+CAPS_CSV="${XINCHUANG_CAPS_CSV:-$ROOT/sql/xinchuang/engine_capabilities.csv}"
+README="${XINCHUANG_README:-$ROOT/sql/xinchuang/README.md}"
+INVENTORY="${XINCHUANG_INVENTORY:-$ROOT/sql/xinchuang/unattested_functions.csv}"
 
 MATRIX_HEADER="function,description,polardb,opengauss,gaussdb,kingbase,dameng,oceanbase_pg,oceanbase_oracle,uses_digest,notes"
 CAPS_HEADER="engine,dimension,status,evidence"
@@ -658,10 +658,10 @@ case "${1:-}" in
     # artifacts, written to its own mktemp dir, and asserted to carry the
     # planted content BEFORE the guard runs. Every rejection must be asserted
     # with grep -qF on the named offender — never a bare nonzero exit.
-    real_csv="$ROOT/mailserver/sql/xinchuang/compatibility_matrix.csv"
-    real_caps="$ROOT/mailserver/sql/xinchuang/engine_capabilities.csv"
-    real_readme="$ROOT/mailserver/sql/xinchuang/README.md"
-    real_inv="$ROOT/mailserver/sql/xinchuang/unattested_functions.csv"
+    real_csv="$ROOT/sql/xinchuang/compatibility_matrix.csv"
+    real_caps="$ROOT/sql/xinchuang/engine_capabilities.csv"
+    real_readme="$ROOT/sql/xinchuang/README.md"
+    real_inv="$ROOT/sql/xinchuang/unattested_functions.csv"
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' EXIT
     guard_log="$tmpdir/guard.log"
@@ -833,7 +833,7 @@ case "${1:-}" in
     echo "  ✓ guard fires on numeric literals in prose (the 108/108-form completeness claim cannot return)."
 
     echo "==> xinchuang-matrix guard self-test (structured status/evidence: pass|partial|fail all validate AND render)"
-    caps_ref="mailserver/sql/xinchuang/README.md"
+    caps_ref="sql/xinchuang/README.md"
     capsok_dir="$tmpdir/caps-statuses"
     sed -e "s|^polardb,plpgsql,untested,\$|polardb,plpgsql,pass@$caps_ref,|" \
       -e "s|^polardb,listen_notify,untested,\$|polardb,listen_notify,partial,$caps_ref|" \
@@ -885,9 +885,9 @@ case "${1:-}" in
     # critical-path functions) instead of naming the escaping ref.
     build_escape_fixture() { # $1 = fixture root, $2 = matrix evidence ref
       local root="$1" ref="$2" eng dim
-      mkdir -p "$root/scripts/dev" "$root/mailserver/sql/reducers" "$root/mailserver/sql/xinchuang" "$root/docs"
+      mkdir -p "$root/scripts/dev" "$root/sql/reducers" "$root/sql/xinchuang" "$root/docs"
       # shellcheck disable=SC2016  # plpgsql body is literal; $$ must not expand
-      printf 'CREATE OR REPLACE FUNCTION fixture_symlink_probe(p_id bigint)\nLANGUAGE plpgsql AS $$BEGIN RETURN; END$$;\n' >"$root/mailserver/sql/reducers/fixture_probe.sql"
+      printf 'CREATE OR REPLACE FUNCTION fixture_symlink_probe(p_id bigint)\nLANGUAGE plpgsql AS $$BEGIN RETURN; END$$;\n' >"$root/sql/reducers/fixture_probe.sql"
       cp "$GEN" "$root/scripts/dev/gen-xinchuang-doc.sh"
       printf 'real evidence file that lives inside the fixture root\n' >"$root/docs/real-evidence.md"
       printf 'real evidence file for the retained Astra r6 erasure fixtures\n' >"$root/docs/real.md"
@@ -918,30 +918,30 @@ case "${1:-}" in
       {
         printf '%s\n' "$MATRIX_HEADER"
         printf 'fixture_symlink_probe,Symlink escape probe,pass@%s,untested,untested,untested,untested,untested,untested,no,probe\n' "$ref"
-      } >"$root/mailserver/sql/xinchuang/compatibility_matrix.csv"
+      } >"$root/sql/xinchuang/compatibility_matrix.csv"
       {
         printf '%s\n' "$CAPS_HEADER"
         for eng in "${ENGINES[@]}"; do
           for dim in "${DIMENSIONS[@]}"; do printf '%s,%s,untested,\n' "$eng" "$dim"; done
         done
-      } >"$root/mailserver/sql/xinchuang/engine_capabilities.csv"
+      } >"$root/sql/xinchuang/engine_capabilities.csv"
       {
         echo "Symlink escape probe fixture."
         echo
         echo "$BEGIN_SENTINEL"
         echo "placeholder"
         echo "$END_SENTINEL"
-      } >"$root/mailserver/sql/xinchuang/README.md"
-      : >"$root/mailserver/sql/xinchuang/unattested_functions.csv"
+      } >"$root/sql/xinchuang/README.md"
+      : >"$root/sql/xinchuang/unattested_functions.csv"
       # The fixture render is fixture-mode: row-source validation (including
       # the resolver) is bypassed, so the planted cell survives the render and
       # the GUARD's checks own every rejection (r2.4 attribution shape).
       XINCHUANG_MATRIX_FIXTURES=1 XINCHUANG_ROOT="$root" \
         bash "$root/scripts/dev/gen-xinchuang-doc.sh" >"$root/render.log" 2>&1 ||
         setup_fail "symlink fixture render failed for $root: $(cat "$root/render.log")"
-      grep -qF "pass@$ref" "$root/mailserver/sql/xinchuang/compatibility_matrix.csv" ||
+      grep -qF "pass@$ref" "$root/sql/xinchuang/compatibility_matrix.csv" ||
         setup_fail "symlink fixture does not carry the planted evidence ref $ref."
-      if grep -qF 'fixture_symlink_probe' "$root/mailserver/sql/xinchuang/unattested_functions.csv"; then
+      if grep -qF 'fixture_symlink_probe' "$root/sql/xinchuang/unattested_functions.csv"; then
         setup_fail "symlink fixture inventory unexpectedly carries fixture_symlink_probe (it is CSV-covered; the complement must be empty)."
       fi
     }
@@ -1361,11 +1361,11 @@ case "${1:-}" in
     capsschema_dir="$tmpdir/caps-bad-schema"
     sed -e "s|^polardb,pg_trgm,untested,\$|polardb,pg_trgm,untested,$caps_ref|" \
       -e 's|^polardb,rls_semantics,untested,$|polardb,rls_semantics,partial,|' \
-      -e "s|^polardb,grants_role_separation,untested,\$|polardb,grants_role_separation,pass@$caps_ref,mailserver/sql/xinchuang/engine_capabilities.csv|" \
+      -e "s|^polardb,grants_role_separation,untested,\$|polardb,grants_role_separation,pass@$caps_ref,sql/xinchuang/engine_capabilities.csv|" \
       "$real_caps" >"$tmpdir/caps-bad-schema.csv"
     grep -qF "polardb,pg_trgm,untested,$caps_ref" "$tmpdir/caps-bad-schema.csv" || setup_fail "schema fixture does not carry the untested-with-evidence row."
     grep -qF 'polardb,rls_semantics,partial,' "$tmpdir/caps-bad-schema.csv" || setup_fail "schema fixture does not carry the bare-status-without-evidence row."
-    grep -qF "polardb,grants_role_separation,pass@$caps_ref,mailserver/sql/xinchuang/engine_capabilities.csv" "$tmpdir/caps-bad-schema.csv" || setup_fail "schema fixture does not carry the conflicting-refs row."
+    grep -qF "polardb,grants_role_separation,pass@$caps_ref,sql/xinchuang/engine_capabilities.csv" "$tmpdir/caps-bad-schema.csv" || setup_fail "schema fixture does not carry the conflicting-refs row."
     produce_triple "$real_csv" "$capsschema_dir" "$real_inv" "$tmpdir/caps-bad-schema.csv"
     if run_on_dir "$capsschema_dir" "$guard_log"; then
       fail "guard accepted capability rows outside the structured status/evidence schema."
@@ -1548,7 +1548,7 @@ if run_guard; then
   exit 0
 else
   echo "" >&2
-  echo "  Xinchuang matrix drift (see ✗ lines). Sources of truth: mailserver/sql/xinchuang/" >&2
+  echo "  Xinchuang matrix drift (see ✗ lines). Sources of truth: sql/xinchuang/" >&2
   echo "  {compatibility_matrix.csv,engine_capabilities.csv,unattested_functions.csv} + the live" >&2
   echo "  reducer functions. Regenerate with scripts/dev/gen-xinchuang-doc.sh; the guard owns the rest." >&2
   exit 1

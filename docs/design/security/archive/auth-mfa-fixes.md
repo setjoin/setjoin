@@ -63,7 +63,7 @@ Fix 13 auth/MFA security findings from the full-codebase quality audit. These ar
 
 **Fix:** Add `common_passwords` lookup table (top 10k leaked passwords, bcrypt-hashed). Before accepting new password, check its hash against the table. Also check password doesn't contain user's email or display_name.
 
-**Files:** `authserver/internal/handlers/auth.go` line 322, `mailserver/sql/reducers/auth_policy.sql` line 7, new migration
+**Files:** `authserver/internal/handlers/auth.go` line 322, `sql/reducers/auth_policy.sql` line 7, new migration
 
 ### 8. Refresh Token INSERT Error Ignored
 
@@ -141,7 +141,7 @@ Seeded with top 10k common passwords. Checked during password validation: `SELEC
 - `authserver/internal/handlers/auth.go` — Login, Refresh, ChangePassword, verifyPassword, issueTokens, createJITUser
 - `authserver/internal/handlers/totp.go` — TOTP setup, confirm, verify
 - `authserver/internal/handlers/webauthn.go` — WebAuthn registration, login
-- `mailserver/sql/reducers/auth_policy.sql` — validate_password PL/pgSQL function
+- `sql/reducers/auth_policy.sql` — validate_password PL/pgSQL function
 - `mailserver/internal/admin/admin_users.go` — CreateUser handler
 - `shared/validate/password.go` — Spec A password validator
 - `shared/httputil/problem.go` — Spec B RFC 7807 error responses

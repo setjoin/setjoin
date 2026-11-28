@@ -11,10 +11,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SCAN_ROOT="${WORKER_SUPERVISOR_SCAN_ROOT:-$ROOT/server-rust}"
+SCAN_ROOT="${WORKER_SUPERVISOR_SCAN_ROOT:-$ROOT/server}"
 
 # Frozen per-file occurrence ceilings for legacy pre-Wave-2.2 files calling
-# `WorkerDatabase::from_dsns` (relative to server-rust/). Shrinking counts or
+# `WorkerDatabase::from_dsns` (relative to server/). Shrinking counts or
 # removing files is allowed; exceeding any ceiling or adding a new file fails CI.
 ALLOWLIST=(
   "bins/auth/src/main.rs:1"

@@ -9,22 +9,22 @@
 ## Files to Delete (17 files, 2 directories)
 
 ### Docker deployment files
-- `mailserver/deploy/Dockerfile.gateway` — multi-stage Alpine build for gateway
-- `mailserver/deploy/Dockerfile.postgres` — custom Postgres image
-- `mailserver/deploy/docker-compose.yml` — full local dev stack
-- `mailserver/deploy/docker-compose.prod.yml` — production compose override
-- `mailserver/deploy/docker/initdb/01-run-migrations.sh` — Docker init migration runner
-- `mailserver/deploy/docker/initdb/02-seed.sql` — Docker test seed data
-- `mailserver/deploy/docker/gateway-entrypoint.sh` — TLS cert generator entrypoint
+- `deploy/Dockerfile.gateway` — multi-stage Alpine build for gateway
+- `deploy/Dockerfile.postgres` — custom Postgres image
+- `deploy/docker-compose.yml` — full local dev stack
+- `deploy/docker-compose.prod.yml` — production compose override
+- `deploy/docker/initdb/01-run-migrations.sh` — Docker init migration runner
+- `deploy/docker/initdb/02-seed.sql` — Docker test seed data
+- `deploy/docker/gateway-entrypoint.sh` — TLS cert generator entrypoint
 - `authserver/deploy/Dockerfile` — authserver multi-stage Alpine build
 - `authserver/deploy/docker-compose-auth.yaml` — standalone auth + shared PG
 
 ### Empty placeholder
-- `mailserver/deploy/helm/` — empty directory, remove entirely
+- `deploy/helm/` — empty directory, remove entirely
 
 ### Cleanup after deletion
-- `mailserver/deploy/docker/initdb/` — remove empty dir
-- `mailserver/deploy/docker/` — keep (still contains test-imap/, test-smtp/, test-ldap/)
+- `deploy/docker/initdb/` — remove empty dir
+- `deploy/docker/` — keep (still contains test-imap/, test-smtp/, test-ldap/)
 
 ---
 
@@ -76,10 +76,10 @@
 ### mailserver/gateway/internal/config/config.go
 - Line 12: Change "Docker env files, or Kubernetes secrets" → "or environment files"
 
-### mailserver/webmail/src/routes/admin/system/+page.svelte
+### webmail/src/routes/admin/system/+page.svelte
 - Line 60: Change "Docker/systemd restarts it" → "systemd restarts it"
 
-### mailserver/webmail/playwright.config.ts
+### webmail/playwright.config.ts
 - Line 13: Remove "Docker" from comment
 
 ### docs/design/
@@ -91,11 +91,11 @@
 
 These files are test fixtures, not deployment artifacts:
 
-- `mailserver/deploy/docker-compose.test.yml`
-- `mailserver/deploy/test.sh`
-- `mailserver/deploy/docker/test-imap/*` (5 files)
-- `mailserver/deploy/docker/test-smtp/*` (5 files)
-- `mailserver/deploy/docker/test-ldap/*` (5 files)
+- `deploy/docker-compose.test.yml`
+- `deploy/test.sh`
+- `deploy/docker/test-imap/*` (5 files)
+- `deploy/docker/test-smtp/*` (5 files)
+- `deploy/docker/test-ldap/*` (5 files)
 - `mailserver/gateway/internal/testutil/docker.go`
 - `mailserver/gateway/internal/testutil/docker_test.go`
 - `mailserver/gateway/internal/migration/imap_client_docker_test.go`
@@ -111,4 +111,4 @@ After changes:
 3. `grep -r "kubernetes\|k8s\|Kubernetes" docs/` should return zero results
 4. `bash scripts/dev.sh` should work without Docker
 5. Go build: `cd mailserver/gateway && go build ./...`
-6. Webmail check: `cd mailserver/webmail && npm run check`
+6. Webmail check: `cd webmail && npm run check`

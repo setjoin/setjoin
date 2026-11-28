@@ -21,8 +21,8 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 GUARD="$ROOT/scripts/guards/check-identity-predicate.sh"
-REAL_REDUCER="$ROOT/mailserver/sql/reducers/resolve_identity.sql"
-REAL_CONNECTOR="$ROOT/server-rust/crates/domains/identity/src/sql.rs"
+REAL_REDUCER="$ROOT/sql/reducers/resolve_identity.sql"
+REAL_CONNECTOR="$ROOT/server/crates/domains/identity/src/sql.rs"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

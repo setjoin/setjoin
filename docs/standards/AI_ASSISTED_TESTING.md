@@ -181,7 +181,7 @@ and Playwright JSON. Each binding names its `merge` or `release` gate class;
 Go and pgTAP reports are retained by CI for 14 days, while the explicit browser
 lane retains the mutable suite's explicit origin separately from the isolated
 static-CSP origin, JSON verdicts, failure traces/screenshots, and Guest
-terminal-state screenshots under `mailserver/webmail/test-results/`.
+terminal-state screenshots under `webmail/test-results/`.
 
 This restriction is deliberate: merely pointing at a Go, Vitest, pgTAP, or
 Playwright file does not prove that a named case executed or was not skipped.

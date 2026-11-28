@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # check-audit-coverage.sh — WP3 audit-coverage guard (review-remediation wave).
 #
-# Enforces scripts/guards/audit-coverage.tsv against the ACTUAL mailserver/sql/reducers
+# Enforces scripts/guards/audit-coverage.tsv against the ACTUAL sql/reducers
 # tree: every defined function is classified exactly once, MUST functions call
 # audit_write() in their OWN body, exemptions carry real reasons, and READ_ONLY
 # rows are re-derived (a READ_ONLY row whose body now mutates fails). This is
@@ -15,12 +15,12 @@
 # this guard owns the CALL-side coverage contract.
 #
 # Env overrides (self-test harness):
-#   AUDIT_REDUCERS_ROOT  default mailserver/sql/reducers
+#   AUDIT_REDUCERS_ROOT  default sql/reducers
 #   AUDIT_COVERAGE_TSV   default scripts/guards/audit-coverage.tsv
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-REDUCERS_ROOT="${AUDIT_REDUCERS_ROOT:-$ROOT/mailserver/sql/reducers}"
+REDUCERS_ROOT="${AUDIT_REDUCERS_ROOT:-$ROOT/sql/reducers}"
 TSV="${AUDIT_COVERAGE_TSV:-$ROOT/scripts/guards/audit-coverage.tsv}"
 
 if [ ! -f "$TSV" ]; then

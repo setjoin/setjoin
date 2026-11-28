@@ -1,0 +1,1016 @@
+{
+  "version": 1,
+  "inventory": [
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "oracle_commands": [
+        "MailWork/get",
+        "MailWork/changes",
+        "MailWork/set",
+        "MailWork/action",
+        "MailWorkCollaborators/get",
+        "MailWorkPolicy/get",
+        "MailWorkPolicy/set",
+        "MailWorkNotificationPreferences/get",
+        "MailWorkNotificationPreferences/set",
+        "MailWorkMetrics/get"
+      ],
+      "oracle_mutators": [
+        "MailWork/set",
+        "MailWork/action",
+        "MailWorkPolicy/set",
+        "MailWorkNotificationPreferences/set"
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "MailWork/get",
+      "gate": "read",
+      "app": "",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mail_work.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-get-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_get_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-get-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_get_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-get-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_get_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-allowed",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-get-delegate-allowed.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_get_delegate_allowed"
+          }
+        },
+        {
+          "kind": "delegate-insufficient",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-get-delegate-insufficient.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_get_delegate_insufficient"
+          }
+        },
+        {
+          "kind": "delegate-revoked",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-get-delegate-revoked.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_get_delegate_revoked"
+          }
+        },
+        {
+          "kind": "suspended",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-get-suspended.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_get_suspended"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_374",
+        "test": "mail_work_get_status_mutant"
+      },
+      "family_mutants": [
+        {
+          "name": "no-tenant-filter",
+          "package": "setjoin-gateway",
+          "target": "jmap_family_374",
+          "test": "mail_work_get_no_tenant_filter_mutant"
+        }
+      ]
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "MailWork/changes",
+      "gate": "read",
+      "app": "",
+      "account": true,
+      "mutator": false,
+      "state": true,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mail_work.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-changes-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_changes_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-changes-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_changes_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-changes-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_changes_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-allowed",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-changes-delegate-allowed.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_changes_delegate_allowed"
+          }
+        },
+        {
+          "kind": "delegate-insufficient",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-changes-delegate-insufficient.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_changes_delegate_insufficient"
+          }
+        },
+        {
+          "kind": "delegate-revoked",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-changes-delegate-revoked.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_changes_delegate_revoked"
+          }
+        },
+        {
+          "kind": "suspended",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-changes-suspended.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_changes_suspended"
+          }
+        },
+        {
+          "kind": "state-mismatch",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-changes-state-mismatch.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_changes_state_mismatch"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_374",
+        "test": "mail_work_changes_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "MailWork/set",
+      "gate": "collaborate",
+      "app": "",
+      "account": true,
+      "mutator": true,
+      "state": true,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mail_work.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_set_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_set_repeat"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-cross-tenant.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-cross-tenant-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_set_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_set_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-allowed",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-delegate-allowed.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-delegate-allowed-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_set_delegate_allowed"
+          }
+        },
+        {
+          "kind": "delegate-insufficient",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-delegate-insufficient.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-delegate-insufficient-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_set_delegate_insufficient"
+          }
+        },
+        {
+          "kind": "delegate-revoked",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-delegate-revoked.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-delegate-revoked-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_set_delegate_revoked"
+          }
+        },
+        {
+          "kind": "suspended",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-suspended.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-suspended-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_set_suspended"
+          }
+        },
+        {
+          "kind": "state-mismatch",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-state-mismatch.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-set-state-mismatch-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_set_state_mismatch"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_374",
+        "test": "mail_work_set_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "MailWork/action",
+      "gate": "collaborate",
+      "app": "",
+      "account": true,
+      "mutator": true,
+      "state": true,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mail_work.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_action_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_action_repeat"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-cross-tenant.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-cross-tenant-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_action_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_action_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-allowed",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-delegate-allowed.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-delegate-allowed-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_action_delegate_allowed"
+          }
+        },
+        {
+          "kind": "delegate-insufficient",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-delegate-insufficient.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-delegate-insufficient-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_action_delegate_insufficient"
+          }
+        },
+        {
+          "kind": "delegate-revoked",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-delegate-revoked.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-delegate-revoked-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_action_delegate_revoked"
+          }
+        },
+        {
+          "kind": "suspended",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-suspended.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-suspended-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_action_suspended"
+          }
+        },
+        {
+          "kind": "state-mismatch",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-state-mismatch.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-action-state-mismatch-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_action_state_mismatch"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_374",
+        "test": "mail_work_action_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "MailWorkCollaborators/get",
+      "gate": "read",
+      "app": "",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mail_work.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-collaborators-get-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_collaborators_get_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-collaborators-get-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_collaborators_get_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-collaborators-get-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_collaborators_get_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-allowed",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-collaborators-get-delegate-allowed.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_collaborators_get_delegate_allowed"
+          }
+        },
+        {
+          "kind": "delegate-insufficient",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-collaborators-get-delegate-insufficient.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_collaborators_get_delegate_insufficient"
+          }
+        },
+        {
+          "kind": "delegate-revoked",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-collaborators-get-delegate-revoked.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_collaborators_get_delegate_revoked"
+          }
+        },
+        {
+          "kind": "suspended",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-collaborators-get-suspended.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_collaborators_get_suspended"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_374",
+        "test": "mail_work_collaborators_get_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "MailWorkPolicy/get",
+      "gate": "read",
+      "app": "",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mail_work.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-get-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_get_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-get-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_get_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-get-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_get_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-allowed",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-get-delegate-allowed.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_get_delegate_allowed"
+          }
+        },
+        {
+          "kind": "delegate-insufficient",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-get-delegate-insufficient.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_get_delegate_insufficient"
+          }
+        },
+        {
+          "kind": "delegate-revoked",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-get-delegate-revoked.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_get_delegate_revoked"
+          }
+        },
+        {
+          "kind": "suspended",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-get-suspended.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_get_suspended"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_374",
+        "test": "mail_work_policy_get_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "MailWorkPolicy/set",
+      "gate": "collaborate",
+      "app": "",
+      "account": true,
+      "mutator": true,
+      "state": true,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mail_work.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_set_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_set_repeat"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-cross-tenant.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-cross-tenant-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_set_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_set_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-allowed",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-delegate-allowed.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-delegate-allowed-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_set_delegate_allowed"
+          }
+        },
+        {
+          "kind": "delegate-insufficient",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-delegate-insufficient.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-delegate-insufficient-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_set_delegate_insufficient"
+          }
+        },
+        {
+          "kind": "delegate-revoked",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-delegate-revoked.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-delegate-revoked-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_set_delegate_revoked"
+          }
+        },
+        {
+          "kind": "suspended",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-suspended.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-suspended-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_set_suspended"
+          }
+        },
+        {
+          "kind": "state-mismatch",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-state-mismatch.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-policy-set-state-mismatch-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_policy_set_state_mismatch"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_374",
+        "test": "mail_work_policy_set_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "MailWorkNotificationPreferences/get",
+      "gate": "read",
+      "app": "",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mail_work.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-get-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_get_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-get-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_get_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-get-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_get_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-allowed",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-get-delegate-allowed.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_get_delegate_allowed"
+          }
+        },
+        {
+          "kind": "delegate-insufficient",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-get-delegate-insufficient.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_get_delegate_insufficient"
+          }
+        },
+        {
+          "kind": "delegate-revoked",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-get-delegate-revoked.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_get_delegate_revoked"
+          }
+        },
+        {
+          "kind": "suspended",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-get-suspended.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_get_suspended"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_374",
+        "test": "mail_work_notification_preferences_get_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "MailWorkNotificationPreferences/set",
+      "gate": "collaborate",
+      "app": "",
+      "account": true,
+      "mutator": true,
+      "state": true,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mail_work.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_set_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_set_repeat"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-cross-tenant.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-cross-tenant-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_set_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_set_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-allowed",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-delegate-allowed.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-delegate-allowed-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_set_delegate_allowed"
+          }
+        },
+        {
+          "kind": "delegate-insufficient",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-delegate-insufficient.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-delegate-insufficient-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_set_delegate_insufficient"
+          }
+        },
+        {
+          "kind": "delegate-revoked",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-delegate-revoked.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-delegate-revoked-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_set_delegate_revoked"
+          }
+        },
+        {
+          "kind": "suspended",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-suspended.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-suspended-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_set_suspended"
+          }
+        },
+        {
+          "kind": "state-mismatch",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-state-mismatch.json",
+          "row_golden": "server/tests/conformance/jmap/families/mail_work/mail-work-notification-preferences-set-state-mismatch-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_notification_preferences_set_state_mismatch"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_374",
+        "test": "mail_work_notification_preferences_set_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "MailWorkMetrics/get",
+      "gate": "read",
+      "app": "",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mail_work.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-metrics-get-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_metrics_get_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-metrics-get-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_metrics_get_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-metrics-get-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_metrics_get_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-allowed",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-metrics-get-delegate-allowed.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_metrics_get_delegate_allowed"
+          }
+        },
+        {
+          "kind": "delegate-insufficient",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-metrics-get-delegate-insufficient.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_metrics_get_delegate_insufficient"
+          }
+        },
+        {
+          "kind": "delegate-revoked",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-metrics-get-delegate-revoked.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_metrics_get_delegate_revoked"
+          }
+        },
+        {
+          "kind": "suspended",
+          "golden": "server/tests/conformance/jmap/families/mail_work/mail-work-metrics-get-suspended.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_374",
+            "test": "mail_work_metrics_get_suspended"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_374",
+        "test": "mail_work_metrics_get_status_mutant"
+      }
+    }
+  ]
+}

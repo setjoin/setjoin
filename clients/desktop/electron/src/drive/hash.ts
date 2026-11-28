@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { open } from 'node:fs/promises';
-import { CHUNK_SIZE, SHA256_EMPTY, type ChunkRef, type Manifest } from '../../../../../mailserver/webmail/src/lib/drive/sync/types.js';
+import { CHUNK_SIZE, SHA256_EMPTY, type ChunkRef, type Manifest } from '../../../../../webmail/src/lib/drive/sync/types.js';
 
 export async function hashFile(absPath: string): Promise<Manifest> {
 	const whole = createHash('sha256');

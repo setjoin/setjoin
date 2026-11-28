@@ -211,6 +211,6 @@ shared/middleware/requestid.go     — Request ID middleware
 ## References
 
 - RFC 7807 — Problem Details for HTTP APIs (saved at docs/ref/rfcs/rfc7807-problem-details.txt)
-- `mailserver/webmail/src/lib/i18n/` — existing i18n keys (en.ts, zh.ts, de.ts)
+- `webmail/src/lib/i18n/` — existing i18n keys (en.ts, zh.ts, de.ts)
 - `shared/httputil/httputil.go:25` — existing WriteError (deprecated by this spec)
 - Audit findings: 50+ error/logging gaps from quality audit

@@ -4,7 +4,7 @@ import pathlib
 import sys
 import tomllib
 
-root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else pathlib.Path(__file__).resolve().parents[2] / "server-rust")
+root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else pathlib.Path(__file__).resolve().parents[2] / "server")
 try:
     with (root / "deny.toml").open("rb") as policy_file:
         policy = tomllib.load(policy_file)

@@ -16,14 +16,14 @@ The check runs **at delivery time** in the SMTP inbound path — `inConnState.de
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `mailserver/sql/schema/040_external_sender_flags.sql` | New | Add `is_external BOOL NOT NULL DEFAULT FALSE` + `sender_display_name TEXT` columns to `messages` table; seed feature toggles |
-| `mailserver/sql/reducers/deliver_group_vacation.sql` | Modify | Accept `p_is_external` param; set `is_external` + `sender_display_name` on INSERT |
+| `sql/schema/040_external_sender_flags.sql` | New | Add `is_external BOOL NOT NULL DEFAULT FALSE` + `sender_display_name TEXT` columns to `messages` table; seed feature toggles |
+| `sql/reducers/deliver_group_vacation.sql` | Modify | Accept `p_is_external` param; set `is_external` + `sender_display_name` on INSERT |
 | `mailserver/gateway/internal/smtp/inbound.go` | Modify | Add `isExternal()` domain check + `isNameLookalike()` in `deliver()`; pass flag through `storeAndDeliver()` to reducer |
 | `mailserver/gateway/internal/handlers/jmap_email.go` | Modify | Expose `isExternal` + `senderDisplayName` in JMAP `Email/get` response |
-| `mailserver/webmail/src/lib/types/jmap.ts` | Modify | Add `isExternal?: boolean`, `senderDisplayName?: string` to Email type |
-| `mailserver/webmail/src/routes/inbox/+page.svelte` | Modify | Render external-sender banner in thread list |
-| `mailserver/webmail/src/lib/components/ExternalSenderBanner.svelte` | New | Glass-surface amber banner with icon + dismissible warning text; used in thread view and compose reply |
-| `mailserver/sql/tests/external_sender_banners.pg` | New | pgTAP tests for is_external flag + name-spoofing edge cases |
+| `webmail/src/lib/types/jmap.ts` | Modify | Add `isExternal?: boolean`, `senderDisplayName?: string` to Email type |
+| `webmail/src/routes/inbox/+page.svelte` | Modify | Render external-sender banner in thread list |
+| `webmail/src/lib/components/ExternalSenderBanner.svelte` | New | Glass-surface amber banner with icon + dismissible warning text; used in thread view and compose reply |
+| `sql/tests/external_sender_banners.pg` | New | pgTAP tests for is_external flag + name-spoofing edge cases |
 | **Total** | **~250 LOC** | **~8 files** |
 
 ## Key Design Decisions

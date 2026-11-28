@@ -4,7 +4,7 @@
 # (test-contract row MP-AUDIO-001, amended 2026-09-23; plan
 # retired-docs:superpowers/plans/2026-08-25-meet-document-presentation-semantic-recording.md
 # M4 bullet 1). The .mjs owns all behavior — pin parsing from
-# mailserver/deploy/scripts/lib-livekit.sh, service provisioning, the
+# deploy/scripts/lib-livekit.sh, service provisioning, the
 # RoomComposite audio probes, receipt schema validation and sealing — and
 # documents the three binding row-32 rules (receipt-only/no-promotion,
 # missing-service = evidence_pending non-zero failure never a skip, never a

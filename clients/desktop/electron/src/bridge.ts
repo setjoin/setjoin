@@ -3,14 +3,14 @@
 //! function) so the contract shape is unit-testable without a renderer.
 //!
 //! Implements the FULL current `SetjoinNativeBridge` from
-//! `mailserver/webmail/src/lib/native/types.ts` — including the drift the Tauri
+//! `webmail/src/lib/native/types.ts` — including the drift the Tauri
 //! shell never implemented: vault.unlockPassphrase (aliases unlock),
 //! vault.unlockBiometric → honest false, vault.isEnrolled → honest false.
 
 export const BRIDGE_VERSION = 1;
 
 /** Version of the `vault.*` sub-shape, independent of BRIDGE_VERSION (C2 Task 2 Step 3b —
- *  mirrors `mailserver/webmail/src/lib/native/types.ts` VAULT_VERSION). */
+ *  mirrors `webmail/src/lib/native/types.ts` VAULT_VERSION). */
 export const VAULT_VERSION = 1;
 
 /**
@@ -33,7 +33,7 @@ export const DESKTOP_CAPABILITIES = [
 ] as const;
 
 /** Drive P2's FolderMirror sub-shape version (mirrors DRIVE_MIRROR_VERSION in
- *  mailserver/webmail/src/lib/native/types.ts). */
+ *  webmail/src/lib/native/types.ts). */
 export const DRIVE_MIRROR_VERSION = 3;
 
 export type Invoke = (channel: string, ...args: unknown[]) => Promise<unknown>;

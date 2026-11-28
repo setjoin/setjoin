@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, rename, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { LocalChange } from '../../../../../mailserver/webmail/src/lib/drive/sync/types.js';
+import type { LocalChange } from '../../../../../webmail/src/lib/drive/sync/types.js';
 import { MirrorWatcher } from './watcher.js';
 
 // FS-timing suite: @parcel/watcher runs headless but event delivery + our

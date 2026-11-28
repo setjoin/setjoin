@@ -104,8 +104,8 @@ The three domestic databases are PostgreSQL-protocol-compatible to varying degre
 
 | File | Purpose |
 |------|---------|
-| `mailserver/sql/xinchuang/README.md` | PL/pgSQL → SQL/PSM translation guide: syntax differences, unsupported features, workarounds, tested function inventory |
-| `mailserver/sql/xinchuang/compatibility_matrix.csv` | Per-reducer compatibility status: function name, PG native (✅), PolarDB for PostgreSQL (✅/⚠️),  (status),  (status), notes |
+| `sql/xinchuang/README.md` | PL/pgSQL → SQL/PSM translation guide: syntax differences, unsupported features, workarounds, tested function inventory |
+| `sql/xinchuang/compatibility_matrix.csv` | Per-reducer compatibility status: function name, PG native (✅), PolarDB for PostgreSQL (✅/⚠️),  (status),  (status), notes |
 
 ### Cryptographic Layer (integrate with Stage 3.2)
 

@@ -396,8 +396,8 @@ systemctl start mailserver
 | `mailserver/gateway/internal/admin/admin_upgrade.go` | 升级 API 处理器 |
 | `mailserver/gateway/internal/admin/admin_upgrade_test.go` | 测试 |
 | `mailserver/cmd/mailctl/upgrade.go` | mailctl upgrade 子命令 |
-| `mailserver/webmail/src/lib/admin/client.ts` | 前端 API 类型 |
-| `mailserver/webmail/src/routes/admin/system/+page.svelte` | 升级 UI 组件（追加到现有 system 页面） |
+| `webmail/src/lib/admin/client.ts` | 前端 API 类型 |
+| `webmail/src/routes/admin/system/+page.svelte` | 升级 UI 组件（追加到现有 system 页面） |
 | `scripts/upgrade.sh` | 一行包装 → `mailctl upgrade apply` |
 | `scripts/install.sh` | 首次安装 |
 
@@ -706,9 +706,9 @@ mailctl auto-update
 | `mailserver/cmd/mailctl/upgrade.go` | mailctl upgrade 子命令 |
 | `mailserver/cmd/mailctl/system.go` | mailctl system 子命令 |
 | `mailserver/cmd/mailctl/autoupdate.go` | mailctl auto-update 子命令 |
-| `mailserver/webmail/src/lib/admin/client.ts` | 前端 API 类型 |
-| `mailserver/webmail/src/routes/admin/system/+page.svelte` | 完整 System 页面 |
-| `mailserver/sql/migrations/V032__upgrade_history.sql` | upgrade_history + auto_update_config 表 |
+| `webmail/src/lib/admin/client.ts` | 前端 API 类型 |
+| `webmail/src/routes/admin/system/+page.svelte` | 完整 System 页面 |
+| `sql/migrations/V032__upgrade_history.sql` | upgrade_history + auto_update_config 表 |
 | `scripts/upgrade.sh` | 一行包装 → `mailctl upgrade apply "$@"` |
 | `scripts/install.sh` | 首次安装 |
 | `mailserver.service` | systemd unit（含 ExecReload） |

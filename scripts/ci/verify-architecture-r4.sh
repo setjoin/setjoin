@@ -146,16 +146,16 @@ run_lane_command() {
     units) bash "$ROOT/scripts/check-deploy-unit-catalog.sh" --self-test ;;
     gomods) bash "$ROOT/scripts/check-go-module-catalog.sh" && bash "$ROOT/scripts/check-go-module-catalog.sh" --self-test ;;
     tasks)
-      (cd "$ROOT/mailserver/webmail" && npm exec vitest run src/lib/tasks/actionCoordinator.test.ts src/lib/components/TasksApp.behavior.test.ts src/lib/components/ui/Toast.test.ts)
-      (cd "$ROOT/mailserver/webmail" && npm run check)
+      (cd "$ROOT/webmail" && npm exec vitest run src/lib/tasks/actionCoordinator.test.ts src/lib/components/TasksApp.behavior.test.ts src/lib/components/ui/Toast.test.ts)
+      (cd "$ROOT/webmail" && npm run check)
       ;;
-    sw) (cd "$ROOT/mailserver/webmail" && npm exec vitest run src/lib/push/notificationCommand.test.ts src/service-worker.test.ts) ;;
+    sw) (cd "$ROOT/webmail" && npm exec vitest run src/lib/push/notificationCommand.test.ts src/service-worker.test.ts) ;;
     cron) (cd "$ROOT/mailserver" && go test -race ./internal/cron -count=20) ;;
     features)
       (cd "$ROOT/shared" && go test -race ./toggle -count=1)
       (cd "$ROOT/mailserver" && go test ./internal/admin -run 'Feature' -count=1)
       (cd "$ROOT/mailctl" && go test ./... -run 'Feature' -count=1)
-      (cd "$ROOT/mailserver/webmail" && npm exec vitest run src/lib/admin/featureHelpers.test.ts)
+      (cd "$ROOT/webmail" && npm exec vitest run src/lib/admin/featureHelpers.test.ts)
       ;;
     *) return 2 ;;
   esac

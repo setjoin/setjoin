@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FetchLike } from '../../../../../mailserver/webmail/src/lib/drive/sync/types.js';
+import type { FetchLike } from '../../../../../webmail/src/lib/drive/sync/types.js';
 import type { NativeBinding } from '../native.js';
 import { MirrorService, TRAY_STRINGS, makeDriveMirrorHandlers, normalizeLocale } from './service.js';
 

@@ -46,14 +46,14 @@ Unknown = not in registry or `auth_count < 3`. Risky = unknown + anonymous proxy
 | **Create** | `shared/threat/iprisk.go` | IP risk scorer: feed hit count, country tier mapping, VPN detection, 0–100 composite |
 | **Create** | `shared/threat/iprisk_test.go` | Scoring arithmetic, threshold bands, VPN detection |
 | **Modify** | `shared/threat/interceptor.go` | Insert policy step after rate-limit; wire `PolicyEvaluator`; add `Decision` result type |
-| **Create** | `authserver/sql/schema/015_conditional_access_policies.sql` | Policy table: id, priority, name, enabled, condition (JSONB), action (JSONB) |
-| **Create** | `authserver/sql/schema/016_managed_devices.sql` | Managed devices: device_hash, user_id, enrolled_at, compliance_status, os_version |
-| **Create** | `authserver/sql/schema/017_geo_country_tiers.sql` | Country risk tiers: country_code → tier (low/medium/high/critical) |
-| **Modify** | `authserver/sql/schema/012_device_registry.sql` | Add `trust_tier` column (DEFAULT 'unknown') |
-| **Create** | `authserver/sql/reducers/evaluate_policies.sql` | Server-side policy preview reducer (admin test mode, not hot path) |
+| **Create** | `sql/auth/schema/015_conditional_access_policies.sql` | Policy table: id, priority, name, enabled, condition (JSONB), action (JSONB) |
+| **Create** | `sql/auth/schema/016_managed_devices.sql` | Managed devices: device_hash, user_id, enrolled_at, compliance_status, os_version |
+| **Create** | `sql/auth/schema/017_geo_country_tiers.sql` | Country risk tiers: country_code → tier (low/medium/high/critical) |
+| **Modify** | `sql/auth/schema/012_device_registry.sql` | Add `trust_tier` column (DEFAULT 'unknown') |
+| **Create** | `sql/auth/reducers/evaluate_policies.sql` | Server-side policy preview reducer (admin test mode, not hot path) |
 | **Create** | `mailserver/gateway/internal/handlers/admin_policies.go` | Admin REST API: CRUD + reorder for policies |
-| **Create** | `mailserver/webmail/src/routes/admin/security/conditional-access/+page.svelte` | Admin UI: policy list with drag-to-reorder, condition builder, action selector |
-| **Create** | `mailserver/sql/migrations/V023__conditional_access.sql` | Migration with default policies + country tier seed data |
+| **Create** | `webmail/src/routes/admin/security/conditional-access/+page.svelte` | Admin UI: policy list with drag-to-reorder, condition builder, action selector |
+| **Create** | `sql/migrations/V023__conditional_access.sql` | Migration with default policies + country tier seed data |
 | **Modify** | `shared/toggle/toggle.go` | Add `FeatureConditionalAccess = "feature.conditional_access"` toggle |
 | **Modify** | `authserver/internal/handlers/auth.go` | Step-up handling: return `TypeMFAPending` when policy demands MFA |
 | **Modify** | `scripts/e2e.sh` | E2E: policy enforcement scenarios (block, step-up, device-trust, geo-tier) |
@@ -83,7 +83,7 @@ Unknown = not in registry or `auth_count < 3`. Risky = unknown + anonymous proxy
 ## Dependencies
 
 - Existing threat pipeline (`shared/threat/interceptor.go`) — no refactor required
-- Existing `device_registry` (`authserver/sql/schema/012_device_registry.sql`) — one
+- Existing `device_registry` (`sql/auth/schema/012_device_registry.sql`) — one
   column addition; `upsertDevice` already records every successful auth
 - Existing MFA infrastructure — `TypeMFAPending`, TOTP/WebAuthn/push verify endpoints
 - Existing GeoIP `geoip2.Reader` — same ISO country code the pipeline already resolves;

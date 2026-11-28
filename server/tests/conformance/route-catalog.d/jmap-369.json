@@ -1,0 +1,1044 @@
+{
+  "version": 1,
+  "inventory": [
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "oracle_commands": [
+        "CalendarEvent/changes",
+        "CalendarEvent/counter",
+        "CalendarEvent/freeBusy",
+        "CalendarEvent/get",
+        "CalendarEvent/getShared",
+        "CalendarEvent/import",
+        "CalendarEvent/query",
+        "CalendarEvent/queryFreeSlots",
+        "CalendarEvent/resourceList",
+        "CalendarEvent/rsvp",
+        "CalendarEvent/sendUpdate",
+        "CalendarEvent/set",
+        "CalendarEvent/setOccurrence"
+      ],
+      "oracle_mutators": [
+        "CalendarEvent/import",
+        "CalendarEvent/rsvp",
+        "CalendarEvent/sendUpdate",
+        "CalendarEvent/set",
+        "CalendarEvent/setOccurrence"
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "CalendarEvent/get",
+      "gate": "personal",
+      "app": "calendar",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/calendar_event.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_get_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_get_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_get_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-delegate-personal.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_get_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_get_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_369",
+        "test": "calendar_event_get_status_mutant"
+      },
+      "family_mutants": [
+        {
+          "name": "no-tenant-filter",
+          "package": "setjoin-gateway",
+          "target": "jmap_family_369",
+          "test": "calendar_event_get_no_tenant_filter_mutant"
+        }
+      ]
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "CalendarEvent/query",
+      "gate": "personal",
+      "app": "calendar",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/calendar_event.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_query_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_query_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_query_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-delegate-personal.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_query_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_query_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_369",
+        "test": "calendar_event_query_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "CalendarEvent/changes",
+      "gate": "personal",
+      "app": "calendar",
+      "account": true,
+      "mutator": false,
+      "state": true,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/calendar_event.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-changes-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_changes_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-changes-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_changes_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-changes-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_changes_invalid_input"
+          }
+        },
+        {
+          "kind": "state-mismatch",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-changes-state-mismatch.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_changes_state_mismatch"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-changes-delegate-personal.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_changes_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-changes-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_changes_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_369",
+        "test": "calendar_event_changes_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "CalendarEvent/set",
+      "gate": "personal",
+      "app": "calendar",
+      "account": true,
+      "mutator": true,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/calendar_event.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_set_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_set_repeat"
+          }
+        },
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-update-destroy.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-update-destroy-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_set_update_destroy"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-cross-tenant.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-cross-tenant-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_set_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_set_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-delegate-personal.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-delegate-personal-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_set_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-entitlement-denied.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-entitlement-denied-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_set_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_369",
+        "test": "calendar_event_set_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "CalendarEvent/import",
+      "gate": "personal",
+      "app": "calendar",
+      "account": true,
+      "mutator": true,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/calendar_event.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_import_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_import_repeat"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-cross-tenant.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-cross-tenant-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_import_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_import_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-delegate-personal.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-delegate-personal-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_import_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-entitlement-denied.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-import-entitlement-denied-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_import_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_369",
+        "test": "calendar_event_import_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "CalendarEvent/freeBusy",
+      "gate": "personal",
+      "app": "calendar",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/calendar_event.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-free-busy-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_free_busy_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-free-busy-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_free_busy_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-free-busy-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_free_busy_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-free-busy-delegate-personal.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_free_busy_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-free-busy-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_free_busy_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_369",
+        "test": "calendar_event_free_busy_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "CalendarEvent/queryFreeSlots",
+      "gate": "personal",
+      "app": "calendar",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/calendar_event.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-free-slots-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_query_free_slots_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-free-slots-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_query_free_slots_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-free-slots-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_query_free_slots_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-free-slots-delegate-personal.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_query_free_slots_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-query-free-slots-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_query_free_slots_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_369",
+        "test": "calendar_event_query_free_slots_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "CalendarEvent/rsvp",
+      "gate": "personal",
+      "app": "calendar",
+      "account": true,
+      "mutator": true,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/calendar_event.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_rsvp_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_rsvp_repeat"
+          }
+        },
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-delegate.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-delegate-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_rsvp_delegate"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-cross-tenant.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-cross-tenant-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_rsvp_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_rsvp_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-delegate-personal.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-delegate-personal-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_rsvp_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-entitlement-denied.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-rsvp-entitlement-denied-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_rsvp_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_369",
+        "test": "calendar_event_rsvp_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "CalendarEvent/counter",
+      "gate": "personal",
+      "app": "calendar",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/calendar_event.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-counter-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_counter_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-counter-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_counter_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-counter-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_counter_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-counter-delegate-personal.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_counter_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-counter-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_counter_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_369",
+        "test": "calendar_event_counter_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "CalendarEvent/getShared",
+      "gate": "personal",
+      "app": "calendar",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/calendar_event.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-shared-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_get_shared_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-shared-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_get_shared_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-shared-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_get_shared_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-shared-delegate-personal.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_get_shared_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-get-shared-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_get_shared_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_369",
+        "test": "calendar_event_get_shared_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "CalendarEvent/setOccurrence",
+      "gate": "personal",
+      "app": "calendar",
+      "account": true,
+      "mutator": true,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/calendar_event.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_set_occurrence_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_set_occurrence_repeat"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-cross-tenant.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-cross-tenant-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_set_occurrence_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_set_occurrence_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-delegate-personal.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-delegate-personal-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_set_occurrence_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-entitlement-denied.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-set-occurrence-entitlement-denied-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_set_occurrence_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_369",
+        "test": "calendar_event_set_occurrence_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "CalendarEvent/resourceList",
+      "gate": "personal",
+      "app": "calendar",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/calendar_event.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-resource-list-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_resource_list_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-resource-list-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_resource_list_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-resource-list-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_resource_list_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-resource-list-delegate-personal.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_resource_list_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-resource-list-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_resource_list_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_369",
+        "test": "calendar_event_resource_list_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "CalendarEvent/sendUpdate",
+      "gate": "personal",
+      "app": "calendar",
+      "account": true,
+      "mutator": true,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/calendar_event.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_send_update_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_send_update_repeat"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-cross-tenant.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-cross-tenant-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_send_update_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_send_update_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-delegate-personal.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-delegate-personal-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_send_update_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-entitlement-denied.json",
+          "row_golden": "server/tests/conformance/jmap/families/calendar_event/calendar-event-send-update-entitlement-denied-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_369",
+            "test": "calendar_event_send_update_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_369",
+        "test": "calendar_event_send_update_status_mutant"
+      }
+    }
+  ]
+}

@@ -48,7 +48,7 @@ Modes and boundaries:
             the default, CA/device, CSP, onboarding, and real-meeting matrices.
             E2E_SERVER, E2E_GATEWAY_PORT, and E2E_DB_NAME must identify that
             exact local stack; remote origins are rejected.
-            mailserver/webmail/test-results/.
+            webmail/test-results/.
   onboarding Disposable uninitialized-stack browser journey. Uses loopback
             ports 18081/18444/19001 and database mailserver_onboarding_e2e by
             default; never targets an external origin.
@@ -86,7 +86,7 @@ Inputs:
   RACE=1                  Enable Go race detector in core.
 
 Outputs:
-  mailserver/webmail/test-results/ and playwright-report/
+  webmail/test-results/ and playwright-report/
   clients/desktop/e2e-artifacts/<platform>-<UTC timestamp>/
   clients/harmonyos/entry/build/default/outputs/default/entry-default-unsigned.hap
   ordinary language/package build caches and project build directories
@@ -139,7 +139,7 @@ run_core() {
   echo "==> [core] canonical tests"
   bash "$ROOT/scripts/test.sh"
   echo "==> [core] Webmail dependency audit"
-  (cd "$ROOT/mailserver/webmail" && npm audit --audit-level=moderate)
+  (cd "$ROOT/webmail" && npm audit --audit-level=moderate)
 }
 
 run_clients() {
@@ -244,13 +244,13 @@ audit_tauri_mobile() {
 run_security() {
   require_command cargo-audit
 
-  for dir in mailserver/webmail clients/desktop/electron clients/desktop clients/rust/desktop-native; do
+  for dir in webmail clients/desktop/electron clients/desktop clients/rust/desktop-native; do
     echo "==> [security] npm audit $dir"
     (cd "$ROOT/$dir" && npm audit --audit-level=moderate)
   done
 
   echo "==> [security] RustSec server-rust workspace"
-  (cd "$ROOT/server-rust" && cargo deny --locked check)
+  (cd "$ROOT/server" && cargo deny --locked check)
   echo "==> [security] RustSec workspace"
   (cd "$ROOT/clients" && cargo audit -D unsound)
   echo "==> [security] RustSec Tauri mobile"
@@ -288,18 +288,18 @@ run_browser() {
   require_command npm
   validate_origin
   echo "==> [browser] origin=$E2E_SERVER"
-  (cd "$ROOT/mailserver/webmail" && \
+  (cd "$ROOT/webmail" && \
     E2E_SERVER="$E2E_SERVER" E2E_CSP_REQUIRE_GATEWAY_HEADER=1 \
-    GUEST_E2E_EVIDENCE="$ROOT/mailserver/webmail/test-results/guest-e2e-evidence" \
+    GUEST_E2E_EVIDENCE="$ROOT/webmail/test-results/guest-e2e-evidence" \
     bash "$ROOT/scripts/ci/playwright-supported.sh" -- npm run test:e2e)
   echo "==> [browser] strict CSP static-build origin=http://127.0.0.1:8199"
-  (cd "$ROOT/mailserver/webmail" && \
+  (cd "$ROOT/webmail" && \
     E2E_CSP_REQUIRE_GATEWAY_HEADER=0 \
     bash "$ROOT/scripts/ci/playwright-supported.sh" -- npm run test:e2e:csp)
   echo "==> [browser] verifying named Playwright release evidence"
   TEST_EVIDENCE_ORIGIN="$E2E_SERVER" \
   TEST_EVIDENCE_CSP_ORIGIN="http://127.0.0.1:8199" \
-  TEST_EVIDENCE_OUTPUT="mailserver/webmail/test-results/playwright-evidence.json" \
+  TEST_EVIDENCE_OUTPUT="webmail/test-results/playwright-evidence.json" \
     bash "$ROOT/scripts/guards/check-test-evidence-results.sh" --verify playwright-json
 }
 

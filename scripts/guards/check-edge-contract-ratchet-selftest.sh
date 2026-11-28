@@ -12,10 +12,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GUARD="$ROOT/scripts/guards/check-edge-contract-ratchet.sh"
-INV="$ROOT/server-rust/bins/gateway/route-inventory.json"
+INV="$ROOT/server/bins/gateway/route-inventory.json"
 SPEC="$ROOT/contracts/edge/openapi/edge.v1.yaml"
 RATCHET="$ROOT/config/edge-contract-ratchet.json"
-WEBMAIL_SRC="$ROOT/mailserver/webmail/src"
+WEBMAIL_SRC="$ROOT/webmail/src"
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/edge-ratchet-selftest.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT

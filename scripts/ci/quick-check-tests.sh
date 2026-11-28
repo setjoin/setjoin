@@ -56,10 +56,10 @@ run() {
   done
   local tmp rc; tmp="$(mktemp)"
   local tflags
-  tflags="$(cd server-rust && cargo metadata --locked --no-deps --format-version 1 | targets "$pkg")" \
+  tflags="$(cd server && cargo metadata --locked --no-deps --format-version 1 | targets "$pkg")" \
     || { echo "quick-check-tests: FAIL: cannot determine test targets for $pkg" >&2; rm -f "$tmp"; return 2; }
   # shellcheck disable=SC2086
-  ( cd server-rust && cargo test --locked -p "$pkg" $tflags ${1:+--} "$@" ) > "$tmp" 2>&1
+  ( cd server && cargo test --locked -p "$pkg" $tflags ${1:+--} "$@" ) > "$tmp" 2>&1
   rc=$?
   cat "$tmp"
   if [ "$rc" -ne 0 ]; then rm -f "$tmp"; return "$rc"; fi

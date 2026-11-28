@@ -208,8 +208,8 @@ archive_guard_check_one() {
 archive_preflight() {
     local dir f
     for dir in \
-        "$REDUCERS_ROOT/mailserver/sql/reducers" \
-        "$REDUCERS_ROOT/authserver/sql/reducers"; do
+        "$REDUCERS_ROOT/sql/reducers" \
+        "$REDUCERS_ROOT/sql/auth/reducers"; do
         # Same enumeration idiom as load_reducer_set below.
         # shellcheck disable=SC2012,SC2035
         while IFS= read -r f; do
@@ -231,11 +231,11 @@ fi
 archive_preflight   # ARCH-007: refuse archived SQL before any psql runs (see above)
 
 echo "==> Reloading mailserver reducers (fixed-point order)..."
-load_reducer_set "$REDUCERS_ROOT/mailserver/sql/reducers" ""
+load_reducer_set "$REDUCERS_ROOT/sql/reducers" ""
 
-if [ -d "$REDUCERS_ROOT/authserver/sql/reducers" ]; then
+if [ -d "$REDUCERS_ROOT/sql/auth/reducers" ]; then
     echo "==> Reloading authserver reducers (fixed-point order)..."
-    load_reducer_set "$REDUCERS_ROOT/authserver/sql/reducers" "authserver/"
+    load_reducer_set "$REDUCERS_ROOT/sql/auth/reducers" "authserver/"
 fi
 
 # ── Loud, propagated verdict ───────────────────────────────────────────

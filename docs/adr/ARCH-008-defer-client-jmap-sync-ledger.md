@@ -2,7 +2,7 @@
 
 **Status:** Accepted (as a deferral)
 **Date:** 2026-06-19
-**Source:** Webmail architecture review (`/improve-codebase-architecture` over `mailserver/webmail/src/`) → candidate **sync-ledger** → adversarial validate/refute + `/grill-with-docs` 2026-06-19. Recorded so a future review does not re-derive it blind.
+**Source:** Webmail architecture review (`/improve-codebase-architecture` over `webmail/src/`) → candidate **sync-ledger** → adversarial validate/refute + `/grill-with-docs` 2026-06-19. Recorded so a future review does not re-derive it blind.
 
 ## Context
 

@@ -19,7 +19,7 @@ The existing `PushMFAProvider` already generates a challenge code, stores it in 
 | `authserver/internal/authn/push.go` | Modify (~30 lines changed) | `GenerateChallenge`: 2-digit code; `dispatchNotifications`: payload with 3 options (1 correct + 2 decoys); `sendPush`: updated notification schema |
 | `authserver/internal/handlers/push.go` | Modify (~10 lines changed) | `PushMFAVerify`: accept 2-digit answer; return challenge number in login MFA response |
 | `authserver/internal/handlers/auth.go` | Modify (~5 lines changed) | `Login`: include `challenge_number` (the 2-digit code) in the push MFA response body alongside `push_nonce` |
-| `mailserver/webmail/src/lib/components/MFAChallenge.svelte` | Modify (~20 lines) | Display the 2-digit number prominently; poll or wait for push verification |
+| `webmail/src/lib/components/MFAChallenge.svelte` | Modify (~20 lines) | Display the 2-digit number prominently; poll or wait for push verification |
 | **Mobile apps** (iOS/Android, Phase 12) | New (~100 lines each) | Push notification extension: render 3-button choice UI; POST answer to `/auth/push/verify` |
 | **Total** | **~5 files** | **~265 lines** (mostly mobile push extension; Go changes ~45 lines) |
 

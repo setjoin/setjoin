@@ -15,7 +15,7 @@ CASE_MANIFEST="$ROOT/$CASE_MANIFEST_REL"
 CASE_VALIDATOR="$ROOT/scripts/guards/check-connectivity-aware-sync-cases.mjs"
 RESULTS_REL="test-results/connectivity-aware-sync"
 RESULTS_ROOT="$ROOT/$RESULTS_REL"
-WEBMAIL="$ROOT/mailserver/webmail"
+WEBMAIL="$ROOT/webmail"
 WORK_CONTRACT_TEST="src/lib/offline/work-contract.test.ts"
 
 MODE="quick"
@@ -351,7 +351,7 @@ run_case_validator() {
 
 run_registry_guard() {
   local log="$RUN_DIR/toggle-registry.log" status
-  if (cd "$ROOT/server-rust" && cargo test --locked --lib -p setjoin-platform features) > "$log" 2>&1; then
+  if (cd "$ROOT/server" && cargo test --locked --lib -p setjoin-platform features) > "$log" 2>&1; then
     printf 'PASS CAS-E0-REGISTRY: finite feature-toggle registry test.\n'
     return 0
   else

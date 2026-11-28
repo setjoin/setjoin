@@ -5,7 +5,7 @@
 # WHY. check-bz-codes.sh guards that every `RAISE EXCEPTION ... USING
 # ERRCODE='BZxxx'` is DOCUMENTED in docs/reducer-error-codes.md. This guard
 # checks the orthogonal claim: that every such code is actually EXERCISED by a
-# pgTAP assertion somewhere under mailserver/sql/tests/*.pg. A documented-but-
+# pgTAP assertion somewhere under sql/tests/*.pg. A documented-but-
 # untested code is an error branch nothing proves still fires — a reducer
 # refactor can silently rename/delete the RAISE and no test goes red.
 #
@@ -19,7 +19,7 @@
 # LEDGER. A code not yet covered must be on the checked-in allowlist
 # (scripts/guards/bz-coverage-pending.txt: one "BZxxx<TAB>reducer1.sql[,reducer2.sql]"
 # per line, blank/#-comment lines ignored) — same shape as
-# mailserver/api/openapi-pending.txt (check-openapi-coverage.sh) and
+# api/openapi-pending.txt (check-openapi-coverage.sh) and
 # scripts/http-error-allowlist.txt (check-http-error-shape.sh). This is a
 # fail-closed, TWO-DIRECTION guard, so the ledger can only shrink:
 #   · uncovered code, NOT on the ledger        → FAIL (new gap; write a test or ledger it)
@@ -33,8 +33,8 @@
 source "$(dirname "$0")/../_base.sh"
 export LC_ALL=C
 
-REDUCERS_DIR="$ROOT/mailserver/sql/reducers"
-TESTS_DIR="$ROOT/mailserver/sql/tests"
+REDUCERS_DIR="$ROOT/sql/reducers"
+TESTS_DIR="$ROOT/sql/tests"
 PENDING="$ROOT/scripts/guards/bz-coverage-pending.txt"
 
 # used_codes DIR — every BZxxx raised via ERRCODE='BZxxx' under DIR, sorted unique.
@@ -97,7 +97,7 @@ run_guard() {
         ALLOWLISTED_COUNT=$((ALLOWLISTED_COUNT + 1))
       else
         echo "  ✗ $c is raised in a reducer but has no pgTAP assertion and is not ledgered in $pfile" >&2
-        echo "     → add a throws_ok/throws_like assertion for $c in mailserver/sql/tests/, or add a ledger line: $c<TAB>$(reducer_files_for "$c" "$rdir")" >&2
+        echo "     → add a throws_ok/throws_like assertion for $c in sql/tests/, or add a ledger line: $c<TAB>$(reducer_files_for "$c" "$rdir")" >&2
         rc=1
       fi
     fi

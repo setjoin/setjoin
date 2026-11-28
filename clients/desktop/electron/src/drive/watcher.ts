@@ -9,8 +9,8 @@
 import * as parcelWatcher from '@parcel/watcher';
 import { lstat, realpath } from 'node:fs/promises';
 import * as path from 'node:path';
-import { isIgnoredName } from '../../../../../mailserver/webmail/src/lib/drive/sync/names.js';
-import type { LocalChange } from '../../../../../mailserver/webmail/src/lib/drive/sync/types.js';
+import { isIgnoredName } from '../../../../../webmail/src/lib/drive/sync/names.js';
+import type { LocalChange } from '../../../../../webmail/src/lib/drive/sync/types.js';
 
 export interface WatcherDeps {
 	root: string;

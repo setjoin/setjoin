@@ -18,7 +18,7 @@
 --   - reset-pair.sql deletes exactly the corpus + workload rows and re-runs
 --     this file, restoring the cold state deterministically.
 --
--- Reuses the repo's e2e seed conventions (mailserver/webmail/e2e/fixtures/
+-- Reuses the repo's e2e seed conventions (webmail/e2e/fixtures/
 -- seed.sql): same loader path, same login password convention (TestPass123!,
 -- hash reused verbatim), mfa_exempt + no forced password change, self-scoped
 -- rows only. This file is ADDITIVE to that seed: the E6 accounts live in

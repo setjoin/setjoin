@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Monotonic CI coverage ratchet for Setjoin HTTP EdgeContract (#561).
 
-Reads `server-rust/bins/gateway/route-inventory.json`, filters to contractable
+Reads `server/bins/gateway/route-inventory.json`, filters to contractable
 non-JMAP / non-DAV / non-internal / non-SPA-catchall HTTP routes, and enforces:
   1. No new contractable route may be added without an OpenAPI 3.1 entry in
      `contracts/edge/openapi/edge.v1.yaml` (legacy uncovered set is a hard ceiling).
   2. Covered route count may never regress below `covered_routes_floor`.
-  3. Every contracted route called anywhere in webmail (`mailserver/webmail/src/lib/`
-     and `mailserver/webmail/src/routes/`, `.ts` and `.svelte`) must bind via an
+  3. Every contracted route called anywhere in webmail (`webmail/src/lib/`
+     and `webmail/src/routes/`, `.ts` and `.svelte`) must bind via an
      actual `openapi-fetch` edge client (`edgeClient` / `createEdgeClient(...)`),
      not raw `fetch`/`httpRequest`/`typedFetch`, and the webmail-bound count may
      never regress below `webmail_bound_routes_floor`.
@@ -241,7 +241,7 @@ def main() -> int:
     parser.add_argument(
         "--inventory",
         type=pathlib.Path,
-        default=repo_root / "server-rust" / "bins" / "gateway" / "route-inventory.json",
+        default=repo_root / "server" / "bins" / "gateway" / "route-inventory.json",
     )
     parser.add_argument(
         "--openapi",
@@ -253,7 +253,7 @@ def main() -> int:
         "--webmail-lib",
         dest="webmail_src",
         type=pathlib.Path,
-        default=repo_root / "mailserver" / "webmail" / "src",
+        default=repo_root / "webmail" / "src",
     )
     parser.add_argument(
         "--ratchet",
@@ -364,7 +364,7 @@ def main() -> int:
         try:
             inv_rel = args.inventory.resolve().relative_to(repo_root.resolve()).as_posix()
         except ValueError:
-            inv_rel = "server-rust/bins/gateway/route-inventory.json"
+            inv_rel = "server/bins/gateway/route-inventory.json"
         touched = diff_inventory_against_git(repo_root, inv_rel, inventory_data, args.diff_base)
         for route in sorted(touched - openapi_ops):
             errors.append(

@@ -17,7 +17,7 @@ Scope: Web (SvelteKit webmail) · Desktop (Tauri) · Mobile (SwiftUI iOS/iPadOS/
 Multiplatform Android) — one continuous design language across every SetJoin surface.
 
 > **Where this fits.** The canonical *numeric* source of truth is
-> `mailserver/webmail/src/lib/theme/tokens.css`. This document defines the *cross-platform
+> `webmail/src/lib/theme/tokens.css`. This document defines the *cross-platform
 > semantics* of that system — how each CSS token becomes a native primitive on Apple and Android —
 > so the three surfaces stay visually continuous. The web-only execution that established the
 > system is recorded in [`setjoin-portal-liquid-glass-redesign.md`](./setjoin-portal-liquid-glass-redesign.md);
@@ -338,7 +338,7 @@ not.**
 
 ## 6. Component patterns
 
-Each canonical CSS class (verified present in `mailserver/webmail/src/app.css` /
+Each canonical CSS class (verified present in `webmail/src/app.css` /
 `tokens.css`) maps to a native equivalent. **The "glass = chrome only" rule governs:** the
 `.glass-*` classes become native *materials*; content classes (`.card`, `.data-table` rows,
 `.alert`) become *opaque* surfaces — they are never glass.
@@ -576,7 +576,7 @@ German — required for the Chinese market (see `../platform/stage1-chinese-i18n
 
 ### 11.1 Locale model (existing web framework)
 
-The webmail already has a lightweight i18n runtime at `mailserver/webmail/src/lib/i18n/index.ts`:
+The webmail already has a lightweight i18n runtime at `webmail/src/lib/i18n/index.ts`:
 `Locale = 'en' | 'de' | 'zh'`; per-locale `META` (display name, direction, first-day-of-week,
 ICU date/number formats); `t()` lookup with ICU plural/select; `setLocale()` (persists to
 `localStorage`, sets `document.documentElement.lang`/`dir`, dynamic-imports the bundle);
@@ -800,11 +800,11 @@ These files are the **canonical sources** — code reads these, not this appendi
 
 | File | Role |
 |---|---|
-| `mailserver/webmail/src/lib/theme/tokens.css` | Single numeric source for all colours, radii, blur, motion, aurora |
+| `webmail/src/lib/theme/tokens.css` | Single numeric source for all colours, radii, blur, motion, aurora |
 | `clients/previews/webmail-preview.html` | Reference webmail mockup (16 screens, canonical glass patterns) |
 | `clients/previews/desktop-preview.html` | Reference desktop mockup (Tauri transparent frame) |
 | `clients/previews/mobile-preview.html` | Reference mobile mockup (iOS + Android phone frames) |
 | `docs/plans/desktop-native-chrome.md` | Tauri window frame implementation plan |
 | `docs/plans/apple-native-ui.md` | SwiftUI token library + component implementation plan |
-| `mailserver/webmail/src/lib/i18n/index.ts` | Locale detection, `t()`, `setLocale()`, ICU fallback |
+| `webmail/src/lib/i18n/index.ts` | Locale detection, `t()`, `setLocale()`, ICU fallback |
 | `docs/design/platform/stage1-chinese-i18n.md` | Full Chinese translation spec |

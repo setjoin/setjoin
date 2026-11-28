@@ -224,7 +224,7 @@ routes=(
   "/recovery/uploads"
 )
 for route in "${routes[@]}"; do
-  grep -Fq "/api$route:" "$ROOT/mailserver/api/openapi.yaml" || {
+  grep -Fq "/api$route:" "$ROOT/api/openapi.yaml" || {
     echo "[upgrade-contract] OpenAPI missing /api$route" >&2; exit 1;
   }
 done
@@ -235,13 +235,13 @@ for client_route in \
   /admin/system/upgrades/challenges \
   /admin/system/upgrades/challenges/complete \
   /admin/system/upgrades/intents; do
-  grep -Fq "$client_route" "$ROOT/mailserver/webmail/src/lib/admin/client.ts" || {
+  grep -Fq "$client_route" "$ROOT/webmail/src/lib/admin/client.ts" || {
     echo "[upgrade-contract] typed web client missing $client_route" >&2; exit 1;
   }
 done
 
 grep -Fq 'DB_DIRECT_OWNER_DSN="$DB_DIRECT_DSN"' \
-  "$ROOT/mailserver/deploy/scripts/install.sh" || {
+  "$ROOT/deploy/scripts/install.sh" || {
   echo "[upgrade-contract] installer does not initialize the updater owner DSN before rendering its credential" >&2
   exit 1
 }
@@ -250,18 +250,18 @@ for installer_contract in \
   'umask "$_INSTALL_UMASK"' \
   'chown root:root "$INSTALL_DIR"' \
   'chmod 0755 "$INSTALL_DIR/releases"'; do
-  grep -Fq "$installer_contract" "$ROOT/mailserver/deploy/scripts/install.sh" || {
+  grep -Fq "$installer_contract" "$ROOT/deploy/scripts/install.sh" || {
     echo "[upgrade-contract] installer omits immutable runtime traversal contract: $installer_contract" >&2
     exit 1
   }
 done
 if grep -Eq "'feature\.transactional_upgrades_(catalog|execution)',[[:space:]]*true" \
-  "$ROOT/mailserver/sql/dbschema/V178__transactional_upgrade_control.sql"; then
+  "$ROOT/sql/dbschema/V178__transactional_upgrade_control.sql"; then
   echo "[upgrade-contract] transactional-upgrade rollout flag is seeded ON" >&2
   exit 1
 fi
 if grep -Eq "'feature\.client_recovery_(receipts|cache|ingest)',[[:space:]]*true" \
-  "$ROOT/mailserver/sql/dbschema/V178__transactional_upgrade_control.sql"; then
+  "$ROOT/sql/dbschema/V178__transactional_upgrade_control.sql"; then
   echo "[upgrade-contract] client-assisted recovery rollout flag is seeded ON" >&2
   exit 1
 fi
@@ -364,23 +364,23 @@ if sed -n '/docker exec -i "$A" bash -s -- "$release_id" "$source_version"/,/^IN
   echo "[upgrade-contract] release seeding depends on jq inside the minimal Ubuntu target" >&2
   exit 1
 fi
-bash "$ROOT/mailserver/deploy/scripts/test-updater-render.sh" >/dev/null
-bash "$ROOT/mailserver/deploy/scripts/test-setjoin-lifecycle.sh" >/dev/null
-bash "$ROOT/mailserver/deploy/scripts/test-upgrade-rollback.sh" >/dev/null
-bash "$ROOT/mailserver/deploy/scripts/test-install-front-door.sh" >/dev/null
-bash "$ROOT/mailserver/deploy/scripts/test-imap-sockets.sh" >/dev/null
-bash "$ROOT/mailserver/deploy/scripts/test-tls-front-socket.sh" >/dev/null
-bash "$ROOT/mailserver/deploy/scripts/test-tls-front-upgrade.sh" >/dev/null
+bash "$ROOT/deploy/scripts/test-updater-render.sh" >/dev/null
+bash "$ROOT/deploy/scripts/test-setjoin-lifecycle.sh" >/dev/null
+bash "$ROOT/deploy/scripts/test-upgrade-rollback.sh" >/dev/null
+bash "$ROOT/deploy/scripts/test-install-front-door.sh" >/dev/null
+bash "$ROOT/deploy/scripts/test-imap-sockets.sh" >/dev/null
+bash "$ROOT/deploy/scripts/test-tls-front-socket.sh" >/dev/null
+bash "$ROOT/deploy/scripts/test-tls-front-upgrade.sh" >/dev/null
 for lifecycle_contract in \
   'install -o root -g root -m 0755' \
   '/usr/local/sbin/setjoinctl restart'; do
-  grep -Fq "$lifecycle_contract" "$ROOT/mailserver/deploy/scripts/install.sh" || {
+  grep -Fq "$lifecycle_contract" "$ROOT/deploy/scripts/install.sh" || {
     echo "[upgrade-contract] installer does not use the fixed lifecycle controller: $lifecycle_contract" >&2
     exit 1
   }
 done
 grep -Fq 'Data purge is intentionally not implemented by this command.' \
-  "$ROOT/mailserver/deploy/scripts/setjoin-lifecycle.sh" || {
+  "$ROOT/deploy/scripts/setjoin-lifecycle.sh" || {
   echo "[upgrade-contract] lifecycle uninstall no longer fails closed around customer data" >&2
   exit 1
 }
@@ -395,43 +395,43 @@ for gate in \
 done
 if grep -Eq '^\| Physical (iOS|Android) device \| OPEN \|' "$continuity_verification"; then
   grep -Eq "'feature\.client_recovery_(cache|ingest)',[[:space:]]*false" \
-    "$ROOT/mailserver/sql/dbschema/V178__transactional_upgrade_control.sql" || {
+    "$ROOT/sql/dbschema/V178__transactional_upgrade_control.sql" || {
       echo "[upgrade-contract] physical-device gate is OPEN but continuity flags are not pinned OFF" >&2; exit 1;
     }
 fi
 check_rehearsal_u8_eligibility || true
-grep -Fq 'ExecStart={{RUNTIME_DIR}}/setjoin-server' "$ROOT/mailserver/deploy/setjoin-gateway.service.template" || {
+grep -Fq 'ExecStart={{RUNTIME_DIR}}/setjoin-server' "$ROOT/deploy/setjoin-gateway.service.template" || {
   echo "[upgrade-contract] gateway unit does not execute setjoin-server in immutable current" >&2; exit 1;
 }
-grep -Fq 'ExecStart={{RUNTIME_DIR}}/setjoin-auth' "$ROOT/mailserver/deploy/authserver.service.template" || {
+grep -Fq 'ExecStart={{RUNTIME_DIR}}/setjoin-auth' "$ROOT/deploy/authserver.service.template" || {
   echo "[upgrade-contract] auth unit does not execute the Rust setjoin-auth in immutable current" >&2; exit 1;
 }
-! grep -Eq '^EnvironmentFile=\{\{DB_CREDENTIALS_FILE\}\}' "$ROOT/mailserver/deploy/authserver.service.template" || {
+! grep -Eq '^EnvironmentFile=\{\{DB_CREDENTIALS_FILE\}\}' "$ROOT/deploy/authserver.service.template" || {
   echo "[upgrade-contract] the Rust auth unit must not load the privileged credential file" >&2; exit 1;
 }
-! grep -Eq 'auth/login' "$ROOT/mailserver/deploy/authserver.service.template" || {
+! grep -Eq 'auth/login' "$ROOT/deploy/authserver.service.template" || {
   echo "[upgrade-contract] auth readiness must not send credential requests (captcha/tarpit lockout)" >&2; exit 1;
 }
-grep -Fq 'for c in ["sbom", "provenance", "recovery_guide"]' "$ROOT/server-rust/crates/release-format/src/validation.rs" && \
-grep -Fq 'release must contain exactly one {c} artifact' "$ROOT/server-rust/crates/release-format/src/validation.rs" || {
+grep -Fq 'for c in ["sbom", "provenance", "recovery_guide"]' "$ROOT/server/crates/release-format/src/validation.rs" && \
+grep -Fq 'release must contain exactly one {c} artifact' "$ROOT/server/crates/release-format/src/validation.rs" || {
   echo "[upgrade-contract] release schema does not require the recovery guide" >&2; exit 1;
 }
-grep -Fq 'adopt-current-layout' "$ROOT/mailserver/deploy/scripts/install.sh" || {
+grep -Fq 'adopt-current-layout' "$ROOT/deploy/scripts/install.sh" || {
   echo "[upgrade-contract] installer does not adopt the immutable layout" >&2; exit 1;
 }
-grep -Fq 'install_release_roots' "$ROOT/mailserver/deploy/scripts/install.sh" || {
+grep -Fq 'install_release_roots' "$ROOT/deploy/scripts/install.sh" || {
   echo "[upgrade-contract] installer does not deliver release trust roots before adoption" >&2; exit 1;
 }
-grep -Fq 'positional artifact-copy upgrades are disabled' "$ROOT/mailserver/deploy/scripts/upgrade.sh" || {
+grep -Fq 'positional artifact-copy upgrades are disabled' "$ROOT/deploy/scripts/upgrade.sh" || {
   echo "[upgrade-contract] adopted layout can still enter legacy artifact copy" >&2; exit 1;
 }
 grep -Fq 'setjoin-updater' "$ROOT/scripts/ci/build.sh" || {
   echo "[upgrade-contract] build front door does not build setjoin-updater" >&2; exit 1;
 }
 for unit_template in \
-  "$ROOT/mailserver/deploy/setjoin-gateway.service.template" \
-  "$ROOT/mailserver/deploy/authserver.service.template" \
-  "$ROOT/mailserver/deploy/setjoind.service.template"; do
+  "$ROOT/deploy/setjoin-gateway.service.template" \
+  "$ROOT/deploy/authserver.service.template" \
+  "$ROOT/deploy/setjoind.service.template"; do
   # Exposure means an ACTIVE unit line carrying a privileged DSN (an
   # Environment= assignment or a rendered/interpolated credential) — not a
   # comment naming the variables. The DEPLOY-004 split (b07736bdd) documents
@@ -444,7 +444,7 @@ for unit_template in \
     exit 1
   fi
 done
-setjoind_template="$ROOT/mailserver/deploy/setjoind.service.template"
+setjoind_template="$ROOT/deploy/setjoind.service.template"
 if grep -Ev '^[[:space:]]*#' "$setjoind_template" | \
     grep -Eq 'db-credentials\.env|DB_CREDENTIALS_FILE|(/|\{\{)auth\.env|\{\{AUTH_ENV\}\}'; then
   echo "[upgrade-contract] setjoind unit must never source db-credentials.env or auth.env: $setjoind_template" >&2

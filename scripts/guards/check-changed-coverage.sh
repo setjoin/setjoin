@@ -102,28 +102,28 @@ DIFF
   grep -Fq '"status": "no-executable-changes"' "$tmp/results/deleted.json"
 
   repo="$tmp/repo"
-  mkdir -p "$repo/mailserver/webmail/src" "$repo/results"
+  mkdir -p "$repo/webmail/src" "$repo/results"
   git -C "$repo" init -q -b main
   git -C "$repo" config user.email test@example.invalid
   git -C "$repo" config user.name 'Coverage Self-Test'
-  printf 'base();\n' > "$repo/mailserver/webmail/src/app.ts"
+  printf 'base();\n' > "$repo/webmail/src/app.ts"
   git -C "$repo" add .
   git -C "$repo" commit -q -m base
   merge_base="$(git -C "$repo" rev-parse HEAD)"
   git -C "$repo" switch -q -c feature
-  printf 'base();\nfeature();\n' > "$repo/mailserver/webmail/src/app.ts"
+  printf 'base();\nfeature();\n' > "$repo/webmail/src/app.ts"
   git -C "$repo" add .
   git -C "$repo" commit -q -m feature
   git -C "$repo" switch -q main
-  printf 'base();\nmainOnly();\n' > "$repo/mailserver/webmail/src/app.ts"
+  printf 'base();\nmainOnly();\n' > "$repo/webmail/src/app.ts"
   git -C "$repo" add .
   git -C "$repo" commit -q -m main
   git -C "$repo" switch -q feature
   cat > "$repo/config.json" <<'JSON'
-{"schemaVersion":1,"scope":["mailserver/webmail/src/"],"extensions":[".ts"],"exclude":[],"critical":[]}
+{"schemaVersion":1,"scope":["webmail/src/"],"extensions":[".ts"],"exclude":[],"critical":[]}
 JSON
   cat > "$repo/coverage.json" <<JSON
-{"$repo/mailserver/webmail/src/app.ts":{"statementMap":{"0":{"start":{"line":1},"end":{"line":1}},"1":{"start":{"line":2},"end":{"line":2}}},"s":{"0":1,"1":1}}}
+{"$repo/webmail/src/app.ts":{"statementMap":{"0":{"start":{"line":1},"end":{"line":1}},"1":{"start":{"line":2},"end":{"line":2}}},"s":{"0":1,"1":1}}}
 JSON
   node "$REPORTER" --root "$repo" --base main --coverage "$repo/coverage.json" --config "$repo/config.json" --threshold 100 --mode enforce --output "$repo/results/merge-base.json" >/dev/null
   grep -Fq "\"base\": \"$merge_base\"" "$repo/results/merge-base.json"

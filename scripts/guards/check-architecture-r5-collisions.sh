@@ -127,7 +127,7 @@ run_admin() {
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' RETURN
   "$NODE_BIN" -e 'const r=require(process.argv[1]);for(const p of r.collisionBaselines.admin.candidatePaths)console.log(p)' "$REGISTRY" | LC_ALL=C sort -u >"$tmp/candidates"
-  git -C "$ROOT" diff --name-only "$base..$released_commit" -- | LC_ALL=C sort -u >"$tmp/released"
+  git -C "$ROOT" -c diff.renameLimit=0 diff -M100% --diff-filter=r --name-only "$base..$released_commit" -- | LC_ALL=C sort -u >"$tmp/released"
   "$NODE_BIN" - "$tmp/candidates" "$tmp/released" >"$tmp/intersection" <<'NODE'
 const fs = require('node:fs');
 const read = (filename) => fs.readFileSync(filename, 'utf8').split('\n').filter(Boolean);

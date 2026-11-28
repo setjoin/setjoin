@@ -51,7 +51,7 @@ def verify(binary):
         executable.chmod(0o755)
         named_executable = directory / "gofree-tlsfront-gateway"
         os.link(executable, named_executable)
-        fixture = json.loads((ROOT / "server-rust/tests/conformance/tlsfront/tls13-resumed.json").read_text())
+        fixture = json.loads((ROOT / "server/tests/conformance/tlsfront/tls13-resumed.json").read_text())
         (directory / "cert.pem").write_text(fixture["certificate_pem"])
         (directory / "key.pem").write_text(fixture["public_test_key_pem"])
         context = ssl.create_default_context(cafile=str(directory / "cert.pem"))
@@ -94,8 +94,8 @@ def verify(binary):
                        GATEWAY_HTTPS_LISTEN=f"127.0.0.1:{address[1]}", FEDERATION_ENABLED="true",
                        FEDERATION_LISTEN_ADDR=f"127.0.0.1:{occupied.getsockname()[1]}")
             run("bash", "-c", 'source "$1"; render_gateway_unit "$2" "$3"', "render",
-                str(ROOT / "mailserver/deploy/scripts/lib-livekit.sh"),
-                str(ROOT / "mailserver/deploy/setjoin-gateway.service.template"),
+                str(ROOT / "deploy/scripts/lib-livekit.sh"),
+                str(ROOT / "deploy/setjoin-gateway.service.template"),
                 str(directory / "setjoin-gateway.service"), env=env)
             installed = []
             print(f"Owned resources: {directory}, {list(mappings.values())}; removed on exit", flush=True)

@@ -370,8 +370,8 @@ function validateHarnessInstrument(harness, profile, location) {
 	]);
 	expectExact(harness.engagement.admissionImplementation, engagementLocation + '.admissionImplementation', 'production-module-imports');
 	expectExactStringSet(harness.engagement.productionModules, engagementLocation + '.productionModules', [
-		'mailserver/webmail/src/lib/offline/scheduler.ts',
-		'mailserver/webmail/src/lib/offline/work-contract.ts',
+		'webmail/src/lib/offline/scheduler.ts',
+		'webmail/src/lib/offline/work-contract.ts',
 	]);
 	expectExactStringSet(harness.engagement.backoffRules, engagementLocation + '.backoffRules', [
 		'retryableFailure-arms-backoff',

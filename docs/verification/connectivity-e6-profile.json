@@ -169,8 +169,8 @@
           ],
           "admissionImplementation": "production-module-imports",
           "productionModules": [
-            "mailserver/webmail/src/lib/offline/scheduler.ts",
-            "mailserver/webmail/src/lib/offline/work-contract.ts"
+            "webmail/src/lib/offline/scheduler.ts",
+            "webmail/src/lib/offline/work-contract.ts"
           ],
           "backoffRules": [
             "retryableFailure-arms-backoff",

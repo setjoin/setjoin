@@ -39,9 +39,9 @@ Inbound email → SMTP pipeline → reducer commit → blob written to SeaweedFS
 | `mailserver/gateway/internal/storage/worm.go` | **Create** | WORM configuration validation: enforce that Object Lock bucket creation is acknowledged, retention range boundaries, compliance mode confirmation |
 | `mailserver/gateway/internal/storage/worm_test.go` | **Create** | Unit tests for legal hold lifecycle, retention expiry edge cases, immutability assertion (DeleteObject must fail on locked objects) |
 | `mailserver/gateway/internal/handlers/admin_compliance.go` | **Modify** | Admin API for legal hold: `POST /admin/legal-hold` (place hold), `DELETE /admin/legal-hold/{id}` (release hold), `GET /admin/legal-hold` (list holds), `GET /admin/legal-hold/audit` (immutable audit log) |
-| `mailserver/sql/migrations/V0NN__worm_legal_hold.sql` | **Create** | `legal_holds` table (id, description, filter_spec JSONB, created_by, created_at, released_at, released_by), `blob_legal_holds` junction, `legal_hold_audit_log` table (append-only, no UPDATE/DELETE permission) |
+| `sql/migrations/V0NN__worm_legal_hold.sql` | **Create** | `legal_holds` table (id, description, filter_spec JSONB, created_by, created_at, released_at, released_by), `blob_legal_holds` junction, `legal_hold_audit_log` table (append-only, no UPDATE/DELETE permission) |
 | `mailserver/gateway/internal/config/config.go` | **Modify** | Add env vars: `WORM_RETENTION_DAYS` (default 2557 = 7 years for SEC broker-dealer), `WORM_MODE` (governance/compliance), `WORM_LEGAL_HOLD_ENABLED` |
-| `mailserver/sql/reducers/worm_*.sql` | **Create** | PL/pgSQL reducers: `place_legal_hold`, `release_legal_hold`, `list_legal_holds`, `audit_legal_hold_access` |
+| `sql/reducers/worm_*.sql` | **Create** | PL/pgSQL reducers: `place_legal_hold`, `release_legal_hold`, `list_legal_holds`, `audit_legal_hold_access` |
 | `docs/specs/WORM.md` | **Create** | Customer-facing WORM compliance guide: architecture, shared responsibility model, audit procedures, retention schedule configuration, Cohasset certification path |
 | `scripts/verify-worm.sh` | **Create** | Operational verification script: confirm bucket Object Lock status, test immutability (attempt DeleteObject → expect 403), list objects approaching retention expiry |
 

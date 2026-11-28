@@ -230,7 +230,7 @@ psql "$DB_DIRECT_OWNER_DSN" -Atc 'SELECT current_user'
 printf 'app_current_user='
 psql "$DB_DSN" -Atc 'SELECT current_user'
 psql "$DB_DIRECT_OWNER_DSN" -v ON_ERROR_STOP=1 \
-  -f /root/setjoin/mailserver/sql/tests/rls_role_model.pg
+  -f /root/setjoin/sql/tests/rls_role_model.pg
 read -r admin_mb dr_mb < <(
   psql "$DB_DIRECT_OWNER_DSN" -AtF ' ' -c \
     "SELECT min(id) FILTER (WHERE email='admin@example.com'),
@@ -307,7 +307,7 @@ source /etc/setjoin/config.env
 set +a
 printf 'resolved_operator_user='
 psql "\$DB_DIRECT_OWNER_DSN" -Atc 'SELECT current_user'
-/root/setjoin/server-rust/mailctl backup-db \
+/root/setjoin/server/mailctl backup-db \
   --provider s3 \
   --endpoint http://127.0.0.1:9000 \
   --region us-east-1 \
@@ -326,7 +326,7 @@ cd /root/setjoin
 set -a
 source /etc/setjoin/config.env
 set +a
-/root/setjoin/server-rust/mailctl backup-db \
+/root/setjoin/server/mailctl backup-db \
   --dsn "\$DB_DSN" \
   --provider s3 \
   --endpoint http://127.0.0.1:9000 \
@@ -394,7 +394,7 @@ systemctl stop setjoin-gateway setjoin-auth
 su postgres -c 'dropdb --if-exists --force mailserver'
 su postgres -c 'createdb -O mail mailserver'
 
-for mig in mailserver/sql/dbschema/V[0-9]*__*.sql; do
+for mig in sql/dbschema/V[0-9]*__*.sql; do
   PGPASSWORD='Sm0keDbPassw0rd2026' \
     psql -h 127.0.0.1 -U mail -d mailserver -v ON_ERROR_STOP=1 \
       -f "$mig" >/dev/null
@@ -450,8 +450,8 @@ common=(
   --secret-key '$SECRET_KEY'
   --type full
 )
-/root/setjoin/server-rust/mailctl restore "\${common[@]}" --dry-run
-/root/setjoin/server-rust/mailctl restore "\${common[@]}" --yes
+/root/setjoin/server/mailctl restore "\${common[@]}" --dry-run
+/root/setjoin/server/mailctl restore "\${common[@]}" --yes
 INNER
 }
 

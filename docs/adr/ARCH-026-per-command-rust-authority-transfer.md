@@ -11,7 +11,7 @@ decision 2026-10-11
 
 The owner committed Setjoin to a Rust rewrite in which Rust commands, not
 PL/pgSQL reducers, own business authority. Today the reducers in
-`mailserver/sql/reducers/` are the live authority, and the root invariant
+`sql/reducers/` are the live authority, and the root invariant
 "Logic where the data is" says so without qualification. Moving every command at
 once would leave no live baseline to compare against and no safe rollback. Letting
 Rust and a reducer both write the same state would create split authority:

@@ -3,7 +3,7 @@
 # check-e2e-seed-drift.sh — e2e seed-fixture DRIFT guard (Queue B item 3,
 # retired-docs:superpowers/plans/archive/2026-07-04-queue-b-combined.md §3).
 #
-# WHY. `mailserver/webmail/e2e/fixtures/seed.sql` is hand-maintained SQL that
+# WHY. `webmail/e2e/fixtures/seed.sql` is hand-maintained SQL that
 # targets a schema evolving independently under it. Nothing previously caught
 # (a) seed.sql referencing a column/table that's since been renamed/dropped —
 # only a human running the full Playwright suite locally hit the wall — or
@@ -40,7 +40,7 @@
 # fail-closed design. By default this guard therefore provisions its OWN
 # disposable e2e database (mailserver_e2e_driftguard_<pid>) FRESH each run
 # through the sanctioned loader scripts/load-test-schema.sh — the same flow
-# the e2e stack (mailserver/webmail/e2e/scripts/start-test-stack.sh) and the
+# the e2e stack (webmail/e2e/scripts/start-test-stack.sh) and the
 # check-schema-determinism.sh guard use — so the schema under test is the
 # CURRENT tree by construction, and drops it on exit. Override
 # DB_HOST/DB_PORT/DB_USER/DB_NAME to point at an existing scratch database;
@@ -81,8 +81,8 @@ if [ -n "$DB_NAME" ]; then
 fi
 PG_OPTS="-h $DB_HOST -p $DB_PORT -U $DB_USER"
 
-SEED_FILE="${SEED_FILE:-$ROOT/mailserver/webmail/e2e/fixtures/seed.sql}"
-E2E_DIR="${E2E_DIR:-$ROOT/mailserver/webmail/e2e}"
+SEED_FILE="${SEED_FILE:-$ROOT/webmail/e2e/fixtures/seed.sql}"
+E2E_DIR="${E2E_DIR:-$ROOT/webmail/e2e}"
 
 # ── Disposable e2e database (default path) ──────────────────────────────────
 # No DB_NAME given: build a fresh e2e-marked database so seed.sql's C9 marker

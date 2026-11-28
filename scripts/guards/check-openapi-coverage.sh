@@ -21,8 +21,8 @@
 # {accountId}) don't cause false diffs (position-based comparison).
 #
 # The route set comes from the committed canonical schema-v1 route inventory
-# (server-rust/bins/gateway/data/route-inventory.json), validated against
-# route_inventory.golden by server-rust/bins/gateway. Source regex is
+# (server/bins/gateway/data/route-inventory.json), validated against
+# route_inventory.golden by server/bins/gateway. Source regex is
 # deliberately not an authority here.
 #
 # Usage:
@@ -35,9 +35,9 @@ set -uo pipefail
 # the per-line grep membership in run_guard must order identically).
 export LC_ALL=C
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SPEC="$ROOT/mailserver/api/openapi.yaml"
-PENDING="$ROOT/mailserver/api/openapi-pending.txt"
-INVENTORY="${ROUTE_INVENTORY_FILE:-$ROOT/server-rust/bins/gateway/data/route-inventory.json}"
+SPEC="$ROOT/api/openapi.yaml"
+PENDING="$ROOT/api/openapi-pending.txt"
+INVENTORY="${ROUTE_INVENTORY_FILE:-$ROOT/server/bins/gateway/data/route-inventory.json}"
 INVENTORY_READER="$ROOT/scripts/guards/route-inventory-json.mjs"
 
 # These protocol muxes are governed by DAV contracts rather than OpenAPI.
@@ -102,7 +102,7 @@ run_guard() {  # echoes failures to stderr; returns 1 on any
     echo "E_ROUTE_UNDOCUMENTED" >&2
     echo "  operation: $r" >&2
     [[ -n "$details" ]] && sed 's/^/  /' <<<"$details" >&2
-    echo "  absent_ledgers: mailserver/api/openapi.yaml, mailserver/api/openapi-pending.txt" >&2
+    echo "  absent_ledgers: api/openapi.yaml, api/openapi-pending.txt" >&2
     echo "  cause: an emitted production route has no reviewed API contract or explicit pending entry" >&2
     echo "  fix: document it, or add the reviewer-approved exact operation to openapi-pending.txt" >&2
     echo "  rerun: bash scripts/ci/verify-architecture-r2.sh route" >&2
@@ -181,6 +181,6 @@ if run_guard; then
 else
   echo "" >&2
   echo "  OpenAPI coverage drift (see ✗ lines). Fix by documenting the route in" >&2
-  echo "  mailserver/api/openapi.yaml or updating mailserver/api/openapi-pending.txt." >&2
+  echo "  api/openapi.yaml or updating api/openapi-pending.txt." >&2
   exit 1
 fi

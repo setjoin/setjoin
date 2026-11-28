@@ -5,9 +5,9 @@
 set -euo pipefail
 
 ROOT="${ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
-REDUCERS="${REDUCERS:-$ROOT/mailserver/sql/reducers}"
+REDUCERS="${REDUCERS:-$ROOT/sql/reducers}"
 REGISTRY="${REGISTRY:-$ROOT/docs/reducer-error-codes.md}"
-CONTRACT="${CONTRACT:-$ROOT/server-rust/bins/gateway/src/jmap/family/reducer_error.rs}"
+CONTRACT="${CONTRACT:-$ROOT/server/bins/gateway/src/jmap/family/reducer_error.rs}"
 
 raised_codes() {
   perl -0ne 'while (/ERRCODE\s*=\s*\x27(BZ\d{3})\x27/g) { print "$1\n" }' "$REDUCERS"/*.sql | sort -u
@@ -18,7 +18,7 @@ registered_codes() {
 }
 
 # Internal-invariant BZ codes that deliberately project to 500 (Class::Unknown
-# in server-rust/bins/gateway/src/jmap/family/reducer_error.rs, formerly
+# in server/bins/gateway/src/jmap/family/reducer_error.rs, formerly
 # intentional500 in shared/reducererr/reducererr.go). Listed explicitly here
 # so "deliberately 500" stays distinct from "forgot to classify".
 INTENTIONAL_500=(

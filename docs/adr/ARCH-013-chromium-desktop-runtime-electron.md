@@ -64,7 +64,7 @@ Electron's renderer/main split is **not** a security boundary by default; these 
 
 ## Consequences
 
-- `clients/desktop/` migrates from a Tauri `src-tauri/` crate to an **Electron** shell hosting `mailserver/webmail/build`. The `window.setjoinNative` bridge contract (vault/TOTP/notify/pickFile/openExternal/secureStore + MAM lifecycle) is preserved; only the host changes.
+- `clients/desktop/` migrates from a Tauri `src-tauri/` crate to an **Electron** shell hosting `webmail/build`. The `window.setjoinNative` bridge contract (vault/TOTP/notify/pickFile/openExternal/secureStore + MAM lifecycle) is preserved; only the host changes.
 - guard-core / offline-core are consumed via an **engine-agnostic native module — an N-API in-process addon (`napi-rs`, N-API 4) as the shipped default; a `UtilityProcess` sidecar (length-prefixed IPC) as a documented, un-built option for a 等保三级-driven process-isolation requirement** — not Tauri commands (see decision 3, amended 2026-07-05). N-API 4's ABI stability means no rebuild per Electron major, so the sidecar's ABI-decoupling rationale is already covered; its remaining benefit (isolating the C crypto) is defense-in-depth not required by the current threat model.
 - LoongArch desktop builds target **glibc ≥ 2.38** (New-World 龙芯).
 - **Updater must verify signatures.** The Tauri updater pubkey was empty (unsigned). The Electron updater consumes an **Ed25519-signed manifest binding SHA-256(artifact)+version, with the pubkey embedded**, verifies signature+hash **before install** into an owner-only temp dir, and **forbids unsigned downgrades**; air-gap = an offline-signed manifest sideloaded. A test asserts the pubkey is non-empty and rejects tampered artifacts. See the distribution decision and ARCH-015's custody posture.
@@ -86,7 +86,7 @@ would remove.
 
 Architecture R2 therefore adopts a narrower AST conformance pilot. The pinned
 webmail TypeScript compiler derives group/member names directly from
-`mailserver/webmail/src/lib/native/types.ts` into one checked fixture. It does
+`webmail/src/lib/native/types.ts` into one checked fixture. It does
 not generate implementation code or decide platform support. Electron executes
 `buildBridge(recordingInvoke)` and records production IPC maps; Tauri uses one
 shell-owned macro for both `generate_handler!` and a test projection; HarmonyOS

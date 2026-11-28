@@ -2,7 +2,7 @@ name: Rust floor builds
 on:
   push:
     branches: [main]
-    paths: ['server-rust/**', 'scripts/**', '.github/ci/rust-loong-*.Dockerfile', '.github/workflows/rust-floor.yml']
+    paths: ['server/**', 'scripts/**', '.github/ci/rust-loong-*.Dockerfile', '.github/workflows/rust-floor.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -78,5 +78,5 @@ jobs:
           docker build -t setjoin-rust-loong-floor:ci - < .github/ci/rust-loong-runtime.Dockerfile
           # The copied libc must be the actual floor, and QEMU must execute it.
           docker run --rm setjoin-rust-loong-floor:ci /lib64/libc.so.6 | head -1 | grep -F 'version 2.36'
-          expected=$(cargo metadata --manifest-path server-rust/Cargo.toml --locked --no-deps --format-version=1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "setjoin-gateway"))')
+          expected=$(cargo metadata --manifest-path server/Cargo.toml --locked --no-deps --format-version=1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "setjoin-gateway"))')
           SMOKE_EXPECTED_VERSION="$expected" bash scripts/ci/smoke-rust-floor.sh "$GITHUB_WORKSPACE/scripts/ci/smoke-rust-loong-container.sh"

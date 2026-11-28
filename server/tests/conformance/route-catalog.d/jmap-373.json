@@ -1,0 +1,1041 @@
+{
+  "version": 1,
+  "inventory": [
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "oracle_commands": [
+        "Task/get",
+        "Task/query",
+        "Task/changes",
+        "Task/set",
+        "TaskComment/get",
+        "TaskComment/set",
+        "TaskList/get",
+        "TaskList/set",
+        "TaskListMember/set",
+        "TaskList/tasks",
+        "TaskList/taskSet",
+        "TaskAssigned/get",
+        "TaskAssigned/setStatus"
+      ],
+      "oracle_mutators": [
+        "Task/set",
+        "TaskComment/set",
+        "TaskList/set",
+        "TaskListMember/set",
+        "TaskList/taskSet",
+        "TaskAssigned/setStatus"
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "Task/get",
+      "gate": "personal",
+      "app": "tasks",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/task.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-get-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_get_success"
+          }
+        },
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-get-mixed-ids.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_get_mixed_ids"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-get-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_get_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-get-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_get_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-get-delegate-personal.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_get_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-get-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_get_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_373",
+        "test": "task_get_status_mutant"
+      },
+      "family_mutants": [
+        {
+          "name": "no-tenant-filter",
+          "package": "setjoin-gateway",
+          "target": "jmap_family_373",
+          "test": "task_get_no_tenant_filter_mutant"
+        }
+      ]
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "Task/query",
+      "gate": "personal",
+      "app": "tasks",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/task.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-query-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_query_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-query-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_query_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-query-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_query_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-query-delegate-personal.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_query_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-query-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_query_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_373",
+        "test": "task_query_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "Task/changes",
+      "gate": "personal",
+      "app": "tasks",
+      "account": true,
+      "mutator": false,
+      "state": true,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/task.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-changes-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_changes_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-changes-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_changes_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-changes-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_changes_invalid_input"
+          }
+        },
+        {
+          "kind": "state-mismatch",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-changes-state-mismatch.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_changes_state_mismatch"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-changes-delegate-personal.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_changes_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-changes-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_changes_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_373",
+        "test": "task_changes_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "Task/set",
+      "gate": "personal",
+      "app": "tasks",
+      "account": true,
+      "mutator": true,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/task.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-set-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_set_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-set-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_set_repeat"
+          }
+        },
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-set-update-destroy.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-update-destroy-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_set_update_destroy"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-set-cross-tenant.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-cross-tenant-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_set_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-set-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_set_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-set-delegate-personal.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-delegate-personal-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_set_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-set-entitlement-denied.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-set-entitlement-denied-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_set_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_373",
+        "test": "task_set_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "TaskComment/get",
+      "gate": "personal",
+      "app": "tasks",
+      "account": true,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/task.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-comment-get-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_comment_get_success"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-comment-get-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_comment_get_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-comment-get-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_comment_get_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-comment-get-delegate-personal.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_comment_get_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-comment-get-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_comment_get_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_373",
+        "test": "task_comment_get_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "TaskComment/set",
+      "gate": "personal",
+      "app": "tasks",
+      "account": true,
+      "mutator": true,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/task.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_comment_set_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_comment_set_repeat"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-cross-tenant.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-cross-tenant-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_comment_set_cross_tenant"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_comment_set_invalid_input"
+          }
+        },
+        {
+          "kind": "delegate-personal",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-delegate-personal.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-delegate-personal-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_comment_set_delegate_personal"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-entitlement-denied.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-comment-set-entitlement-denied-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_comment_set_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_373",
+        "test": "task_comment_set_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "TaskList/get",
+      "gate": "personal",
+      "app": "tasks",
+      "account": false,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/task_list.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-get-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_get_success"
+          }
+        },
+        {
+          "kind": "foreign-object",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-get-foreign-object.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_get_foreign_object"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-get-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_get_invalid_input"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-get-disabled.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_get_disabled"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-get-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_get_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_373",
+        "test": "task_list_get_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "TaskList/set",
+      "gate": "personal",
+      "app": "tasks",
+      "account": false,
+      "mutator": true,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/task_list.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-set-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-set-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_set_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-set-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-set-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_set_repeat"
+          }
+        },
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-set-update-destroy.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-set-update-destroy-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_set_update_destroy"
+          }
+        },
+        {
+          "kind": "foreign-object",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-set-foreign-object.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-set-foreign-object-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_set_foreign_object"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-set-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-set-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_set_invalid_input"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-set-entitlement-denied.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-set-entitlement-denied-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_set_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_373",
+        "test": "task_list_set_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "TaskListMember/set",
+      "gate": "personal",
+      "app": "tasks",
+      "account": false,
+      "mutator": true,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/task_list.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_member_set_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_member_set_repeat"
+          }
+        },
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-self-leave.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-self-leave-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_member_set_self_leave"
+          }
+        },
+        {
+          "kind": "foreign-object",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-foreign-object.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-foreign-object-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_member_set_foreign_object"
+          }
+        },
+        {
+          "kind": "foreign-object",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-nonexistent-list.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-nonexistent-list-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_member_set_nonexistent_list"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_member_set_invalid_input"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-entitlement-denied.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-member-set-entitlement-denied-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_member_set_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_373",
+        "test": "task_list_member_set_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "TaskList/tasks",
+      "gate": "personal",
+      "app": "tasks",
+      "account": false,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/task_list.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-tasks-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_tasks_success"
+          }
+        },
+        {
+          "kind": "foreign-object",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-tasks-foreign-object.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_tasks_foreign_object"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-tasks-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_tasks_invalid_input"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-tasks-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_tasks_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_373",
+        "test": "task_list_tasks_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "TaskList/taskSet",
+      "gate": "personal",
+      "app": "tasks",
+      "account": false,
+      "mutator": true,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/task_list.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_task_set_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_task_set_repeat"
+          }
+        },
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-update-destroy.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-update-destroy-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_task_set_update_destroy"
+          }
+        },
+        {
+          "kind": "foreign-object",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-foreign-object.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-foreign-object-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_task_set_foreign_object"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_task_set_invalid_input"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-entitlement-denied.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-list-task-set-entitlement-denied-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_list_task_set_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_373",
+        "test": "task_list_task_set_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "TaskAssigned/get",
+      "gate": "personal",
+      "app": "tasks",
+      "account": false,
+      "mutator": false,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/task_list.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-assigned-get-success.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_assigned_get_success"
+          }
+        },
+        {
+          "kind": "foreign-object",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-assigned-get-foreign-object.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_assigned_get_foreign_object"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-assigned-get-invalid-input.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_assigned_get_invalid_input"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-assigned-get-entitlement-denied.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_assigned_get_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_373",
+        "test": "task_assigned_get_status_mutant"
+      }
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/jmap",
+      "family": "F18",
+      "command": "TaskAssigned/setStatus",
+      "gate": "personal",
+      "app": "tasks",
+      "account": false,
+      "mutator": true,
+      "state": false,
+      "handler_sources": [
+        "server/bins/gateway/src/jmap/family/mod.rs",
+        "server/bins/gateway/src/jmap/family/task_list.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-success.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-success-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_assigned_set_status_success"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-repeat.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-repeat-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_assigned_set_status_repeat"
+          }
+        },
+        {
+          "kind": "foreign-object",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-foreign-object.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-foreign-object-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_assigned_set_status_foreign_object"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-invalid-input.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-invalid-input-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_assigned_set_status_invalid_input"
+          }
+        },
+        {
+          "kind": "entitlement-denied",
+          "golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-entitlement-denied.json",
+          "row_golden": "server/tests/conformance/jmap/families/tasks/task-assigned-set-status-entitlement-denied-row-effects.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "jmap_family_373",
+            "test": "task_assigned_set_status_entitlement_denied"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "jmap_family_373",
+        "test": "task_assigned_set_status_status_mutant"
+      }
+    }
+  ]
+}

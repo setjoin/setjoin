@@ -20,8 +20,8 @@
 # ──────────────────────────────────────────────────────────────────────────
 source "$(dirname "$0")/../_base.sh"
 
-MIGRATION_DIRS="${MIGRATION_DIRS:-$ROOT/mailserver/sql/dbschema}"
-REDUCER_DIR="${REDUCER_DIR:-$ROOT/mailserver/sql/reducers}"
+MIGRATION_DIRS="${MIGRATION_DIRS:-$ROOT/sql/dbschema}"
+REDUCER_DIR="${REDUCER_DIR:-$ROOT/sql/reducers}"
 
 echo "==> CA-F allocation guard (V025/BZ079 must be singular; no new dup versions)"
 

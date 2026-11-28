@@ -137,6 +137,6 @@ Functions that gain new parameters must handle existing callers:
 
 ## Verification
 
-1. `pg_prove -d mailserver mailserver/sql/tests/*.pg` — all pgTAP tests pass
+1. `pg_prove -d mailserver sql/tests/*.pg` — all pgTAP tests pass
 2. `cd mailserver/gateway && go build ./cmd/gateway && go test ./...` — Go tests pass
 3. Manual: attempt cross-user mutation via modified JMAP request → 403/error

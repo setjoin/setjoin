@@ -52,17 +52,17 @@ Ship a scheduling-assistant UI in SvelteKit webmail that makes booking rooms and
 
 | Action | File | Purpose |
 |--------|------|---------|
-| **Create** | `mailserver/webmail/src/lib/components/AvailabilityGrid.svelte` | Timeline grid: rows = attendees + rooms, columns = 30-min buckets; green (free), red (busy), amber (tentative), striped (room occupied) |
-| **Create** | `mailserver/webmail/src/lib/components/RoomFinder.svelte` | Filterable room list: capacity slider, equipment checkboxes (projector, VC, whiteboard, phone), building/location dropdown; room card with photo placeholder |
-| **Create** | `mailserver/webmail/src/lib/stores/scheduling.ts` | `SchedulingStore` — $state rune: attendees (Set<string>), timeRange (DateRange), busyIntervals (Map<string, BusyInterval[]>), selectedRoom, derived `mutualFreeSlots` |
-| **Create** | `mailserver/webmail/src/lib/components/SchedulingAssistant.svelte` | Two-pane glass-sheet: left = event form (title, date, duration), right = AvailabilityGrid + RoomFinder tabs; "Find a time" auto-scroll |
+| **Create** | `webmail/src/lib/components/AvailabilityGrid.svelte` | Timeline grid: rows = attendees + rooms, columns = 30-min buckets; green (free), red (busy), amber (tentative), striped (room occupied) |
+| **Create** | `webmail/src/lib/components/RoomFinder.svelte` | Filterable room list: capacity slider, equipment checkboxes (projector, VC, whiteboard, phone), building/location dropdown; room card with photo placeholder |
+| **Create** | `webmail/src/lib/stores/scheduling.ts` | `SchedulingStore` — $state rune: attendees (Set<string>), timeRange (DateRange), busyIntervals (Map<string, BusyInterval[]>), selectedRoom, derived `mutualFreeSlots` |
+| **Create** | `webmail/src/lib/components/SchedulingAssistant.svelte` | Two-pane glass-sheet: left = event form (title, date, duration), right = AvailabilityGrid + RoomFinder tabs; "Find a time" auto-scroll |
 | **Create** | `mailserver/gateway/internal/caldav/freebusy_batch.go` | `POST /caldav/freebusy/batch` — accepts JSON `{user_ids:[], room_ids:[], start, end}`, returns aggregated free/busy intervals per entity |
 | **Create** | `mailserver/gateway/internal/caldav/freebusy_batch_test.go` | Unit tests: multi-user query, room-only query, empty result, timezone edge cases |
-| **Create** | `mailserver/sql/reducers/calendar_free_busy_multi.sql` | PL/pgSQL reducer: `calendar_free_busy_multi(p_cal_ids int[], p_start timestamptz, p_end timestamptz)` — batch version returning JSONB keyed by calendar ID |
-| **Modify** | `mailserver/webmail/src/routes/calendar/+page.svelte` | Add "New event with scheduling" button; open SchedulingAssistant in glass-modal overlay |
-| **Modify** | `mailserver/webmail/src/lib/types/jmap.ts` | Extend CalendarEvent type: `resourceAttendees`, `roomId`, `equipmentNeeds` |
+| **Create** | `sql/reducers/calendar_free_busy_multi.sql` | PL/pgSQL reducer: `calendar_free_busy_multi(p_cal_ids int[], p_start timestamptz, p_end timestamptz)` — batch version returning JSONB keyed by calendar ID |
+| **Modify** | `webmail/src/routes/calendar/+page.svelte` | Add "New event with scheduling" button; open SchedulingAssistant in glass-modal overlay |
+| **Modify** | `webmail/src/lib/types/jmap.ts` | Extend CalendarEvent type: `resourceAttendees`, `roomId`, `equipmentNeeds` |
 | **Modify** | `mailserver/gateway/cmd/gateway/main.go` | Register `/caldav/freebusy/batch` route (RequireAuth middleware) |
-| **Create** | `mailserver/webmail/src/lib/components/AvailabilityGrid.test.ts` | Vitest: free-slot computation, interval merging, DST transitions |
+| **Create** | `webmail/src/lib/components/AvailabilityGrid.test.ts` | Vitest: free-slot computation, interval merging, DST transitions |
 | **Total** | **~1,200 LOC** | **11 files** |
 
 ## Key Design Decisions

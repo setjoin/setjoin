@@ -40,7 +40,7 @@
  *     holds running below the limit at poll time         `held:<rule>`
  *
  * The hold rules are the REAL production shapes, transcribed with provenance
- * from `mailserver/webmail/src/lib/offline/` (see "Mirrored admission rules"
+ * from `webmail/src/lib/offline/` (see "Mirrored admission rules"
  * below): `networkUnavailable` (eligibility.ts:241-261 workOffline/networkCost
  * gate), `criticalActivity`/`criticalQuiet` (scheduler.ts
  * criticalAdmissionReason; CRITICAL_QUIET_RESUME_MS), `backoff`

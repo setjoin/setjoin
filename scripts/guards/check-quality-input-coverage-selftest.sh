@@ -37,7 +37,7 @@
 #     (the scan used to collapse a braced prefix to a bare "/x.py" that
 #     silently vanished), and an existing target stays lane-covered with no
 #     false [MISSING];
-#   · NESTED generated trees (mailserver/webmail/node_modules/probe.py) are
+#   · NESTED generated trees (webmail/node_modules/probe.py) are
 #     excluded like their root-level equivalents — root (dir/**) and nested
 #     (**/dir/**) patterns are both declared, and with the set undeclared
 #     BOTH depths enter the lane by silence;
@@ -196,7 +196,7 @@ expect_guard_fail "$FX_ROOT" "zero-directory gap (no *.py declared)" "\[UNCOVERE
 
 # ── Generated/vendor exclusions declared → PASS and stay out of the lane. ───
 # Both depths: the root-level trees AND the same generated directory names
-# nested deeper (mailserver/webmail/<dir>/probe.py) must stay excluded — the
+# nested deeper (webmail/<dir>/probe.py) must stay excluded — the
 # declaration covers dir/** at the root and **/dir/** at any depth.
 FX_GEN="$(new_fixture "$CAT_FULL" fx_gen)"
 mkdir -p "$FX_GEN/gen" "$FX_GEN/build" "$FX_GEN/node_modules/pkg" "$FX_GEN/.zcode-security-deep/h"
@@ -205,8 +205,8 @@ printf 'generated\n' >"$FX_GEN/build/gen.py"
 printf 'vendored\n' >"$FX_GEN/node_modules/pkg/vendor.py"
 printf 'EVIDENCE\n' >"$FX_GEN/.zcode-security-deep/h/ev.py"
 for gdir in node_modules refs build dist test-results; do
-  mkdir -p "$FX_GEN/mailserver/webmail/$gdir"
-  printf 'generated\n' >"$FX_GEN/mailserver/webmail/$gdir/probe.py"
+  mkdir -p "$FX_GEN/webmail/$gdir"
+  printf 'generated\n' >"$FX_GEN/webmail/$gdir/probe.py"
 done
 commit_all "$FX_GEN"
 if run_guard "$FX_GEN"; then
@@ -221,8 +221,8 @@ else
   bad "generated/vendor files leaked into the eligible list (root or nested depth)"
   eligible_list "$FX_GEN" | sed 's/^/        /'
 fi
-if [[ "$(eligible_list "$FX_GEN" | grep -cF "$FX_GEN/mailserver/webmail/node_modules/probe.py" || true)" -eq 0 ]]; then
-  pass "nested generated tree (mailserver/webmail/node_modules) stays out of the lane"
+if [[ "$(eligible_list "$FX_GEN" | grep -cF "$FX_GEN/webmail/node_modules/probe.py" || true)" -eq 0 ]]; then
+  pass "nested generated tree (webmail/node_modules) stays out of the lane"
 else
   bad "nested generated tree must be excluded like its root-level equivalent"
 fi
@@ -236,14 +236,14 @@ printf 'x=1\n' >"$FX_GEN_UD/gen/a.py"
 printf 'generated\n' >"$FX_GEN_UD/build/gen.py"
 printf 'vendored\n' >"$FX_GEN_UD/node_modules/pkg/vendor.py"
 printf 'EVIDENCE\n' >"$FX_GEN_UD/.zcode-security-deep/h/ev.py"
-mkdir -p "$FX_GEN_UD/mailserver/webmail/node_modules"
-printf 'vendored\n' >"$FX_GEN_UD/mailserver/webmail/node_modules/probe.py"
+mkdir -p "$FX_GEN_UD/webmail/node_modules"
+printf 'vendored\n' >"$FX_GEN_UD/webmail/node_modules/probe.py"
 commit_all "$FX_GEN_UD"
 expect_guard_fail "$FX_GEN_UD" "undeclared generated/vendor exclusion set" "\[NO-GENERATED\]" "exclude_generated"
 el="$(eligible_list "$FX_GEN_UD")"
 if grep -qF "$FX_GEN_UD/build/gen.py" <<<"$el" &&
   grep -qF "$FX_GEN_UD/node_modules/pkg/vendor.py" <<<"$el" &&
-  grep -qF "$FX_GEN_UD/mailserver/webmail/node_modules/probe.py" <<<"$el"; then
+  grep -qF "$FX_GEN_UD/webmail/node_modules/probe.py" <<<"$el"; then
   pass "without exclude_generated the generated/vendor files enter the lane at BOTH depths (declaration is the operative exclusion)"
 else
   bad "expected undeclared generated/vendor files to enter the projected lane at both depths"

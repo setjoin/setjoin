@@ -40,7 +40,7 @@ configuration error is an evidence failure, not a clean result.
 - pgTAP suites: `bash scripts/ci/run-pgtap-lane.sh scripts/pgtap-known-red.txt -h HOST -p PORT -U USER -d DB` (the lane's `pgtap` job; suites listed in `scripts/pgtap-known-red.txt` run and warn, and a listed suite that passes fails the ratchet)
 - Hot-context guard: `bash scripts/guards/check-agent-context-budget.sh` and `bash scripts/guards/check-agent-docs.sh`
 - Rust server, front-door inventory and oracle adequacy: `bash scripts/guards/check-server-rust.sh`
-  (runs golden floor, per-route replay/coverage, and mutant checks against `server-rust/`;
+  (runs golden floor, per-route replay/coverage, and mutant checks against `server/`;
   Rust's `llvm-tools` component is required. With no DB the dynamic
   oracle reports a skip; `REQUIRE_DB=1` with disposable test DSNs requires all cases).
 - Oracle adequacy: replays and mutants run `LANE_ADEQUACY_JOBS` (default `LANE_JOBS`) at a time on per-replay clones; timeouts: `LANE_REPLAY_TIMEOUT` (default 900 s, run time of one replay or mutant).
@@ -52,7 +52,7 @@ configuration error is an evidence failure, not a clean result.
 - HTTP socket activation on a root/systemd host: `python3 scripts/deploy/test-gateway-systemd.py <built-setjoin-server>`
   (temporary `gofree-t13-*` units; checks capability-empty execution and queued
   connections during restart; public TLS/installer handover is not covered).
-- Installer front door (#264 / #142): `bash mailserver/deploy/scripts/test-install-front-door.sh [<built-setjoin-server>]`
+- Installer front door (#264 / #142): `bash deploy/scripts/test-install-front-door.sh [<built-setjoin-server>]`
   (unchanged unit name `setjoin-gateway.service` executing `setjoin-server`, Rust `*.prev` rollback; with a binary it runs the rendered config, and as
   root on systemd the rendered socket+service under `gofree-t13-*` names —
   `REQUIRE_SYSTEMD=1` makes that arm mandatory).

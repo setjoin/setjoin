@@ -15,7 +15,7 @@ import sys
 import tempfile
 
 repo = Path(__file__).resolve().parents[2]
-root = repo / "server-rust"
+root = repo / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 DSN = os.environ["TEST_DB_DSN"]
@@ -28,12 +28,12 @@ AUTHZ_D = ("setjoin-authz", "device_credential")
 IDENT = ("setjoin-identity", None)  # lib tests
 
 REFRESH_SQL = (
-    "mailserver/sql/reducers/rust_identity_refresh.sql",
+    "sql/reducers/rust_identity_refresh.sql",
     "        IF v_parent.revoked_at IS NOT NULL OR v_parent.expires_at<clock_timestamp() THEN\n            RETURN jsonb_build_object('status','denied');\n        END IF;\n        IF clock_timestamp()",
     "        IF clock_timestamp()",
 )
 PASSWORD_SQL = (
-    "mailserver/sql/reducers/rust_identity_password_write.sql",
+    "sql/reducers/rust_identity_password_write.sql",
     "FROM users WHERE id=p_user_id FOR UPDATE;",
     "FROM users WHERE email=p_email FOR UPDATE;",
 )

@@ -11,7 +11,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-REDUCERS_DIR="${SCOPE_REVOCATION_REDUCERS_DIR:-$ROOT/mailserver/sql/reducers}"
+REDUCERS_DIR="${SCOPE_REVOCATION_REDUCERS_DIR:-$ROOT/sql/reducers}"
 
 # Explicit allowlist of reducers (`file.sql` or `file.sql:func_name`) whose
 # DELETE on the watched tables is non-revocation cleanup/cascade (empty today;

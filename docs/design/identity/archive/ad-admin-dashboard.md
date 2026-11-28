@@ -22,7 +22,7 @@ Returns:
 Queries `identity_sync_log` for last run + `sync_conflicts` for unresolved count.
 
 ### 2. Identity Admin UI — 3 tabs (~80 lines)
-**File:** `mailserver/webmail/src/routes/admin/identity/+page.svelte`
+**File:** `webmail/src/routes/admin/identity/+page.svelte`
 
 Three tabs: Auth Methods (existing), Active Directory (new), LDAP (placeholder).
 
@@ -42,5 +42,5 @@ Three tabs: Auth Methods (existing), Active Directory (new), LDAP (placeholder).
 
 ```bash
 cd mailserver/gateway && go build ./... && go test ./...
-cd mailserver/webmail && npm run check  # 0 errors, 0 warnings
+cd webmail && npm run check  # 0 errors, 0 warnings
 ```

@@ -176,7 +176,7 @@ The `requireTyping` prop disables the confirm button until the user types the em
 ## Files Modified
 
 ```
-mailserver/webmail/src/
+webmail/src/
   routes/+page.svelte                          — i18n all strings
   routes/apps/+page.svelte                     — i18n all strings
   routes/settings/                             — i18n + validators
@@ -193,8 +193,8 @@ mailserver/webmail/src/
 
 ## References
 
-- `mailserver/webmail/src/lib/i18n/en.ts`, `zh.ts`, `de.ts` — existing translation keys
-- `mailserver/webmail/src/lib/validation.ts` — current validators (isEmail needs update)
-- `mailserver/webmail/src/lib/theme/tokens.css` — design tokens
+- `webmail/src/lib/i18n/en.ts`, `zh.ts`, `de.ts` — existing translation keys
+- `webmail/src/lib/validation.ts` — current validators (isEmail needs update)
+- `webmail/src/lib/theme/tokens.css` — design tokens
 - `docs/design/standards/validation-email-policy.md` — Spec A (defines validators)
 - `docs/design/standards/error-handling-logging.md` — Spec B (defines Problem format for error responses)

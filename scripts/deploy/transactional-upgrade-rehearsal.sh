@@ -48,7 +48,7 @@ go_continuity() {
 database_continuity() {
   bash "$ROOT/scripts/load-test-schema.sh"
   pg_prove -h 127.0.0.1 -p 5432 -U mail -d mailserver_test \
-    "$ROOT/mailserver/sql/tests/mail_recovery_continuity.pg"
+    "$ROOT/sql/tests/mail_recovery_continuity.pg"
 }
 
 native_continuity() {
@@ -60,12 +60,12 @@ native_continuity() {
 }
 
 web_continuity() {
-  (cd "$ROOT/mailserver/webmail" && npx vitest run \
+  (cd "$ROOT/webmail" && npx vitest run \
     src/lib/offline/recovery.test.ts \
     src/lib/offline/recovery-upload.test.ts \
     src/lib/native/types.test.ts \
     src/lib/admin/client.test.ts)
-  (cd "$ROOT/mailserver/webmail" && npm run check)
+  (cd "$ROOT/webmail" && npm run check)
 }
 
 contracts() {

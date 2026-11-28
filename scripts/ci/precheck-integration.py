@@ -8,8 +8,8 @@
   precheck-integration.py selftest            fixture checks of the selection rule (no cargo, no git)
 
 Rule (owner decision 2026-11-16):
-  * Only changed server-rust/ files that are not *.md count; none -> nothing runs (fast path).
-  * server-rust/Cargo.toml, Cargo.lock or rust-toolchain* changed -> nothing runs, noted: a
+  * Only changed server/ files that are not *.md count; none -> nothing runs (fast path).
+  * server/Cargo.toml, Cargo.lock or rust-toolchain* changed -> nothing runs, noted: a
     workspace-wide change is the merge queue's job.
   * Changed packages = workspace members owning a changed file (longest manifest-dir prefix).
   * Reverse dependents: per changed package, its transitive NORMAL/BUILD reverse dependents
@@ -34,7 +34,7 @@ import sys
 
 MAX_RDEPS = 5
 HEAVY = {"setjoin-gateway": 30, "setjoin-auth": 20}
-WORKSPACE_WIDE = ("server-rust/Cargo.toml", "server-rust/Cargo.lock")
+WORKSPACE_WIDE = ("server/Cargo.toml", "server/Cargo.lock")
 GENERIC = {"src", "tests", "lib", "main", "mod", "common", "fixtures", "golden", "goldens", "testdata",
            "support", "util", "utils", "helpers", "build", "benches", "examples", "setjoin", "crates",
            "domains", "bins", "protocols", "cargo"}
@@ -62,10 +62,10 @@ def matches(target, token):
 
 def code_files(changed):
     """-> (code files, note or None); a note means nothing runs."""
-    code = [f for f in changed if f.startswith("server-rust/") and not f.endswith(".md")]
+    code = [f for f in changed if f.startswith("server/") and not f.endswith(".md")]
     if not code:
         return code, "no server-rust code change: no integration test selected"
-    wide = sorted(f for f in code if f in WORKSPACE_WIDE or f.startswith("server-rust/rust-toolchain"))
+    wide = sorted(f for f in code if f in WORKSPACE_WIDE or f.startswith("server/rust-toolchain"))
     if wide:
         return code, f"workspace-wide change ({', '.join(wide)}): integration tests run in the merge queue only"
     return code, None
@@ -172,7 +172,7 @@ def plan(outdir, base):
         notes.append(note)
     else:
         meta = json.loads(subprocess.run(
-            ["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1", "--manifest-path", "server-rust/Cargo.toml"],
+            ["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1", "--manifest-path", "server/Cargo.toml"],
             check=True, capture_output=True, text=True).stdout)
 
         def read(src):
@@ -192,9 +192,9 @@ def plan(outdir, base):
 
 def selftest():
     def pkg(name, d, tests=(), deps=(), dev=()):
-        return {"name": name, "manifest_path": f"/r/server-rust/{d}/Cargo.toml",
-                "targets": [{"name": "x", "kind": ["lib"], "src_path": f"/r/server-rust/{d}/src/lib.rs"}]
-                + [{"name": t, "kind": ["test"], "src_path": f"/r/server-rust/{d}/tests/{t}.rs"} for t in tests],
+        return {"name": name, "manifest_path": f"/r/server/{d}/Cargo.toml",
+                "targets": [{"name": "x", "kind": ["lib"], "src_path": f"/r/server/{d}/src/lib.rs"}]
+                + [{"name": t, "kind": ["test"], "src_path": f"/r/server/{d}/tests/{t}.rs"} for t in tests],
                 "dependencies": [{"name": x, "kind": None, "path": "p"} for x in deps]
                 + [{"name": x, "kind": "dev", "path": "p"} for x in dev]}
     gw_tests = ["static_recorded", "chat_compliance_recorded", "compliance_recorded", "platform_dns",
@@ -209,22 +209,22 @@ def selftest():
         pkg("setjoin-c", "crates/c", [], ["setjoin-pg"]),
     ]}
     pkgs = load(meta, "/r")
-    srcs = {f"server-rust/bins/gateway/tests/{t}.rs": "mod common;\n" for t in gw_tests}
-    srcs["server-rust/bins/gateway/tests/static_recorded.rs"] += 'const D: &str = "tests/static_oracle/cases.rs";\n'
-    srcs["server-rust/bins/gateway/tests/golden_user.rs"] = 'include_str!("golden/go-list-1.json");\n'
+    srcs = {f"server/bins/gateway/tests/{t}.rs": "mod common;\n" for t in gw_tests}
+    srcs["server/bins/gateway/tests/static_recorded.rs"] += 'const D: &str = "tests/static_oracle/cases.rs";\n'
+    srcs["server/bins/gateway/tests/golden_user.rs"] = 'include_str!("golden/go-list-1.json");\n'
     read = lambda src: srcs.get(src, "")
-    gw = "server-rust/bins/gateway/"
+    gw = "server/bins/gateway/"
     cases = [
-        ("docs-only", ["server-rust/DOX.md", ".github/workflows/x.yml", "docs/a.md"], {}, "no server-rust code change"),
-        ("workspace-wide", ["server-rust/Cargo.lock", gw + "src/static.rs"], {}, "workspace-wide change"),
-        ("domain-crate-to-gateway", ["server-rust/crates/domains/static/src/lib.rs"], {"setjoin-gateway": ["static_recorded"]}, None),
+        ("docs-only", ["server/DOX.md", ".github/workflows/x.yml", "docs/a.md"], {}, "no server-rust code change"),
+        ("workspace-wide", ["server/Cargo.lock", gw + "src/static.rs"], {}, "workspace-wide change"),
+        ("domain-crate-to-gateway", ["server/crates/domains/static/src/lib.rs"], {"setjoin-gateway": ["static_recorded"]}, None),
         ("gateway-src-no-dev-edge", [gw + "src/chat_compliance.rs"], {"setjoin-gateway": ["chat_compliance_recorded"]}, None),
         ("word-match", [gw + "src/compliance/mod.rs"], {"setjoin-gateway": ["chat_compliance_recorded", "compliance_recorded"]}, None),
-        ("light-rdep-runs-whole", ["server-rust/crates/domains/identity/src/login.rs"],
+        ("light-rdep-runs-whole", ["server/crates/domains/identity/src/login.rs"],
          {"setjoin-gateway": ["identity_self_service"], "setjoin-identity": ["login_flow"]}, "setjoin-auth: the change names no integration test target"),
-        ("auth-heavy-path-match", ["server-rust/crates/domains/identity/src/guest_invite.rs"],
+        ("auth-heavy-path-match", ["server/crates/domains/identity/src/guest_invite.rs"],
          {"setjoin-auth": ["guest_invite_oracle"], "setjoin-gateway": ["identity_self_service"], "setjoin-identity": ["login_flow"]}, None),
-        ("rdep-cap", ["server-rust/crates/pg/src/lib.rs"], {"setjoin-pg": ["pg_db"]}, "reverse dependents (over 5)"),
+        ("rdep-cap", ["server/crates/pg/src/lib.rs"], {"setjoin-pg": ["pg_db"]}, "reverse dependents (over 5)"),
         ("exact-test-file", [gw + "tests/startup.rs"], {"setjoin-gateway": ["startup"]}, None),
         ("referenced-dir", [gw + "tests/static_oracle/cases.rs"], {"setjoin-gateway": ["static_recorded"]}, None),
         ("referenced-golden", [gw + "tests/golden/go-list-1.json"], {"setjoin-gateway": ["golden_user"]}, None),

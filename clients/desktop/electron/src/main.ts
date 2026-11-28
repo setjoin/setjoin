@@ -21,8 +21,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { DriveMirrorStatus } from "../../../../mailserver/webmail/src/lib/native/types.js";
-import { SqlMirrorIndex } from "../../../../mailserver/webmail/src/lib/drive/sync/schema.js";
+import type { DriveMirrorStatus } from "../../../../webmail/src/lib/native/types.js";
+import { SqlMirrorIndex } from "../../../../webmail/src/lib/drive/sync/schema.js";
 import { configureAllowedOrigins, registerHandlers } from "./ipc";
 import { loadNativeBinding } from "./native";
 import type { NativeBinding } from "./native";
@@ -336,7 +336,7 @@ function webmailIndexPath(): string {
 	if (app.isPackaged) {
 		return path.join(process.resourcesPath, "webmail", "index.html");
 	}
-	return path.resolve(__dirname, "../../../../mailserver/webmail/build/index.html");
+	return path.resolve(__dirname, "../../../../webmail/build/index.html");
 }
 
 /** Base dir of the napi native module (packaged: an extraResource; dev: undefined = repo tree). */

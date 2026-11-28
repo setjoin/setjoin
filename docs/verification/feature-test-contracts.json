@@ -78,7 +78,7 @@
             {
               "id": "role-member-vitest-result",
               "kind": "vitest",
-              "path": "mailserver/webmail/src/lib/components/admin/RoleMembersPanel.test.ts",
+              "path": "webmail/src/lib/components/admin/RoleMembersPanel.test.ts",
               "selector": "shows remove button enabled for a manageable member",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -90,8 +90,8 @@
               "result": {
                 "format": "vitest-json",
                 "gateClass": "merge",
-                "report": "mailserver/webmail/test-results/vitest.json",
-                "suite": "mailserver/webmail/src/lib/components/admin/RoleMembersPanel.test.ts",
+                "report": "webmail/test-results/vitest.json",
+                "suite": "webmail/src/lib/components/admin/RoleMembersPanel.test.ts",
                 "testId": "RoleMembersPanel — admin-protection shows remove button enabled for a manageable member"
               }
             }
@@ -150,7 +150,7 @@
             {
               "id": "pgtap-force-rls-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/guest_app_entitlements.pg",
+              "path": "sql/tests/guest_app_entitlements.pg",
               "selector": "setjoin_app cannot read another principal''s guest row through FORCE RLS",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -164,7 +164,7 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/guest_app_entitlements.pg",
+                "suite": "sql/tests/guest_app_entitlements.pg",
                 "testId": "setjoin_app cannot read another principal's guest row through FORCE RLS"
               }
             }
@@ -184,7 +184,7 @@
             {
               "id": "playwright-guest-terminal-result",
               "kind": "playwright",
-              "path": "mailserver/webmail/e2e/guest-invite-lifecycle.spec.ts",
+              "path": "webmail/e2e/guest-invite-lifecycle.spec.ts",
               "selector": "pending → superseded replacement → exact revoke is visible and audited",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -198,8 +198,8 @@
               "result": {
                 "format": "playwright-json",
                 "gateClass": "release",
-                "report": "mailserver/webmail/test-results/playwright.json",
-                "suite": "mailserver/webmail/e2e/guest-invite-lifecycle.spec.ts#admin-chromium",
+                "report": "webmail/test-results/playwright.json",
+                "suite": "webmail/e2e/guest-invite-lifecycle.spec.ts#admin-chromium",
                 "testId": "Guest invitation terminal lifecycle @admin pending → superseded replacement → exact revoke is visible and audited"
               }
             }
@@ -220,7 +220,7 @@
             {
               "id": "playwright-guest-accept-visual-result",
               "kind": "playwright",
-              "path": "mailserver/webmail/e2e/guest-invite-accept-ui.spec.ts",
+              "path": "webmail/e2e/guest-invite-accept-ui.spec.ts",
               "selector": "renders a stable mobile disclosure and exposes a complete activation path",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -235,8 +235,8 @@
               "result": {
                 "format": "playwright-json",
                 "gateClass": "release",
-                "report": "mailserver/webmail/test-results/playwright.json",
-                "suite": "mailserver/webmail/e2e/guest-invite-accept-ui.spec.ts#chromium",
+                "report": "webmail/test-results/playwright.json",
+                "suite": "webmail/e2e/guest-invite-accept-ui.spec.ts#chromium",
                 "testId": "Guest invitation acceptance UI @user renders a stable mobile disclosure and exposes a complete activation path"
               }
             }
@@ -256,7 +256,7 @@
             {
               "id": "playwright-csp-result",
               "kind": "playwright",
-              "path": "mailserver/webmail/e2e/csp.spec.ts",
+              "path": "webmail/e2e/csp.spec.ts",
               "selector": "meta locks script-src to hashes and the app still boots",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -270,8 +270,8 @@
               "result": {
                 "format": "playwright-json",
                 "gateClass": "release",
-                "report": "mailserver/webmail/test-results/playwright-csp.json",
-                "suite": "mailserver/webmail/e2e/csp.spec.ts#chromium",
+                "report": "webmail/test-results/playwright-csp.json",
+                "suite": "webmail/e2e/csp.spec.ts#chromium",
                 "testId": "CSP — script-src hash lockdown (M9) meta locks script-src to hashes and the app still boots"
               }
             }
@@ -329,7 +329,7 @@
             {
               "id": "guest-status-atomic-revocation-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/guest_set_status.pg",
+              "path": "sql/tests/guest_set_status.pg",
               "selector": "disable: refresh family revoked in the same act (C-7)",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -338,7 +338,7 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/guest_set_status.pg",
+                "suite": "sql/tests/guest_set_status.pg",
                 "testId": "disable: refresh family revoked in the same act (C-7)"
               }
             }
@@ -431,7 +431,7 @@
             {
               "id": "jmap-load-bearing-rls-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/rls_jmap_reducers.pg",
+              "path": "sql/tests/rls_jmap_reducers.pg",
               "selector": "RLS LOAD-BEARING: setjoin_app desync jmap_email_query(p=A, GUC=B) → BZ006 Account not found (V288 mailboxes FORCE RLS denies foreign account)",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -440,7 +440,7 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/rls_jmap_reducers.pg",
+                "suite": "sql/tests/rls_jmap_reducers.pg",
                 "testId": "RLS LOAD-BEARING: setjoin_app desync jmap_email_query(p=A, GUC=B) → BZ006 Account not found (V288 mailboxes FORCE RLS denies foreign account)"
               }
             }
@@ -468,7 +468,7 @@
             {
               "id": "identity-ldap-ambiguity-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/identity_source_link_behavior.pg",
+              "path": "sql/tests/identity_source_link_behavior.pg",
               "selector": "LDAP without a proven immutable anchor is an explicit ambiguity",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -482,14 +482,14 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/identity_source_link_behavior.pg",
+                "suite": "sql/tests/identity_source_link_behavior.pg",
                 "testId": "LDAP without a proven immutable anchor is an explicit ambiguity"
               }
             },
             {
               "id": "identity-subject-takeover-denial-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/identity_source_link_behavior.pg",
+              "path": "sql/tests/identity_source_link_behavior.pg",
               "selector": "source subject cannot move to another person even when retained",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -503,14 +503,14 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/identity_source_link_behavior.pg",
+                "suite": "sql/tests/identity_source_link_behavior.pg",
                 "testId": "source subject cannot move to another person even when retained"
               }
             },
             {
               "id": "identity-link-force-rls-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/identity_source_link_behavior.pg",
+              "path": "sql/tests/identity_source_link_behavior.pg",
               "selector": "setjoin_app direct link read is denied by FORCE RLS",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -524,7 +524,7 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/identity_source_link_behavior.pg",
+                "suite": "sql/tests/identity_source_link_behavior.pg",
                 "testId": "setjoin_app direct link read is denied by FORCE RLS"
               }
             }
@@ -584,7 +584,7 @@
             {
               "id": "identity-transition-one-use-elevation-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/identity_auth_transition.pg",
+              "path": "sql/tests/identity_auth_transition.pg",
               "selector": "consumed request elevation cannot authorize execution in a later generation",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -598,14 +598,14 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/identity_auth_transition.pg",
+                "suite": "sql/tests/identity_auth_transition.pg",
                 "testId": "consumed request elevation cannot authorize execution in a later generation"
               }
             },
             {
               "id": "identity-transition-recovery-recheck-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/identity_auth_transition.pg",
+              "path": "sql/tests/identity_auth_transition.pg",
               "selector": "execute rechecks recovery instead of trusting the preview snapshot",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -619,14 +619,14 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/identity_auth_transition.pg",
+                "suite": "sql/tests/identity_auth_transition.pg",
                 "testId": "execute rechecks recovery instead of trusting the preview snapshot"
               }
             },
             {
               "id": "identity-transition-generation-fence-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/identity_auth_transition.pg",
+              "path": "sql/tests/identity_auth_transition.pg",
               "selector": "execute rejects a changed link generation",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -640,14 +640,14 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/identity_auth_transition.pg",
+                "suite": "sql/tests/identity_auth_transition.pg",
                 "testId": "execute rejects a changed link generation"
               }
             },
             {
               "id": "identity-transition-session-revocation-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/identity_auth_transition.pg",
+              "path": "sql/tests/identity_auth_transition.pg",
               "selector": "transition writes one durable all-session JWT denylist fence",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -661,7 +661,7 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/identity_auth_transition.pg",
+                "suite": "sql/tests/identity_auth_transition.pg",
                 "testId": "transition writes one durable all-session JWT denylist fence"
               }
             },
@@ -703,7 +703,7 @@
             {
               "id": "identity-off-rail-browser-result",
               "kind": "playwright",
-              "path": "mailserver/webmail/e2e/identity-model.spec.ts",
+              "path": "webmail/e2e/identity-model.spec.ts",
               "selector": "renders normalized evidence responsively while all behavior flags remain off",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -717,15 +717,15 @@
               "result": {
                 "format": "playwright-json",
                 "gateClass": "release",
-                "report": "mailserver/webmail/test-results/playwright.json",
-                "suite": "mailserver/webmail/e2e/identity-model.spec.ts#admin-chromium",
+                "report": "webmail/test-results/playwright.json",
+                "suite": "webmail/e2e/identity-model.spec.ts#admin-chromium",
                 "testId": "Identity model modernization @admin renders normalized evidence responsively while all behavior flags remain off"
               }
             },
             {
               "id": "identity-preview-off-denial-browser-result",
               "kind": "playwright",
-              "path": "mailserver/webmail/e2e/identity-model.spec.ts",
+              "path": "webmail/e2e/identity-model.spec.ts",
               "selector": "transition preview is fail-closed while admission is off",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -738,8 +738,8 @@
               "result": {
                 "format": "playwright-json",
                 "gateClass": "release",
-                "report": "mailserver/webmail/test-results/playwright.json",
-                "suite": "mailserver/webmail/e2e/identity-model.spec.ts#admin-chromium",
+                "report": "webmail/test-results/playwright.json",
+                "suite": "webmail/e2e/identity-model.spec.ts#admin-chromium",
                 "testId": "Identity model modernization @admin transition preview is fail-closed while admission is off"
               }
             }
@@ -762,7 +762,7 @@
             {
               "id": "identity-job-batch-settlement-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/identity_operations.pg",
+              "path": "sql/tests/identity_operations.pg",
               "selector": "atomic batch settlement completes the backfill job",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -776,14 +776,14 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/identity_operations.pg",
+                "suite": "sql/tests/identity_operations.pg",
                 "testId": "atomic batch settlement completes the backfill job"
               }
             },
             {
               "id": "identity-job-person-result-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/identity_operations.pg",
+              "path": "sql/tests/identity_operations.pg",
               "selector": "backfill exposes the exact per-person result",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -797,14 +797,14 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/identity_operations.pg",
+                "suite": "sql/tests/identity_operations.pg",
                 "testId": "backfill exposes the exact per-person result"
               }
             },
             {
               "id": "identity-diagnostic-expiry-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/identity_operations.pg",
+              "path": "sql/tests/identity_operations.pg",
               "selector": "deleted diagnostic cannot be downloaded",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -818,14 +818,14 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/identity_operations.pg",
+                "suite": "sql/tests/identity_operations.pg",
                 "testId": "deleted diagnostic cannot be downloaded"
               }
             },
             {
               "id": "identity-shadow-admission-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/identity_operations.pg",
+              "path": "sql/tests/identity_operations.pg",
               "selector": "a high-frequency clean sync rail spanning 24 hours satisfies the shadow gate",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -839,14 +839,14 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/identity_operations.pg",
+                "suite": "sql/tests/identity_operations.pg",
                 "testId": "a high-frequency clean sync rail spanning 24 hours satisfies the shadow gate"
               }
             },
             {
               "id": "identity-retirement-denial-pgtap-result",
               "kind": "pgtap",
-              "path": "mailserver/sql/tests/identity_operations.pg",
+              "path": "sql/tests/identity_operations.pg",
               "selector": "retirement check never performs destructive migration",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -860,7 +860,7 @@
                 "format": "tap",
                 "gateClass": "merge",
                 "report": "test-results/pgtap/mailserver.tap",
-                "suite": "mailserver/sql/tests/identity_operations.pg",
+                "suite": "sql/tests/identity_operations.pg",
                 "testId": "retirement check never performs destructive migration"
               }
             }
@@ -887,7 +887,7 @@
             {
               "id": "welcome-tour-nonmodal-vitest-result",
               "kind": "vitest",
-              "path": "mailserver/webmail/src/lib/components/WelcomeTour.test.ts",
+              "path": "webmail/src/lib/components/WelcomeTour.test.ts",
               "selector": "renders four anchored non-modal steps without a blocker, scrim, cutout, or dialog",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -901,8 +901,8 @@
               "result": {
                 "format": "vitest-json",
                 "gateClass": "merge",
-                "report": "mailserver/webmail/test-results/vitest.json",
-                "suite": "mailserver/webmail/src/lib/components/WelcomeTour.test.ts",
+                "report": "webmail/test-results/vitest.json",
+                "suite": "webmail/src/lib/components/WelcomeTour.test.ts",
                 "testId": "WelcomeTour renders four anchored non-modal steps without a blocker, scrim, cutout, or dialog"
               }
             }
@@ -923,7 +923,7 @@
             {
               "id": "welcome-tour-first-run-playwright-result",
               "kind": "playwright",
-              "path": "mailserver/webmail/e2e/welcome-tour.spec.ts",
+              "path": "webmail/e2e/welcome-tour.spec.ts",
               "selector": "first populated inbox visit shows exact four-step non-modal tour and Skip persists",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -936,15 +936,15 @@
               "result": {
                 "format": "playwright-json",
                 "gateClass": "release",
-                "report": "mailserver/webmail/test-results/playwright.json",
-                "suite": "mailserver/webmail/e2e/welcome-tour.spec.ts#chromium",
+                "report": "webmail/test-results/playwright.json",
+                "suite": "webmail/e2e/welcome-tour.spec.ts#chromium",
                 "testId": "@user Welcome tour first populated inbox visit shows exact four-step non-modal tour and Skip persists"
               }
             },
             {
               "id": "welcome-tour-focus-playwright-result",
               "kind": "playwright",
-              "path": "mailserver/webmail/e2e/welcome-tour.spec.ts",
+              "path": "webmail/e2e/welcome-tour.spec.ts",
               "selector": "automatic start preserves focus and the highlighted Search remains usable",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -957,15 +957,15 @@
               "result": {
                 "format": "playwright-json",
                 "gateClass": "release",
-                "report": "mailserver/webmail/test-results/playwright.json",
-                "suite": "mailserver/webmail/e2e/welcome-tour.spec.ts#chromium",
+                "report": "webmail/test-results/playwright.json",
+                "suite": "webmail/e2e/welcome-tour.spec.ts#chromium",
                 "testId": "@user Welcome tour automatic start preserves focus and the highlighted Search remains usable"
               }
             },
             {
               "id": "welcome-tour-suspension-playwright-result",
               "kind": "playwright",
-              "path": "mailserver/webmail/e2e/welcome-tour.spec.ts",
+              "path": "webmail/e2e/welcome-tour.spec.ts",
               "selector": "Compose interaction suspends the tour and resumes on the next logical step",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -978,8 +978,8 @@
               "result": {
                 "format": "playwright-json",
                 "gateClass": "release",
-                "report": "mailserver/webmail/test-results/playwright.json",
-                "suite": "mailserver/webmail/e2e/welcome-tour.spec.ts#chromium",
+                "report": "webmail/test-results/playwright.json",
+                "suite": "webmail/e2e/welcome-tour.spec.ts#chromium",
                 "testId": "@user Welcome tour Compose interaction suspends the tour and resumes on the next logical step"
               }
             }
@@ -1000,7 +1000,7 @@
             {
               "id": "welcome-tour-visual-360-playwright-result",
               "kind": "playwright",
-              "path": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts",
+              "path": "webmail/e2e/welcome-tour.visual.spec.ts",
               "selector": "matrix 360 zh light validates four steps and canonical screenshots",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -1015,15 +1015,15 @@
               "result": {
                 "format": "playwright-json",
                 "gateClass": "release",
-                "report": "mailserver/webmail/test-results/playwright.json",
-                "suite": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts#chromium",
+                "report": "webmail/test-results/playwright.json",
+                "suite": "webmail/e2e/welcome-tour.visual.spec.ts#chromium",
                 "testId": "@user Welcome tour responsive visual matrix matrix 360 zh light validates four steps and canonical screenshots"
               }
             },
             {
               "id": "welcome-tour-visual-768-playwright-result",
               "kind": "playwright",
-              "path": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts",
+              "path": "webmail/e2e/welcome-tour.visual.spec.ts",
               "selector": "matrix 768 en dark validates four steps and canonical screenshots",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -1038,15 +1038,15 @@
               "result": {
                 "format": "playwright-json",
                 "gateClass": "release",
-                "report": "mailserver/webmail/test-results/playwright.json",
-                "suite": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts#chromium",
+                "report": "webmail/test-results/playwright.json",
+                "suite": "webmail/e2e/welcome-tour.visual.spec.ts#chromium",
                 "testId": "@user Welcome tour responsive visual matrix matrix 768 en dark validates four steps and canonical screenshots"
               }
             },
             {
               "id": "welcome-tour-visual-1024-playwright-result",
               "kind": "playwright",
-              "path": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts",
+              "path": "webmail/e2e/welcome-tour.visual.spec.ts",
               "selector": "matrix 1024 zh dark validates four steps and canonical screenshots",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -1061,15 +1061,15 @@
               "result": {
                 "format": "playwright-json",
                 "gateClass": "release",
-                "report": "mailserver/webmail/test-results/playwright.json",
-                "suite": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts#chromium",
+                "report": "webmail/test-results/playwright.json",
+                "suite": "webmail/e2e/welcome-tour.visual.spec.ts#chromium",
                 "testId": "@user Welcome tour responsive visual matrix matrix 1024 zh dark validates four steps and canonical screenshots"
               }
             },
             {
               "id": "welcome-tour-visual-1440-playwright-result",
               "kind": "playwright",
-              "path": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts",
+              "path": "webmail/e2e/welcome-tour.visual.spec.ts",
               "selector": "matrix 1440 en light validates four steps and canonical screenshots",
               "gate": "scripts/guards/check-test-evidence-results.sh",
               "skipPolicy": "forbid",
@@ -1084,8 +1084,8 @@
               "result": {
                 "format": "playwright-json",
                 "gateClass": "release",
-                "report": "mailserver/webmail/test-results/playwright.json",
-                "suite": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts#chromium",
+                "report": "webmail/test-results/playwright.json",
+                "suite": "webmail/e2e/welcome-tour.visual.spec.ts#chromium",
                 "testId": "@user Welcome tour responsive visual matrix matrix 1440 en light validates four steps and canonical screenshots"
               }
             }

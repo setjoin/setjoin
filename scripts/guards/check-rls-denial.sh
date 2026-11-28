@@ -16,11 +16,11 @@
 # inaccessible (0-count SELECT, no-op UPDATE/DELETE, or a 42501).
 #
 # WHAT IT DOES. Enumerates every `ALTER TABLE ... FORCE ROW LEVEL SECURITY`
-# target across mailserver/sql/dbschema/*.sql (baseline + every migration —
+# target across sql/dbschema/*.sql (baseline + every migration —
 # the FORCE'd-table set is derived from the schema itself, not hand-maintained
 # here) and requires EVERY one of them to have an entry in
 # scripts/guards/rls-denial-allowlist.txt, classified as:
-#   · COVERED — names the mailserver/sql/tests/*.pg file + a stable substring
+#   · COVERED — names the sql/tests/*.pg file + a stable substring
 #               of that file's own denial assertion. The guard verifies the
 #               file exists, still contains a SET LOCAL ROLE / SET ROLE line,
 #               AND still contains the substring — so a deleted or gutted
@@ -48,8 +48,8 @@ export LC_ALL=C
 
 # Overridable for the self-test (points at a synthetic tree); default to the
 # real one.
-SCHEMA_DIR="${RLS_DENIAL_SCHEMA_DIR:-$ROOT/mailserver/sql/dbschema}"
-TESTS_DIR="${RLS_DENIAL_TESTS_DIR:-$ROOT/mailserver/sql/tests}"
+SCHEMA_DIR="${RLS_DENIAL_SCHEMA_DIR:-$ROOT/sql/dbschema}"
+TESTS_DIR="${RLS_DENIAL_TESTS_DIR:-$ROOT/sql/tests}"
 ALLOWLIST_FILE="${RLS_DENIAL_ALLOWLIST_FILE:-$(dirname "$0")/rls-denial-allowlist.txt}"
 
 echo "==> RLS cross-tenant DENIAL-TEST coverage guard"

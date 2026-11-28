@@ -115,11 +115,11 @@ docker image inspect setjoin-ci-linux-tc:local-amd64 >/dev/null 2>&1 || { echo "
 if [[ "${LANE_QUICK:-}" == 1 ]]; then
   groups="$(mktemp)"
   python3 scripts/ci/server-rust-lane-groups.py >"$groups" || exit 1
-  (cd server-rust && cargo nextest run --workspace --locked --offline --no-fail-fast --profile lane \
+  (cd server && cargo nextest run --workspace --locked --offline --no-fail-fast --profile lane \
     --tool-config-file "lane:$groups" -j "$LANE_JOBS" --color never --success-output never \
     --failure-output immediate-final ${LANE_NEXTEST_FILTER:+-E "$LANE_NEXTEST_FILTER"}) 2>&1 | tee "$ART/lane.log"
   rc="${PIPESTATUS[0]}"
-  [[ -f server-rust/target/nextest/lane/junit.xml ]] && cp server-rust/target/nextest/lane/junit.xml "$ART/junit.xml"
+  [[ -f server/target/nextest/lane/junit.xml ]] && cp server/target/nextest/lane/junit.xml "$ART/junit.xml"
   stamp "quick end rc=$rc"
   echo "rc=$rc" >"$ART/lane-complete.txt"
   exit "$rc"
@@ -131,9 +131,9 @@ bash scripts/guards/check-server-rust.sh 2>&1 | tee "$ART/lane.log"
 rc="${PIPESTATUS[0]}"
 stamp "check-server-rust.sh rc=$rc"
 
-# nextest keeps its store under the workspace (server-rust/target/nextest), not CARGO_TARGET_DIR.
+# nextest keeps its store under the workspace (server/target/nextest), not CARGO_TARGET_DIR.
 # An archive run keeps it under the extracted target dir instead.
-for JUNIT in "$ROOT/server-rust/target/nextest/lane/junit.xml" "${CARGO_TARGET_DIR:-/nonexistent}/nextest/lane/junit.xml" \
+for JUNIT in "$ROOT/server/target/nextest/lane/junit.xml" "${CARGO_TARGET_DIR:-/nonexistent}/nextest/lane/junit.xml" \
   "${SERVER_RUST_NEXTEST_EXTRACT_TO:-/nonexistent}/target/nextest/lane/junit.xml"; do
   [[ -f "$JUNIT" ]] && { cp "$JUNIT" "$ART/junit.xml"; break; }
 done

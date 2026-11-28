@@ -11,10 +11,10 @@ import {
 } from './rollout';
 
 /** The client-side flag name must stay pinned to the server toggle registry
- *  (server-rust/crates/domains/platform/testdata/toggle/registry-v275.json). */
+ *  (server/crates/domains/platform/testdata/toggle/registry-v275.json). */
 const toggleRegistry = JSON.parse(
 	readFileSync(
-		new URL('../../../../../server-rust/crates/domains/platform/testdata/toggle/registry-v275.json', import.meta.url),
+		new URL('../../../../../server/crates/domains/platform/testdata/toggle/registry-v275.json', import.meta.url),
 		'utf8',
 	),
 ) as { definitions: Array<{ key: string }> };

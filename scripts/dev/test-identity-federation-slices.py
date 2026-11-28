@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
-inv = json.loads((ROOT / 'server-rust/bins/gateway/route-inventory.json').read_text())
+inv = json.loads((ROOT / 'server/bins/gateway/route-inventory.json').read_text())
 op = {'/.well-known/', '/.well-known/openid-configuration', '/.well-known/oauth-authorization-server',
       '/authorize', '/authorize/', '/authorize/callback', '/oauth', '/oauth/', '/oauth/token',
       '/oauth/introspect', '/userinfo', '/keys', '/end_session', '/revoke', '/auth/oidc/op/complete'}

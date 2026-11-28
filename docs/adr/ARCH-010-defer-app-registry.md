@@ -2,7 +2,7 @@
 
 **Status:** Accepted (as a deferral, with a trigger + one banked cleanup). **The dock-dimension premise is superseded (whole-pipeline review UX #19, 2026-07-16): `SideDock` was deleted, not kept as an unwired frame** — see the note at the end. The registry-deferral reasoning (§"Decision" points 1–2, the app-registry candidate itself) still holds; only the "dock stays an unwired frame" consequence changed.
 **Date:** 2026-06-19
-**Source:** Webmail architecture review (`/improve-codebase-architecture` over `mailserver/webmail/src/`) → candidate **app-registry** → adversarial validate/refute + `/grill-with-docs` 2026-06-19. The user confirmed `AppId` is **frozen at 4** (mail/calendar/contacts/tasks) for the client-unification program — no committed 5th app.
+**Source:** Webmail architecture review (`/improve-codebase-architecture` over `webmail/src/`) → candidate **app-registry** → adversarial validate/refute + `/grill-with-docs` 2026-06-19. The user confirmed `AppId` is **frozen at 4** (mail/calendar/contacts/tasks) for the client-unification program — no committed 5th app.
 
 ## Context
 
@@ -52,7 +52,7 @@ consumer ever built across the Drive/Chat/Meet/Admin programs shipped since
 this ADR) — the deferral's own "revert-safe" framing applies in reverse:
 `SideDock.svelte`, `SideDock.test.ts`, the outer `SplitPane` wrap around the
 primary app, and the `dockOpen`/`dockApp`/`openDock`/`handleDockCollapse`
-state in `+layout.svelte` were deleted (`mailserver/webmail/AGENTS.md`'s App
+state in `+layout.svelte` were deleted (`webmail/AGENTS.md`'s App
 shell section). The nav-seam reasoning (`navConfig.ts`/`RAIL_APPS`) is
 unaffected — `SideDock` was one of three consumers, not the seam itself; the
 other two (`AppRail`, `GlobalDrawer`) still stand. Should a real split-view

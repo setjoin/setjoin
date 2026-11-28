@@ -233,7 +233,7 @@ Done after Desktop+Webmail are live. Same CI pipeline, same signing, same downlo
 
 - `clients/desktop/src-tauri/tauri.conf.json` — Tauri build config
 - `clients/desktop/src-tauri/Cargo.toml` — Desktop dependencies (guard-core, mail-core wired)
-- `mailserver/webmail/src/lib/components/AppDrawer.svelte` — Existing app drawer
+- `webmail/src/lib/components/AppDrawer.svelte` — Existing app drawer
 - `mailserver/internal/mdm/checkin.go` — Device checkin (already reports app_version, os_version)
 - `.github/workflows/xinchuang-ci.yml` — Existing CI (fixed today)
 - DB-IP Lite: https://db-ip.com/db/download/ip-to-country-lite

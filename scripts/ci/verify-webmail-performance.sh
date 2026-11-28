@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-WEBMAIL="$ROOT/mailserver/webmail"
+WEBMAIL="$ROOT/webmail"
 MODE="${1:-quick}"
 shift || true
 SELF_TEST=0
@@ -64,12 +64,12 @@ Environment:
                the build-bound ledger is revalidated before services start.
 
 Artifacts:
-  mailserver/webmail/test-results/webmail-performance/runs/<UTC>-<commit>-<build-id>/
+  webmail/test-results/webmail-performance/runs/<UTC>-<commit>-<build-id>/
     timing receipt run.json (kind: timing) plus performance-summary.v1.json
-  mailserver/webmail/test-results/webmail-performance/runs/<UTC>-<commit>-<build-id>-rehearsal/
+  webmail/test-results/webmail-performance/runs/<UTC>-<commit>-<build-id>-rehearsal/
     rehearsal receipt rehearsal-receipt.v1.json (kind: rehearsal); flip
     markers under flip-control/; never touches latest.json
-  mailserver/webmail/test-results/webmail-performance/latest.json (advanced only by a passing timing run)
+  webmail/test-results/webmail-performance/latest.json (advanced only by a passing timing run)
 EOF
 }
 
@@ -173,7 +173,7 @@ browser_dry_run() {
   positive_integer "$SAMPLES" || { echo 'verify-webmail-performance: --samples must be a positive integer' >&2; exit 2; }
   nonnegative_integer "$WARMUP" || { echo 'verify-webmail-performance: --warmup must be a non-negative integer' >&2; exit 2; }
   echo "WEBMAIL PERF $MODE dry-run kind=timing samples=$SAMPLES warmup=$WARMUP planned_page_loads=$(( (SAMPLES + WARMUP) * 2 )) receipt=run.json"
-  echo "run layout       mailserver/webmail/test-results/webmail-performance/runs/<UTC>-$(git -C "$ROOT" rev-parse --short=12 HEAD)-<build-id>/"
+  echo "run layout       webmail/test-results/webmail-performance/runs/<UTC>-$(git -C "$ROOT" rev-parse --short=12 HEAD)-<build-id>/"
   print_host_eligibility
   run_receipts_self_test
   echo "WEBMAIL PERF $MODE DRY-RUN PASS: command surface validated; no build, no stack, no browser, no writes"
@@ -202,7 +202,7 @@ rehearsal_dry_run() {
     echo 'prior-artifact   not set: the real rehearsal lane refuses to start without --prior-artifact' >&2
   fi
   echo "WEBMAIL PERF rehearsal dry-run kind=rehearsal receipt=rehearsal-receipt.v1.json latest_json=untouched"
-  echo "run layout       mailserver/webmail/test-results/webmail-performance/runs/<UTC>-$(git -C "$ROOT" rev-parse --short=12 HEAD)-<build-id>-rehearsal/"
+  echo "run layout       webmail/test-results/webmail-performance/runs/<UTC>-$(git -C "$ROOT" rev-parse --short=12 HEAD)-<build-id>-rehearsal/"
   print_host_eligibility
   run_receipts_self_test
   echo 'WEBMAIL PERF rehearsal DRY-RUN PASS: command surface validated; no build, no stack, no browser, no writes'

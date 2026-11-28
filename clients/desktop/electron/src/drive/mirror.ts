@@ -9,7 +9,7 @@
 import * as fsp from 'node:fs/promises';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { CHUNK_SIZE } from '../../../../../mailserver/webmail/src/lib/drive/sync/types.js';
+import { CHUNK_SIZE } from '../../../../../webmail/src/lib/drive/sync/types.js';
 import type {
 	ChunkRef,
 	DownloadPlan,
@@ -18,9 +18,9 @@ import type {
 	MirrorContentStore,
 	RevocationOutcome,
 	SyncIssue,
-} from '../../../../../mailserver/webmail/src/lib/drive/sync/types.js';
-import { dedupeName, isIgnoredName } from '../../../../../mailserver/webmail/src/lib/drive/sync/names.js';
-import type { SqlMirrorIndex } from '../../../../../mailserver/webmail/src/lib/drive/sync/schema.js';
+} from '../../../../../webmail/src/lib/drive/sync/types.js';
+import { dedupeName, isIgnoredName } from '../../../../../webmail/src/lib/drive/sync/names.js';
+import type { SqlMirrorIndex } from '../../../../../webmail/src/lib/drive/sync/schema.js';
 import { hashFile, readChunk } from './hash.js';
 import { MirrorWatcher } from './watcher.js';
 

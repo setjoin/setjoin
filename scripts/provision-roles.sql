@@ -248,7 +248,7 @@ BEGIN
         -- every one of them. Registering the exact signatures here makes the
         -- worker-only denial survive every reprovisioning run. Signatures
         -- MUST stay byte-identical to the SQL definitions
-        -- (authserver/sql/reducers: lockout_accessors.sql, lockout_escalate.sql,
+        -- (sql/auth/reducers: lockout_accessors.sql, lockout_escalate.sql,
         -- prune_lockouts.sql, push_lockout_accessors.sql,
         -- recovery_budget_accessors.sql). Astra impl-r2 P2:
         -- lockout_list gained its p_sort/p_dir arguments and lockout_count is

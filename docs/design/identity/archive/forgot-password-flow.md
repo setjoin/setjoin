@@ -125,7 +125,7 @@ even if the user has push devices registered.
 | File | Lines | Purpose |
 |------|-------|---------|
 | `authserver/internal/handlers/forgot_password.go` | ~180 | Begin, Verify, Reset handlers |
-| `authserver/sql/migrations/V025__forgot_password.sql` | ~30 | `used_password_reset_tokens` table + feature toggle seeds + pg_cron job |
+| `sql/auth/migrations/V025__forgot_password.sql` | ~30 | `used_password_reset_tokens` table + feature toggle seeds + pg_cron job |
 | `authserver/cmd/authserver/main.go` | ~15 | Route registration (3 routes, threat-wrapped) |
 | **Total** | **~225** | **3 files** |
 

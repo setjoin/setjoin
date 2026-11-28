@@ -10,8 +10,8 @@ draft=$1 artifacts=$2 roots=$3 helper=$4 output=$5 channel=$6 current=$7 platfor
 shift 9
 publisher=${SETJOIN_RELEASE_BIN:-}
 if [[ -z "$publisher" ]]; then
-  cargo build --locked --release --manifest-path "$ROOT/server-rust/Cargo.toml" -p setjoin-release
-  target_dir=$(cargo metadata --locked --no-deps --format-version 1 --manifest-path "$ROOT/server-rust/Cargo.toml" | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')
+  cargo build --locked --release --manifest-path "$ROOT/server/Cargo.toml" -p setjoin-release
+  target_dir=$(cargo metadata --locked --no-deps --format-version 1 --manifest-path "$ROOT/server/Cargo.toml" | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')
   publisher="$target_dir/release/setjoin-release"
 fi
 [[ -x "$publisher" && -x "$helper" ]] || { echo 'publisher and signer helper must be executable' >&2; exit 1; }

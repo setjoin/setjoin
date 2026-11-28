@@ -4,8 +4,8 @@
 # DTOs into a temp directory and asserts byte-identical match against committed
 # artifacts:
 #   - contracts/edge/openapi/edge.v1.yaml
-#   - mailserver/webmail/src/lib/edge/schema.d.ts
-#   - server-rust/crates/edge-contract/src/generated.rs
+#   - webmail/src/lib/edge/schema.d.ts
+#   - server/crates/edge-contract/src/generated.rs
 #
 # Set EDGE_CONTRACT_REQUIRE_TOOLS=1 (as in CI) to require full tsp/node
 # regeneration; without node_modules installed, falls back to static structural
@@ -15,8 +15,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EDGE_DIR="${EDGE_CONTRACT_DIR:-$ROOT/contracts/edge}"
 COMMITTED_OPENAPI="${EDGE_COMMITTED_OPENAPI:-$EDGE_DIR/openapi/edge.v1.yaml}"
-COMMITTED_TS="${EDGE_COMMITTED_TS:-$ROOT/mailserver/webmail/src/lib/edge/schema.d.ts}"
-COMMITTED_RS="${EDGE_COMMITTED_RS:-$ROOT/server-rust/crates/edge-contract/src/generated.rs}"
+COMMITTED_TS="${EDGE_COMMITTED_TS:-$ROOT/webmail/src/lib/edge/schema.d.ts}"
+COMMITTED_RS="${EDGE_COMMITTED_RS:-$ROOT/server/crates/edge-contract/src/generated.rs}"
 
 for f in "$COMMITTED_OPENAPI" "$COMMITTED_TS" "$COMMITTED_RS"; do
   if [ ! -f "$f" ]; then
@@ -49,11 +49,11 @@ if command -v node >/dev/null 2>&1 && [ -x "$EDGE_DIR/node_modules/.bin/tsp" ] &
     fail=1
   fi
   if ! diff -u "$COMMITTED_TS" "$tmp/schema.d.ts"; then
-    echo "EDGE-CONTRACT-DRIFT-FAIL: mailserver/webmail/src/lib/edge/schema.d.ts drifted from OpenAPI 3.1 baseline (run npm run build in contracts/edge/)" >&2
+    echo "EDGE-CONTRACT-DRIFT-FAIL: webmail/src/lib/edge/schema.d.ts drifted from OpenAPI 3.1 baseline (run npm run build in contracts/edge/)" >&2
     fail=1
   fi
   if ! diff -u "$COMMITTED_RS" "$tmp/generated.rs"; then
-    echo "EDGE-CONTRACT-DRIFT-FAIL: server-rust/crates/edge-contract/src/generated.rs drifted from OpenAPI 3.1 baseline (run npm run build in contracts/edge/)" >&2
+    echo "EDGE-CONTRACT-DRIFT-FAIL: server/crates/edge-contract/src/generated.rs drifted from OpenAPI 3.1 baseline (run npm run build in contracts/edge/)" >&2
     fail=1
   fi
   if [ "$fail" != 0 ]; then

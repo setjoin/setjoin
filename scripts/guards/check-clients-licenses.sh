@@ -3,7 +3,7 @@
 # workspaces (clients/Cargo.toml and clients/desktop/src-tauri/Cargo.toml).
 #
 # 1. Policy drift (Python 3.11+ tomllib): clients/deny.toml [licenses] allow
-#    must equal server-rust/deny.toml's allow plus CDLA-Permissive-2.0
+#    must equal server/deny.toml's allow plus CDLA-Permissive-2.0
 #    (webpki-roots / webpki-root-certs), [licenses.private] ignore must be
 #    true, and every first-party client crate must set publish = false so
 #    cargo-deny skips it as private (Setjoin's own licence is the root LICENSE).
@@ -18,7 +18,7 @@ set -euo pipefail
 source "$(dirname "$0")/../_base.sh"
 
 CLIENT_DENY="$ROOT/clients/deny.toml"
-SERVER_DENY="$ROOT/server-rust/deny.toml"
+SERVER_DENY="$ROOT/server/deny.toml"
 MANIFESTS=(
   "$ROOT/clients/Cargo.toml"
   "$ROOT/clients/desktop/src-tauri/Cargo.toml"

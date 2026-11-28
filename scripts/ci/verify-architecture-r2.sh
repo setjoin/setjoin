@@ -214,7 +214,7 @@ worker_verdict() { echo "worker launch inventory retired with Go (#142); Rust wo
 worker_self_test() { echo "worker launch inventory self-test retired with Go (#142)"; }
 
 registry_verdict() {
-  (cd "$ROOT/mailserver/webmail" && npx vitest run \
+  (cd "$ROOT/webmail" && npx vitest run \
     'src/routes/admin/(system)/features/features.test.ts' \
     src/lib/admin/featureHelpers.test.ts)
 }
@@ -261,7 +261,7 @@ run_registry_db() {
   ARCH_R2_TEST_MODE=1 DB_NAME="$db" bash "$ROOT/scripts/load-test-schema.sh"
   ARCH_R2_TEST_MODE=1 DB_NAME="$db" bash "$ROOT/scripts/ci/run-pgtap-evidence.sh" \
     test-results/pgtap/feature-toggle-registry.tap -d "$db" \
-    "$ROOT/mailserver/sql/tests/feature_toggle_registry.pg"
+    "$ROOT/sql/tests/feature_toggle_registry.pg"
   (cd "$ROOT/shared" && DB_DSN="$dsn" go test ./toggle -run 'TestRegistryLegacyWriteAndCutoverSerialize')
   (cd "$ROOT/mailserver" && DB_OWNER_DSN="$dsn" go test ./internal/updater -run 'Test(PGFeatureRegistryStateReadsInstalledV183|FeatureRegistryContractPreflightPostCommitAndRollback|U2PreflightRefusesIncompatibleEnforceBeforeHostAction)')
   evidence_dir="$ROOT/test-results/toggle-registry"

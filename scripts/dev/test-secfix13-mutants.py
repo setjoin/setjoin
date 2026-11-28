@@ -20,7 +20,7 @@ import shutil
 import tempfile
 
 repo = Path(__file__).resolve().parents[2]
-root = repo / "server-rust"
+root = repo / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 
@@ -40,7 +40,7 @@ MUTANTS = {
     "self-service-runs-plaintext-imap": (GW, "self_service_jobs_never_run_plaintext_imap"),
     "self-service-inherits-private-allowlist": (GW, "self_service_migration_never_inherits_the_admin_private_allowlist"),
 }
-SETTLE = repo / "mailserver/sql/reducers/rust_identity_rp_settle.sql"
+SETTLE = repo / "sql/reducers/rust_identity_rp_settle.sql"
 
 FIXED_PROFILE = """    v_stage:='mapping';
 """

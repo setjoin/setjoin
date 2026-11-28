@@ -51,8 +51,8 @@ IdP (Entra ID / Okta)
 | `mailserver/gateway/internal/scim/filter.go` | **Create** | SCIM filter parser (attribute+operator+value) for `GET /Users?filter=userName eq "..."` — `eq`, `co`, `sw` operators |
 | `mailserver/gateway/internal/scim/schemas.go` | **Create** | SCIM core schema (`urn:ietf:params:scim:schemas:core:2.0:User`, `:Group`) + enterprise extension (`urn:ietf:params:scim:schemas:extension:enterprise:2.0:User`) structs |
 | `mailserver/gateway/internal/scim/scim_test.go` | **Create** | httptest unit tests covering CRUD, PATCH, filter, error responses |
-| `mailserver/sql/migrations/V0NN__scim_schema.sql` | **Create** | `scim_tokens` table, `users.scim_external_id`, `distribution_groups.scim_external_id`, indexes, SCIM reducers |
-| `mailserver/sql/tests/scim.pg` | **Create** | pgTAP tests for SCIM reducers |
+| `sql/migrations/V0NN__scim_schema.sql` | **Create** | `scim_tokens` table, `users.scim_external_id`, `distribution_groups.scim_external_id`, indexes, SCIM reducers |
+| `sql/tests/scim.pg` | **Create** | pgTAP tests for SCIM reducers |
 | `authserver/internal/handlers/scim.go` | **Create** | `POST /auth/scim/disable` — revoke sessions for SCIM-disabled users (called by gateway via internal API) |
 | `mailserver/gateway/internal/handlers/auth_proxy.go` | **Modify** | Route `/scim/*` to scim package, `/auth/scim/*` to authserver |
 | `mailserver/gateway/internal/config/config.go` | **Modify** | Add `SCIM_ENABLED` feature toggle |

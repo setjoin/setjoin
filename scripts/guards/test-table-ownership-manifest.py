@@ -438,7 +438,7 @@ def main() -> int:
         data = json.loads(m.read_text(encoding="utf-8"))
         data["r1_r3_allowlist"].append(
             {
-                "file": "server-rust/crates/domains/user-settings/src/idor.rs",
+                "file": "server/crates/domains/user-settings/src/idor.rs",
                 "table": "user_signatures",
                 "reason": "selftest allowlist control",
             }

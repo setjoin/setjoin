@@ -3,9 +3,9 @@ import { existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CHUNK_SIZE, SHA256_EMPTY, type MirrorContentStore, type NodeMeta } from '../../../../../mailserver/webmail/src/lib/drive/sync/types.js';
-import { applySchema, SqlMirrorIndex } from '../../../../../mailserver/webmail/src/lib/drive/sync/schema.js';
-import { memDb } from '../../../../../mailserver/webmail/src/lib/drive/sync/schema.test.js';
+import { CHUNK_SIZE, SHA256_EMPTY, type MirrorContentStore, type NodeMeta } from '../../../../../webmail/src/lib/drive/sync/types.js';
+import { applySchema, SqlMirrorIndex } from '../../../../../webmail/src/lib/drive/sync/schema.js';
+import { memDb } from '../../../../../webmail/src/lib/drive/sync/schema.test.js';
 import { hashFile } from './hash.js';
 import { FolderMirror, type MirrorHttp } from './mirror.js';
 

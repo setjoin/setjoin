@@ -43,14 +43,14 @@ core() {
   quick
   case_run EX-CORE-SCHEMA bash "$ROOT/scripts/load-test-schema.sh"
   case_run EX-CORE-REDUCERS pg_prove -h 127.0.0.1 -p 5432 -U mail -d mailserver_test \
-    "$ROOT/mailserver/sql/tests/exchange_replacement_schema.pg" \
-    "$ROOT/mailserver/sql/tests/exchange_assessment_reducers.pg" \
-    "$ROOT/mailserver/sql/tests/exchange_assessment_evidence_lifecycle.pg" \
-    "$ROOT/mailserver/sql/tests/exchange_assessment_import.pg"
+    "$ROOT/sql/tests/exchange_replacement_schema.pg" \
+    "$ROOT/sql/tests/exchange_assessment_reducers.pg" \
+    "$ROOT/sql/tests/exchange_assessment_evidence_lifecycle.pg" \
+    "$ROOT/sql/tests/exchange_assessment_import.pg"
   case_run EX-CORE-GO bash -c "cd '$ROOT' && go test ./mailserver/internal/admin ./mailserver/internal/continuity ./mailserver/internal/migration ./mailserver/cmd/mailserverd"
-  case_run EX-CORE-WEB-CHECK npm --prefix "$ROOT/mailserver/webmail" run check
-  case_run EX-CORE-WEB-UNIT bash -c "cd '$ROOT/mailserver/webmail' && npx vitest run src/lib/admin/consoles.test.ts 'src/routes/admin/(mail)/exchange-replacement/exchange-replacement.test.ts'"
-  case_run EX-CORE-WEB-E2E bash "$ROOT/scripts/ci/playwright-supported.sh" -- npm --prefix "$ROOT/mailserver/webmail" run test:e2e -- --config playwright.exchange.config.ts
+  case_run EX-CORE-WEB-CHECK npm --prefix "$ROOT/webmail" run check
+  case_run EX-CORE-WEB-UNIT bash -c "cd '$ROOT/webmail' && npx vitest run src/lib/admin/consoles.test.ts 'src/routes/admin/(mail)/exchange-replacement/exchange-replacement.test.ts'"
+  case_run EX-CORE-WEB-E2E bash "$ROOT/scripts/ci/playwright-supported.sh" -- npm --prefix "$ROOT/webmail" run test:e2e -- --config playwright.exchange.config.ts
 }
 
 live() {

@@ -19,7 +19,7 @@ import sys
 import tempfile
 
 repo = Path(__file__).resolve().parents[2]
-root = repo / "server-rust"
+root = repo / "server"
 if os.environ.get("REQUIRE_DB") != "1":
     sys.exit("REQUIRE_DB=1 and the assigned disposable DSNs are required")
 
@@ -50,7 +50,7 @@ MUTANTS = {
     "sql:oidc-rotate-no-family-lock": (SECFIX, "refresh_rotation_waits_for_the_family_lock"),
     "sql:oidc-reuse-no-family-lock": (SECFIX, "refresh_reuse_revocation_waits_for_the_family_lock"),
 }
-REDUCERS = repo / "mailserver/sql/reducers"
+REDUCERS = repo / "sql/reducers"
 REDUCER = REDUCERS / "rust_identity_oidc_rotate.sql"
 REUSE_SQL = REDUCERS / "rust_identity_oidc_reuse.sql"
 LOCK = "    PERFORM pg_advisory_xact_lock(hashtextextended('oidc-family:'||v_family,0));\n"

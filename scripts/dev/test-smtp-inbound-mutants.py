@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-ROOT = Path(__file__).resolve().parents[2] / 'server-rust'
+ROOT = Path(__file__).resolve().parents[2] / 'server'
 MUTANTS = [
     ('inbound-imip-lossy-signed-content', 'enabled_imip_signed_bytes_match_frozen_go'),
     ('inbound-no-imip', 'enabled_imip_requests_match_frozen_go'),

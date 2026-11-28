@@ -10,7 +10,7 @@ trap 'rm -f "$CURRENT" "$NEW"' EXIT
 files=()
 while IFS= read -r file; do
   case "$file" in
-    docs/ref/* | docs/examples/* | mailserver/deploy/generated/*) continue ;;
+    docs/ref/* | docs/examples/* | deploy/generated/*) continue ;;
   esac
   files+=("$ROOT/$file")
 done < <(git -C "$ROOT" ls-files '*.sh')

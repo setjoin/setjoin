@@ -68,7 +68,7 @@ flags until a separate rollout decision.
 - Confirm every newly referenced path exists.
 - Run `git diff --check`.
 - Run `bash scripts/guards/check-agent-docs.sh` when changing hot agent/TODO context.
-- When changing reducer-error documentation, cross-check codes against `mailserver/sql/` and the Rust reducer-error mapper (`server-rust/bins/gateway/src/jmap/family/reducer_error.rs`).
+- When changing reducer-error documentation, cross-check codes against `sql/` and the Rust reducer-error mapper (`server/bins/gateway/src/jmap/family/reducer_error.rs`).
 
 ## Child DOX Index
 

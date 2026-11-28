@@ -75,7 +75,7 @@ The browser suite records these identity-free marks:
 Cold public and authenticated journeys use fresh browser contexts. Warm samples
 reload the same context. Timing on a loopback host is diagnostic and cannot
 relax deterministic byte budgets. Current Brotli gates in
-`mailserver/webmail/performance-budgets.json` are:
+`webmail/performance-budgets.json` are:
 
 | Boundary | Limit |
 |---|---:|
@@ -143,13 +143,13 @@ without a browser.
 
 Each attempt writes beneath:
 
-`mailserver/webmail/test-results/webmail-performance/runs/<UTC>-<commit>-<build-id>/`
+`webmail/test-results/webmail-performance/runs/<UTC>-<commit>-<build-id>/`
 
 The directory contains the raw Playwright report, asset ledger (JSON and text),
 `performance-summary.v1.json` with exact sample validation plus median/p95, the
 run manifest, screenshots/traces, and the retained service-stack log. Only a
 complete pass atomically advances
-`mailserver/webmail/test-results/webmail-performance/latest.json`. Failed and
+`webmail/test-results/webmail-performance/latest.json`. Failed and
 interrupted attempts remain inspectable but never become latest evidence.
 
 Stable failures start with `E_WEBMAIL_PERF_` and name the problem, cause,

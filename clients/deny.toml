@@ -1,6 +1,6 @@
 # Third-party licence policy for the clients Rust workspaces (clients/Cargo.toml
 # and clients/desktop/src-tauri/Cargo.toml). Same allow-list as
-# server-rust/deny.toml plus CDLA-Permissive-2.0, the permissive data licence of
+# server/deny.toml plus CDLA-Permissive-2.0, the permissive data licence of
 # webpki-roots / webpki-root-certs (Mozilla CA roots), which only the clients
 # graphs pull in. Setjoin's own crates are PolyForm-Noncommercial-1.0.0 (root
 # LICENSE); they set `publish = false`, so [licenses.private] skips them.

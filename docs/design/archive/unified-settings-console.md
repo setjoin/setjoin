@@ -177,17 +177,17 @@ A trigger that fires `pg_notify('config_changed', ...)` on INSERT/UPDATE/DELETE 
 ### New files
 | File | Purpose |
 |------|---------|
-| `mailserver/webmail/src/routes/admin/limits/+page.svelte` | Connection limits page |
-| `mailserver/webmail/src/routes/admin/auth/+page.svelte` | Authserver settings page |
-| `mailserver/webmail/src/routes/admin/logs/+page.svelte` | Logs viewer page |
-| `mailserver/sql/schema/048_system_config_triggers.sql` | NOTIFY trigger + CRUD functions |
+| `webmail/src/routes/admin/limits/+page.svelte` | Connection limits page |
+| `webmail/src/routes/admin/auth/+page.svelte` | Authserver settings page |
+| `webmail/src/routes/admin/logs/+page.svelte` | Logs viewer page |
+| `sql/schema/048_system_config_triggers.sql` | NOTIFY trigger + CRUD functions |
 | `authserver/internal/handlers/admin_settings.go` | Authserver settings endpoints |
 
 ### Modified files
 | File | Change |
 |------|--------|
-| `mailserver/webmail/src/routes/admin/+layout.svelte` | Add Limits, Auth, Logs to navItems |
-| `mailserver/webmail/src/routes/admin/system/+page.svelte` | Add read-only config cards section |
+| `webmail/src/routes/admin/+layout.svelte` | Add Limits, Auth, Logs to navItems |
+| `webmail/src/routes/admin/system/+page.svelte` | Add read-only config cards section |
 | `mailserver/gateway/internal/handlers/admin_system.go` | Add `/admin/system/config`, `/limits` endpoints |
 | `mailserver/gateway/internal/handlers/admin_system.go` | Add `/admin/system/logs` endpoint |
 | `mailserver/gateway/internal/config/config.go` | Add runtime reload from NOTIFY listener |
@@ -201,8 +201,8 @@ A trigger that fires `pg_notify('config_changed', ...)` on INSERT/UPDATE/DELETE 
 
 ## Verification
 
-1. `cd mailserver/webmail && npm run check` — 0 errors, 0 warnings
+1. `cd webmail && npm run check` — 0 errors, 0 warnings
 2. `cd mailserver/gateway && go build ./... && go test ./...` — all pass
 3. `cd authserver && go build ./... && go test ./...` — all pass
-4. `pg_prove -d mailserver mailserver/sql/tests/*.pg` — all pgTAP pass
+4. `pg_prove -d mailserver sql/tests/*.pg` — all pgTAP pass
 5. Manual: Navigate to each new admin page, verify data renders, verify edits persist

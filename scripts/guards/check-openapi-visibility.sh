@@ -58,8 +58,8 @@
 set -uo pipefail
 export LC_ALL=C
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SPEC="$ROOT/mailserver/api/openapi.yaml"
-INVENTORY="${ROUTE_INVENTORY_FILE:-$ROOT/server-rust/bins/gateway/data/route-inventory.json}"
+SPEC="$ROOT/api/openapi.yaml"
+INVENTORY="${ROUTE_INVENTORY_FILE:-$ROOT/server/bins/gateway/data/route-inventory.json}"
 INVENTORY_READER="$ROOT/scripts/guards/route-inventory-json.mjs"
 
 # ── extract "<path> <x-visibility>" for every documented path object ──────────
@@ -278,7 +278,7 @@ run_guard() {  # echoes failures to stderr; returns 1 on any
     fi
     if [ "$declared" != "$derived" ]; then
       echo "  ✗ x-visibility DRIFT: $path is stamped '$declared' but its emitted auth wrapper derives '$derived'." >&2
-      echo "     → fix the x-visibility in mailserver/api/openapi.yaml to match the enforced auth wrapper." >&2
+      echo "     → fix the x-visibility in api/openapi.yaml to match the enforced auth wrapper." >&2
       rc=1
     fi
   done <<< "$rows"
@@ -293,7 +293,7 @@ case "${1:-}" in
     # Prove the guard FIRES on planted drift — and that every assertion here is
     # load-bearing. The real spec is never mutated: each fixture is an
     # INDEPENDENT, non-empty derivative of the REAL spec
-    # ($ROOT/mailserver/api/openapi.yaml) written to its own file (never a
+    # ($ROOT/api/openapi.yaml) written to its own file (never a
     # previous fixture, never the empty fail-closed fixture), and the guard is
     # aimed at it only via the SPEC global. Component-level assertions
     # additionally require the diagnostic to NAME the injected content, so a
@@ -301,7 +301,7 @@ case "${1:-}" in
     # and a mutation check proves that disabling the component check makes the
     # component tests FAIL.
     echo "==> openapi-visibility guard self-test (must detect a planted x-visibility mismatch)"
-    real_spec="$ROOT/mailserver/api/openapi.yaml"
+    real_spec="$ROOT/api/openapi.yaml"
     SPEC="$real_spec"
     tmpdir="$(mktemp -d)"; trap 'rm -rf "$tmpdir"' EXIT
     guard_log="$tmpdir/guard.log"
@@ -414,8 +414,8 @@ case "${1:-}" in
       mutated="$tmpdir/mutated-guard.sh"
       awk -v root="$ROOT" '
         index($0, "ROOT=\"") == 1 { print "ROOT=\"" root "\""; next }
-        $0 == "SPEC=\"$ROOT/mailserver/api/openapi.yaml\"" {
-          print "SPEC=\"${OPENAPI_VIS_SPEC_OVERRIDE:-" root "/mailserver/api/openapi.yaml}\""
+        $0 == "SPEC=\"$ROOT/api/openapi.yaml\"" {
+          print "SPEC=\"${OPENAPI_VIS_SPEC_OVERRIDE:-" root "/api/openapi.yaml}\""
           next
         }
         index($0, "case \"${1:-}\" in") == 1 && !stubbed {
@@ -472,6 +472,6 @@ else
   echo "  OpenAPI visibility/reference-integrity drift (see ✗ lines). The served public subset splits on" >&2
   echo "  x-visibility and serves only the transitive \$ref closure of the public operations; an admin" >&2
   echo "  path can leak into the anonymous spec, or an admin-only component survive as a dangling or" >&2
-  echo "  unreachable entry. Fix mailserver/api/openapi.yaml." >&2
+  echo "  unreachable entry. Fix api/openapi.yaml." >&2
   exit 1
 fi

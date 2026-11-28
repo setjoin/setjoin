@@ -316,11 +316,11 @@ run_lane_command() {
     bootstrap)
       (cd "$ROOT/mailctl" && go test ./... -run 'BootstrapAdmin|Restore' -count=1)
       (cd "$ROOT/mailserver" && go test ./cmd/mailserverd ./internal/admin -run 'Setup|Admin|RouteInventory' -count=1)
-      pg_cases "$ROOT/mailserver/sql/tests/ensure_admin.pg"
+      pg_cases "$ROOT/sql/tests/ensure_admin.pg"
       ;;
     recovery)
       (cd "$ROOT/mailserver" && go test ./internal/backup ./internal/restore -count=1)
-      pg_cases "$ROOT/mailserver/sql/tests/restore_config_policy.pg"
+      pg_cases "$ROOT/sql/tests/restore_config_policy.pg"
       ;;
     push)
       (cd "$ROOT/authserver" && go test ./internal/authn ./internal/handlers -run 'Push|MFAApprove|Device' -count=1)
@@ -329,7 +329,7 @@ run_lane_command() {
     migration)
       (cd "$ROOT/shared" && go test ./ssrf -count=1)
       (cd "$ROOT/mailserver" && go test ./internal/migration -count=1)
-      pg_cases "$ROOT/mailserver/sql/tests/migration_orchestrate.pg"
+      pg_cases "$ROOT/sql/tests/migration_orchestrate.pg"
       ;;
     ingress)
       (cd "$ROOT/shared" && go test ./httputil ./threat -count=1)
@@ -337,7 +337,7 @@ run_lane_command() {
       ;;
     audit)
       (cd "$ROOT/shared" && go test ./pgxutil -count=1)
-      pg_cases "$ROOT/mailserver/sql/tests/audit_chain_cutover.pg"
+      pg_cases "$ROOT/sql/tests/audit_chain_cutover.pg"
       ;;
     updates)
       (cd "$ROOT/shared" && go test ./release -count=1)

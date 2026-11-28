@@ -56,11 +56,11 @@ arguments.
 Artifacts:
 
 - Prometheus rules:
-  `mailserver/deploy/prometheus/identity-alerts.yml`
+  `deploy/prometheus/identity-alerts.yml`
 - Grafana dashboard:
-  `mailserver/deploy/grafana/identity.json`
+  `deploy/grafana/identity.json`
 - Zabbix user parameters:
-  `mailserver/deploy/zabbix/userparameter_setjoin.conf`
+  `deploy/zabbix/userparameter_setjoin.conf`
 
 ## Collector down
 

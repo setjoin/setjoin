@@ -48,7 +48,7 @@ if [[ "${1:-}" == "--selftest" || "${1:-}" == "--self-test" ]]; then
   fi
 
   # Guard must EXIT ZERO on the real reducer tree.
-  REAL_REDUCERS="$ROOT_FOR_ST/mailserver/sql/reducers"
+  REAL_REDUCERS="$ROOT_FOR_ST/sql/reducers"
   if ! bash "$SELF" "$REAL_REDUCERS" >/dev/null 2>&1; then
     echo "SELFTEST-FAIL: guard fails on the real reducer tree (unexpected COVERAGE-FAIL)"
     bash "$SELF" "$REAL_REDUCERS" 2>&1 | head -20
@@ -64,7 +64,7 @@ fi
 # any working directory (e.g. lint.sh invokes it argument-less from repo root,
 # but a stray cwd like /tmp would vacuously succeed with an empty find result).
 _SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REDUCERS="${1:-$_SCRIPT_DIR/../../mailserver/sql/reducers}"
+REDUCERS="${1:-$_SCRIPT_DIR/../../sql/reducers}"
 
 # ponytail: allowlist keyed by basename:reason. Entries are the seam owner,
 # the bump primitive definer, and the journal function definer — each has

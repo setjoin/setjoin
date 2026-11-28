@@ -31,15 +31,15 @@ is_red() {
 
 required_for() { # required_for DIR → suites under DIR/sql/tests not on the known-red list
   local f
-  for f in "$ROOT/$1"/sql/tests/*.pg; do
+  for f in "$ROOT/$1"/tests/*.pg; do
     f="${f#"$ROOT"/}"
     is_red "$f" || printf '%s\n' "$f"
   done
 }
 
 cd "$ROOT"
-mapfile -t mail_suites < <(required_for mailserver)
-mapfile -t auth_suites < <(required_for authserver)
+mapfile -t mail_suites < <(required_for sql)
+mapfile -t auth_suites < <(required_for sql/auth)
 bash scripts/ci/run-pgtap-evidence.sh test-results/pgtap/mailserver.tap --ext .pg "$@" "${mail_suites[@]}"
 bash scripts/ci/run-pgtap-evidence.sh test-results/pgtap/authserver.tap --ext .pg "$@" "${auth_suites[@]}"
 

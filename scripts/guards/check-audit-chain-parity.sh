@@ -3,7 +3,7 @@
 # check-audit-chain-parity.sh — audit-chain hand-clone parity guard
 # (arch review #A7).
 #
-# WHY THIS EXISTS. mailserver/sql/reducers/chat_access_audit.sql self-labels
+# WHY THIS EXISTS. sql/reducers/chat_access_audit.sql self-labels
 # itself a "hand-transcribed clone of drive_access_audit.sql … HIGHEST-RISK
 # uncoded step, full adversarial review required." The writer + verifier
 # mechanics (the hash-chain compute-on-write / recompute-on-read pair) are
@@ -42,7 +42,7 @@
 # The normalized chat body and the normalized drive body must then be
 # byte-identical.
 #
-# NOT in scope: `mailserver/sql/reducers/audit_write.sql` (the
+# NOT in scope: `sql/reducers/audit_write.sql` (the
 # admin_audit_log "global variant" the arch-review ledger also names) — it
 # chains via a DB TRIGGER (`trg_admin_audit_checksum`), a structurally
 # different mechanism from drive/chat's explicit compute-and-INSERT, so the
@@ -64,8 +64,8 @@ source "$(dirname "$0")/../_base.sh"
 
 export LC_ALL=C
 
-CHAT_FILE="${AUDIT_PARITY_CHAT_FILE:-$ROOT/mailserver/sql/reducers/chat_access_audit.sql}"
-DRIVE_FILE="${AUDIT_PARITY_DRIVE_FILE:-$ROOT/mailserver/sql/reducers/drive_access_audit.sql}"
+CHAT_FILE="${AUDIT_PARITY_CHAT_FILE:-$ROOT/sql/reducers/chat_access_audit.sql}"
+DRIVE_FILE="${AUDIT_PARITY_DRIVE_FILE:-$ROOT/sql/reducers/drive_access_audit.sql}"
 
 echo "==> audit-chain hand-clone parity guard (#A7)"
 

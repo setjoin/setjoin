@@ -19,7 +19,7 @@ HTTP Basic auth (CalDAV/CardDAV) runs on every DAV request — logging every cre
 
 ### Toggle Keys
 
-Seeded in `mailserver/sql/schema/038_feature_toggles.sql`:
+Seeded in `sql/schema/038_feature_toggles.sql`:
 
 | Key | Default | Rationale |
 |-----|---------|-----------|
@@ -239,7 +239,7 @@ The "Logs" sidebar item already exists. Both tabs live under it. No admin layout
 
 | Action | File | Responsibility |
 |--------|------|----------------|
-| Modify | `mailserver/sql/schema/038_feature_toggles.sql` | Seed 5 auth log toggle rows |
+| Modify | `sql/schema/038_feature_toggles.sql` | Seed 5 auth log toggle rows |
 | Modify | `shared/pwhash/auth_log.go` | Add `ToggleChecker` interface + toggle check |
 | Modify | `shared/pwhash/auth_log_test.go` | Test toggle skip behavior |
 | Modify | `shared/pwhash/app_password.go` | Pass `nil` checker (already default-enabled) |
@@ -251,10 +251,10 @@ The "Logs" sidebar item already exists. Both tabs live under it. No admin layout
 | Modify | `authserver/internal/token/refresh.go` | Add LogAuthEvent for refresh |
 | Modify | `authserver/internal/handlers/webauthn.go` | Add LogAuthEvent for assertion failure |
 | Modify | `authserver/internal/handlers/auth.go` | Pass `nil` checker |
-| Modify | `mailserver/sql/reducers/` (prune function) | Add auth_event_log pruning |
+| Modify | `sql/reducers/` (prune function) | Add auth_event_log pruning |
 | Modify | `mailserver/gateway/internal/handlers/admin_retention.go` | Add auth event days to get/set/prune |
 | Create | `mailserver/gateway/internal/handlers/admin_auth_log.go` | Auth log viewer handler |
 | Modify | `mailserver/gateway/cmd/gateway/main.go` | Register auth-log route |
-| Modify | `mailserver/webmail/src/routes/admin/logs/+page.svelte` | Add tabs + auth log view |
-| Modify | `mailserver/webmail/src/routes/admin/retention/+page.svelte` | Add auth event days input |
-| Modify | `mailserver/webmail/src/lib/admin/client.ts` | Add auth event log types + retention type update |
+| Modify | `webmail/src/routes/admin/logs/+page.svelte` | Add tabs + auth log view |
+| Modify | `webmail/src/routes/admin/retention/+page.svelte` | Add auth event days input |
+| Modify | `webmail/src/lib/admin/client.ts` | Add auth event log types + retention type update |

@@ -2,7 +2,7 @@
 # rls-denial-allowlist.txt — the human-maintained DENIAL-TEST classification
 # read by scripts/guards/check-rls-denial.sh.
 #
-# Every table with `... FORCE ROW LEVEL SECURITY` in mailserver/sql/dbschema
+# Every table with `... FORCE ROW LEVEL SECURITY` in sql/dbschema
 # (baseline + migrations) must have exactly one entry here. The guard computes
 # the FORCE'd-table set itself (it does not trust this file for that part) —
 # this file only says, PER FORCE'd TABLE, whether a genuine cross-tenant
@@ -19,7 +19,7 @@
 #   <table>\t<STATUS>\t<file>\t<substring>\t<reason>
 #   · <table>     — exact table name (matches the ALTER TABLE ... FORCE target).
 #   · <STATUS>    — COVERED | PENDING.
-#   · <file>      — for COVERED: the basename of the mailserver/sql/tests/*.pg
+#   · <file>      — for COVERED: the basename of the sql/tests/*.pg
 #                   file carrying the proof. For PENDING: "-".
 #   · <substring> — for COVERED: a unique, stable substring of the file's own
 #                   denial assertion (pgTAP description string is a good pick —
@@ -29,7 +29,7 @@
 #                   (not a silent debt): a follow-up test to write.
 #
 # The guard verifies, for every COVERED row: <file> exists under
-# mailserver/sql/tests/, contains <substring>, AND contains a SET LOCAL ROLE /
+# sql/tests/, contains <substring>, AND contains a SET LOCAL ROLE /
 # SET ROLE line — so a deleted/gutted test re-fails the guard instead of the
 # classification silently going stale.
 #
@@ -63,7 +63,7 @@ task_lists	COVERED	rls_task_lists.pg	stranger / user GUC=C: sees ZERO rows of A'
 task_list_members	COVERED	rls_task_lists.pg	stranger / user GUC=C: sees ZERO roster rows	SET LOCAL ROLE setjoin_app; owner/member/stranger three-way GUC proof + member-arm read-only WITH CHECK violation (shared task lists Phase 1, V112).
 
 # ── PENDING — FORCE'd, but no non-owner-role two-tenant DENIAL test exists yet
-# in mailserver/sql/tests/*.pg as of this guard's introduction. Each is a real
+# in sql/tests/*.pg as of this guard's introduction. Each is a real
 # gap (only a FORCE/enabled/policy-exists check and/or a same-tenant/positive
 # test exists today, not a proof that ANOTHER tenant's row is denied). Seeded
 # PENDING so the guard is green now; closing one = write the test, flip the row

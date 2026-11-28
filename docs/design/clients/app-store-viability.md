@@ -7,7 +7,7 @@
 
 Both stores reject a bare URL-wrapper: **App Store Guideline 4.2** ("Minimum Functionality") is the live risk named by the platform-support spec (`retired-docs:superpowers/specs/2026-06-23-platform-support-guomi-compliance-design.md` §12) — a review that reads "a website in a Home-Screen icon" gets rejected. Play's bar is lower but the same shape of finding (a "WebView wrapper" listing) invites removal/demotion.
 
-The mitigation is not cosmetic chrome on top of the WebView — it's **real native capability the browser cannot provide**, wired through `window.setjoinNative` (`mailserver/webmail/src/lib/native/types.ts`). Reviewers see an app that happens to render its UI in a system WebView, not a bookmark.
+The mitigation is not cosmetic chrome on top of the WebView — it's **real native capability the browser cannot provide**, wired through `window.setjoinNative` (`webmail/src/lib/native/types.ts`). Reviewers see an app that happens to render its UI in a system WebView, not a bookmark.
 
 ## What the shell ships beyond the WebView (native-value checklist)
 

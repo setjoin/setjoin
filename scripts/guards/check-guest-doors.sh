@@ -26,7 +26,7 @@
 # ──────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-RED="$ROOT/mailserver/sql/reducers"
+RED="$ROOT/sql/reducers"
 fail=0
 
 # Justified membership-granting reducers WITHOUT an is_guest_account( arm.

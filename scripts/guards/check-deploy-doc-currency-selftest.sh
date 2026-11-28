@@ -36,7 +36,7 @@ if printf '%s' "$out_a" | grep -q 'TOTALLY_MADE_UP_ENV_VAR_XYZ'; then ok "(A) na
 DOCS_B="$TMP/docs_b"; mkdir -p "$DOCS_B"
 cat > "$DOCS_B/fake.md" <<'EOF'
 # Fake guide
-Run `mailserver/deploy/scripts/this-script-does-not-exist.sh` on the server.
+Run `deploy/scripts/this-script-does-not-exist.sh` on the server.
 EOF
 out_b="$(DOCS_DIR="$DOCS_B" DEPLOY_SCRIPTS_DIR="$TMP/empty_scripts" bash "$GUARD" 2>&1)"; rc_b=$?
 if [ "$rc_b" -eq 0 ]; then bad "(B) dangling script path did NOT fire (rc=0)"; else ok "(B) dangling script path fails the guard (rc=$rc_b)"; fi

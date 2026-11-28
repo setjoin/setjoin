@@ -52,7 +52,7 @@ of evidence symbols. The most severe verdict wins. Verdicts are recorded as a he
 | **Create** | `scripts/gen-confusables.go` | Code-gen: download Unicode confusables.txt, compile into Go map |
 | **Create** | `mailserver/gateway/internal/smtp/confusables.go` | Generated: `map[string]string` homoglyph→ASCII table (`go:generate` target) |
 | **Modify** | `mailserver/gateway/internal/smtp/inbound.go` | Wire `AntiPhish` checks into delivery pipeline after DMARC, before ClamAV |
-| **Create** | `mailserver/sql/migrations/V022__antiphish.sql` | Feature toggle seeds + `contact_graph_mview` materialized view (refreshed every 5 min by pg_cron) |
+| **Create** | `sql/migrations/V022__antiphish.sql` | Feature toggle seeds + `contact_graph_mview` materialized view (refreshed every 5 min by pg_cron) |
 | **Modify** | `scripts/e2e.sh` | E2E: send display-name-spoofed email, send lookalike-domain email, verify banner + header |
 
 ## Key Design Decisions

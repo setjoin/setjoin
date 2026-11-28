@@ -4,7 +4,7 @@
  *
  * Reads `contracts/edge/openapi/edge.v1.yaml` and emits plain
  * `serde::Serialize` / `serde::Deserialize` structs and enums into
- * `server-rust/crates/edge-contract/src/generated.rs` with ZERO OpenAPI
+ * `server/crates/edge-contract/src/generated.rs` with ZERO OpenAPI
  * proc-macros (`utoipa`, `aide`, `schemars`, etc.).
  *
  * Nullability semantics:

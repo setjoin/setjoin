@@ -10,7 +10,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-DBSCHEMA_DIR="${DBSCHEMA_DIR:-$ROOT/mailserver/sql/dbschema}"
+DBSCHEMA_DIR="${DBSCHEMA_DIR:-$ROOT/sql/dbschema}"
 
 # Reviewed drive-ACL chain, in order.
 PINNED_CHAIN=(184 185 186 187 188 189 190 191 192 193 255 269)  # 269: meet Drive-History receipt ledger (V269__drive_meet_history, nightly-16; FORCE RLS, drive_audit posture — consciously appended)

@@ -52,13 +52,13 @@
 **Risk**: None
 
 ### H11: DLP Regex No Timeout
-**File**: `mailserver/sql/schema/024_dlp.sql:47`
+**File**: `sql/schema/024_dlp.sql:47`
 **Bug**: No `statement_timeout` on regex evaluation — ReDoS
 **Fix**: Add `SET LOCAL statement_timeout`
 **Risk**: Low
 
 ### H12: DLP Case Mismatch
-**File**: `mailserver/sql/schema/024_dlp.sql:65`
+**File**: `sql/schema/024_dlp.sql:65`
 **Bug**: Content lowercased before matching, but patterns case-sensitive
 **Fix**: Consistent case handling
 **Risk**: Low

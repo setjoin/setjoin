@@ -42,7 +42,7 @@ interface ContractFixture {
 
 const contractPath = fileURLToPath(
   new URL(
-    "../../../../mailserver/webmail/src/lib/native/testdata/contract-members.generated.json",
+    "../../../../webmail/src/lib/native/testdata/contract-members.generated.json",
     import.meta.url,
   ),
 );

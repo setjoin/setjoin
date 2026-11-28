@@ -20,16 +20,16 @@ The existing i18n framework (`src/lib/i18n/index.ts`) already supports dynamic l
 
 | File | Change |
 |------|--------|
-| `mailserver/webmail/src/lib/i18n/en.ts` | Add ~200 admin keys covering all 27 admin sub-routes, common table/chart/form strings, sidebar labels, error messages, confirmation dialogs |
-| `mailserver/webmail/src/lib/i18n/zh.ts` | Full Chinese translation of all new admin keys |
-| `mailserver/webmail/src/lib/i18n/de.ts` | German translations of new admin keys (keep existing coverage parity) |
+| `webmail/src/lib/i18n/en.ts` | Add ~200 admin keys covering all 27 admin sub-routes, common table/chart/form strings, sidebar labels, error messages, confirmation dialogs |
+| `webmail/src/lib/i18n/zh.ts` | Full Chinese translation of all new admin keys |
+| `webmail/src/lib/i18n/de.ts` | German translations of new admin keys (keep existing coverage parity) |
 
 ### Admin Shell (modify)
 
 | File | Change |
 |------|--------|
-| `mailserver/webmail/src/routes/admin/+layout.svelte` | Derive `allNavItems[].label` from `t()` calls instead of hardcoded English strings; translate static text (hamburger aria-labels, logout, sidebar title, loading) |
-| `mailserver/webmail/src/routes/admin/+page.svelte` | Translate dashboard widgets: headers, stat labels, chart titles |
+| `webmail/src/routes/admin/+layout.svelte` | Derive `allNavItems[].label` from `t()` calls instead of hardcoded English strings; translate static text (hamburger aria-labels, logout, sidebar title, loading) |
+| `webmail/src/routes/admin/+page.svelte` | Translate dashboard widgets: headers, stat labels, chart titles |
 | Each `+page.svelte` under `routes/admin/*/` | (27 pages) Replace hardcoded English strings with `t('admin.…')` calls. Scope per page below. |
 
 ### Admin Page Translation Scope (27 pages)
@@ -81,7 +81,7 @@ The existing i18n framework (`src/lib/i18n/index.ts`) already supports dynamic l
 
 | File | Change |
 |------|--------|
-| `mailserver/webmail/src/lib/i18n/index.test.ts` | Add coverage check: every key in `en.ts` must have a matching key in `zh.ts` and `de.ts`. Add CI-visible assertion so missing keys fail `npm test`. |
+| `webmail/src/lib/i18n/index.test.ts` | Add coverage check: every key in `en.ts` must have a matching key in `zh.ts` and `de.ts`. Add CI-visible assertion so missing keys fail `npm test`. |
 
 ## 4. Key Design Decisions
 

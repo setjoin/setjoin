@@ -24,7 +24,7 @@ production execution remains OFF.
 
 Committed browser baselines:
 
-- `mailserver/webmail/e2e/transactional-updater.visual.spec.ts-snapshots/`
+- `webmail/e2e/transactional-updater.visual.spec.ts-snapshots/`
 - Live disposable-host screenshots:
   `.gstack/qa-reports/screenshots/transactional-updater-u4-en-desktop.png` and
   `.gstack/qa-reports/screenshots/transactional-updater-u4-zh-mobile.png`

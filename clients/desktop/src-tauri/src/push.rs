@@ -12,7 +12,7 @@
 //! SPA glue (`registerNativePush` in webmail) skips registration when the token
 //! is null. The webmail SPA — not this module — owns the actual upload:
 //! `POST /auth/device/register` with `{ provider, push_token, device_public_key,
-//! device_name }` (see `mailserver/webmail/src/lib/push/subscribe.ts` and
+//! device_name }` (see `webmail/src/lib/push/subscribe.ts` and
 //! `authserver/internal/handlers/device.go`). This function only needs to return
 //! the captured OS token once a plugin provides it.
 

@@ -22,7 +22,7 @@ TLS_CERT=/etc/mail/tls/server.pem
 TLS_KEY=/etc/mail/tls/server-key.pem
 ```
 
-- Generate a strong ECDSA P-256 or RSA-2048 keypair once (or manage via certbot `--reuse-key` / Caddy with `mailserver/deploy/scripts/export-edge-pem.sh`)
+- Generate a strong ECDSA P-256 or RSA-2048 keypair once (or manage via certbot `--reuse-key` / Caddy with `deploy/scripts/export-edge-pem.sh`)
 - Use the same keypair for all certificate renewals (CSR reuse); all Setjoin listeners hot-reload the PEM pair automatically without restarting
 - `export-edge-pem.sh` enforces `DANE_ENFORCE_KEY_PIN=1` by default and refuses accidental SPKI changes unless `--allow-key-rotation` is explicitly passed after double-TLSA pre-publication
 - SPKI hash never changes → TLSA DANE-EE (3 1 1) is publish-once, valid forever

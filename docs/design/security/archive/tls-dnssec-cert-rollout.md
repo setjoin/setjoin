@@ -96,10 +96,10 @@ For static certs: this is the primary expiry warning mechanism.
 | `authserver/internal/handlers/health.go` | DNSSEC health check (TLSA records exist?) |
 | `mailserver/gateway/internal/tlsutil/cert_monitor.go` | Daily cert expiry check, writes to `health_history` |
 | `mailserver/gateway/internal/tlsutil/rollout.go` | CertRolloutController state machine (Path B) |
-| `mailserver/sql/migrations/V026__cert_rollout.sql` | `cert_rollout_state` table |
+| `sql/migrations/V026__cert_rollout.sql` | `cert_rollout_state` table |
 | `mailserver/gateway/internal/config/config.go` | `DNSSECEnabled`, `TLSAutocertRollout`, `TLSAutocertRolloutTTL` |
 | `mailserver/gateway/cmd/gateway/main.go` | Wire cert monitor + rollout controller |
-| `mailserver/webmail/src/routes/admin/dns/+page.svelte` | DNSSEC toggle status + rollout progress UI |
+| `webmail/src/routes/admin/dns/+page.svelte` | DNSSEC toggle status + rollout progress UI |
 | `docs/specs/DNSSEC_DANE_SETUP.md` | Update with Path A/B explanation |
 
 ## 5. Deferred to Future

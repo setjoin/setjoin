@@ -6,7 +6,7 @@
 > [`HA_OVERVIEW.md`](HA_OVERVIEW.md) instead.
 
 This is a counted runbook. The installer `deploy/scripts/install.sh`
-(`mailserver/deploy/scripts/install.sh` in the repo) automates steps 4–10; this
+(`deploy/scripts/install.sh` in the repo) automates steps 4–10; this
 guide explains each step so you understand — and can repair — what it does. The
 installer is **idempotent**: re-running it preserves your existing
 `/etc/setjoin/config.env`, secrets, TLS cert, and database unless you pass
@@ -123,7 +123,7 @@ below). Run on Linux with systemd (the installer writes the
 ```bash
 git clone https://github.com/setjoin/setjoin.git && cd setjoin
 bash scripts/ci/build.sh                       # → mailserver/mailserverd, authserver/authserverd
-cd mailserver/webmail && npm ci && npm run build && cd ../..
+cd webmail && npm ci && npm run build && cd ../..
 ```
 
 `install.sh` will build the binaries for you if they are missing, but it cannot
@@ -186,7 +186,7 @@ The installer's generated `S3_ACCESS_KEY`/`S3_SECRET_KEY` are written to
 ### 4. Run the installer (root)
 
 ```bash
-sudo bash mailserver/deploy/scripts/install.sh
+sudo bash deploy/scripts/install.sh
 ```
 
 It prompts for the **core settings** — hostname/mail domain, HTTPS listen
@@ -219,7 +219,7 @@ A self-signed cert for your hostname is written to
 
 - terminate ACME at the edge (Caddy or certbot) and export PEM files to
   `/etc/mail/tls/server.pem` + `server-key.pem` via
-  `mailserver/deploy/scripts/export-edge-pem.sh` (see
+  `deploy/scripts/export-edge-pem.sh` (see
   `docs/guides/EDGE_TLS_ACME_MIGRATION.md`; all listeners hot-reload
   automatically without restarting); or
 - drop a real cert/key at the `TLS_CERT` / `TLS_KEY` paths (hot-reloaded
@@ -232,7 +232,7 @@ The installer verifies the `pgtap` extension is available (auto-installing
 `mailserver` database, provisions the cluster-global native-RLS roles
 (`scripts/provision-roles.sql`, idempotent — forward migrations GRANT to
 `setjoin_app` and fail without them), loads
-`mailserver/sql/dbschema/V001__baseline.sql` (the collapsed combined schema +
+`sql/dbschema/V001__baseline.sql` (the collapsed combined schema +
 seed data) only when the database is uninitialized, then uses the matching,
 just-built `mailctl schema apply --yes` over the owner DSN to apply only pending
 forward migrations. It loads current reducers only after the schema is current,
@@ -272,7 +272,7 @@ the checked-in `livekit.yaml.template` — `turn.enabled` is computed from
 whether a cert pair already exists at
 `/etc/setjoin/certs/{fullchain,privkey}.pem`, never hand-set; its `redis:`
 block points at the loopback Valkey), `valkey.conf` (loopback-only,
-password-protected, no persistence — `mailserver/deploy/scripts/lib-livekit.sh`'s
+password-protected, no persistence — `deploy/scripts/lib-livekit.sh`'s
 `provision_valkey_conf`), and `egress.yaml` (rendered from
 `egress.yaml.template`; the same `VALKEY_PASSWORD` + `LIVEKIT_API_SECRET`
 as above) are written to `/etc/setjoin/`. Binaries land in `/opt/setjoin/`
@@ -373,7 +373,7 @@ is a separate OFF-gated workflow; see
   it with the recovery set: every backup manifest is signed with this key and a
   backup-enabled service refuses startup when the key is missing, linked, or has
   unsafe permissions.
-- **User management:** `mailctl` (see `server-rust/AGENTS.md`) — `mailctl user
+- **User management:** `mailctl` (see `server/AGENTS.md`) — `mailctl user
   create|list|delete`, `mailctl domain add`, etc.
 - **Re-running the installer** is safe: it preserves config, secrets, TLS, and
   the database. Use `--force` only to deliberately re-prompt / rotate (it asks

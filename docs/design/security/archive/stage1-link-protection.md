@@ -27,7 +27,7 @@ API (primary) then Spamhaus DBL (fallback), and either 302-redirect to the origi
 | **Create** | `mailserver/gateway/internal/handlers/link_protect.go` | `GET /link-protect` handler + block/warn interstitial HTML templates |
 | **Modify** | `mailserver/gateway/internal/smtp/inbound.go` | Hook rewrite step after antispam/ClamAV, before JMAP commit |
 | **Modify** | `mailserver/gateway/cmd/gateway/main.go` | Route registration |
-| **Create** | `mailserver/sql/migrations/V022__link_protect.sql` | Feature toggle seeds |
+| **Create** | `sql/migrations/V022__link_protect.sql` | Feature toggle seeds |
 | **Modify** | `scripts/e2e.sh` | E2E: send email with link, click, verify interstitial |
 
 ## Key Design Decisions

@@ -28,7 +28,7 @@ mkdir -p "$TMP/reducers" "$TMP/tests"
 
 # Seed the seam owners + primitive-definers so the allowlists resolve as in prod.
 for f in notify_state_change.sql utils.sql utils_tags.sql; do
-  cp "$ROOT/mailserver/sql/reducers/$f" "$TMP/reducers/" 2>/dev/null || true
+  cp "$ROOT/sql/reducers/$f" "$TMP/reducers/" 2>/dev/null || true
 done
 
 fail=0

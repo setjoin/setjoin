@@ -14,11 +14,11 @@
     },
     {
       "path": "scripts/deploy/unified-deployment-d3.sh",
-      "sha256": "b3773759a116e50e47dd235eeaf036141e06e1409a324f5b7c87c025e75a174c"
+      "sha256": "2f6537a94a9b522bdce82ed6af68c52d83967ca2c8b06f400df64a1dd4e8c550"
     },
     {
       "path": "scripts/deploy/unified-deployment-d4.sh",
-      "sha256": "7c91dddeb8d547d5a111bbdc6d69ebce85071465fd05f4cdaa6b5b12e2fed56c"
+      "sha256": "7cdfc2524d06ac7a955570fce96234e0469bd5048afc3c76f0b451dbd4bc495d"
     },
     {
       "path": "scripts/deploy/unified-deployment-d4-oidc-flow.sh",
@@ -34,7 +34,7 @@
     },
     {
       "path": "scripts/deploy/transactional-upgrade-rehearsal.sh",
-      "sha256": "781eb2a81c4bf31314f39d8c4956ea8803e238be0d27e66257b937ca05152f89"
+      "sha256": "fce798cff024382bc11267dc7faf754d38673bf172fef49339c3e543b9bab46a"
     },
     {
       "path": "scripts/deploy/transactional-updater-rehearsal.sh",

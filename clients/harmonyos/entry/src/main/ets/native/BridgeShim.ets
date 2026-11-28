@@ -1,7 +1,7 @@
 // BridgeShim — the JS injected at document-start (`Web.javaScriptOnDocumentStart`)
 // that reshapes the flat `window.ohosNative` proxy (BridgeProxy, registered via
 // `registerJavaScriptProxy`) into the nested `window.setjoinNative` contract
-// the SPA expects (`mailserver/webmail/src/lib/native/types.ts`). Mirrors
+// the SPA expects (`webmail/src/lib/native/types.ts`). Mirrors
 // Electron's `bridge.ts`/`preload.ts` split: `registerJavaScriptProxy` is the
 // transport (like `ipcRenderer`), this shim is the shape-builder (like
 // `buildBridge`).

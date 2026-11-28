@@ -14,9 +14,9 @@ on:
       - '.github/workflows/ci-images.yml'
       - 'scripts/server-rust-lane-tools.sh'
       - 'scripts/build-interop-images.sh'
-      - 'mailserver/deploy/docker/test-imap/**'
-      - 'mailserver/deploy/docker/test-smtp/**'
-      - 'mailserver/deploy/docker/test-ldap/**'
+      - 'deploy/docker/test-imap/**'
+      - 'deploy/docker/test-smtp/**'
+      - 'deploy/docker/test-ldap/**'
   push:
     branches: [main]
     paths: *paths

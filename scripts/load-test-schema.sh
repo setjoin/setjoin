@@ -31,7 +31,7 @@
 #                          only: refuses archived SQL before ANY database
 #                          contact (used by check-archive-exclusion-selftest.sh)
 #   bash scripts/load-test-schema.sh && \
-#     pg_prove -h 127.0.0.1 -p 5432 -U mail -d mailserver_test mailserver/sql/tests/*.pg
+#     pg_prove -h 127.0.0.1 -p 5432 -U mail -d mailserver_test sql/tests/*.pg
 #
 # Test-only input-root overrides (self-test case C): MIGRATIONS_ROOT relocates
 # the dbschema migration inputs, REDUCERS_ROOT the reducer trees (mirrors
@@ -95,8 +95,8 @@ archive_preflight() {
   # Direct `-f` inputs: provision-roles (pre+post pass), baseline, fixtures.
   for f in \
     "$ROOT/scripts/provision-roles.sql" \
-    "$MIGRATIONS_ROOT/mailserver/sql/dbschema/V001__baseline.sql" \
-    "$ROOT/mailserver/sql/tests/_fixtures.sql"; do
+    "$MIGRATIONS_ROOT/sql/dbschema/V001__baseline.sql" \
+    "$ROOT/sql/tests/_fixtures.sql"; do
     [ -e "$f" ] || continue # a missing input fails later at its own step
     archive_guard_check_one "$f"
   done
@@ -105,11 +105,11 @@ archive_preflight() {
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     archive_guard_check_one "$f"
-  done < <(LC_ALL=C ls "$MIGRATIONS_ROOT/mailserver/sql/dbschema"/V[0-9]*__*.sql 2>/dev/null | LC_ALL=C sort)
+  done < <(LC_ALL=C ls "$MIGRATIONS_ROOT/sql/dbschema"/V[0-9]*__*.sql 2>/dev/null | LC_ALL=C sort)
   # Reducer inputs (the reload-reducers.sh selection).
   for dir in \
-    "$REDUCERS_ROOT/mailserver/sql/reducers" \
-    "$REDUCERS_ROOT/authserver/sql/reducers"; do
+    "$REDUCERS_ROOT/sql/reducers" \
+    "$REDUCERS_ROOT/sql/auth/reducers"; do
     # Mirrors reload-reducers.sh's load_reducer_set selection.
     # shellcheck disable=SC2012,SC2035
     while IFS= read -r f; do
@@ -193,7 +193,7 @@ echo "==> 0/4 native-RLS roles (pre-pass — forward migrations reference setjoi
 provision_roles
 
 echo "==> 1/4 baseline (V001__baseline.sql — combined schema + seed) + forward migrations (V002+)"
-(cd "$MIGRATIONS_ROOT/mailserver/sql/dbschema" && $PG -f V001__baseline.sql) &&
+(cd "$MIGRATIONS_ROOT/sql/dbschema" && $PG -f V001__baseline.sql) &&
   echo "    OK V001__baseline.sql" || {
   echo "    FAIL (V001__baseline.sql must load clean)"
   fail=1
@@ -219,13 +219,13 @@ if [ "$fail" -eq 0 ]; then
     [ -n "$mig" ] || continue
     base="$(basename "$mig")"
     case "$base" in V001__*) continue ;; esac
-    (cd "$MIGRATIONS_ROOT/mailserver/sql/dbschema" && $PG -f "$base") &&
+    (cd "$MIGRATIONS_ROOT/sql/dbschema" && $PG -f "$base") &&
       echo "    OK $base" ||
       {
         echo "    FAIL ($base — forward migration must load clean)"
         fail=1
       }
-  done < <(LC_ALL=C ls "$MIGRATIONS_ROOT/mailserver/sql/dbschema"/V[0-9]*__*.sql 2>/dev/null | LC_ALL=C sort)
+  done < <(LC_ALL=C ls "$MIGRATIONS_ROOT/sql/dbschema"/V[0-9]*__*.sql 2>/dev/null | LC_ALL=C sort)
 fi
 
 echo "==> 2/4 reducers (fixed-point load — resolves forward refs internally)"
@@ -236,7 +236,7 @@ echo "==> 2/4 reducers (fixed-point load — resolves forward refs internally)"
 # legitimately error, non-fatal); its own converged iteration is the old
 # "pass 2" (the gate — a survivor at fixed point is a real SQL error or a
 # real dependency cycle, and IS fatal). One call replaces the old two-pass
-# wrapper. (See mailserver/sql/AGENTS.md; do not reintroduce a manual
+# wrapper. (See sql/AGENTS.md; do not reintroduce a manual
 # multi-pass wrapper here — the fixed point already IS the multi-pass.)
 reducer_log="$(mktemp)"
 if DB_NAME="$DB_NAME" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_USER="$DB_USER" \
@@ -250,7 +250,7 @@ fi
 rm -f "$reducer_log"
 
 echo "==> 3/4 pgTAP fixture helpers (mk_account / mk_shared_mailbox — test DB only)"
-(cd "$ROOT/mailserver/sql/tests" && $PG -f _fixtures.sql) &&
+(cd "$ROOT/sql/tests" && $PG -f _fixtures.sql) &&
   echo "    OK" || {
   echo "    FAIL (_fixtures.sql must load clean)"
   fail=1
@@ -301,7 +301,7 @@ SQL
 # in depth — the canary adjust_folder_counters lives in this set automatically).
 echo "==> Verifying loaded reducer manifest (expected-set ⊆ actual)"
 EXPECTED_FUNCS="$(grep -rhoE '^[[:space:]]*CREATE( OR REPLACE)? FUNCTION [a-zA-Z_][a-zA-Z0-9_]*' \
-  "$REDUCERS_ROOT/mailserver/sql/reducers/"*.sql "$REDUCERS_ROOT/authserver/sql/reducers/"*.sql |
+  "$REDUCERS_ROOT/sql/reducers/"*.sql "$REDUCERS_ROOT/sql/auth/reducers/"*.sql |
   sed -E 's/^[[:space:]]*CREATE( OR REPLACE)? FUNCTION //' | LC_ALL=C sort -u)"
 EXPECTED_COUNT="$(printf '%s\n' "$EXPECTED_FUNCS" | grep -c .)"
 # ACTUAL = every proc name in the public schema after load. The set-difference is
@@ -329,7 +329,7 @@ fi
 
 if [ "$fail" -eq 0 ]; then
   echo "==> Schema loaded clean. Run pgTAP with:"
-  echo "    pg_prove $PG_OPTS -d $DB_NAME mailserver/sql/tests/*.pg"
+  echo "    pg_prove $PG_OPTS -d $DB_NAME sql/tests/*.pg"
 else
   echo "==> One or more migrations failed to load (see FAIL lines above)."
   exit 1

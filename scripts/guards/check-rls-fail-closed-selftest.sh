@@ -12,23 +12,23 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/check-rls-fail-closed-selftest.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 
 # Copy only the small subset of files the guard inspects.
-mkdir -p "$tmp/server-rust/crates/boot/src" \
-  "$tmp/server-rust/crates/pg/src" \
-  "$tmp/server-rust/bins/auth/src" \
-  "$tmp/server-rust/bins/gateway/src" \
-  "$tmp/server-rust/bins/mailctl/src/direct" \
-  "$tmp/server-rust/bins/updater/src"
-cp "$ROOT/server-rust/crates/boot/src/lib.rs" "$tmp/server-rust/crates/boot/src/lib.rs"
-cp "$ROOT/server-rust/crates/pg/src/rls_preflight.rs" "$tmp/server-rust/crates/pg/src/rls_preflight.rs"
-cp "$ROOT/server-rust/bins/auth/src/main.rs" "$tmp/server-rust/bins/auth/src/main.rs"
-cp "$ROOT/server-rust/bins/mailctl/src/direct/rls.rs" "$tmp/server-rust/bins/mailctl/src/direct/rls.rs"
-cp "$ROOT/server-rust/bins/updater/src/run.rs" "$tmp/server-rust/bins/updater/src/run.rs"
-cp "$ROOT/mailserver/deploy/scripts/install.sh" "$tmp/install.sh"
-cp "$ROOT/mailserver/deploy/scripts/upgrade.sh" "$tmp/upgrade.sh"
+mkdir -p "$tmp/server/crates/boot/src" \
+  "$tmp/server/crates/pg/src" \
+  "$tmp/server/bins/auth/src" \
+  "$tmp/server/bins/gateway/src" \
+  "$tmp/server/bins/mailctl/src/direct" \
+  "$tmp/server/bins/updater/src"
+cp "$ROOT/server/crates/boot/src/lib.rs" "$tmp/server/crates/boot/src/lib.rs"
+cp "$ROOT/server/crates/pg/src/rls_preflight.rs" "$tmp/server/crates/pg/src/rls_preflight.rs"
+cp "$ROOT/server/bins/auth/src/main.rs" "$tmp/server/bins/auth/src/main.rs"
+cp "$ROOT/server/bins/mailctl/src/direct/rls.rs" "$tmp/server/bins/mailctl/src/direct/rls.rs"
+cp "$ROOT/server/bins/updater/src/run.rs" "$tmp/server/bins/updater/src/run.rs"
+cp "$ROOT/deploy/scripts/install.sh" "$tmp/install.sh"
+cp "$ROOT/deploy/scripts/upgrade.sh" "$tmp/upgrade.sh"
 cp "$ROOT/scripts/ci/server-rust-parallel-lane.sh" "$tmp/parallel-lane.sh"
 
 run_guard() {
-  SERVER_RUST_DIR="$tmp/server-rust" \
+  SERVER_RUST_DIR="$tmp/server" \
     INSTALL_SH="$tmp/install.sh" \
     UPGRADE_SH="$tmp/upgrade.sh" \
     PARALLEL_LANE_SH="$tmp/parallel-lane.sh" \
@@ -52,17 +52,17 @@ expect_fire() {
 run_guard >/dev/null
 
 # Mutant 1: WarnReleaseN planted in a production bin (including future setjoind).
-mkdir -p "$tmp/server-rust/bins/setjoind/src"
-printf 'let _ = EnforcementMode::WarnReleaseN;\n' >"$tmp/server-rust/bins/setjoind/src/main.rs"
+mkdir -p "$tmp/server/bins/setjoind/src"
+printf 'let _ = EnforcementMode::WarnReleaseN;\n' >"$tmp/server/bins/setjoind/src/main.rs"
 expect_fire "WarnReleaseN in bins/setjoind/src" "production entrypoint references WarnReleaseN"
-rm -rf "$tmp/server-rust/bins/setjoind"
+rm -rf "$tmp/server/bins/setjoind"
 
 # Mutant 2: BootPosture::bare() reverted to WarnReleaseN.
-cp "$ROOT/server-rust/crates/pg/src/rls_preflight.rs" "$tmp/rls_preflight.orig"
+cp "$ROOT/server/crates/pg/src/rls_preflight.rs" "$tmp/rls_preflight.orig"
 awk '/pub fn bare\(\) -> Self/,/^[[:space:]]*\}/ { gsub(/FailClosedReleaseNPlus1/, "WarnReleaseN") } { print }' \
-  "$tmp/rls_preflight.orig" >"$tmp/server-rust/crates/pg/src/rls_preflight.rs"
+  "$tmp/rls_preflight.orig" >"$tmp/server/crates/pg/src/rls_preflight.rs"
 expect_fire "BootPosture::bare() WarnReleaseN" "BootPosture::bare() in rls_preflight.rs uses WarnReleaseN"
-mv "$tmp/rls_preflight.orig" "$tmp/server-rust/crates/pg/src/rls_preflight.rs"
+mv "$tmp/rls_preflight.orig" "$tmp/server/crates/pg/src/rls_preflight.rs"
 
 # Mutant 3: install.sh exit-2 advisory branch planted.
 cp "$tmp/install.sh" "$tmp/install.orig"

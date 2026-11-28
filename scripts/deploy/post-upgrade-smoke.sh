@@ -46,12 +46,12 @@ openssl req -x509 -newkey rsa:2048 \
   -addext 'basicConstraints=critical,CA:FALSE' 2>/dev/null
 openssl x509 -in "$SMOKE_DIR/cert.pem" -noout -checkend 60 >/dev/null
 openssl x509 -in "$SMOKE_DIR/cert.pem" -noout -text | grep -q 'CA:FALSE'
-bash "$ROOT/mailserver/deploy/scripts/test-livekit-render.sh" >/dev/null
+bash "$ROOT/deploy/scripts/test-livekit-render.sh" >/dev/null
 echo "openssl + livekit-render OK"
 
 say "3/5 webmail: typecheck + PRODUCTION build + one vitest smoke (Node-major canary)"
 (
-  cd "$ROOT/mailserver/webmail"
+  cd "$ROOT/webmail"
   [ -d node_modules ] || npm ci --prefer-offline --no-audit --no-fund
   npm run check --silent
   npm run build --silent >/dev/null
@@ -70,9 +70,9 @@ say "5/5 fresh PG schema load (pgtap/pgcrypto/RLS) + core-reducer pgTAP sample"
 DB_NAME="$SMOKE_DB" DB_HOST="$PG_HOST" DB_PORT="$PG_PORT" DB_USER="$PG_USER" \
   bash "$ROOT/scripts/load-test-schema.sh" >/dev/null
 pg_prove -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$SMOKE_DB" \
-  "$ROOT/mailserver/sql/tests/health_check.pg" \
-  "$ROOT/mailserver/sql/tests/rls_policies.pg" \
-  "$ROOT/mailserver/sql/tests/send.pg" \
-  "$ROOT/authserver/sql/tests/backup_codes.pg"
+  "$ROOT/sql/tests/health_check.pg" \
+  "$ROOT/sql/tests/rls_policies.pg" \
+  "$ROOT/sql/tests/send.pg" \
+  "$ROOT/sql/auth/tests/backup_codes.pg"
 
 say "POST-UPGRADE SMOKE: ALL GREEN"

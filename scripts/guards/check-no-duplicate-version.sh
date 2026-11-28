@@ -2,7 +2,7 @@
 # ──────────────────────────────────────────────────────────────────────────
 # check-no-duplicate-version.sh — migration version-suffix dedup guard.
 #
-# The schema corpus is "Flyway-compatible" (mailserver/sql/AGENTS.md): two
+# The schema corpus is "Flyway-compatible" (sql/AGENTS.md): two
 # migration files sharing a `V<NNN>` version prefix are a HARD `flyway validate`
 # error, and under the test loader (scripts/load-test-schema.sh) their apply
 # order is decided by `LC_ALL=C sort` — which we pin precisely so a same-version
@@ -23,7 +23,7 @@
 # ──────────────────────────────────────────────────────────────────────────
 source "$(dirname "$0")/../_base.sh"
 
-MIGRATION_DIRS="${MIGRATION_DIRS:-$ROOT/mailserver/sql/dbschema $ROOT/authserver/sql/migrations}"
+MIGRATION_DIRS="${MIGRATION_DIRS:-$ROOT/sql/dbschema $ROOT/sql/auth/migrations}"
 
 # ── Allowlist (FROZEN pre-existing mailserver same-version pairs) ─────────────
 # Format: one "V<NNN>" token per line. These four suffixes name two shipped

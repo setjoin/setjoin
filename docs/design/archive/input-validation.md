@@ -24,7 +24,7 @@ Layers 1-2 are UX. Layer 3 is security. An attacker with curl bypasses layers 1-
 
 ## Frontend: Validation Library
 
-**New file:** `mailserver/webmail/src/lib/validation.ts`
+**New file:** `webmail/src/lib/validation.ts`
 
 ### Types
 
@@ -141,7 +141,7 @@ Svelte auto-escapes `{expression}` in templates — free protection for all plai
 
 **Audit requirement:** Every `{@html}` site must be paired with `sanitizeHTML()`. The reference doc includes a grep command:
 ```bash
-grep -rn '{@html' mailserver/webmail/src/ | grep -v 'sanitizeHTML\|DOMPurify'
+grep -rn '{@html' webmail/src/ | grep -v 'sanitizeHTML\|DOMPurify'
 ```
 Any output is a vulnerability and must be fixed.
 
@@ -320,8 +320,8 @@ A companion reference document `docs/specs/INPUT_VALIDATION.md` will be created 
 
 ## Verification
 
-1. `cd mailserver/webmail && npm run check` — 0 errors, 0 warnings
-2. `cd mailserver/webmail && npx vitest run` — all tests pass
+1. `cd webmail && npm run check` — 0 errors, 0 warnings
+2. `cd webmail && npx vitest run` — all tests pass
 3. `cd mailserver/gateway && go build ./cmd/gateway` — builds clean
 4. `cd mailserver/gateway && go test ./...` — all tests pass
 5. `cd shared && go test ./...` — all tests pass

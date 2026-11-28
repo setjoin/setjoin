@@ -13,18 +13,17 @@ the PolyForm license. Each item keeps its own license. THIRD_PARTY_LICENSES.md
 lists every item with its license, its source and the license texts:
 
 - Mozilla CA certificate bundle (MPL-2.0)
-    mailserver/internal/smime/cacert.pem
-    server-rust/crates/protocols/smtp/src/inbound/cacert.pem
+    server/crates/protocols/smtp/src/inbound/cacert.pem
 - Fonts shipped with Excalidraw 0.18.1 (OFL-1.1, MIT; some to verify)
-    mailserver/webmail/static/excalidraw/fonts/
+    webmail/static/excalidraw/fonts/
 - IBM Plex Sans and IBM Plex Mono (OFL-1.1)
-    mailserver/webmail/static/fonts/ibm-plex-*.woff2
-    mailserver/api/ibm-plex-sans-*.woff2
+    webmail/static/fonts/ibm-plex-*.woff2
+    api/ibm-plex-sans-*.woff2
 - Noto Sans SC (OFL-1.1)
-    mailserver/webmail/assets/fonts/source/
-    mailserver/webmail/static/fonts/noto-sans-sc-*.woff2
+    webmail/assets/fonts/source/
+    webmail/static/fonts/noto-sans-sc-*.woff2
 - Redoc 2.5.3 standalone bundle (MIT, with bundled permissive components)
-    mailserver/api/redoc.standalone.js
+    api/redoc.standalone.js
 - IETF RFC texts (IETF Trust Legal Provisions)
     docs/ref/rfc/*.txt, docs/ref/rfcs/*.txt
 - OpenHarmony documentation excerpts (CC-BY-4.0, to verify)
