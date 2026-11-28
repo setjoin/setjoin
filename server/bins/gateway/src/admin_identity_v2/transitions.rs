@@ -162,16 +162,16 @@ async fn read(r: &Request<Body>, call: &Call<'_>) -> Response<Body> {
 
 async fn report(r: &Request<Body>, call: &Call<'_>) -> Response<Body> {
     let Call { c, id, .. } = call;
-    // `uuid.Parse` only: the nil id is looked up and is simply not found.
-    let Some(transition) = db::parse_uuid(&segment(call.path, 6)) else {
+    let Some(transition) = uuid(&segment(call.path, 6)) else {
         return bare(400, "invalid transition id", c, id);
     };
-    let raw = match tr::report(call.factory, call.admin, call.actor.user_id(), &transition).await {
-        Ok(Some(raw)) => raw,
-        Ok(None) => return bare(404, "identity transition not found", c, id),
-        Err(e) => return bare(500, &e.detail, c, id),
-    };
-    let mut response = raw_json(raw, r.headers().get("if-none-match"), c, id);
+    let (raw, etag) =
+        match tr::report(call.factory, call.admin, call.actor.user_id(), &transition).await {
+            Ok(Some(pair)) => pair,
+            Ok(None) => return bare(404, "identity transition not found", c, id),
+            Err(e) => return bare(500, &e.detail, c, id),
+        };
+    let mut response = raw_json_as(raw, 200, Some(etag), r.headers().get("if-none-match"), c, id);
     response.headers_mut().insert(
         "content-disposition",
         format!("attachment; filename=\"identity-transition-{transition}.json\"")

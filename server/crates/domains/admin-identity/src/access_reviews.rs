@@ -109,42 +109,56 @@ pub async fn get(
     let Some(r) = rows.first() else {
         return Ok(None);
     };
-    let campaign = campaign_json(
-        r.try_get(0).map_err(bad)?,
-        &r.try_get::<_, String>(1).map_err(bad)?,
-        &r.try_get::<_, String>(2).map_err(bad)?,
-        (0, 0),
-        &r.try_get::<_, String>(3).map_err(bad)?,
-        &r.try_get::<_, String>(4).map_err(bad)?,
-        r.try_get(5).map_err(bad)?,
-        r.try_get(6).map_err(bad)?,
-    );
-    let rows = factory
+    let item_rows = factory
         .run_admin_read_contract(admin, &sql::ACCESS_REVIEW_ITEMS, &[&id, &actor])
         .await?;
-    let mut items = Vec::new();
-    for r in &rows {
-        let scope: Option<i64> = r.try_get(3).map_err(bad)?;
-        let granted_at: Option<String> = r.try_get(4).map_err(bad)?;
-        let granted_by: Option<String> = r.try_get(5).map_err(bad)?;
-        let applied_at: Option<String> = r.try_get(9).map_err(bad)?;
+    let mut items = Vec::with_capacity(item_rows.len());
+    let mut reviewed: i32 = 0;
+    for ir in &item_rows {
+        let user_email = ir
+            .try_get::<_, Option<String>>(1)
+            .map_err(bad)?
+            .unwrap_or_default();
+        let role_name = ir
+            .try_get::<_, Option<String>>(2)
+            .map_err(bad)?
+            .unwrap_or_default();
+        let scope: Option<i64> = ir.try_get(3).map_err(bad)?;
+        let granted_at: Option<String> = ir.try_get(4).map_err(bad)?;
+        let granted_by: Option<String> = ir.try_get(5).map_err(bad)?;
+        let decision: String = ir.try_get(8).map_err(bad)?;
+        if decision != "undecided" {
+            reviewed = reviewed.saturating_add(1);
+        }
+        let applied_at: Option<String> = ir.try_get(9).map_err(bad)?;
         let null = || "null".to_owned();
         items.push(format!(
             "{{\"id\":{},\"userEmail\":{},\"roleName\":{},\"scope\":{},\"grantedAt\":{}{},\"isSso\":{},\"isSelf\":{},\"decision\":{},\"appliedAt\":{}}}",
-            r.try_get::<_, i64>(0).map_err(bad)?,
-            s(&r.try_get::<_, String>(1).map_err(bad)?),
-            s(&r.try_get::<_, String>(2).map_err(bad)?),
+            ir.try_get::<_, i64>(0).map_err(bad)?,
+            s(&user_email),
+            s(&role_name),
             scope.map(|v| v.to_string()).unwrap_or_else(null),
             granted_at.map(|v| s(&v)).unwrap_or_else(null),
             granted_by
                 .map(|v| format!(",\"grantedBy\":{}", s(&v)))
                 .unwrap_or_default(),
-            r.try_get::<_, bool>(6).map_err(bad)?,
-            r.try_get::<_, bool>(7).map_err(bad)?,
-            s(&r.try_get::<_, String>(8).map_err(bad)?),
+            ir.try_get::<_, bool>(6).map_err(bad)?,
+            ir.try_get::<_, bool>(7).map_err(bad)?,
+            s(&decision),
             applied_at.map(|v| s(&v)).unwrap_or_else(null),
         ));
     }
+    let total = i32::try_from(items.len()).unwrap_or(i32::MAX);
+    let campaign = campaign_json(
+        r.try_get(0).map_err(bad)?,
+        &r.try_get::<_, String>(1).map_err(bad)?,
+        &r.try_get::<_, String>(2).map_err(bad)?,
+        (reviewed, total),
+        &r.try_get::<_, String>(3).map_err(bad)?,
+        &r.try_get::<_, String>(4).map_err(bad)?,
+        r.try_get(5).map_err(bad)?,
+        r.try_get(6).map_err(bad)?,
+    );
     Ok(Some(super::done(format!(
         "{{\"campaign\":{campaign},\"items\":[{}]}}",
         items.join(",")

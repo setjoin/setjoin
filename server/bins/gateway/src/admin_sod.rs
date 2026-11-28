@@ -295,7 +295,7 @@ impl<K: KeySource + 'static> Intercept for AdminSodRoute<K> {
                     )
                     .await
                     {
-                        CommandOutcome::Committed(until) => {
+                        CommandOutcome::Committed(db::Activation::Active(until)) => {
                             // D6 cold start: the token predates the eligible assignment.
                             let refresh = if actor.signed_admin() {
                                 ""
@@ -303,6 +303,14 @@ impl<K: KeySource + 'static> Intercept for AdminSodRoute<K> {
                                 ",\"tokenRefreshRequired\":true"
                             };
                             reply(format!("{{\"activatedUntil\":\"{until}\"{refresh}}}\n"))
+                        }
+                        CommandOutcome::Committed(db::Activation::PendingApproval) => {
+                            let mut response = reply(
+                                "{\"status\":\"pending_approval\",\"pendingApproval\":true}\n"
+                                    .into(),
+                            );
+                            *response.status_mut() = hyper::StatusCode::ACCEPTED;
+                            response
                         }
                         CommandOutcome::RolledBack(e) => {
                             let (Rejection::Statement(f) | Rejection::Body(f)) = &e else {

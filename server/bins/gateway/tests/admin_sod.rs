@@ -126,3 +126,196 @@ case!(
     "policy-put",
     "success-status-mutant"
 );
+
+#[tokio::test]
+async fn wave2b_175_approval_gated_jit_activation_end_to_end() -> Result<(), common::BoxError> {
+    use hyper::Request;
+    use setjoin_conformance::{fixture, harness::Db};
+    use setjoin_gateway::{admin_sod::AdminSodRoute, RouteTable};
+    use std::sync::Arc;
+
+    let _serial = admin_sod_oracle::SERIAL.lock().await;
+    let Some(db) = Db::for_case("admin5-wave2b-175") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let req_user = fixture::account(&owner, "w2b175-req").await?;
+    let approver = fixture::account(&owner, "w2b175-apr").await?;
+    let jit_prev: bool = owner
+        .query_one("SELECT enabled FROM feature_toggles WHERE key='rbac.jit'", &[])
+        .await?
+        .get(0);
+    let apr_prev: bool = owner
+        .query_one(
+            "SELECT enabled FROM feature_toggles WHERE key='approval.rbac'",
+            &[],
+        )
+        .await?
+        .get(0);
+    owner
+        .execute(
+            "UPDATE feature_toggles SET enabled=true WHERE key IN ('rbac.jit','approval.rbac')",
+            &[],
+        )
+        .await?;
+    let role: i64 = owner
+        .query_one(
+            "INSERT INTO admin_role_groups(name,permissions) VALUES($1,'{users.read}') RETURNING id",
+            &[&format!("w2b175-role-{}", req_user.user)],
+        )
+        .await?
+        .get(0);
+    owner
+        .execute(
+            "INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by,eligible) VALUES($1,$2,$1,true)",
+            &[&req_user.user, &role],
+        )
+        .await?;
+    owner
+        .execute(
+            "INSERT INTO admin_role_activation_policy(role_group_id,max_duration_minutes,require_justification,require_approval,approver_spec) \
+             VALUES($1,60,false,true,jsonb_build_object('kind','named','user_id',$2::bigint))",
+            &[&role, &approver.user],
+        )
+        .await?;
+    let audit_start: i64 = owner
+        .query_one("SELECT COALESCE(max(id),0) FROM admin_audit_log", &[])
+        .await?
+        .get(0);
+    let receipts: Vec<String> = owner
+        .query(
+            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F01'",
+            &[],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+
+    let result = async {
+        let exec = common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?
+            .with_audit_keys("22".repeat(32), String::new());
+        let worker = common::patient_exec(&db.dsn, 4)?
+            .with_audit_keys("22".repeat(32), String::new());
+        let upstream = common::fake_upstream(|_| async {
+            hyper::Response::builder()
+                .status(500)
+                .body(common::full("go"))
+                .unwrap()
+        })
+        .await;
+        let gw = common::gateway(
+            upstream,
+            "",
+            RouteTable::proxy_all().with(AdminSodRoute {
+                exec,
+                worker: Some(worker),
+                keys: Arc::new(common::recovery_keys()),
+                issuer: "mailserver".into(),
+            }),
+        )
+        .await;
+        let token = common::recovery_token_with(req_user.user, serde_json::json!({"admin": true}));
+        let resp = common::send(
+            gw,
+            Request::post(format!("/api/admin/me/roles/{role}/activate"))
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(common::full(
+                    r#"{"durationMinutes":30,"justification":"incident response"}"#,
+                ))?,
+        )
+        .await;
+        assert_eq!(resp.status().as_u16(), 202);
+        let body: serde_json::Value =
+            serde_json::from_slice(&common::body_bytes(resp).await)?;
+        assert_eq!(body["status"], "pending_approval");
+        assert_eq!(body["pendingApproval"], true);
+
+        // Window is NOT open yet.
+        let until_before: Option<String> = owner
+            .query_one(
+                "SELECT activated_until::text FROM admin_role_assignments WHERE user_id=$1 AND role_group_id=$2",
+                &[&req_user.user, &role],
+            )
+            .await?
+            .get(0);
+        assert!(until_before.is_none(), "window must stay closed until approved");
+
+        // Pending approval request exists and approving it opens the JIT window.
+        let req_id: i64 = owner
+            .query_one(
+                "SELECT id FROM approval_requests WHERE consumer_type='rbac.jit_activation' AND requester_user_id=$1 AND status='pending' ORDER BY id DESC LIMIT 1",
+                &[&req_user.user],
+            )
+            .await?
+            .get(0);
+        owner
+            .execute(
+                "SELECT rbac_approval_decide($1, $2, 'approve', 'approved for incident')",
+                &[&req_id, &approver.user],
+            )
+            .await?;
+        let active_after: bool = owner
+            .query_one(
+                "SELECT activated_until > now() FROM admin_role_assignments WHERE user_id=$1 AND role_group_id=$2",
+                &[&req_user.user, &role],
+            )
+            .await?
+            .get(0);
+        assert!(active_after, "approving parked JIT request must open the window");
+        Ok::<_, common::BoxError>(())
+    }
+    .await;
+
+    let _ = owner
+        .execute(
+            "UPDATE feature_toggles SET enabled=$1 WHERE key='rbac.jit'",
+            &[&jit_prev],
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "UPDATE feature_toggles SET enabled=$1 WHERE key='approval.rbac'",
+            &[&apr_prev],
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM approval_requests WHERE consumer_type='rbac.jit_activation' AND requester_user_id=$1",
+            &[&req_user.user],
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM rust_operation_receipts WHERE family='F01' AND operation_id::text<>ALL($1)",
+            &[&receipts],
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM admin_role_assignments WHERE role_group_id=$1",
+            &[&role],
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM admin_role_activation_policy WHERE role_group_id=$1",
+            &[&role],
+        )
+        .await;
+    let _ = owner
+        .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
+        .await;
+    for acct in [&req_user, &approver] {
+        let _ = common::remove_blob_account(&owner, acct).await;
+    }
+    let _ = owner
+        .batch_execute(&format!(
+            "BEGIN; SET LOCAL session_replication_role=replica; DELETE FROM admin_audit_log WHERE id>{audit_start}; COMMIT;"
+        ))
+        .await;
+    result
+}

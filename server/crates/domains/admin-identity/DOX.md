@@ -29,9 +29,10 @@ Permissions and domain scope are resolved live per request from governed
 `admin_role_assignments` for signed admin tokens; non-admin tokens keep signed
 claims, as Go's chain does. Reads need any of `users.read|identity.write|
 access.policy_read|access.policy_write`; the four writes need `users.create`;
-sessions use Go's `requireSignInPerm` (those four plus `audit.read`) and, because
-`audit.read` is a global-only scope, any domain-scoped principal is refused with
-Go's audited 403 (`console.denied`, detail with the domain). Denials write Go's audit row and answer Go's bare problem document. For `users`/`roles`, `idv2-sources`/`idv2-transitions` and `idv2-upgrade` (#194), a failed `authority` read fails closed (`Authority::lookup_failed`, 403 `Forbidden`, #484); unmirrored gates or a missing token in sibling F01 slices still forward to Go.
+sessions accept those four (domain-scoped admins allowed for users in their
+domain; out-of-scope targets answer 404, #155) or global-only `audit.read`
+(a domain-scoped principal holding only `audit.read` is still refused with
+audited 403 `console.denied`). Denials write Go's audit row and answer Go's bare problem document. For `users`/`roles`, `idv2-sources`/`idv2-transitions` and `idv2-upgrade` (#194), a failed `authority` read fails closed (`Authority::lookup_failed`, 403 `Forbidden`, #484); unmirrored gates or a missing token in sibling F01 slices still forward to Go.
 Domain scope 0 is global; a scoped admin's predicate sits in the same statement.
 
 ## Writes (receipt family `F01`)
@@ -49,7 +50,9 @@ Unknown commit outcomes answer 503 with `X-Operation-ID`.
 
 Response shapes come from three Go helpers: `WriteProblem` (with `instance`, `Content-Language: en`),
 `WriteProblemStatus` (bare problem, empty `instance`) and `reducererr.WriteClassified`.
-A row that fails to scan is skipped in lists. `GET .../quota` answers 404 for every failure.
+A row that fails to scan is skipped in lists. `GET .../quota` answers 404 when
+the primary mailbox is missing/out of scope and 500 on database errors (#155);
+`GET /admin/users?q=` escapes LIKE wildcards (`%`, `_`, `\`) with `ESCAPE '\'` (#155).
 App-access Set maps only BZ033 (404) and BZ226 (409); other reducer errors are Go's 500.
 Users list flag failures degrade to a page without `manageable`/`mailboxId`.
 
@@ -132,8 +135,7 @@ the adequacy catalog allows one family mutant per name, already taken by the use
 `Intercept`). Six routes, ON by default: list, get, start, decide one item, decide many,
 close. Gate: live `roles.manage` (Go's `requireRolesManage`, audited bare 403); the actor's
 live domain scope is Go's `DomainScopeFromContext` and goes to every reducer and read
-(`$1 <= 0 OR c.domain_scope = $1`). Reads repeat Go's SQL; get leaves `reviewed`/`total` at 0
-and a NULL email/role (deleted user) is Go's 500.
+(`$1 <= 0 OR c.domain_scope = $1`). Reads repeat Go's SQL with a deterministic `i.id` tiebreaker; `GET .../access-reviews/{id}` computes real `reviewed`/`total` counts and renders NULL `userEmail`/`roleName` (deleted user/role) as `""` instead of 500 (#174).
 
 Writes call Go's own `access_review_{start,decide,decide_bulk,close}` reducers with the same
 arguments (identical effects by construction, so no Rust-only reducer and no bypass
@@ -167,8 +169,7 @@ Reducer errors BZ104/BZ105 answer Go's classified 400; any other failure is `dat
 when the signed token is not an admin token.
 Parity notes: a duration above int32 is Go's 500 before any SQL (pgx int4 range); a missing role in PUT is
 the FK 500; GET for a missing role returns the global defaults; approval-gated activation
-(`approval.rbac` plus `require_approval`) is a 500 with nothing committed in Go (its unscoped
-pool fails the `approval_requests` RLS), so a NULL reducer result rolls back here.
+(`approval.rbac` plus `require_approval`) runs under the caller's scoped user tx (`app.current_user_id`), commits the parked `rbac.jit_activation` approval request created by `admin_role_activate`, and answers `202 Accepted` with `{"status":"pending_approval","pendingApproval":true}` (#175).
 Oracle: `tests/admin_sod.rs` (71 cases, per-file `SERIAL` mutex because cases share the `rbac.jit`
 toggle, `jit.default_*` rows and the audit window), goldens `goldens/sod-*`, fixed role ids
 940001-940010. Labels avoid the substrings `mutant` and `fault` (record runs skip by name).
@@ -306,7 +307,7 @@ Conditional-access runtime (#187): preview, execute and rebind preview keep `fea
 ON through the real gateway runtime chain and request credential. The oracle no longer creates
 or selects a private toggle view; its frozen Go recordings remain unchanged. Go quirks kept: approve/deny with a stale digest answer 403 (BZ236
 precedes BZ235), a repeated cancel is 409, a repeated request is 409, a preview of a missing user is the reducer's 409 (reach
-is true for a global admin), the report's `generatedAt` makes its ETag non-repeatable (no 304 case).
+is true for a global admin). Post-Go fixes (#185): the transition report computes its strong ETag over the canonical payload excluding volatile `generatedAt` so `If-None-Match` returns 304 for unchanged state, and rejects the nil UUID with 400 consistently with read.
 
 ## Slice `idv2-upgrade` (#371, all 12 ON)
 

@@ -220,11 +220,19 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                 .await;
                 return bare(403, "Forbidden", &c, &id);
             };
+            let effective_required: &[&str] = if what == Action::Sessions
+                && admin_principal.enforced_domain_scope().is_some()
+                && admin_principal.allows_any(&setjoin_admin_identity::AUTH_CONSOLE)
+            {
+                &setjoin_admin_identity::AUTH_CONSOLE
+            } else {
+                required
+            };
             let scope = admin_principal.enforced_domain_scope().unwrap_or(0);
-            if admin_principal.refused_for_scope(required) {
+            if admin_principal.refused_for_scope(effective_required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
-                    required.join("|"),
+                    effective_required.join("|"),
                     scope
                 );
                 let _ = setjoin_admin_identity::console_denied(
@@ -237,12 +245,12 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                 .await;
                 return bare(403, "Forbidden", &c, &id);
             }
-            let Ok(admin_proof) = admin_principal.require_any_permission(required) else {
+            let Ok(admin_proof) = admin_principal.require_any_permission(effective_required) else {
                 let _ = setjoin_admin_identity::console_denied(
                     &factory,
                     &user_principal,
                     &go_path,
-                    &required.join("|"),
+                    &effective_required.join("|"),
                     operation,
                 )
                 .await;
@@ -370,8 +378,9 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                             match setjoin_admin_identity::quota(&factory, &admin_proof, scope, user)
                                 .await
                             {
-                                Some(body) => reply(body),
-                                None => full(404, "mailbox not found"),
+                                Ok(Some(body)) => reply(body),
+                                Ok(None) => full(404, "mailbox not found"),
+                                Err(_) => db(),
                             }
                         }
                         Action::AddAlias => {

@@ -179,6 +179,21 @@ pub(crate) fn done(text: String) -> String {
     go_escape(&text) + "\n"
 }
 
+/// Escape LIKE/ILIKE metacharacters (`\`, `%`, `_`) so user queries match literals.
+pub(crate) fn escape_like(q: &str) -> String {
+    let mut out = String::with_capacity(q.len());
+    for ch in q.chars() {
+        match ch {
+            '\\' | '%' | '_' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// `GET /admin/users`: one page plus Go's best-effort manageable/self flags.
 pub async fn users(
     factory: &TxFactory,
@@ -189,7 +204,7 @@ pub async fn users(
     limit: i64,
     offset: i64,
 ) -> Result<String, StatementFailure> {
-    let pattern = (!q.is_empty()).then(|| format!("%{q}%"));
+    let pattern = (!q.is_empty()).then(|| format!("%{}%", escape_like(q)));
     let rows = factory
         .run_admin_read_contract(
             admin,
@@ -330,25 +345,26 @@ pub async fn aliases(
     Ok(done(format!("[{}]", out.join(","))))
 }
 
-/// `GET /admin/users/{id}/quota`; `None` is Go's 404 for every failure.
+/// `GET /admin/users/{id}/quota`; `Ok(None)` is 404 (missing or out of scope), `Err` is 500.
 pub async fn quota(
     factory: &TxFactory,
     admin: &AdminPermissionProof,
     domain_scope: i64,
     id: i64,
-) -> Option<String> {
+) -> Result<Option<String>, StatementFailure> {
     let rows = factory
         .run_admin_read_contract(admin, &sql::USER_QUOTA, &[&id, &domain_scope])
-        .await
-        .ok()?;
-    let row = rows.first()?;
-    Some(done(format!(
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    Ok(Some(done(format!(
         "{{\"quotaBytes\":{},\"usedBytes\":{},\"sendingQuotaDay\":{},\"sendingSentToday\":{}}}",
-        row.try_get::<_, i64>(0).ok()?,
-        row.try_get::<_, i64>(1).ok()?,
-        row.try_get::<_, i32>(2).ok()?,
-        row.try_get::<_, i32>(3).ok()?
-    )))
+        row.try_get::<_, i64>(0).map_err(|_| invalid())?,
+        row.try_get::<_, i64>(1).map_err(|_| invalid())?,
+        row.try_get::<_, i32>(2).map_err(|_| invalid())?,
+        row.try_get::<_, i32>(3).map_err(|_| invalid())?
+    ))))
 }
 
 /// `GET /admin/users/{id}/app-passwords`.
@@ -443,7 +459,7 @@ pub async fn sessions(
         return Ok(None);
     }
     let rows = factory
-        .run_admin_read_contract(admin, &sql::USER_SESSIONS, &[&id])
+        .run_admin_read_contract(admin, &sql::USER_SESSIONS, &[&id, &domain_scope])
         .await?;
     let out: Vec<String> = rows
         .iter()
@@ -501,4 +517,17 @@ pub async fn alias_domain_allowed(
         .ok()
         .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::escape_like;
+
+    #[test]
+    fn escape_like_escapes_wildcards_and_backslash() {
+        assert_eq!(escape_like("alice"), "alice");
+        assert_eq!(escape_like("100%_done\\ok"), "100\\%\\_done\\\\ok");
+        assert_eq!(escape_like("%%%"), "\\%\\%\\%");
+        assert_eq!(escape_like(""), "");
+    }
 }

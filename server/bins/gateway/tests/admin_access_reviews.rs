@@ -107,3 +107,134 @@ fault!(
     "reach-bypass"
 );
 fault!(close_reach_bypass_fault, "close", "scoped", "reach-bypass");
+
+#[tokio::test]
+async fn wave2b_174_counts_deleted_user_role_and_deterministic_order(
+) -> Result<(), common::BoxError> {
+    use hyper::Request;
+    use setjoin_conformance::{fixture, harness::Db};
+    use setjoin_gateway::{admin_access_reviews::AdminAccessReviewsRoute, RouteTable};
+    use std::sync::Arc;
+
+    let _serial = admin_access_reviews_oracle::SERIAL.lock().await;
+    let Some(db) = Db::for_case("admin4-wave2b-174") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let a = fixture::account(&owner, "w2b174-admin").await?;
+    let t = fixture::account(&owner, "w2b174-target").await?;
+    let role: i64 = owner
+        .query_one(
+            "INSERT INTO admin_role_groups(name,permissions) VALUES($1,'{roles.manage}') RETURNING id",
+            &[&format!("w2b174-role-{}", a.user)],
+        )
+        .await?
+        .get(0);
+    owner
+        .execute(
+            "INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES($1,$2,$1)",
+            &[&a.user, &role],
+        )
+        .await?;
+    let camp: i64 = owner
+        .query_one(
+            "INSERT INTO access_review_campaigns(name,status,created_by) VALUES('w2b174-camp','open',$1) RETURNING id",
+            &[&a.user],
+        )
+        .await?
+        .get(0);
+    // Insert two undecided items for the same user (out of id order via explicit ids),
+    // plus one deleted-user item (keep) and one deleted-role item (revoke).
+    let id_hi: i64 = 960020;
+    let id_lo: i64 = 960010;
+    let id_del_user: i64 = 960030;
+    let id_del_role: i64 = 960040;
+    owner
+        .execute(
+            "DELETE FROM access_review_items WHERE id IN (960010,960020,960030,960040)",
+            &[],
+        )
+        .await?;
+    for (id, uid, rid, decision) in [
+        (id_hi, t.user, role, "undecided"),
+        (id_lo, t.user, role, "undecided"),
+        (id_del_user, 999999981_i64, role, "keep"),
+        (id_del_role, t.user, 999999982_i64, "revoke"),
+    ] {
+        owner
+            .execute(
+                "INSERT INTO access_review_items(id,campaign_id,user_id,role_group_id,granted_at,is_sso,decision) OVERRIDING SYSTEM VALUE VALUES($1,$2,$3,$4,now(),false,$5)",
+                &[&id, &camp, &uid, &rid, &decision],
+            )
+            .await?;
+    }
+
+    let result = async {
+        let exec = common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?
+            .with_audit_keys("22".repeat(32), String::new());
+        let worker = common::patient_exec(&db.dsn, 4)?
+            .with_audit_keys("22".repeat(32), String::new());
+        let upstream = common::fake_upstream(|_| async {
+            hyper::Response::builder()
+                .status(500)
+                .body(common::full("go"))
+                .unwrap()
+        })
+        .await;
+        let gw = common::gateway(
+            upstream,
+            "",
+            RouteTable::proxy_all().with(AdminAccessReviewsRoute {
+                exec,
+                worker: Some(worker),
+                keys: Arc::new(common::recovery_keys()),
+                issuer: "mailserver".into(),
+            }),
+        )
+        .await;
+        let token = common::recovery_token_with(
+            a.user,
+            serde_json::json!({"admin": true, "perms": ["roles.manage"]}),
+        );
+        let resp = common::send(
+            gw,
+            Request::get(format!("/api/admin/access-reviews/{camp}"))
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("authorization", format!("Bearer {token}"))
+                .body(common::full(""))?,
+        )
+        .await;
+        assert_eq!(resp.status().as_u16(), 200);
+        let body: serde_json::Value =
+            serde_json::from_slice(&common::body_bytes(resp).await)?;
+        assert_eq!(body["campaign"]["reviewed"], 2);
+        assert_eq!(body["campaign"]["total"], 4);
+        let items = body["items"].as_array().ok_or("items array")?;
+        assert_eq!(items.len(), 4);
+        // Undecided items for same user must be deterministically ordered by id ASC.
+        assert_eq!(items[0]["id"], id_lo);
+        assert_eq!(items[1]["id"], id_hi);
+        // Deleted role & deleted user items serialize empty strings instead of 500.
+        let del_role = items.iter().find(|i| i["id"] == id_del_role).ok_or("del_role")?;
+        assert_eq!(del_role["roleName"], "");
+        let del_user = items.iter().find(|i| i["id"] == id_del_user).ok_or("del_user")?;
+        assert_eq!(del_user["userEmail"], "");
+        Ok::<_, common::BoxError>(())
+    }
+    .await;
+
+    let _ = owner
+        .execute("DELETE FROM access_review_campaigns WHERE id=$1", &[&camp])
+        .await;
+    let _ = owner
+        .execute("DELETE FROM admin_role_assignments WHERE role_group_id=$1", &[&role])
+        .await;
+    let _ = owner
+        .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
+        .await;
+    for acct in [&t, &a] {
+        let _ = common::remove_blob_account(&owner, acct).await;
+    }
+    result
+}

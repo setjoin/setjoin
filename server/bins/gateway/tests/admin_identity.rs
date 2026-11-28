@@ -413,3 +413,292 @@ async fn authority_lookup_failure_fails_closed_without_forwarding() -> Result<()
         .await;
     result
 }
+
+#[tokio::test]
+async fn wave2b_155_sessions_quota_and_like_escape() -> Result<(), common::BoxError> {
+    use hyper::Request;
+    use setjoin_conformance::{fixture, harness::Db};
+    use setjoin_gateway::{admin_identity::AdminIdentityRoute, RouteTable};
+    use std::sync::Arc;
+
+    let _serial = admin_identity_oracle::SERIAL.lock().await;
+    let Some(db) = Db::for_case("admin1-wave2b-155") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let a_scoped = fixture::account(&owner, "w2b155-scoped").await?;
+    let a_audit_only = fixture::account(&owner, "w2b155-audit").await?;
+    let target_own = fixture::account(&owner, "w2b155-own").await?;
+    let target_other = fixture::account(&owner, "w2b155-other").await?;
+
+    // Move target_own into a_scoped's domain and give it literal LIKE metacharacters.
+    owner
+        .execute(
+            "UPDATE users SET domain_id=$2, display_name='w2b155_100%\\match' WHERE id=$1",
+            &[&target_own.user, &a_scoped.domain],
+        )
+        .await?;
+    owner
+        .execute(
+            "UPDATE mailboxes SET domain_id=$2 WHERE id=$1",
+            &[&target_own.mailbox, &a_scoped.domain],
+        )
+        .await?;
+    owner
+        .execute(
+            "UPDATE users SET domain_id=$2, display_name='w2b155X100Yplain' WHERE id=$1",
+            &[&a_audit_only.user, &a_scoped.domain],
+        )
+        .await?;
+    owner
+        .execute(
+            "INSERT INTO sessions(id,user_id,expires_at,last_seen_at,ip,user_agent,auth_method) VALUES('w2b155-sess',$1,now()+interval '1 day',now(),'192.0.2.10','UA','password')",
+            &[&target_own.user],
+        )
+        .await?;
+
+    let role_scoped: i64 = owner
+        .query_one(
+            "INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES($1,'{users.read}',$2) RETURNING id",
+            &[&format!("w2b155-r1-{}", a_scoped.user), &a_scoped.domain],
+        )
+        .await?
+        .get(0);
+    let role_audit: i64 = owner
+        .query_one(
+            "INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES($1,'{audit.read}',$2) RETURNING id",
+            &[&format!("w2b155-r2-{}", a_audit_only.user), &a_scoped.domain],
+        )
+        .await?
+        .get(0);
+    owner
+        .execute(
+            "INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES($1,$2,$1),($3,$4,$3)",
+            &[&a_scoped.user, &role_scoped, &a_audit_only.user, &role_audit],
+        )
+        .await?;
+    let audit_start: i64 = owner
+        .query_one("SELECT COALESCE(max(id),0) FROM admin_audit_log", &[])
+        .await?
+        .get(0);
+    let receipts: Vec<String> = owner
+        .query(
+            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F01'",
+            &[],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+
+    let exec_dsn = db.app.as_deref().unwrap_or(&db.dsn);
+    let result = async {
+        let exec =
+            common::patient_exec(exec_dsn, 4)?.with_audit_keys("22".repeat(32), String::new());
+        let worker =
+            common::patient_exec(&db.dsn, 4)?.with_audit_keys("22".repeat(32), String::new());
+        let route = AdminIdentityRoute {
+            exec,
+            worker: Some(worker),
+            keys: Arc::new(common::recovery_keys()),
+            issuer: "mailserver".into(),
+        };
+        let upstream = common::fake_upstream(|_| async {
+            hyper::Response::builder()
+                .status(500)
+                .body(common::full("go"))
+                .unwrap()
+        })
+        .await;
+        let gw = common::gateway(upstream, "", RouteTable::proxy_all().with(route)).await;
+
+        let tok_scoped = signed_admin_token(a_scoped.user, &["users.read"]);
+        let tok_audit = signed_admin_token(a_audit_only.user, &["audit.read"]);
+
+        // 1. Domain-scoped admin reading own-domain user's sessions -> 200
+        let resp = common::send(
+            gw,
+            Request::get(format!("/api/admin/users/{}/sessions", target_own.user))
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("authorization", format!("Bearer {tok_scoped}"))
+                .body(common::full(""))?,
+        )
+        .await;
+        assert_eq!(resp.status().as_u16(), 200);
+        let body: serde_json::Value =
+            serde_json::from_slice(&common::body_bytes(resp).await)?;
+        assert_eq!(body["sessions"][0]["id"], "w2b155-sess");
+
+        // 2. Domain-scoped admin reading foreign-domain user's sessions -> 404 (not 403, not 200)
+        let resp = common::send(
+            gw,
+            Request::get(format!("/api/admin/users/{}/sessions", target_other.user))
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("authorization", format!("Bearer {tok_scoped}"))
+                .body(common::full(""))?,
+        )
+        .await;
+        assert_eq!(resp.status().as_u16(), 404);
+
+        // 3. Domain-scoped admin with ONLY global-only audit.read -> 403
+        let resp = common::send(
+            gw,
+            Request::get(format!("/api/admin/users/{}/sessions", target_own.user))
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("authorization", format!("Bearer {tok_audit}"))
+                .body(common::full(""))?,
+        )
+        .await;
+        assert_eq!(resp.status().as_u16(), 403);
+
+        // 4. LIKE wildcard escaping on GET /api/admin/users?q=...
+        for q in ["w2b155_100%25%5Cmatch", "100%25", "%5Cmatch"] {
+            let resp = common::send(
+                gw,
+                Request::get(format!("/api/admin/users?q={q}"))
+                    .header("host", "mail.test")
+                    .header("origin", "http://mail.test")
+                    .header("authorization", format!("Bearer {tok_scoped}"))
+                    .body(common::full(""))?,
+            )
+            .await;
+            assert_eq!(resp.status().as_u16(), 200);
+            let list: Vec<serde_json::Value> =
+                serde_json::from_slice(&common::body_bytes(resp).await)?;
+            assert_eq!(list.len(), 1, "q={q} must match only literal row, got {list:?}");
+            assert_eq!(list[0]["id"], target_own.user);
+        }
+
+        // 5. GetQuota: missing user -> 404, DB error -> 500
+        let resp = common::send(
+            gw,
+            Request::get("/api/admin/users/99999999/quota")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("authorization", format!("Bearer {tok_scoped}"))
+                .body(common::full(""))?,
+        )
+        .await;
+        assert_eq!(resp.status().as_u16(), 404);
+
+        // Inject a DB failure specifically on the quota query via a TCP proxy cutting `sending_sent_today`.
+        let (bad_dsn, proxy_task) = {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let cfg: tokio_postgres::Config = exec_dsn.parse()?;
+            let host = match cfg.get_hosts().first() {
+                Some(tokio_postgres::config::Host::Tcp(h)) => h.clone(),
+                _ => return Err("TCP DSN required".into()),
+            };
+            let port = *cfg.get_ports().first().unwrap_or(&5432);
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let mut proxied = format!("host=127.0.0.1 port={}", listener.local_addr()?.port());
+            if let Some(v) = cfg.get_user() {
+                proxied.push_str(&format!(" user='{v}'"));
+            }
+            if let Some(v) = cfg.get_password() {
+                proxied.push_str(&format!(" password='{}'", std::str::from_utf8(v)?));
+            }
+            if let Some(v) = cfg.get_dbname() {
+                proxied.push_str(&format!(" dbname='{v}'"));
+            }
+            let task = tokio::spawn(async move {
+                const MARKER: &[u8] = b"sending_sent_today";
+                loop {
+                    let Ok((client, _)) = listener.accept().await else { break };
+                    let host = host.clone();
+                    tokio::spawn(async move {
+                        let Ok(server) = tokio::net::TcpStream::connect((host.as_str(), port)).await else { return };
+                        let (mut cr, mut cw) = client.into_split();
+                        let (mut sr, mut sw) = server.into_split();
+                        let c2s = async {
+                            let mut buf = [0u8; 8192];
+                            let mut tail = Vec::with_capacity(MARKER.len());
+                            while let Ok(n) = cr.read(&mut buf).await {
+                                if n == 0 {
+                                    break;
+                                }
+                                let mut w = Vec::with_capacity(tail.len() + n);
+                                w.extend_from_slice(&tail);
+                                w.extend_from_slice(&buf[..n]);
+                                if w.windows(MARKER.len()).any(|s| s == MARKER) {
+                                    let _ = sw.shutdown().await;
+                                    break;
+                                }
+                                let keep = w.len().min(MARKER.len() - 1);
+                                tail.clear();
+                                tail.extend_from_slice(&w[w.len() - keep..]);
+                                if sw.write_all(&buf[..n]).await.is_err() {
+                                    break;
+                                }
+                            }
+                        };
+                        let s2c = async { let _ = tokio::io::copy(&mut sr, &mut cw).await; };
+                        tokio::select! { _ = c2s => {} _ = s2c => {} }
+                    });
+                }
+            });
+            (proxied, task)
+        };
+        let exec_cut =
+            common::patient_exec(&bad_dsn, 4)?.with_audit_keys("22".repeat(32), String::new());
+        let gw_cut = common::gateway(
+            upstream,
+            "",
+            RouteTable::proxy_all().with(AdminIdentityRoute {
+                exec: exec_cut,
+                worker: None,
+                keys: Arc::new(common::recovery_keys()),
+                issuer: "mailserver".into(),
+            }),
+        )
+        .await;
+        let resp = common::send(
+            gw_cut,
+            Request::get(format!("/api/admin/users/{}/quota", target_own.user))
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("authorization", format!("Bearer {tok_scoped}"))
+                .body(common::full(""))?,
+        )
+        .await;
+        proxy_task.abort();
+        assert_eq!(resp.status().as_u16(), 500, "DB error on GetQuota must map to 500, not 404");
+
+        Ok::<_, common::BoxError>(())
+    }
+    .await;
+
+    let _ = owner
+        .execute("DELETE FROM sessions WHERE id='w2b155-sess'", &[])
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM rust_operation_receipts WHERE family='F01' AND operation_id::text<>ALL($1)",
+            &[&receipts],
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM admin_role_assignments WHERE role_group_id=ANY($1)",
+            &[&vec![role_scoped, role_audit]],
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM admin_role_groups WHERE id=ANY($1)",
+            &[&vec![role_scoped, role_audit]],
+        )
+        .await;
+    for acct in [&target_own, &target_other, &a_audit_only, &a_scoped] {
+        let _ = common::remove_blob_account(&owner, acct).await;
+    }
+    let _ = owner
+        .batch_execute(&format!(
+            "BEGIN; SET LOCAL session_replication_role=replica; DELETE FROM admin_audit_log WHERE id>{audit_start}; COMMIT;"
+        ))
+        .await;
+    result
+}

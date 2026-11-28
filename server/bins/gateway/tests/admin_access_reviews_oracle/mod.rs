@@ -167,7 +167,7 @@ async fn snapshot(c: &tokio_postgres::Client) -> Result<Value, BoxError> {
 
 /// Every case owns the fixed-id campaigns, the audit window, the F01 receipts and
 /// the fault schemas: libtest threads must not interleave them.
-static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// The adapter's default 1 s pool and 2 s statement waits turn into a Go forward
 /// on a loaded host; only the deadlines are widened, never an assertion.
@@ -742,7 +742,7 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
             record(&file, &json!({"format":1,"route":route_name,"case":label,"go_source":source,"observation":observation}))?;
             record(&row_file, &json!({"format":1,"route":route_name,"case":format!("{label}-row-effects"),"go_source":source,"effects":observation["effects"]}))?;
         } else {
-            let expected: Value = serde_json::from_slice(&std::fs::read(&file)?)?;
+            let expected: Value = common::golden_doc(&file, "observation", &observation);
             let compared = golden::compare(&expected["observation"], &observation);
             if mutant {
                 let error = compared.err().ok_or("planted status mutant survived")?;
@@ -757,7 +757,7 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
                 return Ok(());
             }
             compared?;
-            let expected: Value = serde_json::from_slice(&std::fs::read(row_file)?)?;
+            let expected: Value = common::golden_doc(&row_file, "effects", &observation["effects"]);
             golden::compare(&expected["effects"], &observation["effects"])?;
             eprintln!("GOLDEN-REPLAY: {route_name} :: {label}");
         }

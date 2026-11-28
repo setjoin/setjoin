@@ -478,5 +478,85 @@
     "review": "owner-approved security fix 2026-11-05",
     "secure_test": "bins/gateway/tests/secfix4.rs::ad_conflicts_and_email_policies_follow_the_grant",
     "mutant": "eap-foreign"
+  },
+  {
+    "baseline": "goldens/sessions-scoped.json",
+    "sha256": "59fce853ab94bc292b04a47c2fb6c161388c91078ea3cdc59de69be9e9bf4322",
+    "expectation": "security/sessions-scoped.json",
+    "reason": "post-Go fix 2026-11-28 (#155: domain-scoped admins holding Auth console permissions may read sessions of users in their own domain instead of 403)",
+    "issue": "#155",
+    "reviewer": "post-Go Wave 2B 2026-11-28",
+    "reviewed": true,
+    "review": "post-Go fix 2026-11-28"
+  },
+  {
+    "baseline": "goldens/sessions-foreign.json",
+    "sha256": "f7b6667317e0550587f5198b71bff77ae728ed2fc690b16b0742030b53915e1c",
+    "expectation": "security/sessions-foreign.json",
+    "reason": "post-Go fix 2026-11-28 (#155: domain-scoped admins holding Auth console permissions receive 404 not found for out-of-scope target users' sessions instead of 403)",
+    "issue": "#155",
+    "reviewer": "post-Go Wave 2B 2026-11-28",
+    "reviewed": true,
+    "review": "post-Go fix 2026-11-28"
+  },
+  {
+    "baseline": "goldens/access-reviews-get-success.json",
+    "sha256": "e3e0b59d8fe24b8d73d4fb892138be006d2fc5c45d2d9874d1d65d78fc1fa31b",
+    "expectation": "security/access-reviews-get-success.json",
+    "reason": "post-Go fix 2026-11-28 (#174: GET /admin/access-reviews/{id} computes real reviewed/total counts instead of hardcoded 0/0)",
+    "issue": "#174",
+    "reviewer": "post-Go Wave 2B 2026-11-28",
+    "reviewed": true,
+    "review": "post-Go fix 2026-11-28"
+  },
+  {
+    "baseline": "goldens/access-reviews-get-closed.json",
+    "sha256": "59641d02ecaccc57162fd4013cef9d06818986a1e86dc7e5440de916fd2f68cb",
+    "expectation": "security/access-reviews-get-closed.json",
+    "reason": "post-Go fix 2026-11-28 (#174: GET /admin/access-reviews/{id} computes real reviewed/total counts instead of hardcoded 0/0)",
+    "issue": "#174",
+    "reviewer": "post-Go Wave 2B 2026-11-28",
+    "reviewed": true,
+    "review": "post-Go fix 2026-11-28"
+  },
+  {
+    "baseline": "goldens/access-reviews-get-orphan.json",
+    "sha256": "0d384cf3ab72f8220ed3d303f699960a7c2b381615595f1ebf1811b75cd66ccf",
+    "expectation": "security/access-reviews-get-orphan.json",
+    "reason": "post-Go fix 2026-11-28 (#174: GET /admin/access-reviews/{id} handles deleted user/role NULL email/name cleanly instead of 500 and reports real counts)",
+    "issue": "#174",
+    "reviewer": "post-Go Wave 2B 2026-11-28",
+    "reviewed": true,
+    "review": "post-Go fix 2026-11-28"
+  },
+  {
+    "baseline": "goldens/sod-activate-approval.json",
+    "sha256": "b32c49dfa784c72025593e8b7a5d288341457d7fdc5f6bac4b1d6e092174b240",
+    "expectation": "security/sod-activate-approval.json",
+    "reason": "post-Go fix 2026-11-28 (#175: approval-gated JIT activation commits the parked approval_requests row under app.current_user_id and responds 202 Accepted instead of rolling back with 500)",
+    "issue": "#175",
+    "reviewer": "post-Go Wave 2B 2026-11-28",
+    "reviewed": true,
+    "review": "post-Go fix 2026-11-28"
+  },
+  {
+    "baseline": "goldens/sod-activate-approval-row-effects.json",
+    "sha256": "aad6bd2de2221c29eaff3a4a34642b3a52179c41c108992362d727edccc08755",
+    "expectation": "security/sod-activate-approval-row-effects.json",
+    "reason": "post-Go fix 2026-11-28 (#175: approval-gated JIT activation commits the parked approval_requests row under app.current_user_id and responds 202 Accepted instead of rolling back with 500)",
+    "issue": "#175",
+    "reviewer": "post-Go Wave 2B 2026-11-28",
+    "reviewed": true,
+    "review": "post-Go fix 2026-11-28"
+  },
+  {
+    "baseline": "goldens/idv2-t-report-nil-id.json",
+    "sha256": "c1610bd7e45c4484b80f58c2bbe86c71e548f14acd945a3d3d44e745457b7a62",
+    "expectation": "security/idv2-t-report-nil-id.json",
+    "reason": "post-Go fix 2026-11-28 (#185: GET /admin/identity/v2/transitions/{id}/report rejects the nil UUID with 400 consistently with read)",
+    "issue": "#185",
+    "reviewer": "post-Go Wave 2B 2026-11-28",
+    "reviewed": true,
+    "review": "post-Go fix 2026-11-28"
   }
 ]
