@@ -410,14 +410,7 @@ impl AuthServer {
             }
             None => eprintln!("setjoin-auth: guest invite acceptance degraded: no worker DSN"),
         }
-        let geo = (!config.geoip_path.is_empty())
-            .then(|| {
-                std::fs::read(&config.geoip_path)
-                    .map_err(|e| e.to_string())
-                    .and_then(|b| setjoin_authz::geoip::CountryDb::from_bytes(b, false, ""))
-            })
-            .and_then(Result::ok)
-            .map(Arc::new);
+        let geo = load_geoip(&config.geoip_path);
         let oidc_key = if config.oidc_enabled {
             let (private, public) = (
                 config.oidc_private_key.clone(),
@@ -1631,6 +1624,10 @@ impl AuthServer {
         }
         response
     }
+    /// Effective JWT signing algorithm for this auth server (#268).
+    pub fn signing_alg(&self) -> &str {
+        self.config.effective_signing_alg()
+    }
     fn sign(&self, claims: &Value) -> Result<String, String> {
         let text = claims.to_string();
         if self.config.signing_alg == "ES256" {
@@ -1640,7 +1637,11 @@ impl AuthServer {
                 .ok_or("signing keys unavailable")?
                 .sign(&text);
         }
-        if self.config.profile == setjoin_config_secret::CryptoProfile::Smx {
+        if matches!(
+            self.config.profile,
+            setjoin_config_secret::CryptoProfile::Smx
+                | setjoin_config_secret::CryptoProfile::Hybrid
+        ) {
             if let Some(pem) = &self.config.sm2_pem {
                 return setjoin_authz::legacy_jwt::sign_sm2(pem, &text).map_err(str::to_owned);
             }
@@ -2160,3 +2161,169 @@ pub async fn serve_http_until(
 }
 trait Io: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
 impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> Io for T {}
+
+fn load_geoip_result(path: &str) -> Result<setjoin_authz::geoip::CountryDb, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    setjoin_authz::geoip::CountryDb::from_bytes(bytes, false, "")
+}
+
+/// Load the optional MaxMind MMDB once at startup, logging any failure rather
+/// than swallowing it silently (#383).
+fn load_geoip(path: &str) -> Option<Arc<setjoin_authz::geoip::CountryDb>> {
+    if path.is_empty() {
+        return None;
+    }
+    match load_geoip_result(path) {
+        Ok(db) => Some(Arc::new(db)),
+        Err(error) => {
+            eprintln!("setjoin-auth: GeoIP DB load failed ({path}): {error}");
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine as _};
+    use setjoin_config_secret::CryptoProfile;
+
+    fn test_server(mut config: Config) -> AuthServer {
+        if config.secret.is_empty() {
+            config.secret = "unit-test-secret-at-least-32-bytes!".into();
+        }
+        let exec = setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1)
+            .expect("lazy pool");
+        let mut s = AuthServer::new(exec);
+        s.config = config;
+        s
+    }
+
+    fn jwt_header(token: &str) -> Value {
+        let raw = B64
+            .decode(token.split('.').next().expect("header"))
+            .expect("base64url header");
+        serde_json::from_slice(&raw).expect("json header")
+    }
+
+    fn fixture_sm2_pem() -> String {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../tests/conformance/identity-login/keys.json"
+        ))
+        .expect("keys fixture");
+        fixture["sm2_pem"].as_str().expect("sm2_pem").to_owned()
+    }
+
+    fn sample_claims() -> Value {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        json!({
+            "uid": 7,
+            "email": "u@example.test",
+            "typ": "access",
+            "iss": "mailserver",
+            "sub": "7",
+            "aud": ["mailserver-gateway"],
+            "iat": now,
+            "nbf": now,
+            "exp": now + 600,
+        })
+    }
+
+    #[test]
+    fn hybrid_with_sm2_signs_sm2_and_reports_sm2_signing_alg() {
+        let secret = "unit-test-secret-at-least-32-bytes!";
+        let pem = fixture_sm2_pem();
+        let mut cfg = Config::for_secret(secret.into());
+        cfg.profile = CryptoProfile::Hybrid;
+        cfg.sm2_pem = Some(pem.clone());
+        let server = test_server(cfg);
+
+        assert_eq!(server.signing_alg(), "SM2");
+        let token = server.sign(&sample_claims()).expect("hybrid SM2 sign");
+        let header = jwt_header(&token);
+        assert_eq!(header["alg"], "SM2");
+        assert_eq!(header["kid"], "authserver-sm2-1");
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+        let sm2_keys = setjoin_authz::legacy_jwt::LegacyKeys::from_pem(
+            secret.as_bytes(),
+            &["authserver-hmac-1"],
+            Some(&pem),
+        )
+        .expect("sm2 keys");
+        let claims = sm2_keys
+            .validate(&token, "mailserver", "mailserver-gateway", now)
+            .expect("SM2 token verifies");
+        assert_eq!(claims["uid"], 7);
+
+        let hmac_only = setjoin_authz::legacy_jwt::LegacyKeys::from_pem(
+            secret.as_bytes(),
+            &["authserver-hmac-1"],
+            None,
+        )
+        .expect("hmac keys");
+        assert!(
+            hmac_only
+                .validate(&token, "mailserver", "mailserver-gateway", now)
+                .is_none(),
+            "Hybrid+SM2 token must not be HS256"
+        );
+    }
+
+    #[test]
+    fn hybrid_without_sm2_and_standard_sign_hs256() {
+        let secret = "unit-test-secret-at-least-32-bytes!";
+        let pem = fixture_sm2_pem();
+
+        let mut hybrid_no_sm2 = Config::for_secret(secret.into());
+        hybrid_no_sm2.profile = CryptoProfile::Hybrid;
+        let server = test_server(hybrid_no_sm2);
+        assert_eq!(server.signing_alg(), "HS256");
+        let token = server.sign(&sample_claims()).expect("hybrid HS256 sign");
+        assert_eq!(jwt_header(&token)["alg"], "HS256");
+
+        let mut standard_with_pem = Config::for_secret(secret.into());
+        standard_with_pem.profile = CryptoProfile::Standard;
+        standard_with_pem.sm2_pem = Some(pem);
+        let server = test_server(standard_with_pem);
+        assert_eq!(server.signing_alg(), "HS256");
+        let token = server.sign(&sample_claims()).expect("standard HS256 sign");
+        assert_eq!(jwt_header(&token)["alg"], "HS256");
+    }
+
+    #[test]
+    fn smx_signs_sm2_and_reports_sm2_signing_alg() {
+        let secret = "at-least-16-chars";
+        let pem = fixture_sm2_pem();
+        let mut cfg = Config::for_secret(secret.into());
+        cfg.profile = CryptoProfile::Smx;
+        cfg.sm2_pem = Some(pem);
+        let server = test_server(cfg);
+        assert_eq!(server.signing_alg(), "SM2");
+        let token = server.sign(&sample_claims()).expect("smx SM2 sign");
+        assert_eq!(jwt_header(&token)["alg"], "SM2");
+    }
+
+    #[test]
+    fn geoip_load_returns_error_on_missing_or_corrupt_file_and_none_via_loader() {
+        assert!(load_geoip("").is_none());
+        let missing = "/nonexistent/setjoin-test-geoip-missing.mmdb";
+        assert!(load_geoip_result(missing).is_err());
+        assert!(load_geoip(missing).is_none());
+
+        let corrupt =
+            std::env::temp_dir().join(format!("setjoin-geoip-corrupt-{}.mmdb", std::process::id()));
+        std::fs::write(&corrupt, b"not a valid mmdb").unwrap();
+        let err = load_geoip_result(corrupt.to_str().unwrap());
+        let loaded = load_geoip(corrupt.to_str().unwrap());
+        let _ = std::fs::remove_file(&corrupt);
+        assert!(err.is_err());
+        assert!(loaded.is_none());
+    }
+}

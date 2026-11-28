@@ -63,7 +63,23 @@ fn smx_profile_keeps_go_s_sixteen_byte_secret_floor() {
     if std::env::var_os("IDLOGIN1_CONFIG_PROBE").is_some() {
         let cfg = setjoin_auth::Config::from_env().unwrap();
         assert!(cfg.sm2_pem.is_some());
+        assert_eq!(cfg.signing_alg, "SM2");
+        assert_eq!(cfg.effective_signing_alg(), "SM2");
+        std::env::set_var("CRYPTO_ALGORITHM_PROFILE", "hybrid");
+        std::env::set_var("JWT_SECRET", "idlogin1-fixture-secret-at-least-32-bytes");
+        let hybrid_sm2 = setjoin_auth::Config::from_env().unwrap();
+        assert_eq!(hybrid_sm2.signing_alg, "SM2");
+        assert_eq!(hybrid_sm2.effective_signing_alg(), "SM2");
+        std::env::set_var("JWT_SIGNING_ALG", "ES256");
+        let explicit_es256 = setjoin_auth::Config::from_env().unwrap();
+        assert_eq!(explicit_es256.signing_alg, "ES256");
+        assert_eq!(explicit_es256.effective_signing_alg(), "ES256");
+        std::env::remove_var("JWT_SIGNING_ALG");
         std::env::remove_var("SM2_PRIVATE_KEY_FILE");
+        let hybrid_no_sm2 = setjoin_auth::Config::from_env().unwrap();
+        assert_eq!(hybrid_no_sm2.signing_alg, "HS256");
+        assert_eq!(hybrid_no_sm2.effective_signing_alg(), "HS256");
+        std::env::set_var("CRYPTO_ALGORITHM_PROFILE", "smx");
         assert!(setjoin_auth::Config::from_env().is_err());
         return;
     }

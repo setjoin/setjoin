@@ -16,6 +16,14 @@ const REJECT: &str = "guest invite terminal reject";
 const INVALID: &str = "guest invite password refused";
 /// Go's pwhash.PasswordMaxBytes; longer passwords are never bound or hashed.
 pub const PASSWORD_MAX_BYTES: usize = 72;
+/// Dedicated bound for password history verification and profile hashing inside
+/// `accept` (#383). Production profiles use bcrypt cost 10 (`Standard`) or
+/// PBKDF2-HMAC-SM3 100,000 rounds (`Smx`/`Hybrid`); running multi-entry history
+/// checks plus hashing under the 2 s SQL statement bound risks spurious timeouts
+/// under CPU contention or unoptimized builds, so SQL read/write/commit stay
+/// under `Timeouts::statement` (2 s) while the CPU proof step gets this 15 s
+/// ceiling.
+pub const PROOF_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// One settled transaction: Reject/Invalid are reported only after ROLLBACK was
 /// acknowledged or the connection discarded (an elapsed link: after its COMMIT).
@@ -67,7 +75,23 @@ fn verdict(rows: &[Row]) -> Value {
         .unwrap_or(Value::Null)
 }
 
-fn settle<T>(outcome: CommandOutcome<Option<T>, StatementFailure>) -> Outcome<T> {
+fn format_failure(op: &str, sqlstate: Option<&str>, message: &str) -> String {
+    match sqlstate {
+        Some(code) if !code.is_empty() => {
+            format!("guest_invite {op} failed: sqlstate={code} message={message}")
+        }
+        _ => format!("guest_invite {op} failed: message={message}"),
+    }
+}
+
+fn log_statement_failure(op: &str, failure: &StatementFailure) {
+    eprintln!(
+        "{}",
+        format_failure(op, failure.sqlstate.as_deref(), &failure.message)
+    );
+}
+
+fn settle<T>(op: &str, outcome: CommandOutcome<Option<T>, StatementFailure>) -> Outcome<T> {
     match outcome {
         CommandOutcome::Committed(Some(v)) => Outcome::Done(v),
         CommandOutcome::Committed(None) => Outcome::Reject,
@@ -81,18 +105,48 @@ fn settle<T>(outcome: CommandOutcome<Option<T>, StatementFailure>) -> Outcome<T>
         {
             Outcome::Invalid(f.hint.unwrap_or_default())
         }
-        CommandOutcome::Unknown { operation } => Outcome::Unknown(operation),
-        _ => Outcome::Failed,
+        CommandOutcome::Unknown { operation } => {
+            eprintln!(
+                "guest_invite {op} unknown commit outcome: operation_id={}",
+                uuid::Uuid::from_bytes(operation.0)
+            );
+            Outcome::Unknown(operation)
+        }
+        CommandOutcome::RolledBack(Rejection::Statement(f)) => {
+            log_statement_failure(op, &f);
+            Outcome::Failed
+        }
+        CommandOutcome::RolledBack(Rejection::CommitRefused(code)) => {
+            eprintln!("{}", format_failure(op, Some(&code), "commit refused"));
+            Outcome::Failed
+        }
+        CommandOutcome::RolledBack(Rejection::Unavailable) => {
+            eprintln!("{}", format_failure(op, None, "database pool unavailable"));
+            Outcome::Failed
+        }
+        CommandOutcome::RolledBack(Rejection::Authority(err)) => {
+            eprintln!(
+                "{}",
+                format_failure(op, None, &format!("authority rejected: {err:?}"))
+            );
+            Outcome::Failed
+        }
+        CommandOutcome::RolledBack(Rejection::Body(f)) => {
+            log_statement_failure(op, &f);
+            Outcome::Failed
+        }
     }
 }
 
 /// Go's unlocked id discovery; FORCE RLS without BYPASSRLS yields no row (uniform 401).
-async fn discover(worker: &AuthDb, hash: &str) -> Result<Option<i64>, ()> {
+async fn discover(worker: &AuthDb, op: &str, hash: &str) -> Result<Option<i64>, ()> {
     worker
         .read_contract(&crate::sql::GUEST_INVITE_L94, &[(&hash, Type::TEXT)])
         .await
         .map(|rows| rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()))
-        .map_err(|_| ())
+        .map_err(|f| {
+            log_statement_failure(op, &f);
+        })
 }
 
 /// Startup posture check: BYPASSRLS worker credential and installed reducers.
@@ -124,7 +178,7 @@ pub async fn readiness(worker: &AuthDb) -> Result<(), String> {
 /// GET: one user-scoped transaction (no receipt); a terminal verdict rolls back.
 pub async fn disclosure(worker: &AuthDb, raw_token: &[u8]) -> Outcome<Disclosure> {
     let hash = token_hash(raw_token);
-    let guest = match discover(worker, &hash).await {
+    let guest = match discover(worker, "disclosure.discover", &hash).await {
         Ok(Some(g)) => g,
         Ok(None) => return Outcome::Reject,
         Err(()) => return Outcome::Failed,
@@ -133,6 +187,7 @@ pub async fn disclosure(worker: &AuthDb, raw_token: &[u8]) -> Outcome<Disclosure
         return Outcome::Reject;
     };
     settle(
+        "disclosure",
         worker
             .run_user_command_contract(
                 actor,
@@ -178,7 +233,7 @@ pub async fn accept(
     operation: OperationId,
 ) -> Outcome<Accepted> {
     let hash = token_hash(raw_token.as_bytes());
-    let guest = match discover(worker, &hash).await {
+    let guest = match discover(worker, "accept.discover", &hash).await {
         Ok(Some(g)) => g,
         Ok(None) => return Outcome::Reject,
         Err(()) => return Outcome::Failed,
@@ -198,8 +253,9 @@ pub async fn accept(
         command: "guest_invite_accept",
     });
     settle(
+        "accept",
         worker
-            .run_user_async_proof_command_contract_with_tail(
+            .run_user_async_proof_command_contract_with_proof_timeout_and_tail(
                 actor,
                 operation,
                 &crate::sql::GUEST_INVITE_L209,
@@ -211,6 +267,7 @@ pub async fn accept(
                     (&invalid_text, Type::BOOL),
                     (&digest, Type::BYTEA),
                 ],
+                PROOF_TIMEOUT,
                 move |rows: &[Row]| {
                     let mut v = verdict(rows);
                     let invite = v["invite_id"].as_i64();
@@ -265,4 +322,52 @@ pub async fn accept(
             )
             .await,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failure_log_includes_sqlstate_and_message_without_parameters() {
+        let with_state = format_failure("accept", Some("42883"), "function does not exist");
+        assert_eq!(
+            with_state,
+            "guest_invite accept failed: sqlstate=42883 message=function does not exist"
+        );
+        let without_state = format_failure("disclosure", None, "user command timed out");
+        assert_eq!(
+            without_state,
+            "guest_invite disclosure failed: message=user command timed out"
+        );
+        let empty_state = format_failure("accept", Some(""), "pool unavailable");
+        assert_eq!(
+            empty_state,
+            "guest_invite accept failed: message=pool unavailable"
+        );
+    }
+
+    #[test]
+    fn production_crypto_profiles_hash_within_proof_timeout() {
+        let password = "ValidGuestPass1!ProductionProfile";
+        for (profile, prefix) in [
+            (CryptoProfile::Standard, "$2a$10$"),
+            (CryptoProfile::Smx, "$sm3$100000$"),
+            (CryptoProfile::Hybrid, "$sm3$100000$"),
+        ] {
+            let started = std::time::Instant::now();
+            let hashed = setjoin_authz::password::hash(password, profile).expect("profile hash");
+            assert!(
+                hashed.starts_with(prefix),
+                "{profile:?}: unexpected hash format"
+            );
+            assert!(setjoin_authz::password::verify(&hashed, password));
+            assert!(!password_was_used(&[hashed], "DifferentGuestPass1!"));
+            assert!(
+                started.elapsed() < PROOF_TIMEOUT,
+                "{profile:?} hash+verify exceeded PROOF_TIMEOUT ({:?})",
+                started.elapsed()
+            );
+        }
+    }
 }

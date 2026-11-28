@@ -22,6 +22,15 @@ const FAST: Timeouts = Timeouts {
     statement: Duration::from_millis(400),
 };
 
+/// Dedicated bounds for locked-table statement cancellation tests (#268):
+/// keep pool_wait/create generous so connection setup under load cannot
+/// preempt PostgreSQL's `SET LOCAL statement_timeout` (`57014`) cancellation.
+const LOCKED_READ: Timeouts = Timeouts {
+    pool_wait: Duration::from_secs(5),
+    create: Duration::from_secs(5),
+    statement: Duration::from_millis(400),
+};
+
 /// Accepts connections and holds them open without ever writing a byte.
 async fn black_hole() -> std::net::SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -99,7 +108,7 @@ async fn a_locked_table_fails_reads_within_the_statement_bound() {
         .await
         .unwrap();
 
-    let exec = ScopedExecutor::from_dsn_with(&app, 2, FAST).unwrap();
+    let exec = ScopedExecutor::from_dsn_with(&app, 2, LOCKED_READ).unwrap();
     let sql = "SELECT count(*)::int8 FROM feature_toggles WHERE key = $1";
     let key = "feature.rust_mark_read".to_owned();
     let t = Instant::now();

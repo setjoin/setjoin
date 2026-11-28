@@ -204,7 +204,8 @@ impl Config {
             .unwrap_or_else(|| c.dsn.clone());
         c.geoip_path = get("GEOIP_DB_PATH", "geoip.db_path").unwrap_or_default();
         c.issuer = get("JWT_ISSUER", "jwt.issuer").unwrap_or(c.issuer);
-        c.signing_alg = get("JWT_SIGNING_ALG", "jwt.signing_alg").unwrap_or(c.signing_alg);
+        let explicit_signing_alg =
+            get("JWT_SIGNING_ALG", "jwt.signing_alg").filter(|s| !s.is_empty());
         let profile =
             get("CRYPTO_ALGORITHM_PROFILE", "crypto.algorithm_profile").unwrap_or_default();
         if !matches!(profile.as_str(), "" | "standard" | "smx" | "hybrid") {
@@ -220,6 +221,15 @@ impl Config {
                     Some(std::fs::read_to_string(path).map_err(|_| "read SM2_PRIVATE_KEY_FILE")?);
             }
         }
+        c.signing_alg = match explicit_signing_alg {
+            Some(alg) => alg,
+            None if c.profile == CryptoProfile::Smx
+                || (c.profile == CryptoProfile::Hybrid && c.sm2_pem.is_some()) =>
+            {
+                "SM2".into()
+            }
+            None => "HS256".into(),
+        };
         c.access_seconds = duration(&get("JWT_EXPIRY", "jwt.expiry").unwrap_or("1h".into()))?;
         c.refresh_seconds =
             duration(&get("JWT_REFRESH_EXPIRY", "jwt.refresh_expiry").unwrap_or("720h".into()))?;
@@ -303,6 +313,19 @@ impl Config {
         c.cookie_secure = c.tls_cert.is_some();
         Ok(c)
     }
+
+    /// Effective JWT signing algorithm matching `AuthServer::sign` dispatch (#268).
+    pub fn effective_signing_alg(&self) -> &str {
+        if self.signing_alg == "ES256" {
+            "ES256"
+        } else if matches!(self.profile, CryptoProfile::Smx | CryptoProfile::Hybrid)
+            && self.sm2_pem.is_some()
+        {
+            "SM2"
+        } else {
+            "HS256"
+        }
+    }
 }
 fn duration(raw: &str) -> Result<i64, String> {
     // Go config accepts compound hours/minutes/seconds. Use the maintained parser.
@@ -313,4 +336,32 @@ fn duration(raw: &str) -> Result<i64, String> {
 
 fn go_bool(raw: &str) -> bool {
     matches!(raw, "1" | "t" | "T" | "true" | "TRUE" | "True")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effective_signing_alg_reflects_profile_and_sm2_key() {
+        let mut cfg = Config::for_secret("test-secret-at-least-32-bytes-long".into());
+        assert_eq!(cfg.effective_signing_alg(), "HS256");
+
+        cfg.profile = CryptoProfile::Standard;
+        cfg.sm2_pem = Some("dummy-pem".into());
+        assert_eq!(cfg.effective_signing_alg(), "HS256");
+
+        cfg.profile = CryptoProfile::Smx;
+        assert_eq!(cfg.effective_signing_alg(), "SM2");
+
+        cfg.profile = CryptoProfile::Hybrid;
+        assert_eq!(cfg.effective_signing_alg(), "SM2");
+
+        cfg.sm2_pem = None;
+        assert_eq!(cfg.effective_signing_alg(), "HS256");
+
+        cfg.sm2_pem = Some("dummy-pem".into());
+        cfg.signing_alg = "ES256".into();
+        assert_eq!(cfg.effective_signing_alg(), "ES256");
+    }
 }

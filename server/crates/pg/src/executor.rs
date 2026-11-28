@@ -1719,6 +1719,7 @@ impl ScopedExecutor {
             |_| std::future::ready(Ok(None)),
             decode,
             tail,
+            None,
         )
         .await
     }
@@ -1747,6 +1748,7 @@ impl ScopedExecutor {
             |rows| std::future::ready(prove(rows).map(Some)),
             decode,
             |_| std::future::ready(()),
+            None,
         )
         .await
     }
@@ -1782,6 +1784,47 @@ impl ScopedExecutor {
             },
             decode,
             tail,
+            None,
+        )
+        .await
+    }
+
+    /// Like [`Self::run_user_async_proof_command_with_tail`], but bounds the
+    /// CPU-heavy async `prove` callback (e.g. password history verification +
+    /// bcrypt/PBKDF2-SM3 hashing) under a dedicated `proof_timeout` while
+    /// keeping the SQL read, finish write, receipt, rollback, and commit
+    /// statements strictly under `self.timeouts.statement` (#383).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_user_async_proof_command_with_proof_timeout_and_tail<T, P, PF, D, F, Fut>(
+        &self,
+        user: setjoin_contracts::ids::ActorId,
+        operation: setjoin_contracts::ids::OperationId,
+        proof_sql: &'static str,
+        params: &[Param<'_>],
+        proof_timeout: Duration,
+        prove: P,
+        decode: D,
+        tail: F,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(&[Row]) -> PF,
+        PF: std::future::Future<Output = Result<ProvenStatement, StatementFailure>>,
+        D: FnOnce(&[Row]) -> Result<T, StatementFailure>,
+        F: FnOnce(&T) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        self.run_user_command_inner(
+            user,
+            operation,
+            proof_sql,
+            params,
+            |rows| {
+                let future = prove(rows);
+                async move { future.await.map(Some) }
+            },
+            decode,
+            tail,
+            Some(proof_timeout),
         )
         .await
     }
@@ -1796,6 +1839,7 @@ impl ScopedExecutor {
         prepare: P,
         decode: D,
         tail: F,
+        proof_timeout: Option<Duration>,
     ) -> CommandOutcome<T, StatementFailure>
     where
         P: FnOnce(&[Row]) -> PF,
@@ -1836,7 +1880,7 @@ impl ScopedExecutor {
         let user = user.get().to_string();
         let op = crate::operation_hex(operation);
         let lock = format!("setjoin-auth-command:{user}:{op}");
-        let result = async {
+        let phase1 = async {
             if let Some(keys) = &self.audit_keys {
                 object
                     .client()
@@ -1869,48 +1913,84 @@ impl ScopedExecutor {
                     .map_err(|e| StatementFailure::from_db(&e))?;
             }
             let typed: Vec<_> = params.iter().map(|(v, t)| (*v, t.clone())).collect();
-            let rows = object
+            object
                 .client()
                 .query_typed(sql, &typed)
                 .await
-                .map_err(|e| StatementFailure::from_db(&e))?;
-            let rows = if let Some(proven) = prepare(&rows).await? {
-                admit(proven.sql).map_err(StatementFailure::refused)?;
-                let typed: Vec<_> = proven
-                    .params
-                    .iter()
-                    .map(|(v, t)| (v.as_ref() as &(dyn ToSql + Sync), t.clone()))
-                    .collect();
-                object
-                    .client()
-                    .query_typed(proven.sql, &typed)
-                    .await
-                    .map_err(|e| StatementFailure::from_db(&e))?
-            } else {
-                rows
-            };
-            let value = decode(&rows)?;
-            if let Some(receipt) = self.user_receipt {
-                object
-                    .client()
-                    .query_typed(
-                        "INSERT INTO public.rust_operation_receipts(operation_id,family,command) \
-                         VALUES(substr(encode(digest($1::text || ':' || $2::text,'sha256'),'hex'),1,32)::uuid,$3,$4)",
-                        &[
-                            (&op, Type::TEXT),
-                            (&user, Type::TEXT),
-                            (&receipt.family, Type::TEXT),
-                            (&receipt.command, Type::TEXT),
-                        ],
-                    )
-                    .await
-                    .map_err(|e| StatementFailure::from_db(&e))?;
-            }
-            Ok(value)
+                .map_err(|e| StatementFailure::from_db(&e))
         };
-        let result = match tokio::time::timeout(self.timeouts.statement, result).await {
-            Ok(r) => r,
-            Err(_) => Err(StatementFailure::refused("user command timed out")),
+        let finish_and_decode = |rows: Vec<Row>, proven: Option<ProvenStatement>| {
+            let client = object.client();
+            let user_receipt = self.user_receipt;
+            let op = op.clone();
+            let user = user.clone();
+            async move {
+                let rows = if let Some(proven) = proven {
+                    admit(proven.sql).map_err(StatementFailure::refused)?;
+                    let typed: Vec<_> = proven
+                        .params
+                        .iter()
+                        .map(|(v, t)| (v.as_ref() as &(dyn ToSql + Sync), t.clone()))
+                        .collect();
+                    client
+                        .query_typed(proven.sql, &typed)
+                        .await
+                        .map_err(|e| StatementFailure::from_db(&e))?
+                } else {
+                    rows
+                };
+                let value = decode(&rows)?;
+                if let Some(receipt) = user_receipt {
+                    client
+                        .query_typed(
+                            "INSERT INTO public.rust_operation_receipts(operation_id,family,command) \
+                             VALUES(substr(encode(digest($1::text || ':' || $2::text,'sha256'),'hex'),1,32)::uuid,$3,$4)",
+                            &[
+                                (&op, Type::TEXT),
+                                (&user, Type::TEXT),
+                                (&receipt.family, Type::TEXT),
+                                (&receipt.command, Type::TEXT),
+                            ],
+                        )
+                        .await
+                        .map_err(|e| StatementFailure::from_db(&e))?;
+                }
+                Ok(value)
+            }
+        };
+        let result = if let Some(proof_bound) = proof_timeout {
+            match tokio::time::timeout(self.timeouts.statement, phase1).await {
+                Err(_) => Err(StatementFailure::refused("user command timed out")),
+                Ok(Err(e)) => Err(e),
+                Ok(Ok(rows)) => {
+                    let bound = proof_bound.max(self.timeouts.statement);
+                    match tokio::time::timeout(bound, prepare(&rows)).await {
+                        Err(_) => Err(StatementFailure::refused("user command proof timed out")),
+                        Ok(Err(e)) => Err(e),
+                        Ok(Ok(proven)) => {
+                            match tokio::time::timeout(
+                                self.timeouts.statement,
+                                finish_and_decode(rows, proven),
+                            )
+                            .await
+                            {
+                                Ok(r) => r,
+                                Err(_) => Err(StatementFailure::refused("user command timed out")),
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            let combined = async {
+                let rows = phase1.await?;
+                let proven = prepare(&rows).await?;
+                finish_and_decode(rows, proven).await
+            };
+            match tokio::time::timeout(self.timeouts.statement, combined).await {
+                Ok(r) => r,
+                Err(_) => Err(StatementFailure::refused("user command timed out")),
+            }
         };
         let value = match result {
             Ok(v) => v,
