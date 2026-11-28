@@ -17,7 +17,7 @@ use setjoin_gateway::{
 use setjoin_pg::ScopedExecutor;
 use std::sync::Arc;
 
-static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 struct Probe {
     inner: AdminSodRoute<setjoin_gateway::jmap::jwks::Jwks>,
@@ -100,8 +100,16 @@ fn timestamp_like(s: &str) -> bool {
 fn mask(v: &mut Value, users: &[(i64, &str)]) {
     match v {
         Value::Object(map) => {
+            let target_type = map
+                .get("target_type")
+                .and_then(|t| t.as_str())
+                .map(str::to_owned);
             for (k, x) in map.iter_mut() {
                 if let Some(n) = x.as_i64() {
+                    if k == "target_id" && target_type.as_deref() == Some("approval_request") {
+                        *x = json!("<approval>");
+                        continue;
+                    }
                     let user = matches!(
                         k.as_str(),
                         "user_id"

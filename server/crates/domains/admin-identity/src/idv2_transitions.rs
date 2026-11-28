@@ -66,20 +66,33 @@ pub async fn read(
         .and_then(|r| r.try_get::<_, Option<String>>(0).ok().flatten()))
 }
 
-/// `GET .../transitions/{id}/report`: Go's one `jsonb_build_object` query; `None` is 404.
+/// `GET .../transitions/{id}/report`: returns `(body_json, stable_etag_hex)` where the ETag
+/// hashes the canonical report excluding the volatile `generatedAt` timestamp (#185).
+/// `None` is 404.
 pub async fn report(
     factory: &TxFactory,
     admin: &AdminPermissionProof,
     actor: i64,
     transition: &str,
-) -> Result<Option<String>, Refusal> {
+) -> Result<Option<(String, String)>, Refusal> {
     let rows = factory
         .run_admin_read_contract(admin, &sql::IDV2_TRANSITION_REPORT, &[&transition, &actor])
         .await
         .map_err(|_| failed("identity transition report failed"))?;
-    Ok(rows
-        .first()
-        .and_then(|r| r.try_get::<_, Option<String>>(0).ok().flatten()))
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let Some(body) = row.try_get::<_, Option<String>>(0).ok().flatten() else {
+        return Ok(None);
+    };
+    let Some(stable) = row.try_get::<_, Option<String>>(1).ok().flatten() else {
+        return Ok(None);
+    };
+    let etag = Sha256::digest(stable.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    Ok(Some((body, etag)))
 }
 
 /// The reducer a transition command calls (Go's `SELECT identity_transition_...`).

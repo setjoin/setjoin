@@ -1431,7 +1431,7 @@ async fn case_inner(c: &Ctx<'_>, domain: &str, users: &mut Vec<i64>) -> Result<(
             )?;
         }
     } else {
-        let expected: Value = serde_json::from_slice(&std::fs::read(&file)?)?;
+        let expected: Value = common::golden_doc(&file, "observation", &observation);
         let compared = golden::compare(&expected["observation"], &observation);
         if c.mutant {
             let error = compared.err().ok_or("planted status mutant survived")?;
@@ -1443,7 +1443,7 @@ async fn case_inner(c: &Ctx<'_>, domain: &str, users: &mut Vec<i64>) -> Result<(
         }
         compared?;
         if writes {
-            let expected: Value = serde_json::from_slice(&std::fs::read(row_file)?)?;
+            let expected: Value = common::golden_doc(&row_file, "effects", &observation["effects"]);
             golden::compare(&expected["effects"], &observation["effects"])?;
         }
         eprintln!("GOLDEN-REPLAY: {route_name} :: {}", c.label);

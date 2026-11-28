@@ -46,7 +46,17 @@ pub async fn my_roles(
     Ok(done(format!("[{}]", out.join(","))))
 }
 
-/// `POST /admin/me/roles/{id}/activate`: Go's `activatedUntil`.
+/// Result of `POST /admin/me/roles/{id}/activate` (#175).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Activation {
+    /// Immediate activation: the window is open until this RFC 3339 UTC timestamp.
+    Active(String),
+    /// Approval-gated activation: `admin_role_activate` parked a `rbac.jit_activation`
+    /// row in `approval_requests`; the window opens once approved.
+    PendingApproval,
+}
+
+/// `POST /admin/me/roles/{id}/activate`: opens the window or parks an approval request.
 pub async fn activate(
     factory: &TxFactory,
     user: &UserPrincipal,
@@ -54,7 +64,7 @@ pub async fn activate(
     minutes: i32,
     justification: Option<&str>,
     operation: [u8; 16],
-) -> CommandOutcome<String, StatementFailure> {
+) -> CommandOutcome<Activation, StatementFailure> {
     let actor = user.user().get();
     let env = envelope(
         user.user(),
@@ -72,19 +82,15 @@ pub async fn activate(
                     &[&actor, &role, &minutes, &justification_owned],
                 )
                 .await?;
-            let until = match rows.as_slice() {
-                [row] => row
-                    .try_get::<_, Option<String>>(0)
-                    .map_err(|_| invalid())?
-                    .ok_or(StatementFailure {
-                        sqlstate: Some("42501".into()),
-                        hint: None,
-                        message: "approval-gated activation is refused as in Go".into(),
-                    })?,
+            let outcome = match rows.as_slice() {
+                [row] => match row.try_get::<_, Option<String>>(0).map_err(|_| invalid())? {
+                    Some(until) => Activation::Active(until),
+                    None => Activation::PendingApproval,
+                },
                 _ => return Err(invalid()),
             };
             tx.record_receipt(op_id, command("jit_activate")).await?;
-            Ok(until)
+            Ok(outcome)
         })
         .await
 }

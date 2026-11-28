@@ -26,7 +26,7 @@ pub const USERS_LIST: SqlContract = SqlContract {
     sql: concat!(
         "SELECT id, email, display_name, enabled, is_local_admin, department_id, ",
         pg_rfc3339!("created_at"),
-        " FROM users WHERE ($1::text IS NULL OR email ILIKE $1 OR display_name ILIKE $1) \
+        " FROM users WHERE ($1::text IS NULL OR email ILIKE $1 ESCAPE '\\' OR display_name ILIKE $1 ESCAPE '\\') \
          AND ($2::bigint = 0 OR domain_id = $2) ORDER BY id DESC LIMIT $3 OFFSET $4"
     ),
     params: &[Type::TEXT, Type::INT8, Type::INT8, Type::INT8],
@@ -200,12 +200,14 @@ pub const USER_SESSIONS: SqlContract = SqlContract {
           to_char(last_used_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), auth_method FROM (\
           SELECT id::text AS id, 'oauth' AS kind, COALESCE(client_id,'') AS client_id, '' AS device, '' AS location, \
           COALESCE(last_used_at, issued_at) AS last_used_at, COALESCE(last_used_protocol,'') AS auth_method FROM oauth_tokens \
-          WHERE user_id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) AND previous_token_hash IS NULL \
+          WHERE user_id = $1 AND ($2::bigint = 0 OR user_id IN (SELECT id FROM users WHERE id = $1 AND domain_id = $2)) \
+          AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) AND previous_token_hash IS NULL \
           AND token_type IN ('refresh','xoauth2','app_password') \
           UNION ALL \
           SELECT id, 'web', '', COALESCE(user_agent,''), COALESCE(host(ip),''), last_seen_at, COALESCE(auth_method,'') FROM sessions \
-          WHERE user_id = $1 AND expires_at > now()) s ORDER BY s.last_used_at DESC NULLS LAST",
-    params: &[Type::INT8],
+          WHERE user_id = $1 AND ($2::bigint = 0 OR user_id IN (SELECT id FROM users WHERE id = $1 AND domain_id = $2)) \
+          AND expires_at > now()) s ORDER BY s.last_used_at DESC NULLS LAST",
+    params: &[Type::INT8, Type::INT8],
     columns: &[
         ColumnSpec::named("id", Type::TEXT),
         ColumnSpec::named("kind", Type::TEXT),
@@ -934,7 +936,7 @@ pub const ACCESS_REVIEW_ITEMS: SqlContract = SqlContract {
           LEFT JOIN admin_role_groups rg ON rg.id = i.role_group_id \
           LEFT JOIN users gb ON gb.id = i.granted_by \
           WHERE i.campaign_id = $1 \
-          ORDER BY (i.decision='undecided') DESC, u.email",
+          ORDER BY (i.decision='undecided') DESC, u.email, i.id",
     params: &[Type::INT8, Type::INT8],
     columns: &[
         ColumnSpec::named("id", Type::INT8),
@@ -2277,36 +2279,42 @@ pub const IDV2_TRANSITION_READ: SqlContract = SqlContract {
 pub const IDV2_TRANSITION_REPORT: SqlContract = SqlContract {
     id: "admin_identity.idv2_transition_report",
     domain: "admin-identity",
-    sql: "SELECT jsonb_build_object( \
-          'schemaVersion',1, \
-          'generatedAt',statement_timestamp(), \
-          'transition',(to_jsonb(t)-'preview_digest') || jsonb_build_object( \
-            'approval_request_id',CASE WHEN t.approval_request_id IS NULL THEN NULL ELSE t.approval_request_id::text END, \
-            'rollback_approval_request_id',CASE WHEN t.rollback_approval_request_id IS NULL THEN NULL ELSE t.rollback_approval_request_id::text END \
-          ), \
-          'effects',COALESCE(( \
-            SELECT jsonb_agg(to_jsonb(e) ORDER BY e.effect_kind) \
-              FROM identity_transition_effects e WHERE e.transition_id=t.id \
-          ),'[]'::jsonb), \
-          'events',COALESCE(( \
-            SELECT jsonb_agg(ev.row ORDER BY ev.occurred_at,ev.id) \
-              FROM ( \
-                SELECT occurred_at,id,jsonb_build_object( \
-                  'occurredAt',occurred_at,'action',action, \
-                  'reason',reason,'correlationId',correlation_id, \
-                  'metadata',metadata \
-                ) AS row \
-                  FROM identity_link_events \
-                 WHERE transition_id=t.id \
-                 ORDER BY occurred_at,id \
-                 LIMIT 100 \
-              ) ev \
-          ),'[]'::jsonb) \
-        )::text \
+    sql: "SELECT (r.stable || jsonb_build_object('generatedAt',statement_timestamp()))::text, \
+          r.stable::text \
         FROM identity_transitions t \
+        CROSS JOIN LATERAL ( \
+          SELECT jsonb_build_object( \
+            'schemaVersion',1, \
+            'transition',(to_jsonb(t)-'preview_digest') || jsonb_build_object( \
+              'approval_request_id',CASE WHEN t.approval_request_id IS NULL THEN NULL ELSE t.approval_request_id::text END, \
+              'rollback_approval_request_id',CASE WHEN t.rollback_approval_request_id IS NULL THEN NULL ELSE t.rollback_approval_request_id::text END \
+            ), \
+            'effects',COALESCE(( \
+              SELECT jsonb_agg(to_jsonb(e) ORDER BY e.effect_kind) \
+                FROM identity_transition_effects e WHERE e.transition_id=t.id \
+            ),'[]'::jsonb), \
+            'events',COALESCE(( \
+              SELECT jsonb_agg(ev.row ORDER BY ev.occurred_at,ev.id) \
+                FROM ( \
+                  SELECT occurred_at,id,jsonb_build_object( \
+                    'occurredAt',occurred_at,'action',action, \
+                    'reason',reason,'correlationId',correlation_id, \
+                    'metadata',metadata \
+                  ) AS row \
+                    FROM identity_link_events \
+                   WHERE transition_id=t.id \
+                   ORDER BY occurred_at,id \
+                   LIMIT 100 \
+                ) ev \
+            ),'[]'::jsonb) \
+          ) AS stable \
+        ) r \
         WHERE t.id=$1::text::uuid AND admin_can_reach($2,t.user_id)",
     params: &[Type::TEXT, Type::INT8],
-    columns: &[ColumnSpec::unnamed(Type::TEXT)],
+    columns: &[
+        ColumnSpec::unnamed(Type::TEXT),
+        ColumnSpec::unnamed(Type::TEXT),
+    ],
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,

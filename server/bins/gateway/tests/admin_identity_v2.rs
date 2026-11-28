@@ -1530,3 +1530,283 @@ async fn authority_lookup_failure_fails_closed_without_forwarding() -> Result<()
         .await;
     result
 }
+
+#[tokio::test]
+async fn wave2b_185_transition_report_stable_etag_304_and_nil_uuid() -> Result<(), common::BoxError>
+{
+    use hyper::Request;
+    use setjoin_conformance::{fixture, harness::Db};
+    use setjoin_gateway::{
+        admin_identity_v2::{AdminIdentityV2Route, SourceSecrets},
+        RouteTable,
+    };
+    use std::sync::Arc;
+
+    let _serial = admin_identity_v2_oracle::SERIAL.lock().await;
+    let Some(db) = Db::for_case("admin8-wave2b-185") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let a = fixture::account(&owner, "w2b185-admin").await?;
+    let t = fixture::account(&owner, "w2b185-target").await?;
+    let role_id: i64 = owner
+        .query_one(
+            "INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES($1,'{users.read,audit.export,identity.write}',NULL) RETURNING id",
+            &[&format!("w2b185-role-{}", a.user)],
+        )
+        .await?
+        .get(0);
+    owner
+        .execute(
+            "INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES($1,$2,$1)",
+            &[&a.user, &role_id],
+        )
+        .await?;
+    let saved_toggles: Vec<(String, bool)> = owner
+        .query(
+            "SELECT key, enabled FROM feature_toggles WHERE key IN ('feature.identity_model_v2','feature.identity_transitions','feature.cae_runtime')",
+            &[],
+        )
+        .await?
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    owner
+        .batch_execute(
+            "UPDATE feature_toggles SET enabled=true WHERE key IN ('feature.identity_model_v2','feature.identity_transitions','feature.cae_runtime')",
+        )
+        .await?;
+    let domain: String = owner
+        .query_one("SELECT name FROM domains WHERE id=$1", &[&t.domain])
+        .await?
+        .get(0);
+    let source = owner
+        .query_one(
+            "SELECT id, generation FROM identity_sources WHERE source_key='legacy:scim'",
+            &[],
+        )
+        .await?;
+    let applied_text: String = owner
+        .query_one(
+            "SELECT identity_source_scim_apply($1,$2,gen_random_uuid(),$3,$4::text::jsonb)::text",
+            &[
+                &source.get::<_, i64>(0),
+                &source.get::<_, i64>(1),
+                &format!("w2b185-subj-{}", t.user),
+                &serde_json::json!({
+                    "operation": "upsert",
+                    "email": format!("w2b185-linked-{}@{domain}", t.user),
+                    "displayName": "W2B185 Target",
+                    "enabled": true
+                })
+                .to_string(),
+            ],
+        )
+        .await?
+        .get(0);
+    let applied: serde_json::Value = serde_json::from_str(&applied_text)?;
+    let target_id: i64 = applied["userId"].as_str().ok_or("userId")?.parse()?;
+    owner
+        .execute(
+            "UPDATE users SET password_hash='local-recovery-proof' WHERE id=$1",
+            &[&target_id],
+        )
+        .await?;
+    let preview_text: String = owner
+        .query_one(
+            "SELECT identity_transition_preview($1,$2,'wave2b-185','95400000-0000-4000-8000-000000000185')::text",
+            &[&a.user, &target_id],
+        )
+        .await?
+        .get(0);
+    let preview: serde_json::Value = serde_json::from_str(&preview_text)?;
+    let tid = preview["transitionId"]
+        .as_str()
+        .ok_or("transitionId")?
+        .to_owned();
+    let audit_start: i64 = owner
+        .query_one("SELECT COALESCE(max(id),0) FROM admin_audit_log", &[])
+        .await?
+        .get(0);
+
+    let result = async {
+        let exec = common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?
+            .with_audit_keys("22".repeat(32), String::new());
+        let worker =
+            common::patient_exec(&db.dsn, 4)?.with_audit_keys("22".repeat(32), String::new());
+        let route = AdminIdentityV2Route {
+            exec,
+            worker,
+            keys: Arc::new(common::recovery_keys()),
+            issuer: "mailserver".into(),
+            secrets: SourceSecrets::new(|name| {
+                (name == "DB_ENCRYPTION_KEY").then(|| "22".repeat(32))
+            }),
+        };
+        let upstream = common::fake_upstream(|_| async {
+            hyper::Response::builder()
+                .status(500)
+                .body(common::full("go"))
+                .unwrap()
+        })
+        .await;
+        let gw = common::gateway(upstream, "", RouteTable::proxy_all().with(route)).await;
+        let token = signed_admin_token(a.user, &["users.read", "audit.export"]);
+
+        // 1. Nil UUID is rejected with 400 consistently with read.
+        let nil_resp = common::send(
+            gw,
+            Request::get(
+                "/api/admin/identity/v2/transitions/00000000-0000-0000-0000-000000000000/report",
+            )
+            .header("host", "mail.test")
+            .header("origin", "http://mail.test")
+            .header("authorization", format!("Bearer {token}"))
+            .body(common::full(""))?,
+        )
+        .await;
+        assert_eq!(nil_resp.status().as_u16(), 400);
+
+        // 2. Two report reads at different timestamps yield the exact same ETag.
+        let r1 = common::send(
+            gw,
+            Request::get(format!("/api/admin/identity/v2/transitions/{tid}/report"))
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("authorization", format!("Bearer {token}"))
+                .body(common::full(""))?,
+        )
+        .await;
+        assert_eq!(r1.status().as_u16(), 200);
+        let etag1 = r1
+            .headers()
+            .get("etag")
+            .ok_or("etag1")?
+            .to_str()?
+            .to_owned();
+        let body1: serde_json::Value = serde_json::from_slice(&common::body_bytes(r1).await)?;
+        assert!(body1["generatedAt"].is_string());
+
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let r2 = common::send(
+            gw,
+            Request::get(format!("/api/admin/identity/v2/transitions/{tid}/report"))
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("authorization", format!("Bearer {token}"))
+                .body(common::full(""))?,
+        )
+        .await;
+        assert_eq!(r2.status().as_u16(), 200);
+        let etag2 = r2
+            .headers()
+            .get("etag")
+            .ok_or("etag2")?
+            .to_str()?
+            .to_owned();
+        let body2: serde_json::Value = serde_json::from_slice(&common::body_bytes(r2).await)?;
+        assert_ne!(
+            body1["generatedAt"], body2["generatedAt"],
+            "statement_timestamp should advance"
+        );
+        assert_eq!(etag1, etag2, "ETag must be stable despite advancing generatedAt");
+
+        // 3. If-None-Match with the stable ETag answers 304 Not Modified.
+        let r3 = common::send(
+            gw,
+            Request::get(format!("/api/admin/identity/v2/transitions/{tid}/report"))
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("if-none-match", &etag1)
+                .header("authorization", format!("Bearer {token}"))
+                .body(common::full(""))?,
+        )
+        .await;
+        assert_eq!(r3.status().as_u16(), 304);
+        assert_eq!(
+            r3.headers().get("etag").and_then(|v| v.to_str().ok()),
+            Some(etag1.as_str())
+        );
+
+        // 4. Changing transition state changes the ETag (If-None-Match misses -> 200).
+        let generation: i64 = owner
+            .query_one(
+                "SELECT transition_generation FROM identity_transitions WHERE id=$1::text::uuid",
+                &[&tid],
+            )
+            .await?
+            .get(0);
+        owner
+            .execute(
+                "SELECT identity_transition_cancel($1,$2::text::uuid,$3,'wave2b-185-cancel','95400000-0000-4000-8000-000000000186')",
+                &[&a.user, &tid, &generation],
+            )
+            .await?;
+        let r4 = common::send(
+            gw,
+            Request::get(format!("/api/admin/identity/v2/transitions/{tid}/report"))
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("if-none-match", &etag1)
+                .header("authorization", format!("Bearer {token}"))
+                .body(common::full(""))?,
+        )
+        .await;
+        assert_eq!(r4.status().as_u16(), 200);
+        let etag4 = r4
+            .headers()
+            .get("etag")
+            .ok_or("etag4")?
+            .to_str()?
+            .to_owned();
+        assert_ne!(
+            etag1, etag4,
+            "mutated transition must yield a different ETag"
+        );
+
+        Ok::<_, common::BoxError>(())
+    }
+    .await;
+
+    for (key, enabled) in &saved_toggles {
+        let _ = owner
+            .execute(
+                "UPDATE feature_toggles SET enabled=$2 WHERE key=$1",
+                &[key, enabled],
+            )
+            .await;
+    }
+    let _ = owner
+        .batch_execute(&format!(
+            "BEGIN; SET LOCAL session_replication_role=replica; \
+             DELETE FROM identity_transition_effect_targets WHERE transition_id='{tid}'::uuid; \
+             DELETE FROM identity_transition_effects WHERE transition_id='{tid}'::uuid; \
+             DELETE FROM identity_transition_steps WHERE transition_id='{tid}'::uuid; \
+             DELETE FROM identity_transition_idempotency WHERE transition_id='{tid}'::uuid; \
+             DELETE FROM identity_link_events WHERE user_id={target_id} OR actor_user_id={}; \
+             DELETE FROM identity_source_inbox i WHERE i.applied_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM identity_link_events e WHERE e.id=i.applied_event_id); \
+             DELETE FROM identity_sync_log WHERE source_id IN (SELECT id FROM identity_sources WHERE source_key LIKE 'legacy:%'); \
+             UPDATE identity_sources SET last_success_at=NULL WHERE source_key LIKE 'legacy:%' AND last_success_at IS NOT NULL; \
+             DELETE FROM identity_transition_elevations WHERE transition_id='{tid}'::uuid; \
+             DELETE FROM identity_transition_challenges WHERE transition_id='{tid}'::uuid; \
+             DELETE FROM identity_transitions WHERE id='{tid}'::uuid; \
+             DELETE FROM identity_attribute_authority WHERE user_id={target_id}; \
+             DELETE FROM identity_entitlement_grants WHERE user_id={target_id}; \
+             DELETE FROM user_lifecycle_authorities WHERE user_id={target_id}; \
+             DELETE FROM user_identity_links WHERE user_id={target_id}; \
+             DELETE FROM admin_role_assignments WHERE role_group_id={role_id}; \
+             DELETE FROM admin_role_groups WHERE id={role_id}; \
+             DELETE FROM admin_audit_log WHERE id>{audit_start}; \
+             COMMIT; \
+             DELETE FROM messages WHERE mailbox_id IN (SELECT id FROM mailboxes WHERE user_id={target_id}); \
+             DELETE FROM mailboxes WHERE user_id={target_id}; \
+             DELETE FROM users WHERE id={target_id};",
+            a.user
+        ))
+        .await;
+    for acct in [&t, &a] {
+        let _ = common::remove_blob_account(&owner, acct).await;
+    }
+    result
+}
