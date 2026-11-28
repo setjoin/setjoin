@@ -1,20 +1,32 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
+	import { onMount, tick } from 'svelte';
 	import { Spinner, EmptyState, Button, IconButton, Tabs } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import MailRow from './MailRow.svelte';
 	import { setOpenSwipeRowId } from './mailRowSwipe.svelte';
+	import {
+		DEFAULT_OVERSCAN,
+		buildVirtualLayout,
+		computeScrollTopForIndex,
+		computeVirtualRange,
+		findBoundaryNavigableIndex,
+		findIndexAtOffset,
+		findItemIndexByEmailId,
+		findNextNavigableIndex,
+		findPageNavigableIndex,
+		flattenThreadsToVirtualItems,
+		isNavigableItem,
+		itemHeight,
+		resolveAnchorScrollTop,
+		type ScrollAlign,
+		type ThreadData,
+		type VirtualDensity,
+	} from './virtualList';
 	import type { Email, Mailbox } from '$lib/types/jmap';
 	import type { MailWorkItem } from '$lib/mail/mailWork';
 	import { t } from '$lib/i18n';
-
-	interface ThreadData {
-		id: string;
-		emails: Email[];
-		expanded: boolean;
-		muted: boolean;
-	}
 
 	/**
 	 * The message-list action facade (candidate 7 — EmailActionStore seam). The
@@ -81,6 +93,12 @@
 		onFocusTab?: (tab: 'focused' | 'other') => void;
 		/** Reducer projections keyed by thread id; present only in shared-mail workspaces. */
 		workByThread?: Record<string, MailWorkItem>;
+		/** Optional explicit density override; defaults to observing `<html data-density>`. */
+		density?: VirtualDensity;
+		/** When true, inserts virtualized date/group headers (Pinned, Today, Yesterday, This week, Older). */
+		groupByDate?: boolean;
+		/** Extra items mounted above and below the visible viewport. */
+		overscan?: number;
 	}
 
 	let {
@@ -109,6 +127,9 @@
 		otherUnread = 0,
 		onFocusTab,
 		workByThread = {},
+		density: densityProp,
+		groupByDate = false,
+		overscan = DEFAULT_OVERSCAN,
 	}: Props = $props();
 
 	// ── Action resolution ──
@@ -129,14 +150,291 @@
 	const onMoveFocus = $derived(actions?.onMoveFocus);
 	const onSnooze = $derived(actions?.onSnooze);
 
+	// ── Density detection ──
+	function readDocumentDensity(): VirtualDensity {
+		return typeof document !== 'undefined' && document.documentElement?.dataset?.density === 'compact'
+			? 'compact'
+			: 'comfortable';
+	}
+
+	let docDensity = $state<VirtualDensity>(readDocumentDensity());
+	const activeDensity = $derived<VirtualDensity>(densityProp ?? docDensity);
+
+	// ── Virtualization state (#625) ──
+	let scrollEl = $state<HTMLDivElement | null>(null);
+	let scrollTop = $state(0);
+	let viewportHeight = $state(0);
+	let activeIndex = $state(-1);
+	let measureVersion = $state(0);
+
+	const measuredHeights = new Map<string, number>();
+	let rowObserver: ResizeObserver | null = null;
+	let anchorKey: string | null = null;
+	let anchorDelta = 0;
+	let lastDensity: VirtualDensity = readDocumentDensity();
+	let lastSyncedSelectedId: string | null = null;
+	let focusSeq = 0;
+
+	const flattened = $derived(
+		flattenThreadsToVirtualItems(threads, viewMode, { groupByDate }),
+	);
+	const virtualItems = $derived(flattened.items);
+	const totalRowCount = $derived(flattened.totalRowCount);
+
+	const itemIndexByKey = $derived.by(() => {
+		const map = new Map<string, number>();
+		for (let i = 0; i < virtualItems.length; i++) {
+			map.set(virtualItems[i].key, i);
+		}
+		return map;
+	});
+
+	const layout = $derived.by(() => {
+		// Subscribe to measured height updates via version counter.
+		void measureVersion;
+		return buildVirtualLayout(virtualItems, activeDensity, measuredHeights);
+	});
+
+	const range = $derived(computeVirtualRange(layout, scrollTop, viewportHeight, overscan));
+	const startIndex = $derived(range.start);
+	const endIndex = $derived(range.end);
+	const paddingTop = $derived(range.paddingTop);
+	const paddingBottom = $derived(range.paddingBottom);
+	const visibleItems = $derived(virtualItems.slice(startIndex, endIndex));
+
+	const effectiveActiveIndex = $derived.by(() => {
+		if (
+			activeIndex >= 0 &&
+			activeIndex < virtualItems.length &&
+			isNavigableItem(virtualItems[activeIndex])
+		) {
+			return activeIndex;
+		}
+		if (selectedId) {
+			const sel = findItemIndexByEmailId(virtualItems, selectedId);
+			if (sel >= 0) return sel;
+		}
+		return findBoundaryNavigableIndex(virtualItems, 'start');
+	});
+
+	function captureAnchor(nextScrollTop: number) {
+		if (virtualItems.length === 0 || nextScrollTop <= 0) {
+			anchorKey = null;
+			anchorDelta = 0;
+			return;
+		}
+		const firstIdx = findIndexAtOffset(layout.offsets, nextScrollTop);
+		anchorKey = virtualItems[firstIdx]?.key ?? null;
+		anchorDelta = nextScrollTop - layout.offsets[firstIdx];
+	}
+
+	function recordMeasuredHeight(key: string, rawHeight: number) {
+		if (!Number.isFinite(rawHeight) || rawHeight <= 0) return;
+		const rounded = Math.round(rawHeight);
+		const idx = itemIndexByKey.get(key);
+		if (idx === undefined) return;
+		const prev = itemHeight(virtualItems[idx], activeDensity, measuredHeights);
+		if (Math.abs(rounded - prev) < 1) return;
+
+		const itemTop = layout.offsets[idx];
+		const aboveViewport = scrollTop > 0 && itemTop < scrollTop;
+		measuredHeights.set(key, rounded);
+		measureVersion += 1;
+
+		if (aboveViewport) {
+			const nextScroll = Math.max(0, scrollTop + (rounded - prev));
+			scrollTop = nextScroll;
+			if (scrollEl) scrollEl.scrollTop = nextScroll;
+		}
+	}
+
+	function measureRow(node: HTMLElement, key: string) {
+		let currentKey = key;
+		const initialHeight = node.getBoundingClientRect().height;
+		if (initialHeight > 0) recordMeasuredHeight(currentKey, initialHeight);
+		rowObserver?.observe(node);
+
+		return {
+			update(nextKey: string) {
+				currentKey = nextKey;
+				const h = node.getBoundingClientRect().height;
+				if (h > 0) recordMeasuredHeight(currentKey, h);
+			},
+			destroy() {
+				rowObserver?.unobserve(node);
+			},
+		};
+	}
+
+	/** Scroll a virtual item index into view and synchronize window state immediately. */
+	export function scrollToIndex(index: number, align: ScrollAlign = 'nearest'): void {
+		const nextScroll = computeScrollTopForIndex(layout, index, scrollTop, viewportHeight, align);
+		scrollTop = nextScroll;
+		if (scrollEl) scrollEl.scrollTop = nextScroll;
+		captureAnchor(nextScroll);
+	}
+
+	onMount(() => {
+		if (typeof ResizeObserver !== 'undefined') {
+			rowObserver = new ResizeObserver((entries) => {
+				for (const entry of entries) {
+					const el = entry.target as HTMLElement;
+					const key = el.dataset.vkey;
+					if (!key) continue;
+					const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+					recordMeasuredHeight(key, height);
+				}
+			});
+		}
+
+		let densityObserver: MutationObserver | null = null;
+		if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined') {
+			densityObserver = new MutationObserver(() => {
+				docDensity = readDocumentDensity();
+			});
+			densityObserver.observe(document.documentElement, {
+				attributes: true,
+				attributeFilter: ['data-density'],
+			});
+		}
+
+		return () => {
+			rowObserver?.disconnect();
+			rowObserver = null;
+			densityObserver?.disconnect();
+		};
+	});
+
+	// Observe scroll container viewport size changes.
+	$effect(() => {
+		const el = scrollEl;
+		if (!el) return;
+		if (el.clientHeight > 0) viewportHeight = el.clientHeight;
+		if (typeof ResizeObserver === 'undefined') return;
+		const ro = new ResizeObserver(() => {
+			if (el.clientHeight > 0) viewportHeight = el.clientHeight;
+		});
+		ro.observe(el);
+		return () => ro.disconnect();
+	});
+
+	// Clear cached measurements when density toggles so compact/comfortable estimates apply immediately.
+	$effect(() => {
+		if (activeDensity !== lastDensity) {
+			lastDensity = activeDensity;
+			measuredHeights.clear();
+			measureVersion += 1;
+		}
+	});
+
+	// Preserve scroll anchor across thread expand/collapse, density changes, or filter updates.
+	$effect(() => {
+		const resolved = resolveAnchorScrollTop(
+			virtualItems,
+			layout,
+			anchorKey,
+			anchorDelta,
+			scrollTop,
+			viewportHeight,
+		);
+		if (Math.abs(resolved - scrollTop) >= 1) {
+			scrollTop = resolved;
+			if (scrollEl) scrollEl.scrollTop = resolved;
+		}
+		captureAnchor(resolved);
+	});
+
+	// Keep off-screen selection synchronized when selectedId changes externally (e.g. global j/k or deep link).
+	$effect(() => {
+		if (!selectedId) {
+			lastSyncedSelectedId = null;
+			return;
+		}
+		if (selectedId === lastSyncedSelectedId) return;
+		const idx = findItemIndexByEmailId(virtualItems, selectedId);
+		if (idx < 0) return;
+		lastSyncedSelectedId = selectedId;
+		activeIndex = idx;
+		scrollToIndex(idx, 'nearest');
+	});
+
+	function handleScroll() {
+		setOpenSwipeRowId(null);
+		if (!scrollEl) return;
+		const next = scrollEl.scrollTop;
+		if (next !== scrollTop) {
+			scrollTop = next;
+		}
+		captureAnchor(next);
+	}
+
+	function focusRowAtIndex(targetIdx: number) {
+		const seq = ++focusSeq;
+		void tick().then(() => {
+			if (seq !== focusSeq || !scrollEl) return;
+			const target = scrollEl.querySelector<HTMLElement>(
+				`[data-vindex="${targetIdx}"] .sj-mailrow, [data-vindex="${targetIdx}"] .sj-msglist__thread-header`,
+			);
+			target?.focus({ preventScroll: true });
+		});
+	}
+
+	function handleListKeydown(e: KeyboardEvent) {
+		if (e.ctrlKey || e.metaKey || e.altKey) return;
+		const target = e.target as HTMLElement | null;
+		const tag = target?.tagName;
+		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) {
+			return;
+		}
+
+		let nextIdx = -1;
+		switch (e.key) {
+			case 'ArrowDown':
+			case 'j':
+				nextIdx = findNextNavigableIndex(virtualItems, effectiveActiveIndex, 1);
+				break;
+			case 'ArrowUp':
+			case 'k':
+				nextIdx = findNextNavigableIndex(virtualItems, effectiveActiveIndex, -1);
+				break;
+			case 'Home':
+				nextIdx = findBoundaryNavigableIndex(virtualItems, 'start');
+				break;
+			case 'End':
+				nextIdx = findBoundaryNavigableIndex(virtualItems, 'end');
+				break;
+			case 'PageDown':
+				nextIdx = findPageNavigableIndex(virtualItems, layout, effectiveActiveIndex, 1, viewportHeight);
+				break;
+			case 'PageUp':
+				nextIdx = findPageNavigableIndex(virtualItems, layout, effectiveActiveIndex, -1, viewportHeight);
+				break;
+			default:
+				return;
+		}
+
+		if (nextIdx < 0) return;
+		e.preventDefault();
+		if (e.key === 'j' || e.key === 'k') {
+			// Prevent document-level j/k shortcut in inbox/+page.svelte from double-stepping.
+			e.stopPropagation();
+		}
+
+		activeIndex = nextIdx;
+		scrollToIndex(nextIdx, 'nearest');
+
+		const item = virtualItems[nextIdx];
+		if (item.kind === 'row' || item.kind === 'thread-child') {
+			lastSyncedSelectedId = item.email.id;
+			onOpen(item.email);
+		}
+		focusRowAtIndex(nextIdx);
+	}
+
 	/** A row is "Other" (Focused/Other split) when its mailboxIds carry the Other tag. */
 	function isOther(email: Email): boolean {
 		return otherTagId ? !!email.mailboxIds?.[otherTagId] : false;
 	}
-
-	const pinned = $derived(threads.filter((t) => t.emails[0]?.pinnedAt));
-	const unpinned = $derived(threads.filter((t) => !t.emails[0]?.pinnedAt));
-	const showDivider = $derived(pinned.length > 0 && unpinned.length > 0);
 
 	/** Resolve tag mailboxes for a specific email (up to 2 chips for MailRow). */
 	function tagsForEmail(email: Email): Mailbox[] {
@@ -204,182 +502,146 @@
 			/>
 		</div>
 	{:else}
-		<div class="sj-msglist__scroll" onscroll={() => setOpenSwipeRowId(null)}>
-			{#each pinned as thread, i (thread.id)}
-				{#if viewMode === 'threaded' && thread.emails.length > 1}
-					<div class="sj-msglist__thread">
-						<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-						<div
-							class="sj-msglist__thread-header"
-							class:sj-msglist__thread-header--expanded={thread.expanded}
-							role="button"
-							tabindex="0"
-							onclick={(e) => handleThreadClick(e, thread.id)}
-							onkeydown={(e) => handleThreadKeydown(e, thread.id)}
-						>
-							<span class="sj-msglist__thread-chevron" aria-hidden="true">
-								<Icon name={thread.expanded ? 'ChevronDown' : 'ChevronRight'} size={14} strokeWidth={1.75} />
-							</span>
-							<span class="sj-msglist__thread-subject">
-								{thread.emails[0].subject || '(no subject)'}
-							</span>
-							<span class="sj-msglist__thread-count">{thread.emails.length}</span>
-							{#if workFor(thread.id)}
-								<span class="sj-msglist__work" data-status={workFor(thread.id)?.status}>
-									{t(`inbox.work.${workFor(thread.id)?.status}`)}
-								</span>
-							{/if}
-							<span class="sj-msglist__thread-date">
-								{thread.emails[0].pinnedAt ? 'Pinned' : ''}
-							</span>
-							<IconButton
-								label={thread.muted ? 'Unmute thread' : 'Mute thread'}
-								size="sm"
-								onclick={(e) => handleMuteClick(e, thread.id)}
-							>
-								<Icon name={thread.muted ? 'BellOff' : 'Bell'} size={14} strokeWidth={1.75} />
-							</IconButton>
-							<IconButton
-								label="Archive thread"
-								size="sm"
-								onclick={(e) => handleArchiveClick(e, thread.id)}
-							>
-								<Icon name="Archive" size={14} strokeWidth={1.75} />
-							</IconButton>
-						</div>
-						{#if thread.expanded}
-							<div class="sj-msglist__child">
-								{#each thread.emails as email (email.id)}
-									<MailRow
-										email={email}
-										tags={tagsForEmail(email)}
-										selected={isSelected(email)}
-										onOpen={() => onOpen(email)}
-										onArchive={() => onArchive(email)}
-										onStar={() => onStar(email)}
-										onTrash={() => onTrash(email)}
-										onToggleRead={onToggleRead ? (read) => onToggleRead(email, read) : undefined}
-										sendAt={scheduledTimes?.[email.id]}
-										onCancel={onCancelScheduled ? () => onCancelScheduled(email.id) : undefined}
-										isOther={isOther(email)}
-										onMoveFocus={onMoveFocus ? (focused) => onMoveFocus(email, focused) : undefined}
-										onSnooze={onSnooze ? (date) => onSnooze(email, date) : undefined}
-										workStatus={workFor(thread.id)?.status}
-									/>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{:else}
-					{@const email = thread.emails[0]}
-					<MailRow
-						email={email}
-						tags={tagsForEmail(email)}
-						selected={isSelected(email)}
-						tour={i === 0 ? 'organize' : undefined}
-						onOpen={() => onOpen(email)}
-						onArchive={() => onArchive(email)}
-						onStar={() => onStar(email)}
-						onTrash={() => onTrash(email)}
-						onToggleRead={onToggleRead ? (read) => onToggleRead(email, read) : undefined}
-						sendAt={scheduledTimes?.[email.id]}
-						onCancel={onCancelScheduled ? () => onCancelScheduled(email.id) : undefined}
-						isOther={isOther(email)}
-						onMoveFocus={onMoveFocus ? (focused) => onMoveFocus(email, focused) : undefined}
-						onSnooze={onSnooze ? (date) => onSnooze(email, date) : undefined}
-						workStatus={workFor(thread.id)?.status}
-					/>
-				{/if}
-			{/each}
-
-			{#if showDivider}
-				<div class="sj-msglist__divider" aria-hidden="true"></div>
+		<!-- WAI-ARIA 1.2 composite interactive list: role="grid" supports aria-rowcount /
+		     aria-rowindex and allows MailRow's role="button" + action IconButtons inside
+		     gridcells with zero axe-core aria-allowed-attr / aria-required-children /
+		     nested-interactive violations (unlike role="listbox" + role="option"). -->
+		<div
+			class="sj-msglist__scroll"
+			role="grid"
+			tabindex="-1"
+			aria-label="Messages"
+			aria-rowcount={totalRowCount}
+			bind:this={scrollEl}
+			onscroll={handleScroll}
+			onkeydown={handleListKeydown}
+		>
+			{#if paddingTop > 0}
+				<div
+					class="sj-msglist__spacer"
+					role="presentation"
+					aria-hidden="true"
+					style={`height: ${paddingTop}px`}
+				></div>
 			{/if}
 
-			{#each unpinned as thread, i (thread.id)}
-				{#if viewMode === 'threaded' && thread.emails.length > 1}
-					<div class="sj-msglist__thread">
-						<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-						<div
-							class="sj-msglist__thread-header"
-							class:sj-msglist__thread-header--expanded={thread.expanded}
-							role="button"
-							tabindex="0"
-							onclick={(e) => handleThreadClick(e, thread.id)}
-							onkeydown={(e) => handleThreadKeydown(e, thread.id)}
-						>
-							<span class="sj-msglist__thread-chevron" aria-hidden="true">
-								<Icon name={thread.expanded ? 'ChevronDown' : 'ChevronRight'} size={14} strokeWidth={1.75} />
-							</span>
-							<span class="sj-msglist__thread-subject">
-								{thread.emails[0].subject || '(no subject)'}
-							</span>
-							<span class="sj-msglist__thread-count">{thread.emails.length}</span>
-							{#if workFor(thread.id)}
-								<span class="sj-msglist__work" data-status={workFor(thread.id)?.status}>
-									{t(`inbox.work.${workFor(thread.id)?.status}`)}
+			{#each visibleItems as item (item.key)}
+				{#if item.kind === 'divider'}
+					<div class="sj-msglist__divider" role="presentation" aria-hidden="true"></div>
+				{:else if item.kind === 'header'}
+					<div
+						class="sj-msglist__group-header"
+						role="row"
+						aria-rowindex={item.rowIndex}
+						data-vindex={item.index}
+						data-vkey={item.key}
+						use:measureRow={item.key}
+					>
+						<div class="sj-msglist__group-label" role="rowheader">{item.label}</div>
+					</div>
+				{:else if item.kind === 'thread-header'}
+					<div
+						class="sj-msglist__item sj-msglist__thread"
+						role="row"
+						aria-rowindex={item.rowIndex}
+						aria-selected={false}
+						data-vindex={item.index}
+						data-vkey={item.key}
+						use:measureRow={item.key}
+					>
+						<div class="sj-msglist__cell" role="gridcell">
+							<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+							<div
+								class="sj-msglist__thread-header"
+								class:sj-msglist__thread-header--expanded={item.thread.expanded}
+								role="button"
+								tabindex={item.index === effectiveActiveIndex ? 0 : -1}
+								aria-expanded={item.thread.expanded}
+								onclick={(e) => {
+									activeIndex = item.index;
+									handleThreadClick(e, item.thread.id);
+								}}
+								onkeydown={(e) => handleThreadKeydown(e, item.thread.id)}
+							>
+								<span class="sj-msglist__thread-chevron" aria-hidden="true">
+									<Icon name={item.thread.expanded ? 'ChevronDown' : 'ChevronRight'} size={14} strokeWidth={1.75} />
 								</span>
-							{/if}
-							<span class="sj-msglist__thread-date"></span>
-							<IconButton
-								label={thread.muted ? 'Unmute thread' : 'Mute thread'}
-								size="sm"
-								onclick={(e) => handleMuteClick(e, thread.id)}
-							>
-								<Icon name={thread.muted ? 'BellOff' : 'Bell'} size={14} strokeWidth={1.75} />
-							</IconButton>
-							<IconButton
-								label="Archive thread"
-								size="sm"
-								onclick={(e) => handleArchiveClick(e, thread.id)}
-							>
-								<Icon name="Archive" size={14} strokeWidth={1.75} />
-							</IconButton>
-						</div>
-						{#if thread.expanded}
-							<div class="sj-msglist__child">
-								{#each thread.emails as email (email.id)}
-									<MailRow
-										email={email}
-										tags={tagsForEmail(email)}
-										selected={isSelected(email)}
-										onOpen={() => onOpen(email)}
-										onArchive={() => onArchive(email)}
-										onStar={() => onStar(email)}
-										onTrash={() => onTrash(email)}
-										onToggleRead={onToggleRead ? (read) => onToggleRead(email, read) : undefined}
-										sendAt={scheduledTimes?.[email.id]}
-										onCancel={onCancelScheduled ? () => onCancelScheduled(email.id) : undefined}
-										isOther={isOther(email)}
-										onMoveFocus={onMoveFocus ? (focused) => onMoveFocus(email, focused) : undefined}
-										onSnooze={onSnooze ? (date) => onSnooze(email, date) : undefined}
-										workStatus={workFor(thread.id)?.status}
-									/>
-								{/each}
+								<span class="sj-msglist__thread-subject">
+									{item.thread.emails[0].subject || '(no subject)'}
+								</span>
+								<span class="sj-msglist__thread-count">{item.thread.emails.length}</span>
+								{#if workFor(item.thread.id)}
+									<span class="sj-msglist__work" data-status={workFor(item.thread.id)?.status}>
+										{t(`inbox.work.${workFor(item.thread.id)?.status}`)}
+									</span>
+								{/if}
+								<span class="sj-msglist__thread-date">
+									{item.pinned ? 'Pinned' : ''}
+								</span>
+								<IconButton
+									label={item.thread.muted ? 'Unmute thread' : 'Mute thread'}
+									size="sm"
+									onclick={(e) => handleMuteClick(e, item.thread.id)}
+								>
+									<Icon name={item.thread.muted ? 'BellOff' : 'Bell'} size={14} strokeWidth={1.75} />
+								</IconButton>
+								<IconButton
+									label="Archive thread"
+									size="sm"
+									onclick={(e) => handleArchiveClick(e, item.thread.id)}
+								>
+									<Icon name="Archive" size={14} strokeWidth={1.75} />
+								</IconButton>
 							</div>
-						{/if}
+						</div>
 					</div>
 				{:else}
-					{@const email = thread.emails[0]}
-					<MailRow
-						email={email}
-						tags={tagsForEmail(email)}
-						selected={isSelected(email)}
-						tour={i === 0 && pinned.length === 0 ? 'organize' : undefined}
-						onOpen={() => onOpen(email)}
-						onArchive={() => onArchive(email)}
-						onStar={() => onStar(email)}
-						onTrash={() => onTrash(email)}
-						onToggleRead={onToggleRead ? (read) => onToggleRead(email, read) : undefined}
-						sendAt={scheduledTimes?.[email.id]}
-						onCancel={onCancelScheduled ? () => onCancelScheduled(email.id) : undefined}
-						isOther={isOther(email)}
-						onMoveFocus={onMoveFocus ? (focused) => onMoveFocus(email, focused) : undefined}
-						onSnooze={onSnooze ? (date) => onSnooze(email, date) : undefined}
-						workStatus={workFor(thread.id)?.status}
-					/>
+					<div
+						class="sj-msglist__item"
+						class:sj-msglist__child={item.kind === 'thread-child'}
+						role="row"
+						aria-rowindex={item.rowIndex}
+						aria-selected={isSelected(item.email)}
+						data-vindex={item.index}
+						data-vkey={item.key}
+						use:measureRow={item.key}
+					>
+						<div class="sj-msglist__cell" role="gridcell">
+							<MailRow
+								email={item.email}
+								tags={tagsForEmail(item.email)}
+								selected={isSelected(item.email)}
+								rowTabIndex={item.index === effectiveActiveIndex ? 0 : -1}
+								tour={item.kind === 'row' ? item.tour : undefined}
+								onOpen={() => {
+									activeIndex = item.index;
+									lastSyncedSelectedId = item.email.id;
+									onOpen(item.email);
+								}}
+								onArchive={() => onArchive(item.email)}
+								onStar={() => onStar(item.email)}
+								onTrash={() => onTrash(item.email)}
+								onToggleRead={onToggleRead ? (read) => onToggleRead(item.email, read) : undefined}
+								sendAt={scheduledTimes?.[item.email.id]}
+								onCancel={onCancelScheduled ? () => onCancelScheduled(item.email.id) : undefined}
+								isOther={isOther(item.email)}
+								onMoveFocus={onMoveFocus ? (focused) => onMoveFocus(item.email, focused) : undefined}
+								onSnooze={onSnooze ? (date) => onSnooze(item.email, date) : undefined}
+								workStatus={workFor(item.thread.id)?.status}
+							/>
+						</div>
+					</div>
 				{/if}
 			{/each}
+
+			{#if paddingBottom > 0}
+				<div
+					class="sj-msglist__spacer"
+					role="presentation"
+					aria-hidden="true"
+					style={`height: ${paddingBottom}px`}
+				></div>
+			{/if}
 		</div>
 
 		{#if hasMore}
@@ -435,6 +697,31 @@
 		overflow-y: auto;
 	}
 
+	.sj-msglist__spacer {
+		flex: none;
+		pointer-events: none;
+	}
+
+	.sj-msglist__item,
+	.sj-msglist__cell {
+		display: block;
+	}
+
+	.sj-msglist__group-header {
+		display: flex;
+		align-items: center;
+		padding: var(--space-1) var(--space-3);
+		background: var(--surface-sunken);
+		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	.sj-msglist__group-label {
+		font-size: var(--text-2xs);
+		font-weight: 600;
+		color: var(--text-caption);
+		letter-spacing: 0.02em;
+	}
+
 	/* Thread header */
 	.sj-msglist__thread-header {
 		display: flex;
@@ -445,6 +732,10 @@
 		border-bottom: 1px solid var(--border-subtle);
 		background: var(--surface-sunken);
 		user-select: none;
+	}
+
+	:global([data-density="compact"]) .sj-msglist__thread-header {
+		padding: var(--space-1) var(--space-3);
 	}
 
 	.sj-msglist__thread-header:hover {

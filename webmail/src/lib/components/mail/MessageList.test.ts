@@ -1,6 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte/svelte5';
+import { tick } from 'svelte';
+import axe from 'axe-core';
 import MessageList from './MessageList.svelte';
+import { getOpenSwipeRowId, setOpenSwipeRowId } from './mailRowSwipe.svelte';
 import type { Email, Mailbox } from '$lib/types/jmap';
 
 function makeEmail(overrides: Partial<Email> = {}): Email {
@@ -257,5 +260,427 @@ describe('MessageList tour anchor', () => {
 		const tagged = container.querySelectorAll('[data-tour="organize"]');
 		expect(tagged.length).toBe(1);
 		expect(container.querySelector('.sj-mailrow')).toBe(tagged[0]);
+	});
+});
+
+describe('MessageList virtualization, keyboard nav & accessibility (#625)', () => {
+	afterEach(() => {
+		delete document.documentElement.dataset.density;
+		setOpenSwipeRowId(null);
+		vi.unstubAllGlobals();
+	});
+
+	function makeLargeList(count: number) {
+		return Array.from({ length: count }, (_, i) =>
+			makeThread({
+				id: `t-${i}`,
+				emails: [
+					makeEmail({
+						id: `e-${i}`,
+						threadId: `t-${i}`,
+						subject: `Message ${i}`,
+						from: [{ name: `Sender ${i}`, email: `sender${i}@example.com` }],
+					}),
+				],
+			}),
+		);
+	}
+
+	const baseProps = {
+		threads: [] as ReturnType<typeof makeThread>[],
+		viewMode: 'flat' as const,
+		selectedId: null as string | null,
+		tags: [] as Mailbox[],
+		loading: false,
+		loadingMore: false,
+		hasMore: false,
+		remaining: 0,
+		onOpen: vi.fn(),
+		onArchive: vi.fn(),
+		onStar: vi.fn(),
+		onTrash: vi.fn(),
+		onToggleThread: vi.fn(),
+		onMuteThread: vi.fn(),
+		onArchiveThread: vi.fn(),
+		onLoadMore: vi.fn(),
+	};
+
+	it('windows a 10,000-row mailbox to a bounded DOM slice and updates on scroll', async () => {
+		const threads = makeLargeList(10_000);
+		const { container } = render(MessageList, {
+			...baseProps,
+			threads,
+			overscan: 4,
+		});
+
+		const grid = container.querySelector('.sj-msglist__scroll') as HTMLDivElement;
+		expect(grid.getAttribute('role')).toBe('grid');
+		expect(grid.getAttribute('aria-rowcount')).toBe('10000');
+
+		// Only visible + overscan rows are mounted — never all 10,000.
+		const initialRows = container.querySelectorAll('.sj-mailrow');
+		expect(initialRows.length).toBeGreaterThan(0);
+		expect(initialRows.length).toBeLessThan(30);
+		expect(container.querySelector('[role="row"]')?.getAttribute('aria-rowindex')).toBe('1');
+
+		// Scroll halfway down (row 5000 * 84px = 420,000px).
+		setOpenSwipeRowId('e-0');
+		grid.scrollTop = 5_000 * 84;
+		await fireEvent.scroll(grid);
+		await tick();
+
+		expect(getOpenSwipeRowId()).toBeNull();
+		const midRows = container.querySelectorAll('.sj-mailrow');
+		expect(midRows.length).toBeGreaterThan(0);
+		expect(midRows.length).toBeLessThan(30);
+		const mountedIndices = Array.from(container.querySelectorAll('[role="row"]')).map((el) =>
+			Number(el.getAttribute('aria-rowindex')),
+		);
+		expect(mountedIndices).toContain(5001);
+		// Top and bottom spacers keep total scrollable geometry intact.
+		const spacers = container.querySelectorAll('.sj-msglist__spacer');
+		expect(spacers.length).toBe(2);
+	});
+
+	it('supports compact and comfortable densities including live data-density mutations without scroll jump', async () => {
+		const threads = makeLargeList(500);
+		const { container } = render(MessageList, {
+			...baseProps,
+			threads,
+		});
+
+		const grid = container.querySelector('.sj-msglist__scroll') as HTMLDivElement;
+		// Scroll to row 200 in comfortable density (200 * 84 = 16,800px).
+		grid.scrollTop = 200 * 84;
+		await fireEvent.scroll(grid);
+		await tick();
+		expect(container.querySelector('[data-vindex="200"]')).not.toBeNull();
+
+		// Toggle <html data-density="compact"> -> MutationObserver updates density and re-anchors row 200.
+		document.documentElement.dataset.density = 'compact';
+		await new Promise((r) => setTimeout(r, 0));
+		await tick();
+
+		// Row 200 remains mounted and scrollTop re-anchored from 16,800 to 200 * 64 = 12,800.
+		expect(grid.scrollTop).toBe(200 * 64);
+		expect(container.querySelector('[data-vindex="200"]')).not.toBeNull();
+	});
+
+	it('adjusts scrollTop without jump when a measured row above viewport changes height via ResizeObserver', async () => {
+		const observed = new Map<Element, ResizeObserverCallback>();
+		class MockResizeObserver {
+			cb: ResizeObserverCallback;
+			constructor(cb: ResizeObserverCallback) {
+				this.cb = cb;
+			}
+			observe(el: Element) {
+				observed.set(el, this.cb);
+			}
+			unobserve(el: Element) {
+				observed.delete(el);
+			}
+			disconnect() {
+				observed.clear();
+			}
+		}
+		vi.stubGlobal('ResizeObserver', MockResizeObserver);
+
+		const threads = makeLargeList(200);
+		const { container } = render(MessageList, {
+			...baseProps,
+			threads,
+			overscan: 6,
+		});
+		const grid = container.querySelector('.sj-msglist__scroll') as HTMLDivElement;
+		Object.defineProperty(grid, 'clientHeight', { value: 500, configurable: true });
+		// Trigger container ResizeObserver callback
+		const gridCb = observed.get(grid);
+		gridCb?.([], {} as ResizeObserver);
+
+		// Scroll down so overscan row 96 is mounted above scrollTop (100 * 84 = 8400).
+		grid.scrollTop = 100 * 84;
+		await fireEvent.scroll(grid);
+		await tick();
+
+		const aboveRow = container.querySelector('[data-vindex="96"]') as HTMLElement;
+		expect(aboveRow).not.toBeNull();
+		const rowCb = observed.get(aboveRow);
+		expect(rowCb).toBeDefined();
+
+		// Report row 96 as 104px tall (+20px over 84px estimate).
+		rowCb!(
+			[
+				{
+					target: aboveRow,
+					contentRect: { height: 104 } as DOMRectReadOnly,
+					borderBoxSize: [{ blockSize: 104, inlineSize: 300 }] as unknown as ResizeObserverSize[],
+				} as unknown as ResizeObserverEntry,
+			],
+			{} as ResizeObserver,
+		);
+		await tick();
+
+		// Scroll offset compensated by +20px so visible row 100 stays locked in place.
+		expect(grid.scrollTop).toBe(100 * 84 + 20);
+	});
+
+	it('renders date/group headers and expanded threads without scroll jump', async () => {
+		const now = new Date();
+		const yesterday = new Date(now.getTime() - 86_400_000);
+		const threads = [
+			makeThread({
+				id: 'tp',
+				emails: [makeEmail({ id: 'ep', threadId: 'tp', pinnedAt: now.toISOString(), receivedAt: now.toISOString() })],
+			}),
+			makeThread({
+				id: 't-multi',
+				emails: [
+					makeEmail({ id: 'em1', threadId: 't-multi', subject: 'Multi thread', receivedAt: now.toISOString() }),
+					makeEmail({ id: 'em2', threadId: 't-multi', subject: 'Re: Multi thread', receivedAt: now.toISOString() }),
+				],
+				expanded: false,
+			}),
+			...Array.from({ length: 40 }, (_, i) =>
+				makeThread({
+					id: `tu-${i}`,
+					emails: [makeEmail({ id: `eu-${i}`, threadId: `tu-${i}`, receivedAt: yesterday.toISOString() })],
+				}),
+			),
+		];
+
+		const { container, rerender } = render(MessageList, {
+			...baseProps,
+			threads,
+			viewMode: 'threaded',
+			groupByDate: true,
+		});
+
+		const headers = Array.from(container.querySelectorAll('.sj-msglist__group-label')).map((el) =>
+			el.textContent?.trim(),
+		);
+		expect(headers).toContain('Pinned');
+		expect(headers).toContain('Today');
+		expect(headers).toContain('Yesterday');
+
+		// Scroll down to row 20, then expand the thread above the viewport -> anchor preserves scroll.
+		const grid = container.querySelector('.sj-msglist__scroll') as HTMLDivElement;
+		grid.scrollTop = 1600;
+		await fireEvent.scroll(grid);
+		await tick();
+		const beforeScroll = grid.scrollTop;
+
+		const expandedThreads = threads.map((t) => (t.id === 't-multi' ? { ...t, expanded: true } : t));
+		await rerender({
+			...baseProps,
+			threads: expandedThreads,
+			viewMode: 'threaded',
+			groupByDate: true,
+		});
+		await tick();
+
+		// Expanding 2 child rows above viewport shifted scrollTop by +168px (2 * 84px) so visible row didn't jump.
+		expect(grid.scrollTop).toBe(beforeScroll + 2 * 84);
+	});
+
+	it('keyboard navigation (Arrow/j/k/Home/End/PageUp/PageDown) keeps focus and selection synced via scrollToIndex', async () => {
+		const onOpen = vi.fn();
+		const threads = makeLargeList(500);
+		const { container, component } = render(MessageList, {
+			...baseProps,
+			threads,
+			onOpen,
+		});
+
+		const grid = container.querySelector('.sj-msglist__scroll') as HTMLDivElement;
+
+		// ArrowDown moves from index 0 -> 1
+		await fireEvent.keyDown(grid, { key: 'ArrowDown' });
+		await tick();
+		expect(onOpen).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'e-1' }));
+		expect(document.activeElement?.getAttribute('aria-label')).toContain('Message 1');
+
+		// 'j' moves 1 -> 2
+		await fireEvent.keyDown(grid, { key: 'j' });
+		await tick();
+		expect(onOpen).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'e-2' }));
+
+		// 'k' moves 2 -> 1
+		await fireEvent.keyDown(grid, { key: 'k' });
+		await tick();
+		expect(onOpen).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'e-1' }));
+
+		// ArrowUp moves 1 -> 0
+		await fireEvent.keyDown(grid, { key: 'ArrowUp' });
+		await tick();
+		expect(onOpen).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'e-0' }));
+
+		// PageDown jumps roughly one viewport
+		await fireEvent.keyDown(grid, { key: 'PageDown' });
+		await tick();
+		const afterPageDownId = onOpen.mock.calls.at(-1)?.[0]?.id as string;
+		expect(Number(afterPageDownId.replace('e-', ''))).toBeGreaterThanOrEqual(5);
+
+		// PageUp jumps back toward top
+		await fireEvent.keyDown(grid, { key: 'PageUp' });
+		await tick();
+		expect(onOpen).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'e-0' }));
+
+		// End jumps all the way to off-screen row 499, scrolls it into view, selects & focuses it
+		await fireEvent.keyDown(grid, { key: 'End' });
+		await tick();
+		expect(onOpen).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'e-499' }));
+		expect(grid.scrollTop).toBeGreaterThan(30_000);
+		expect(container.querySelector('[data-vindex="499"]')).not.toBeNull();
+		expect(document.activeElement?.getAttribute('aria-label')).toContain('Message 499');
+
+		// Home jumps back to row 0
+		await fireEvent.keyDown(grid, { key: 'Home' });
+		await tick();
+		expect(onOpen).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'e-0' }));
+		expect(grid.scrollTop).toBe(0);
+		expect(document.activeElement?.getAttribute('aria-label')).toContain('Message 0');
+
+		// Modifier keys and unrelated keys (e.g. '/' for in-app full-list search) are not intercepted
+		const callCountBefore = onOpen.mock.calls.length;
+		await fireEvent.keyDown(grid, { key: 'j', ctrlKey: true });
+		await fireEvent.keyDown(grid, { key: '/' });
+		expect(onOpen.mock.calls.length).toBe(callCountBefore);
+
+		// Exported scrollToIndex method works imperatively
+		component.scrollToIndex(300, 'start');
+		await tick();
+		expect(grid.scrollTop).toBe(300 * 84);
+		expect(container.querySelector('[data-vindex="300"]')).not.toBeNull();
+	});
+
+	it('syncs scroll position when selectedId changes externally to an off-screen row', async () => {
+		const threads = makeLargeList(500);
+		const { container, rerender } = render(MessageList, {
+			...baseProps,
+			threads,
+			selectedId: 'e-0',
+		});
+
+		const grid = container.querySelector('.sj-msglist__scroll') as HTMLDivElement;
+		expect(grid.scrollTop).toBe(0);
+
+		await rerender({
+			...baseProps,
+			threads,
+			selectedId: 'e-400',
+		});
+		await tick();
+
+		expect(grid.scrollTop).toBeGreaterThan(30_000);
+		const selectedRow = container.querySelector('[data-vindex="400"]');
+		expect(selectedRow).not.toBeNull();
+		expect(selectedRow?.getAttribute('aria-selected')).toBe('true');
+		expect(selectedRow?.getAttribute('aria-rowindex')).toBe('401');
+	});
+
+	it('preserves thread header keyboard toggle, archive button, focus tabs, and action facade', async () => {
+		const actions = {
+			onOpen: vi.fn(),
+			onArchive: vi.fn(),
+			onStar: vi.fn(),
+			onTrash: vi.fn(),
+			onToggleRead: vi.fn(),
+			onToggleThread: vi.fn(),
+			onMuteThread: vi.fn(),
+			onArchiveThread: vi.fn(),
+			onLoadMore: vi.fn(),
+			onCancelScheduled: vi.fn(),
+			onMoveFocus: vi.fn(),
+			onSnooze: vi.fn(),
+		};
+		const onFocusTab = vi.fn();
+		const threads = [
+			makeThread({
+				id: 'tm',
+				emails: [
+					makeEmail({ id: 'em1', threadId: 'tm', mailboxIds: { other: true } }),
+					makeEmail({ id: 'em2', threadId: 'tm' }),
+				],
+				expanded: false,
+			}),
+			makeThread({
+				id: 'ts',
+				emails: [makeEmail({ id: 'es1', threadId: 'ts', mailboxIds: { tag1: true, other: true } })],
+			}),
+		];
+
+		const { container } = render(MessageList, {
+			threads,
+			viewMode: 'threaded',
+			selectedId: 'es1',
+			tags: [makeTag('tag1', 'Finance')],
+			loading: false,
+			loadingMore: false,
+			hasMore: false,
+			remaining: 0,
+			actions,
+			scheduledTimes: { es1: '2026-06-15T09:00:00Z' },
+			otherTagId: 'other',
+			focusTab: 'focused',
+			otherUnread: 3,
+			onFocusTab,
+		});
+
+		// Focus tabs wire onFocusTab
+		const otherTab = container.querySelectorAll('[role="tab"]')[1] as HTMLButtonElement;
+		await fireEvent.click(otherTab);
+		expect(onFocusTab).toHaveBeenCalledWith('other');
+
+		// Thread header Enter/Space toggles thread and Archive thread button calls onArchiveThread
+		const threadHeader = container.querySelector('.sj-msglist__thread-header') as HTMLElement;
+		expect(threadHeader.getAttribute('aria-expanded')).toBe('false');
+		await fireEvent.keyDown(threadHeader, { key: 'Enter' });
+		expect(actions.onToggleThread).toHaveBeenCalledWith('tm');
+
+		const archiveThreadBtn = container.querySelector('[aria-label="Archive thread"]') as HTMLButtonElement;
+		await fireEvent.click(archiveThreadBtn);
+		expect(actions.onArchiveThread).toHaveBeenCalledWith('tm');
+
+		// Row actions propagate through facade
+		const row = container.querySelector('.sj-mailrow') as HTMLElement;
+		await fireEvent.click(row);
+		expect(actions.onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: 'es1' }));
+		await fireEvent.click(row.querySelector('[aria-label="Archive"]') as HTMLButtonElement);
+		expect(actions.onArchive).toHaveBeenCalled();
+		await fireEvent.click(row.querySelector('[aria-label="Star"]') as HTMLButtonElement);
+		expect(actions.onStar).toHaveBeenCalled();
+		await fireEvent.click(row.querySelector('[aria-label="Trash"]') as HTMLButtonElement);
+		expect(actions.onTrash).toHaveBeenCalled();
+		await fireEvent.click(row.querySelector('[aria-label="Move to Focused"]') as HTMLButtonElement);
+		expect(actions.onMoveFocus).toHaveBeenCalledWith(expect.objectContaining({ id: 'es1' }), true);
+		await fireEvent.click(row.querySelector('[aria-label="Cancel send"]') as HTMLButtonElement);
+		expect(actions.onCancelScheduled).toHaveBeenCalledWith('es1');
+	});
+
+	it('produces zero ARIA grid/row/attribute violations in axe-core', async () => {
+		const threads = makeLargeList(50);
+		const { container } = render(MessageList, {
+			...baseProps,
+			threads,
+			selectedId: 'e-1',
+			groupByDate: true,
+		});
+
+		const results = await axe.run(container, {
+			runOnly: {
+				type: 'rule',
+				values: [
+					'aria-allowed-attr',
+					'aria-conditional-attr',
+					'aria-required-attr',
+					'aria-required-children',
+					'aria-required-parent',
+					'aria-roles',
+					'aria-valid-attr',
+					'aria-valid-attr-value',
+				],
+			},
+		});
+		expect(results.violations).toEqual([]);
 	});
 });
