@@ -24,6 +24,32 @@ use tokio_tungstenite::{
     WebSocketStream,
 };
 
+/// Base periodic session re-validation interval for JMAP push connections (#390).
+pub const REVALIDATE_BASE_INTERVAL: Duration = Duration::from_secs(300);
+/// Symmetric random jitter percentage (±20%) applied to periodic push re-validation (#390).
+pub const REVALIDATE_JITTER_PERCENT: u64 = 20;
+
+/// Apply symmetric ±`percent`% uniform random jitter to `base`.
+pub fn jitter_duration(base: Duration, percent: u64) -> Duration {
+    let base_ms = u64::try_from(base.as_millis()).unwrap_or(u64::MAX);
+    let pct = percent.min(100);
+    let delta_ms = base_ms.saturating_mul(pct) / 100;
+    if delta_ms == 0 {
+        return base;
+    }
+    let min_ms = base_ms.saturating_sub(delta_ms);
+    let span_ms = delta_ms.saturating_mul(2);
+    let mut bytes = [0u8; 8];
+    let _ = getrandom::getrandom(&mut bytes);
+    let offset_ms = u64::from_le_bytes(bytes) % (span_ms + 1);
+    Duration::from_millis(min_ms.saturating_add(offset_ms))
+}
+
+/// Next jittered periodic session re-validation delay (`300s ± 20%` -> `[240s, 360s]`).
+pub fn jittered_revalidate_interval() -> Duration {
+    jitter_duration(REVALIDATE_BASE_INTERVAL, REVALIDATE_JITTER_PERCENT)
+}
+
 pub struct WebSocketRoute<K: KeySource + 'static> {
     pub commands: Arc<JmapCommands<K>>,
     pub hub: Arc<super::hub::PushHub>,
@@ -472,10 +498,7 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                     pong + Duration::from_secs(30),
                     Duration::from_secs(30),
                 );
-                let mut revalidate = tokio::time::interval_at(
-                    pong + Duration::from_secs(300),
-                    Duration::from_secs(300),
-                );
+                let mut revalidate_at = pong + jittered_revalidate_interval();
                 loop {
                     let message = tokio::select! {
                         biased;
@@ -569,7 +592,8 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                         }
                         _=tokio::time::sleep_until(pong+Duration::from_secs(70))=>break,
                         _=ping.tick()=>{if socket.send(Message::Ping(Vec::new().into())).await.is_err(){break}continue},
-                        _=revalidate.tick()=>{
+                        _=tokio::time::sleep_until(revalidate_at)=>{
+                            revalidate_at = tokio::time::Instant::now() + jittered_revalidate_interval();
                             let mut allowed=identity.expires_at().is_some_and(|exp|chrono::Utc::now().timestamp()<exp);
                             allowed &= setjoin_authz::policy_gate::check_mailbox_lifecycle(&commands.exec, mailbox).await.unwrap_or(false);
                             for channel in &admitted {
@@ -1018,4 +1042,43 @@ pub(super) fn problem_response(
         .headers_mut()
         .insert("content-type", "application/problem+json".parse().unwrap());
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn revalidate_jitter_stays_within_bounds_and_varies() {
+        let min = Duration::from_secs(240);
+        let max = Duration::from_secs(360);
+        let mut seen = HashSet::new();
+        for _ in 0..256 {
+            let d = jittered_revalidate_interval();
+            assert!(
+                (min..=max).contains(&d),
+                "jittered revalidate interval {d:?} outside [{min:?}, {max:?}]"
+            );
+            seen.insert(d);
+        }
+        assert!(
+            seen.len() > 16,
+            "expected varied jittered intervals, only saw {} distinct values",
+            seen.len()
+        );
+    }
+
+    #[test]
+    fn jitter_duration_respects_zero_percent_and_custom_bounds() {
+        let base = Duration::from_secs(10);
+        assert_eq!(jitter_duration(base, 0), base);
+        for _ in 0..64 {
+            let d = jitter_duration(base, 20);
+            assert!(
+                (Duration::from_secs(8)..=Duration::from_secs(12)).contains(&d),
+                "jittered duration {d:?} outside [8s, 12s]"
+            );
+        }
+    }
 }

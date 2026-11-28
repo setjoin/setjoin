@@ -405,9 +405,23 @@ async fn serve_http_connection<S>(
                     ));
             }
             served_stats::record(started.elapsed(), response.status().as_u16());
-            Ok::<_, std::io::Error>(
-                response.map(|body| http_limits::ResponseBody::new(body, active).boxed()),
-            )
+            let streaming_sse = response.status() == StatusCode::OK
+                && response
+                    .headers()
+                    .get(hyper::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .is_some_and(|ct| {
+                        ct.split(';')
+                            .next()
+                            .is_some_and(|m| m.trim().eq_ignore_ascii_case("text/event-stream"))
+                    });
+            Ok::<_, std::io::Error>(response.map(|body| {
+                if streaming_sse {
+                    http_limits::ResponseBody::new_streaming(body, active).boxed()
+                } else {
+                    http_limits::ResponseBody::new(body, active).boxed()
+                }
+            }))
         }
     });
     let mut builder = auto::Builder::new(TokioExecutor::new());

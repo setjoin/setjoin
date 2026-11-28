@@ -49,6 +49,11 @@ pub struct Version {
 fn numeric(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
 }
+fn compare_numeric(a: &str, b: &str) -> Ordering {
+    let a = a.trim_start_matches('0');
+    let b = b.trim_start_matches('0');
+    a.len().cmp(&b.len()).then_with(|| a.cmp(b))
+}
 pub fn parse_version(s: &str) -> Result<Version> {
     let c = VERSION
         .captures(s)
@@ -78,19 +83,15 @@ impl Version {
             if a == b {
                 continue;
             }
-            return match (numeric(a), numeric(b)) {
-                // Go ignores ParseUint's overflow error (its returned value saturates).
-                (true, true) => {
-                    if a.parse::<u64>().unwrap_or(u64::MAX) < b.parse::<u64>().unwrap_or(u64::MAX) {
-                        Ordering::Less
-                    } else {
-                        Ordering::Greater
-                    }
-                }
+            let cmp = match (numeric(a), numeric(b)) {
+                (true, true) => compare_numeric(a, b),
                 (true, false) => Ordering::Less,
                 (false, true) => Ordering::Greater,
                 _ => a.cmp(b),
             };
+            if cmp != Ordering::Equal {
+                return cmp;
+            }
         }
         self.pre.len().cmp(&other.pre.len())
     }
@@ -188,23 +189,24 @@ impl Manifest {
                     && list(&self.architectures).contains(&a.architecture),
                 "artifact platform or architecture is undeclared"
             );
-            let target = match a.class.as_str() {
-                "mailserverd" => "core_mailserverd",
-                "authserverd" => "core_authserverd",
-                "mailctl" => "core_mailctl",
-                "webmail" => "core_webmail",
-                "migration" => "core_migrations",
-                "recovery_guide" => "recovery_guide",
-                "sbom" => "release_sbom",
-                "provenance" => "release_provenance",
-                "sidecar" => "compatible_sidecar",
-                "setjoin-gateway" => "core_setjoin_gateway",
-                "setjoin-server" => "core_setjoin_server",
-                "setjoin-auth" => "core_setjoin_auth",
-                "setjoind" => "core_setjoind",
-                _ => "",
+            let Some(target) = (match a.class.as_str() {
+                "mailserverd" => Some("core_mailserverd"),
+                "authserverd" => Some("core_authserverd"),
+                "mailctl" => Some("core_mailctl"),
+                "webmail" => Some("core_webmail"),
+                "migration" => Some("core_migrations"),
+                "recovery_guide" => Some("recovery_guide"),
+                "sbom" => Some("release_sbom"),
+                "provenance" => Some("release_provenance"),
+                "sidecar" => Some("compatible_sidecar"),
+                "setjoin-gateway" => Some("core_setjoin_gateway"),
+                "setjoin-server" => Some("core_setjoin_server"),
+                "setjoin-auth" => Some("core_setjoin_auth"),
+                "setjoind" => Some("core_setjoind"),
+                _ => None,
+            }) else {
+                anyhow::bail!("unknown artifact class {:?}", a.class);
             };
-            // Go's missing map key is the empty string, including for unknown classes.
             ensure!(a.target == target, "artifact has invalid class/target pair");
             classes.insert(a.class.as_str());
             if a.target != "core_migrations" && a.target != "compatible_sidecar" {
@@ -477,5 +479,98 @@ mod tests {
             let err = mixed.validate().unwrap_err().to_string();
             assert!(err.contains("mixes setjoind with legacy Go"), "{err}");
         }
+    }
+
+    #[test]
+    fn unknown_artifact_class_is_rejected_even_with_empty_target() {
+        for (class, target) in [
+            ("unknown-class", ""),
+            ("future_binary", ""),
+            ("", ""),
+            ("unknown-class", "core_unknown"),
+        ] {
+            let mut mv = base_manifest();
+            let template = mv["artifacts"][0].clone();
+            let mut arts = mv["artifacts"].as_array().unwrap().clone();
+            let mut extra = make_artifact(&template, "z-unknown-artifact", class, target);
+            extra["cohort"] = "extras".into();
+            arts.push(extra);
+            arts.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+            mv["artifacts"] = Value::Array(arts);
+            let raw = serde_json::to_vec(&mv).unwrap();
+            let err = Manifest::parse(&raw)
+                .expect_err("unknown artifact class must be rejected")
+                .to_string();
+            assert!(
+                err.contains("unknown artifact class"),
+                "unexpected error for class={class:?} target={target:?}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn prerelease_numeric_overflow_ordering_is_total_transitive_and_antisymmetric() {
+        // Strictly ascending SemVer 2.0.0 order spanning normal u64, u64::MAX,
+        // u64::MAX+1, much larger decimal integers, alphanumeric identifiers, and release.
+        let primary = [
+            "1.0.0-0",
+            "1.0.0-2",
+            "1.0.0-10",
+            "1.0.0-18446744073709551614", // u64::MAX - 1
+            "1.0.0-18446744073709551615", // u64::MAX
+            "1.0.0-18446744073709551616", // u64::MAX + 1
+            "1.0.0-18446744073709551616.1",
+            "1.0.0-18446744073709551616.2",
+            "1.0.0-18446744073709551616.18446744073709551616",
+            "1.0.0-18446744073709551616.18446744073709551617",
+            "1.0.0-18446744073709551617", // u64::MAX + 2
+            "1.0.0-99999999999999999998",
+            "1.0.0-99999999999999999999",
+            "1.0.0-100000000000000000000",
+            "1.0.0-9999999999999999999999999999999999999999",
+            "1.0.0-alpha",
+            "1.0.0",
+        ];
+        let parsed: Vec<Version> = primary.iter().map(|s| parse_version(s).unwrap()).collect();
+        for (i, a) in parsed.iter().enumerate() {
+            for (j, b) in parsed.iter().enumerate() {
+                assert_eq!(
+                    a.compare(b),
+                    i.cmp(&j),
+                    "expected {} {:?} {}",
+                    primary[i],
+                    i.cmp(&j),
+                    primary[j]
+                );
+                // Antisymmetry check
+                assert_eq!(
+                    a.compare(b),
+                    b.compare(a).reverse(),
+                    "antisymmetry violated for {} vs {}",
+                    primary[i],
+                    primary[j]
+                );
+            }
+        }
+        // Transitivity check across all triples (i < j < k)
+        for i in 0..parsed.len() {
+            for j in (i + 1)..parsed.len() {
+                for k in (j + 1)..parsed.len() {
+                    assert_eq!(parsed[i].compare(&parsed[j]), Ordering::Less);
+                    assert_eq!(parsed[j].compare(&parsed[k]), Ordering::Less);
+                    assert_eq!(parsed[i].compare(&parsed[k]), Ordering::Less);
+                }
+            }
+        }
+        assert!(version_in_range(
+            "1.0.0-18446744073709551617",
+            ">1.0.0-18446744073709551616 <1.0.0-99999999999999999999"
+        )
+        .unwrap());
+        assert!(!version_in_range(
+            "1.0.0-18446744073709551616",
+            ">1.0.0-18446744073709551617"
+        )
+        .unwrap());
     }
 }
