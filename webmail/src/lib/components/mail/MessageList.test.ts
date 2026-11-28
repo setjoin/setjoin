@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte/svelte5';
 import { tick } from 'svelte';
 import axe from 'axe-core';
+import { setLocale } from '$lib/i18n';
 import MessageList from './MessageList.svelte';
 import { getOpenSwipeRowId, setOpenSwipeRowId } from './mailRowSwipe.svelte';
 import type { Email, Mailbox } from '$lib/types/jmap';
@@ -267,6 +268,7 @@ describe('MessageList virtualization, keyboard nav & accessibility (#625)', () =
 	afterEach(() => {
 		delete document.documentElement.dataset.density;
 		setOpenSwipeRowId(null);
+		setLocale('en');
 		vi.unstubAllGlobals();
 	});
 
@@ -682,5 +684,180 @@ describe('MessageList virtualization, keyboard nav & accessibility (#625)', () =
 			},
 		});
 		expect(results.violations).toEqual([]);
+	});
+
+	it('resets scrollTop cleanly on loading remount and disjoint folder/filter transitions', async () => {
+		const inboxThreads = makeLargeList(300);
+		const { container, rerender } = render(MessageList, {
+			...baseProps,
+			threads: inboxThreads,
+		});
+
+		const grid1 = container.querySelector('.sj-msglist__scroll') as HTMLDivElement;
+		grid1.scrollTop = 200 * 84;
+		await fireEvent.scroll(grid1);
+		await tick();
+		expect(container.querySelector('[data-vindex="200"]')).not.toBeNull();
+
+		// Transition through loading=true -> loading=false (unmounts and remounts scrollEl)
+		await rerender({ ...baseProps, threads: inboxThreads, loading: true });
+		await tick();
+		expect(container.querySelector('.sj-msglist__scroll')).toBeNull();
+
+		const sentThreads = Array.from({ length: 200 }, (_, i) =>
+			makeThread({
+				id: `sent-${i}`,
+				emails: [makeEmail({ id: `se-${i}`, threadId: `sent-${i}`, subject: `Sent ${i}` })],
+			}),
+		);
+		await rerender({ ...baseProps, threads: sentThreads, loading: false });
+		await tick();
+
+		const grid2 = container.querySelector('.sj-msglist__scroll') as HTMLDivElement;
+		expect(grid2.scrollTop).toBe(0);
+		expect(container.querySelector('[data-vindex="0"]')).not.toBeNull();
+
+		// Direct disjoint filter switch (without loading phase) resets scroll to 0
+		grid2.scrollTop = 100 * 84;
+		await fireEvent.scroll(grid2);
+		await tick();
+		expect(container.querySelector('[data-vindex="100"]')).not.toBeNull();
+
+		const filteredThreads = Array.from({ length: 50 }, (_, i) =>
+			makeThread({
+				id: `flt-${i}`,
+				emails: [makeEmail({ id: `fe-${i}`, threadId: `flt-${i}`, subject: `Filtered ${i}` })],
+			}),
+		);
+		await rerender({ ...baseProps, threads: filteredThreads, loading: false });
+		await tick();
+
+		expect(grid2.scrollTop).toBe(0);
+		expect(container.querySelector('[data-vindex="0"]')).not.toBeNull();
+	});
+
+	it('renders interleaved non-chronological groupByDate headers without duplicate keys and respects i18n locale', async () => {
+		setLocale('zh');
+		const now = new Date();
+		const old = new Date(now.getTime() - 20 * 86_400_000);
+		const threads = [
+			makeThread({ id: 'tp', emails: [makeEmail({ id: 'ep', pinnedAt: now.toISOString(), receivedAt: now.toISOString() })] }),
+			makeThread({ id: 't1', emails: [makeEmail({ id: 'e1', subject: 'A', receivedAt: now.toISOString() })] }),
+			makeThread({ id: 't2', emails: [makeEmail({ id: 'e2', subject: 'B', receivedAt: old.toISOString() })] }),
+			makeThread({ id: 't3', emails: [makeEmail({ id: 'e3', subject: 'C', receivedAt: now.toISOString() })] }),
+			makeThread({ id: 't4', emails: [makeEmail({ id: 'e4', subject: 'D', receivedAt: old.toISOString() })] }),
+		];
+
+		const { container } = render(MessageList, {
+			...baseProps,
+			threads,
+			groupByDate: true,
+		});
+
+		const labels = Array.from(container.querySelectorAll('.sj-msglist__group-label')).map((el) =>
+			el.textContent?.trim(),
+		);
+		expect(labels).toEqual(['置顶', '今天', '更早', '今天', '更早']);
+	});
+
+	it('keeps a tabbable tabindex="0" row mounted when effectiveActiveIndex scrolls off-screen', async () => {
+		const threads = makeLargeList(500);
+		const { container } = render(MessageList, {
+			...baseProps,
+			threads,
+			selectedId: 'e-0',
+		});
+
+		const grid = container.querySelector('.sj-msglist__scroll') as HTMLDivElement;
+		expect(container.querySelectorAll('.sj-mailrow[tabindex="0"]').length).toBe(1);
+
+		// Scroll far past index 0 so active row 0 unmounts
+		grid.scrollTop = 250 * 84;
+		await fireEvent.scroll(grid);
+		await tick();
+
+		expect(container.querySelector('[data-vindex="0"]')).toBeNull();
+		const tabbableRows = container.querySelectorAll('.sj-mailrow[tabindex="0"]');
+		expect(tabbableRows.length).toBe(1);
+	});
+
+	it('does not re-fire onOpen on boundary keypresses when the target email is already selected', async () => {
+		const onOpen = vi.fn();
+		const threads = makeLargeList(5);
+		const { container } = render(MessageList, {
+			...baseProps,
+			threads,
+			selectedId: 'e-0',
+			onOpen,
+		});
+
+		const grid = container.querySelector('.sj-msglist__scroll') as HTMLDivElement;
+		await fireEvent.keyDown(grid, { key: 'ArrowUp' });
+		await fireEvent.keyDown(grid, { key: 'Home' });
+		expect(onOpen).not.toHaveBeenCalled();
+
+		// Move to last row -> calls onOpen once, then boundary ArrowDown/End when selectedId matches does not re-fire
+		const { container: c2 } = render(MessageList, {
+			...baseProps,
+			threads,
+			selectedId: 'e-4',
+			onOpen,
+		});
+		const grid2 = c2.querySelector('.sj-msglist__scroll') as HTMLDivElement;
+		await fireEvent.keyDown(grid2, { key: 'ArrowDown' });
+		await fireEvent.keyDown(grid2, { key: 'End' });
+		expect(onOpen).not.toHaveBeenCalled();
+	});
+
+	it('applies data-density on explicit density prop and renders EmptyState for degenerate empty-email threads', async () => {
+		const { container } = render(MessageList, {
+			...baseProps,
+			threads: [makeThread({ id: 'empty', emails: [] })],
+			density: 'compact',
+		});
+
+		expect(container.querySelector('.sj-msglist')?.getAttribute('data-density')).toBe('compact');
+		expect(container.querySelector('.sj-empty')).not.toBeNull();
+		expect(container.querySelector('[role="grid"]')).toBeNull();
+	});
+
+	it('prunes stale measuredHeights entries after large disjoint list transitions', async () => {
+		let observerCb: ResizeObserverCallback | null = null;
+		class MockResizeObserver {
+			constructor(cb: ResizeObserverCallback) {
+				observerCb = cb;
+			}
+			observe() {}
+			unobserve() {}
+			disconnect() {}
+		}
+		vi.stubGlobal('ResizeObserver', MockResizeObserver);
+
+		// Populate 200 items with non-zero bounding rects via mocked getBoundingClientRect
+		const origRect = HTMLElement.prototype.getBoundingClientRect;
+		HTMLElement.prototype.getBoundingClientRect = () =>
+			({ height: 92, width: 300, top: 0, left: 0, bottom: 92, right: 300, x: 0, y: 0, toJSON: () => {} }) as DOMRect;
+		try {
+			const batchA = makeLargeList(200);
+			const { container, rerender } = render(MessageList, {
+				...baseProps,
+				threads: batchA,
+				overscan: 150,
+			});
+			await tick();
+			expect(observerCb).not.toBeNull();
+
+			// Switch to tiny disjoint batch B -> measuredHeights.size (>150) > virtualItems.length (2) + 128 triggers prune
+			const batchB = [
+				makeThread({ id: 'b-0', emails: [makeEmail({ id: 'be-0', threadId: 'b-0' })] }),
+				makeThread({ id: 'b-1', emails: [makeEmail({ id: 'be-1', threadId: 'b-1' })] }),
+			];
+			await rerender({ ...baseProps, threads: batchB, overscan: 6 });
+			await tick();
+
+			expect(container.querySelectorAll('.sj-mailrow').length).toBe(2);
+		} finally {
+			HTMLElement.prototype.getBoundingClientRect = origRect;
+		}
 	});
 });

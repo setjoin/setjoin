@@ -1,7 +1,7 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { Spinner, EmptyState, Button, IconButton, Tabs } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import MailRow from './MailRow.svelte';
@@ -171,8 +171,9 @@
 	let rowObserver: ResizeObserver | null = null;
 	let anchorKey: string | null = null;
 	let anchorDelta = 0;
-	let lastDensity: VirtualDensity = readDocumentDensity();
+	let lastDensity: VirtualDensity | null = null;
 	let lastSyncedSelectedId: string | null = null;
+	let syncedScrollEl: HTMLDivElement | null = null;
 	let focusSeq = 0;
 
 	const flattened = $derived(
@@ -217,6 +218,17 @@
 		return findBoundaryNavigableIndex(virtualItems, 'start');
 	});
 
+	/** Ensure one mounted row is always tabbable even when effectiveActiveIndex scrolls out of view. */
+	const tabbableIndex = $derived.by(() => {
+		if (effectiveActiveIndex >= startIndex && effectiveActiveIndex < endIndex) {
+			return effectiveActiveIndex;
+		}
+		for (const item of visibleItems) {
+			if (isNavigableItem(item)) return item.index;
+		}
+		return -1;
+	});
+
 	function captureAnchor(nextScrollTop: number) {
 		if (virtualItems.length === 0 || nextScrollTop <= 0) {
 			anchorKey = null;
@@ -236,16 +248,8 @@
 		const prev = itemHeight(virtualItems[idx], activeDensity, measuredHeights);
 		if (Math.abs(rounded - prev) < 1) return;
 
-		const itemTop = layout.offsets[idx];
-		const aboveViewport = scrollTop > 0 && itemTop < scrollTop;
 		measuredHeights.set(key, rounded);
 		measureVersion += 1;
-
-		if (aboveViewport) {
-			const nextScroll = Math.max(0, scrollTop + (rounded - prev));
-			scrollTop = nextScroll;
-			if (scrollEl) scrollEl.scrollTop = nextScroll;
-		}
 	}
 
 	function measureRow(node: HTMLElement, key: string) {
@@ -305,10 +309,21 @@
 		};
 	});
 
-	// Observe scroll container viewport size changes.
+	// Reset scroll state when entering a loading phase so remounting the scroll container never desyncs.
+	$effect(() => {
+		if (loading) {
+			scrollTop = 0;
+			anchorKey = null;
+			anchorDelta = 0;
+		}
+	});
+
+	// Observe scroll container viewport size changes and reconcile DOM scrollTop on mount.
 	$effect(() => {
 		const el = scrollEl;
 		if (!el) return;
+		const expectedScroll = untrack(() => scrollTop);
+		if (Math.abs(el.scrollTop - expectedScroll) >= 1) el.scrollTop = expectedScroll;
 		if (el.clientHeight > 0) viewportHeight = el.clientHeight;
 		if (typeof ResizeObserver === 'undefined') return;
 		const ro = new ResizeObserver(() => {
@@ -320,15 +335,27 @@
 
 	// Clear cached measurements when density toggles so compact/comfortable estimates apply immediately.
 	$effect(() => {
-		if (activeDensity !== lastDensity) {
-			lastDensity = activeDensity;
+		if (lastDensity !== null && activeDensity !== lastDensity) {
 			measuredHeights.clear();
 			measureVersion += 1;
 		}
+		lastDensity = activeDensity;
 	});
 
-	// Preserve scroll anchor across thread expand/collapse, density changes, or filter updates.
+	// Bound cached height entries after repeated folder/filter transitions.
 	$effect(() => {
+		if (measuredHeights.size > virtualItems.length + 128) {
+			for (const key of measuredHeights.keys()) {
+				if (!itemIndexByKey.has(key)) measuredHeights.delete(key);
+			}
+		}
+	});
+
+	// Preserve scroll anchor across thread expand/collapse, height measurements, density changes, or filter switches.
+	$effect(() => {
+		const el = scrollEl;
+		const elChanged = el !== syncedScrollEl;
+		syncedScrollEl = el;
 		const resolved = resolveAnchorScrollTop(
 			virtualItems,
 			layout,
@@ -337,9 +364,12 @@
 			scrollTop,
 			viewportHeight,
 		);
-		if (Math.abs(resolved - scrollTop) >= 1) {
+		const stateChanged = Math.abs(resolved - scrollTop) >= 1;
+		if (stateChanged) {
 			scrollTop = resolved;
-			if (scrollEl) scrollEl.scrollTop = resolved;
+		}
+		if (el && (stateChanged || elChanged) && Math.abs(el.scrollTop - resolved) >= 1) {
+			el.scrollTop = resolved;
 		}
 		captureAnchor(resolved);
 	});
@@ -424,7 +454,7 @@
 		scrollToIndex(nextIdx, 'nearest');
 
 		const item = virtualItems[nextIdx];
-		if (item.kind === 'row' || item.kind === 'thread-child') {
+		if ((item.kind === 'row' || item.kind === 'thread-child') && item.email.id !== selectedId) {
 			lastSyncedSelectedId = item.email.id;
 			onOpen(item.email);
 		}
@@ -477,7 +507,7 @@
 	}
 </script>
 
-<div class="sj-msglist">
+<div class="sj-msglist" data-density={densityProp}>
 	{#if onFocusTab}
 		<div class="sj-msglist__tabs">
 			<Tabs
@@ -494,7 +524,7 @@
 		<div class="sj-msglist__loading">
 			<Spinner size={28} label="Loading messages" />
 		</div>
-	{:else if threads.length === 0}
+	{:else if virtualItems.length === 0}
 		<div class="sj-msglist__empty">
 			<EmptyState
 				title="Nothing here. Inbox zero feels good."
@@ -502,10 +532,10 @@
 			/>
 		</div>
 	{:else}
-		<!-- WAI-ARIA 1.2 composite interactive list: role="grid" supports aria-rowcount /
-		     aria-rowindex and allows MailRow's role="button" + action IconButtons inside
-		     gridcells with zero axe-core aria-allowed-attr / aria-required-children /
-		     nested-interactive violations (unlike role="listbox" + role="option"). -->
+		<!-- WAI-ARIA 1.2 composite list: role="grid" supports aria-rowcount /
+		     aria-rowindex and lets gridcells host MailRow's role="button" without
+		     triggering aria-allowed-attr / aria-required-children violations on
+		     the list container (verified by axe-core ARIA rules in MessageList.test.ts). -->
 		<div
 			class="sj-msglist__scroll"
 			role="grid"
@@ -537,7 +567,9 @@
 						data-vkey={item.key}
 						use:measureRow={item.key}
 					>
-						<div class="sj-msglist__group-label" role="rowheader">{item.label}</div>
+						<div class="sj-msglist__group-label" role="rowheader">
+							{t(`inbox.group.${item.bucket}`)}
+						</div>
 					</div>
 				{:else if item.kind === 'thread-header'}
 					<div
@@ -555,7 +587,7 @@
 								class="sj-msglist__thread-header"
 								class:sj-msglist__thread-header--expanded={item.thread.expanded}
 								role="button"
-								tabindex={item.index === effectiveActiveIndex ? 0 : -1}
+								tabindex={item.index === tabbableIndex ? 0 : -1}
 								aria-expanded={item.thread.expanded}
 								onclick={(e) => {
 									activeIndex = item.index;
@@ -576,7 +608,7 @@
 									</span>
 								{/if}
 								<span class="sj-msglist__thread-date">
-									{item.pinned ? 'Pinned' : ''}
+									{item.pinned ? t('inbox.group.pinned') : ''}
 								</span>
 								<IconButton
 									label={item.thread.muted ? 'Unmute thread' : 'Mute thread'}
@@ -611,7 +643,7 @@
 								email={item.email}
 								tags={tagsForEmail(item.email)}
 								selected={isSelected(item.email)}
-								rowTabIndex={item.index === effectiveActiveIndex ? 0 : -1}
+								rowTabIndex={item.index === tabbableIndex ? 0 : -1}
 								tour={item.kind === 'row' ? item.tour : undefined}
 								onOpen={() => {
 									activeIndex = item.index;

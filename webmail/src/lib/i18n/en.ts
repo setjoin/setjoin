@@ -314,6 +314,11 @@ const en: Record<string, string> = {
   "inbox.html_toggle.show": "Show HTML",
   "inbox.html_toggle.hide": "Hide HTML",
   "inbox.read_receipt_request": "Sender requested read receipt",
+  "inbox.group.pinned": "Pinned",
+  "inbox.group.today": "Today",
+  "inbox.group.yesterday": "Yesterday",
+  "inbox.group.this_week": "This week",
+  "inbox.group.older": "Older",
 
   // ── Mail banners ──
   "mail.banner.spoof_warning":

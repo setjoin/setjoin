@@ -11,6 +11,8 @@ export type VirtualDensity = 'comfortable' | 'compact';
 
 export type VirtualItemKind = 'row' | 'thread-header' | 'thread-child' | 'header' | 'divider';
 
+export type DateGroupBucket = 'pinned' | 'today' | 'yesterday' | 'this_week' | 'older';
+
 export type ScrollAlign = 'nearest' | 'start' | 'center';
 
 export type VirtualItem =
@@ -44,7 +46,7 @@ export type VirtualItem =
 			key: string;
 			index: number;
 			rowIndex: number;
-			label: string;
+			bucket: DateGroupBucket;
 	  }
 	| {
 			kind: 'divider';
@@ -92,18 +94,21 @@ export const ESTIMATED_HEIGHTS: Record<VirtualDensity, Record<VirtualItemKind, n
 
 const MS_PER_DAY = 86_400_000;
 
-/** Bucket an ISO timestamp into a stable date-group header label. */
-export function dateGroupLabel(iso: string | undefined, now: Date = new Date()): string {
-	if (!iso) return 'Older';
+/** Bucket an ISO timestamp into a stable, DST-safe calendar-day group bucket. */
+export function dateGroupBucket(
+	iso: string | undefined,
+	now: Date = new Date(),
+): Exclude<DateGroupBucket, 'pinned'> {
+	if (!iso) return 'older';
 	const d = new Date(iso);
-	if (Number.isNaN(d.getTime())) return 'Older';
-	const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-	const startOfDate = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-	const dayDiff = Math.floor((startOfToday - startOfDate) / MS_PER_DAY);
-	if (dayDiff <= 0) return 'Today';
-	if (dayDiff === 1) return 'Yesterday';
-	if (dayDiff < 7) return 'This week';
-	return 'Older';
+	if (Number.isNaN(d.getTime())) return 'older';
+	const startOfTodayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+	const startOfDateUtc = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+	const dayDiff = Math.floor((startOfTodayUtc - startOfDateUtc) / MS_PER_DAY);
+	if (dayDiff <= 0) return 'today';
+	if (dayDiff === 1) return 'yesterday';
+	if (dayDiff < 7) return 'this_week';
+	return 'older';
 }
 
 export interface FlattenOptions {
@@ -129,6 +134,7 @@ export function flattenThreadsToVirtualItems(
 
 	const items: VirtualItem[] = [];
 	let rowIndex = 0;
+	let headerSeq = 0;
 
 	const appendThread = (thread: ThreadData, isPinned: boolean, allowTour: boolean) => {
 		if (viewMode === 'threaded' && thread.emails.length > 1) {
@@ -169,10 +175,10 @@ export function flattenThreadsToVirtualItems(
 	if (groupByDate && pinned.length > 0) {
 		items.push({
 			kind: 'header',
-			key: 'header:pinned',
+			key: `header:pinned:${headerSeq++}`,
 			index: items.length,
 			rowIndex: ++rowIndex,
-			label: 'Pinned',
+			bucket: 'pinned',
 		});
 	}
 
@@ -192,15 +198,15 @@ export function flattenThreadsToVirtualItems(
 	for (let i = 0; i < unpinned.length; i++) {
 		const thread = unpinned[i];
 		if (groupByDate) {
-			const bucket = dateGroupLabel(thread.emails[0].receivedAt, now);
+			const bucket = dateGroupBucket(thread.emails[0].receivedAt, now);
 			if (bucket !== lastBucket) {
 				lastBucket = bucket;
 				items.push({
 					kind: 'header',
-					key: `header:${bucket}`,
+					key: `header:${bucket}:${headerSeq++}`,
 					index: items.length,
 					rowIndex: ++rowIndex,
-					label: bucket,
+					bucket,
 				});
 			}
 		}
@@ -408,7 +414,8 @@ export function findPageNavigableIndex(
 /**
  * Re-anchor scrollTop when layout heights or items above the viewport change
  * (density switch, thread expand/collapse, row re-measurement) so visible rows
- * stay pinned without a scroll jump.
+ * stay pinned without a scroll jump. When a previously anchored item disappears
+ * on a disjoint list transition (e.g. filter or folder switch), resets to top.
  */
 export function resolveAnchorScrollTop(
 	items: readonly VirtualItem[],
@@ -426,6 +433,7 @@ export function resolveAnchorScrollTop(
 		if (idx >= 0) {
 			return Math.min(maxScroll, Math.max(0, layout.offsets[idx] + anchorDelta));
 		}
+		return 0;
 	}
 	return Math.min(maxScroll, Math.max(0, currentScrollTop));
 }

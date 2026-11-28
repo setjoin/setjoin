@@ -6,7 +6,7 @@ import {
 	buildVirtualLayout,
 	computeScrollTopForIndex,
 	computeVirtualRange,
-	dateGroupLabel,
+	dateGroupBucket,
 	findBoundaryNavigableIndex,
 	findIndexAtOffset,
 	findItemIndexByEmailId,
@@ -48,17 +48,28 @@ function makeThread(
 }
 
 describe('virtualList pure helpers', () => {
-	describe('dateGroupLabel', () => {
+	describe('dateGroupBucket', () => {
 		const now = new Date(2026, 5, 14, 15, 0, 0); // local 2026-06-14 15:00
 
-		it('buckets today, yesterday, this week, older, and invalid/missing timestamps', () => {
-			expect(dateGroupLabel(new Date(2026, 5, 14, 9, 0, 0).toISOString(), now)).toBe('Today');
-			expect(dateGroupLabel(new Date(2026, 5, 15, 9, 0, 0).toISOString(), now)).toBe('Today');
-			expect(dateGroupLabel(new Date(2026, 5, 13, 20, 0, 0).toISOString(), now)).toBe('Yesterday');
-			expect(dateGroupLabel(new Date(2026, 5, 10, 12, 0, 0).toISOString(), now)).toBe('This week');
-			expect(dateGroupLabel(new Date(2026, 5, 1, 12, 0, 0).toISOString(), now)).toBe('Older');
-			expect(dateGroupLabel(undefined, now)).toBe('Older');
-			expect(dateGroupLabel('not-a-date', now)).toBe('Older');
+		it('buckets today, yesterday, this_week, older, and invalid/missing timestamps', () => {
+			expect(dateGroupBucket(new Date(2026, 5, 14, 9, 0, 0).toISOString(), now)).toBe('today');
+			expect(dateGroupBucket(new Date(2026, 5, 15, 9, 0, 0).toISOString(), now)).toBe('today');
+			expect(dateGroupBucket(new Date(2026, 5, 13, 20, 0, 0).toISOString(), now)).toBe('yesterday');
+			expect(dateGroupBucket(new Date(2026, 5, 10, 12, 0, 0).toISOString(), now)).toBe('this_week');
+			expect(dateGroupBucket(new Date(2026, 5, 1, 12, 0, 0).toISOString(), now)).toBe('older');
+			expect(dateGroupBucket(undefined, now)).toBe('older');
+			expect(dateGroupBucket('not-a-date', now)).toBe('older');
+		});
+
+		it('computes calendar-day diff via Date.UTC cleanly across spring-forward and fall-back DST boundaries', () => {
+			// US spring-forward (23-hour day: Mar 8 2026) and fall-back (25-hour day: Nov 1 2026)
+			const springAfter = new Date(2026, 2, 9, 0, 15, 0); // Mar 9 00:15 local
+			const springDay = new Date(2026, 2, 8, 23, 45, 0); // Mar 8 23:45 local (calendar yesterday)
+			expect(dateGroupBucket(springDay.toISOString(), springAfter)).toBe('yesterday');
+
+			const fallAfter = new Date(2026, 10, 2, 0, 15, 0); // Nov 2 00:15 local
+			const fallDay = new Date(2026, 10, 1, 0, 15, 0); // Nov 1 00:15 local (25h earlier, still calendar yesterday)
+			expect(dateGroupBucket(fallDay.toISOString(), fallAfter)).toBe('yesterday');
 		});
 	});
 
@@ -114,10 +125,27 @@ describe('virtualList pure helpers', () => {
 				now,
 			});
 
-			const headers = items.filter((it) => it.kind === 'header').map((it) => it.label);
-			expect(headers).toEqual(['Pinned', 'Today', 'Yesterday', 'Older']);
+			const headers = items.filter((it) => it.kind === 'header').map((it) => it.bucket);
+			expect(headers).toEqual(['pinned', 'today', 'yesterday', 'older']);
 			// 4 headers + 5 rows = 9 ARIA rows (divider excluded)
 			expect(totalRowCount).toBe(9);
+		});
+
+		it('assigns unique keys to repeated date headers under non-chronological sorting', () => {
+			const now = new Date(2026, 5, 14, 15, 0, 0);
+			const todayIso = new Date(2026, 5, 14, 10, 0, 0).toISOString();
+			const olderIso = new Date(2026, 5, 1, 10, 0, 0).toISOString();
+			const threads = [
+				makeThread('t1', [makeEmail('e1', { subject: 'Alpha', receivedAt: todayIso })]),
+				makeThread('t2', [makeEmail('e2', { subject: 'Beta', receivedAt: olderIso })]),
+				makeThread('t3', [makeEmail('e3', { subject: 'Gamma', receivedAt: todayIso })]),
+				makeThread('t4', [makeEmail('e4', { subject: 'Delta', receivedAt: olderIso })]),
+			];
+
+			const { items } = flattenThreadsToVirtualItems(threads, 'flat', { groupByDate: true, now });
+			const headers = items.filter((it) => it.kind === 'header');
+			expect(headers.map((h) => h.bucket)).toEqual(['today', 'older', 'today', 'older']);
+			expect(new Set(items.map((it) => it.key)).size).toBe(items.length);
 		});
 
 		it('assigns tour="organize" to first unpinned row when there are no pinned threads', () => {
@@ -221,17 +249,19 @@ describe('virtualList pure helpers', () => {
 			expect(computeScrollTopForIndex(layout, 50, 0, 0, 'nearest')).toBe(51 * rowH - DEFAULT_VIEWPORT_HEIGHT);
 		});
 
-		it('re-anchors scrollTop without jump when items are inserted above or density changes', () => {
+		it('re-anchors scrollTop without jump and resets to 0 on disjoint folder/filter transitions', () => {
 			expect(resolveAnchorScrollTop(items, layout, null, 0, 0, 600)).toBe(0);
 			expect(resolveAnchorScrollTop(items, layout, items[40].key, 12, 500, 600)).toBe(
 				layout.offsets[40] + 12,
 			);
-			// Missing anchor clamps to maxScroll
-			expect(resolveAnchorScrollTop(items, layout, 'missing-key', 0, 999_999, 600)).toBe(
+			// Missing anchor (disjoint filter/folder switch) resets to top (0)
+			expect(resolveAnchorScrollTop(items, layout, 'missing-key', 0, 999_999, 600)).toBe(0);
+			// Null anchor still clamps to maxScroll
+			expect(resolveAnchorScrollTop(items, layout, null, 0, 999_999, 600)).toBe(
 				layout.totalHeight - 600,
 			);
 			// Fallback viewportHeight
-			expect(resolveAnchorScrollTop(items, layout, 'missing-key', 0, 999_999, 0)).toBe(
+			expect(resolveAnchorScrollTop(items, layout, null, 0, 999_999, 0)).toBe(
 				layout.totalHeight - DEFAULT_VIEWPORT_HEIGHT,
 			);
 		});
