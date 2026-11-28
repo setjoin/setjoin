@@ -1085,13 +1085,13 @@ class CoverageScheduler(unittest.TestCase):
     def test_groups_come_from_the_nextest_group_config(self):
         module = self.module()
         groups = module.load_serial_groups(ROOT)
-        self.assertEqual(groups["setjoin-auth::rp_oracle"], groups["setjoin-auth::rp_swap"])
-        self.assertEqual(groups["setjoin-gateway::mailsec_tls"], groups["setjoin-gateway::mailsec_smime"])
-        suite = {"cases": [{"replay": {"package": "setjoin-auth", "target": "rp_oracle", "test": "t"}},
-                           {"replay": {"package": "setjoin-auth", "target": "csrf", "test": "t"}},
+        self.assertEqual(groups["setjoin-gateway::suite_serial_tls"], groups["setjoin-tls::suite_serial_tls"])
+        self.assertEqual(groups["setjoin-gateway::suite_serial_drain"], groups["setjoin-gateway::suite_serial_mailsec_jmap"])
+        suite = {"cases": [{"replay": {"package": "setjoin-auth", "target": "suite_serial_auth_1", "test": "t"}},
+                           {"replay": {"package": "setjoin-auth", "target": "suite_serial_auth_2", "test": "t"}},
                            {"replay": {"package": "setjoin-auth", "target": "no_such_binary", "test": "t"}}]}
         self.assertEqual(module.entry_groups(suite, groups),
-                         frozenset({groups["setjoin-auth::rp_oracle"], groups["setjoin-auth::csrf"]}))
+                         frozenset({groups["setjoin-auth::suite_serial_auth_1"], groups["setjoin-auth::suite_serial_auth_2"]}))
 
 
 class HostedShards(unittest.TestCase):
