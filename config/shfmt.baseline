@@ -1,7 +1,6 @@
 # Pre-existing shfmt debt. Delete a path when it is formatted; the ratchet
 # rejects any newly non-conforming tracked shell file.
 clients/desktop/scripts/mobile-e2e.sh
-examples/hello-world.sh
 mailserver/deploy/docker/test-imap/setup-maildir.sh
 mailserver/deploy/docker/test-ldap/start.sh
 mailserver/deploy/docker/test-smtp/setup.sh

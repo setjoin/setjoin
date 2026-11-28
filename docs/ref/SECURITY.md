@@ -4,11 +4,11 @@ This document describes the email security stack implemented in Phase 7.
 All features are live in the Go gateway and PL/pgSQL reducers.
 
 > **Protocol Audit (May 2026):** 587 findings across 24 protocols remediated.  
-> **Database Query Audit (May 2026):** Full codebase audit completed — 33 findings across 4 rules. See `docs/specs/DATABASE_SECURITY.md` for enforced query standards.  
+> **Database Query Audit (May 2026):** Full codebase audit completed — 33 findings across 4 rules. See `docs/standards/DATABASE_SECURITY.md` for enforced query standards.
 > **Compliance rules:** `.opencode/rules/email-auth.md`, `smtp.md`, `tls.md`  
-> **RFC references:** `docs/rfcs/rfc7208-spf.md`, `rfc6376-dkim.md`, `rfc5321-smtp.md`  
+> **RFC references:** `docs/ref/rfcs/rfc7208-spf.md`, `rfc6376-dkim.md`, `rfc5321-smtp.md`
 > **OWASP references:** [[reference-owasp-security-standards]], [[reference-cwe-authorization]]
-> **WORM compliance:** `docs/specs/WORM_COMPLIANCE.md` — SEC 17a-4(f), FINRA 4511(c), CFTC 1.31(c)-(d)
+> **WORM compliance:** `docs/compliance/WORM_COMPLIANCE.md` — SEC 17a-4(f), FINRA 4511(c), CFTC 1.31(c)-(d)
 
 ## Implemented Features
 

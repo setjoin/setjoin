@@ -242,6 +242,16 @@ async fn execute_rebuild(args: &[String]) -> Result<i32, String> {
     //    (c) compute exact gap-free contiguous watermarks and advance all 5 `search_index_watermarks`.
     let _ = db.query("BEGIN", &[]).await?;
     let settle_res: Result<i64, String> = async {
+        // Lock all watermark rows FIRST in deterministic order so any concurrent epoch-fenced
+        // writer taking FOR SHARE on `search_index_watermarks` serializes strictly before our
+        // outbox re-queue pass or observes the new epoch after commit.
+        let _ = db
+            .query(
+                "SELECT corpus FROM public.search_index_watermarks ORDER BY corpus FOR UPDATE",
+                &[],
+            )
+            .await?;
+
         if !visible_unprocessed_seqs.is_empty() {
             for chunk in visible_unprocessed_seqs.chunks(10_000) {
                 let chunk_vec = chunk.to_vec();

@@ -28,12 +28,12 @@ require `X-Audit-Reason`, a matching body reason, and the operation-specific
 generation, digest, or idempotency value. Never automate a link from email or
 UPN evidence.
 
-**Copy-pasteable runner:** [`examples/hello-world.sh`](../../examples/hello-world.sh)
+**Copy-pasteable runner:** [`docs/examples/hello-world.sh`](../examples/hello-world.sh)
 runs all ten in sequence:
 
 ```bash
 BASE=https://mail.example.com EMAIL=you@example.com PASSWORD=secret \
-  bash examples/hello-world.sh
+  bash docs/examples/hello-world.sh
 # dev with a self-signed cert? add INSECURE=1 (passes -k to curl)
 ```
 

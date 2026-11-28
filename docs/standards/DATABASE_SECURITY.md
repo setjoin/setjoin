@@ -2,7 +2,7 @@
 
 > **Status:** Enforced for all new and modified database queries.  
 > **Standards:** OWASP A01:2021, API1:2023 (BOLA), CWE-639/862/566, NIST 800-53 AC-16  
-> **References:** `docs/specs/SECURITY.md` (email security), `docs/reducer-error-codes.md` (PL/pgSQL error contract)  
+> **References:** `docs/ref/SECURITY.md` (email security), `docs/reducer-error-codes.md` (PL/pgSQL error contract)
 > **Memory:** [[reference-owasp-security-standards]], [[reference-cwe-authorization]], [[reference-rls-best-practices]], [[reference-nist-database-security]]
 
 ## The Four Rules

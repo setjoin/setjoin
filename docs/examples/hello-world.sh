@@ -12,11 +12,11 @@
 #
 # Usage:
 #   BASE=https://mail.example.com EMAIL=you@example.com PASSWORD=secret \
-#     bash examples/hello-world.sh
+#     bash docs/examples/hello-world.sh
 #
 #   # self-signed cert in dev? trust the dev CA explicitly (preferred):
 #   CACERT=/path/to/dev-ca.pem BASE=https://localhost:443 EMAIL=admin@local PASSWORD=... \
-#     bash examples/hello-world.sh
+#     bash docs/examples/hello-world.sh
 #
 # Requires: curl and jq. Request bodies and URL query parameters are built with
 # jq templating / --data-urlencode so every interpolated value is encoded —
@@ -155,7 +155,7 @@ JMAP_BODY="$(jq -n --arg account "$ACCOUNT_ID" --arg email "$EMAIL" '{
         from: [{email: $email}],
         to:   [{email: $email}],
         subject: "hello-world from setjoin",
-        bodyValues: {b: {value: "Sent by examples/hello-world.sh"}},
+        bodyValues: {b: {value: "Sent by docs/examples/hello-world.sh"}},
         textBody: [{partId: "b", type: "text/plain"}]
       }}
     }, "c0"],
