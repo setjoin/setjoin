@@ -56,9 +56,11 @@ run() {
     skip "cargo check/test" "no Rust workspace package changed"
   else
     echo "packages: ${pkgs[*]}"
+    clippy_args=()
     for p in "${pkgs[@]}"; do
-      step "cargo clippy --all-targets -p $p" bash -c 'cd server && cargo clippy --locked --all-targets -p "$1"' _ "$p"
+      clippy_args+=(-p "$p")
     done
+    step "cargo clippy --all-targets (${#pkgs[@]} pkgs)" bash -c 'cd server && cargo clippy --locked --all-targets "$@"' _ "${clippy_args[@]}"
     for p in "${pkgs[@]}"; do
       # shellcheck disable=SC2086
       step "cargo test --lib -p $p ${LANE_QC_TESTS:-}" bash scripts/ci/quick-check-tests.sh run "$p" ${LANE_QC_TESTS:-}

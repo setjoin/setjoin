@@ -8,6 +8,15 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { hasRetainedE6Generation } from '../dev/run-connectivity-e6-harness.mjs';
+import {
+	parseJsonText,
+	validateCleanupReceipt,
+	validateDecisionRecord,
+	validateE6ProfileDocument,
+	validateE7OutcomeContract,
+	validateManifest,
+	validateResults,
+} from './check-connectivity-aware-sync-cases.mjs';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, '../..');
@@ -28,10 +37,106 @@ function writeJson(filename, value) {
 	fs.writeFileSync(filename, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
-function runChecker(argumentsList, expectedStatus, label, expectedText = '') {
+function runCheckerCli(argumentsList, expectedStatus, label, expectedText = '') {
 	const result = spawnSync(process.execPath, [checker, ...argumentsList], { encoding: 'utf8' });
 	const output = `${result.stdout}${result.stderr}`;
 	assert.equal(result.status, expectedStatus, `${label}: expected exit ${expectedStatus}, got ${result.status}\n${output}`);
+	if (expectedText) assert.match(output, new RegExp(expectedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `${label}: diagnostic did not contain ${expectedText}\n${output}`);
+	return output;
+}
+
+function readJsonInProcess(filename, location) {
+	let text;
+	try {
+		text = fs.readFileSync(filename, 'utf8');
+	} catch (error) {
+		throw new Error(`${location}: cannot read ${filename} (${error.message})`);
+	}
+	return parseJsonText(text, location);
+}
+
+function runInProcess(argv) {
+	const options = { manifest: '', results: '', caseId: '', decision: '', cleanup: '', profile: '', outcomeContract: '' };
+	const positional = [];
+	for (let index = 0; index < argv.length; index += 1) {
+		const argument = argv[index];
+		if (argument === '--case' || argument === '--results' || argument === '--decision' || argument === '--cleanup' || argument === '--profile' || argument === '--outcome-contract') {
+			const value = argv[++index];
+			if (!value || value.startsWith('--')) throw new Error(`${argument}: requires a value`);
+			const key = argument === '--case' ? 'caseId' : argument === '--outcome-contract' ? 'outcomeContract' : argument.slice(2);
+			if (options[key]) throw new Error(`${argument}: provided more than once`);
+			options[key] = value;
+		} else if (argument.startsWith('--')) {
+			throw new Error(`unknown option "${argument}"`);
+		} else {
+			positional.push(argument);
+		}
+	}
+	if (options.decision || options.cleanup || options.profile || options.outcomeContract) {
+		if (positional.length || options.manifest || options.results) throw new Error('decision/cleanup/profile/outcome-contract validation cannot be combined with a manifest');
+		const selected = [options.decision, options.cleanup, options.profile, options.outcomeContract].filter(Boolean);
+		if (selected.length > 1) throw new Error('pass only one of --decision, --cleanup, --profile, or --outcome-contract');
+		if (options.decision) {
+			validateDecisionRecord(readJsonInProcess(options.decision, 'decision'));
+			return `connectivity-aware-sync: PASS decision ${options.decision}\n`;
+		}
+		if (options.cleanup) {
+			validateCleanupReceipt(readJsonInProcess(options.cleanup, 'cleanup'));
+			return `connectivity-aware-sync: PASS cleanup ${options.cleanup}\n`;
+		}
+		if (options.profile) {
+			validateE6ProfileDocument(readJsonInProcess(options.profile, 'profile'));
+			return `connectivity-aware-sync: PASS profile ${options.profile}\n`;
+		}
+		validateE7OutcomeContract(readJsonInProcess(options.outcomeContract, 'e7 outcome contract'));
+		return `connectivity-aware-sync: PASS outcome-contract ${options.outcomeContract}\n`;
+	}
+	if (positional.length > 2) throw new Error('usage: check-connectivity-aware-sync-cases.mjs MANIFEST [RESULTS] [--results FILE] [--case ID] | --decision FILE | --cleanup FILE | --profile FILE | --outcome-contract FILE');
+	if (positional[0]) options.manifest = positional[0];
+	if (positional[1]) {
+		if (options.results) throw new Error('results file provided both positionally and with --results');
+		options.results = positional[1];
+	}
+	if (!options.manifest) throw new Error('usage: check-connectivity-aware-sync-cases.mjs MANIFEST [RESULTS] [--results FILE] [--case ID] | --decision FILE | --cleanup FILE | --profile FILE | --outcome-contract FILE');
+
+	const manifest = readJsonInProcess(options.manifest, 'manifest');
+	const manifestInfo = validateManifest(manifest);
+	if (options.caseId) {
+		if (!/^[A-Z][A-Z0-9-]+$/.test(options.caseId)) throw new Error(`--case: invalid case ID "${options.caseId}"`);
+		if (!manifestInfo.casesById.has(options.caseId)) throw new Error(`--case: unknown case ID "${options.caseId}"`);
+	}
+	const entries = options.caseId ? [manifestInfo.casesById.get(options.caseId)] : [...manifestInfo.casesById.values()];
+	const retainedGenerationPresent = hasRetainedE6Generation(path.join(repositoryRoot, 'test-results', 'connectivity-aware-sync'));
+	for (const entry of entries) {
+		if (entry.expectedDisposition !== 'enforced') continue;
+		if (own(entry, 'generationReceipt')) {
+			if (!options.results && retainedGenerationPresent) {
+				const resultsPath = path.join(repositoryRoot, 'test-results', 'connectivity-aware-sync', entry.generationReceipt.runId, 'e6', `results-${entry.id}.json`);
+				if (!fs.existsSync(resultsPath)) {
+					throw new Error(`case ${entry.id}.generationReceipt: retained results document "test-results/connectivity-aware-sync/${entry.generationReceipt.runId}/e6/results-${entry.id}.json" does not exist on this checkout — a manifest receipt must bind a generation retained here`);
+				}
+				validateResults(readJsonInProcess(resultsPath, `case ${entry.id} generation receipt`), manifestInfo, entry.id);
+			}
+			continue;
+		}
+		if (!options.results) throw new Error(`case ${entry.id}.expectedDisposition: enforced evidence requires a results file`);
+	}
+	if (options.results) validateResults(readJsonInProcess(options.results, 'results'), manifestInfo, options.caseId);
+	const scope = options.caseId ? ` case ${options.caseId}` : '';
+	const resultScope = options.results ? ' with results' : ' manifest-only';
+	return `connectivity-aware-sync: PASS${scope}${resultScope} (${manifest.cases.length} manifest case(s))\n`;
+}
+
+function runChecker(argumentsList, expectedStatus, label, expectedText = '') {
+	let status = 0;
+	let output = '';
+	try {
+		output = runInProcess(argumentsList);
+	} catch (error) {
+		output = `connectivity-aware-sync: FAIL — ${error.message}\n`;
+		status = error.message.startsWith('usage:') || error.message.includes('requires a value') || error.message.startsWith('unknown option') ? 2 : 1;
+	}
+	assert.equal(status, expectedStatus, `${label}: expected exit ${expectedStatus}, got ${status}\n${output}`);
 	if (expectedText) assert.match(output, new RegExp(expectedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `${label}: diagnostic did not contain ${expectedText}\n${output}`);
 	return output;
 }
@@ -141,6 +246,10 @@ try {
 	assert.equal(JSON.parse(fs.readFileSync(decisionSchema, 'utf8')).$defs.normalizedValues.additionalProperties, false);
 	assert.equal(JSON.parse(fs.readFileSync(cleanupSchema, 'utf8')).$defs.action.additionalProperties, false);
 
+	runCheckerCli([manifestFile], 0, 'CLI manifest-only validation', 'PASS');
+	runCheckerCli([manifestFile, '--case', 'CAS-NOT-IN-MANIFEST'], 1, 'CLI unknown focused case rejection', 'CAS-NOT-IN-MANIFEST');
+	runCheckerCli([], 2, 'CLI missing args usage error', 'usage:');
+	runCheckerCli(['--unknown-option'], 2, 'CLI unknown option exit 2', 'unknown option');
 	runChecker([manifestFile], 0, 'manifest-only validation', 'PASS');
 
 	// E4-I Astra correction (finding 20): retained evidence must EXIST and its

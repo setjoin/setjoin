@@ -326,29 +326,30 @@ parse_status_pair() { # $1 = status cell, $2 = evidence column
 
 # ── live universe extraction (fail-closed; mirrors gen-xinchuang-doc.sh) ────
 extract_universe() {
-  local f count=0
+  local files=() f
   : >"$WORK/universe_names.txt"
   for f in "$REDUCERS_DIR"/*.sql; do
-    [ -f "$f" ] || continue
-    count=$((count + 1))
-    if ! awk -v file="$(basename "$f")" '
-      /^[[:space:]]*CREATE (OR REPLACE )?FUNCTION[[:space:]]+/ {
-        name = $0
-        sub(/^[[:space:]]*CREATE (OR REPLACE )?FUNCTION[[:space:]]+/, "", name)
-        sub(/\(.*/, "", name)
-        gsub(/[[:space:]]/, "", name)
-        if (name == "") {
-          printf "unparsable CREATE FUNCTION declaration: %s:%d\n", file, FNR > "/dev/stderr"
-          exit 1
-        }
-        print name "\t" file
-      }' "$f" >>"$WORK/universe_decls.tsv"; then
-      echo "  ✗ reducer extraction failed (see the unparsable declaration above)." >&2
-      return 1
-    fi
+    [ -f "$f" ] && files+=("$f")
   done
-  if [ "$count" -eq 0 ]; then
+  if [ "${#files[@]}" -eq 0 ]; then
     echo "  ✗ reducer extraction found zero .sql files under $REDUCERS_DIR — refusing a vacuous matrix check." >&2
+    return 1
+  fi
+  if ! awk '
+    /^[[:space:]]*CREATE (OR REPLACE )?FUNCTION[[:space:]]+/ {
+      file = FILENAME
+      sub(/^.*\//, "", file)
+      name = $0
+      sub(/^[[:space:]]*CREATE (OR REPLACE )?FUNCTION[[:space:]]+/, "", name)
+      sub(/\(.*/, "", name)
+      gsub(/[[:space:]]/, "", name)
+      if (name == "") {
+        printf "unparsable CREATE FUNCTION declaration: %s:%d\n", file, FNR > "/dev/stderr"
+        exit 1
+      }
+      print name "\t" file
+    }' "${files[@]}" >"$WORK/universe_decls.tsv"; then
+    echo "  ✗ reducer extraction failed (see the unparsable declaration above)." >&2
     return 1
   fi
   cut -f1 "$WORK/universe_decls.tsv" | sort -u >"$WORK/universe_names.txt"

@@ -62,7 +62,8 @@ def check_receipts(results, names, selectors, key, expected, manifest_hash, prob
         if document.get("manifest_hash") != manifest_hash:
             problems.append(f"{name}: receipt manifest hash {document.get('manifest_hash')!r} is not the build's {manifest_hash!r}")
             continue
-        if document.get("shard") != selector:
+        allowed_shards = (selector, f"nextest:{selector}") if key == "replays" else (selector,)
+        if document.get("shard") not in allowed_shards:
             problems.append(f"{name}: receipt selector {document.get('shard')!r}, expected {selector!r}")
             continue
         ran.extend(document.get(key) or [])

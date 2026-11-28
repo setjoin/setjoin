@@ -307,6 +307,11 @@ check_tree() {
       python3 "$base/tests/license-policy/test_policy.py" || return 1
     fi
     if [[ "$stages" == *,workspace,* ]]; then
+      if [[ "${SERVER_RUST_NEXTEST:-}" == 1 ]]; then
+        rm -f "${SERVER_RUST_NEXTEST_EXTRACT_TO:-/nonexistent}/target/nextest/lane/junit.xml" \
+          "${CARGO_TARGET_DIR:-/nonexistent}/nextest/lane/junit.xml" \
+          "$base/target/nextest/lane/junit.xml"
+      fi
       run_root "$base" "workspace" auto || rc=1
     fi
     if [[ "$stages" == *,roots,* ]]; then
@@ -337,21 +342,6 @@ check_tree() {
     # pilot and schema-simulation have already written to (a leftover audit row broke the
     # chain check of `saml_oracle::unlink_floor_cross_tenant` there). `cargo test` hands the
     # test binary to the runner, and the runner is the same wrapper nextest uses.
-    if [[ -n "${LANE_ADMIN_DSN:-}" && -n "${LANE_TEMPLATE_DB:-}" && -n "${LANE_BASE_DB:-}" ]]; then
-      local host_triple runner_var
-      host_triple="$("$CARGO" -vV 2>/dev/null | sed -n 's/^host: //p')"
-      [[ -n "$host_triple" ]] || host_triple="$(rustc -vV | sed -n 's/^host: //p')"
-      runner_var="CARGO_TARGET_$(tr 'a-z-' 'A-Z_' <<<"$host_triple")_RUNNER"
-      export "$runner_var=bash $ROOT/scripts/nextest-db-wrapper.sh"
-    fi
-    lane_clones sweep "the adequacy gate"
-    if [[ -n "${LANE_ADMIN_DSN:-}" && -n "${LANE_TEMPLATE_DB:-}" && -n "${LANE_BASE_DB:-}" ]]; then leak_guard on || rc=1; fi
-    lane_disk_sampler start
-    # On the lane every run costs hours: run all replays and mutants (LANE_ADEQUACY_JOBS, default
-    # LANE_JOBS, at a time on per-replay clones) and then coverage, and report every failure at the
-    # end (still red). LANE_ADEQUACY_KEEP_GOING=0 restores stop-at-first-failure. LANE_COVERAGE=0
-    # (the hosted test shards) skips coverage; the coverage shards run it alone
-    # (LANE_ADEQUACY_COVERAGE_ONLY=1).
     local keep_going=() coverage=(--coverage)
     local shard_args=()
     [[ -n "${LANE_ADEQUACY_SHARD:-}" ]] && shard_args+=(--shard "$LANE_ADEQUACY_SHARD")
@@ -363,16 +353,47 @@ check_tree() {
       coverage=()
       [[ -z "$subset" ]] && echo "ADEQUACY-COVERAGE-NOT-RUN (LANE_COVERAGE=0) — replays and mutants run; coverage runs in the coverage shards"
     fi
-    local stage_args=(--execute ${coverage[@]+"${coverage[@]}"})
-    [[ "${LANE_ADEQUACY_COVERAGE_ONLY:-}" == 1 ]] && stage_args=(--coverage)
-    if [[ -n "$subset" ]]; then
-      python3 "$ROOT/scripts/guards/check-gofree-oracle-adequacy.py" --only "$subset" ${LANE_ADEQUACY_ENTRIES:+--entries "$LANE_ADEQUACY_ENTRIES"} --cargo "$CARGO" ${keep_going[@]+"${keep_going[@]}"} || rc=1
-    else
-      python3 "$ROOT/scripts/guards/check-gofree-oracle-adequacy.py" "${stage_args[@]}" ${shard_args[@]+"${shard_args[@]}"} --cargo "$CARGO" ${keep_going[@]+"${keep_going[@]}"} || rc=1
+    local verify_junit=""
+    if [[ -z "$subset" && "${LANE_ADEQUACY_COVERAGE_ONLY:-}" != 1 && "${SERVER_RUST_NEXTEST:-}" == 1 && "$stages" == *,workspace,* && "${LANE_ADEQUACY_VERIFY_JUNIT:-1}" != 0 ]]; then
+      local cand
+      for cand in "${SERVER_RUST_NEXTEST_EXTRACT_TO:-/nonexistent}/target/nextest/lane/junit.xml" \
+        "${CARGO_TARGET_DIR:-/nonexistent}/nextest/lane/junit.xml" \
+        "$base/target/nextest/lane/junit.xml"; do
+        if [[ -f "$cand" ]]; then
+          verify_junit="$cand"
+          break
+        fi
+      done
+      if [[ -z "$verify_junit" ]]; then
+        echo "✗ server-rust: nextest JUnit XML missing after workspace stage (cannot verify adequacy receipts)" >&2
+        return 1
+      fi
     fi
-    lane_disk_sampler stop
-    leak_guard off || rc=1
-    lane_clones report "after the adequacy gate"
+    if [[ -n "$verify_junit" && ${#coverage[@]} -eq 0 ]]; then
+      python3 "$ROOT/scripts/guards/check-gofree-oracle-adequacy.py" --verify-nextest-junit "$verify_junit" ${shard_args[@]+"${shard_args[@]}"} --cargo "$CARGO" ${keep_going[@]+"${keep_going[@]}"} || rc=1
+    else
+      if [[ -n "${LANE_ADMIN_DSN:-}" && -n "${LANE_TEMPLATE_DB:-}" && -n "${LANE_BASE_DB:-}" ]]; then
+        local host_triple runner_var
+        host_triple="$("$CARGO" -vV 2>/dev/null | sed -n 's/^host: //p')"
+        [[ -n "$host_triple" ]] || host_triple="$(rustc -vV | sed -n 's/^host: //p')"
+        runner_var="CARGO_TARGET_$(tr 'a-z-' 'A-Z_' <<<"$host_triple")_RUNNER"
+        export "$runner_var=bash $ROOT/scripts/nextest-db-wrapper.sh"
+      fi
+      lane_clones sweep "the adequacy gate"
+      if [[ -n "${LANE_ADMIN_DSN:-}" && -n "${LANE_TEMPLATE_DB:-}" && -n "${LANE_BASE_DB:-}" ]]; then leak_guard on || rc=1; fi
+      lane_disk_sampler start
+      local stage_args=(--execute ${coverage[@]+"${coverage[@]}"})
+      [[ -n "$verify_junit" ]] && stage_args=(--verify-nextest-junit "$verify_junit" ${coverage[@]+"${coverage[@]}"})
+      [[ "${LANE_ADEQUACY_COVERAGE_ONLY:-}" == 1 ]] && stage_args=(--coverage)
+      if [[ -n "$subset" ]]; then
+        python3 "$ROOT/scripts/guards/check-gofree-oracle-adequacy.py" --only "$subset" ${LANE_ADEQUACY_ENTRIES:+--entries "$LANE_ADEQUACY_ENTRIES"} --cargo "$CARGO" ${keep_going[@]+"${keep_going[@]}"} || rc=1
+      else
+        python3 "$ROOT/scripts/guards/check-gofree-oracle-adequacy.py" "${stage_args[@]}" ${shard_args[@]+"${shard_args[@]}"} --cargo "$CARGO" ${keep_going[@]+"${keep_going[@]}"} || rc=1
+      fi
+      lane_disk_sampler stop
+      leak_guard off || rc=1
+      lane_clones report "after the adequacy gate"
+    fi
   else
     python3 "$ROOT/scripts/guards/check-gofree-oracle-adequacy.py" || rc=1
     echo "ORACLE-ADEQUACY-SKIP (reason=no-db) — replay, mutant and coverage evidence NOT run"

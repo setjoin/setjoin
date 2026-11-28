@@ -109,27 +109,27 @@ trap 'rm -rf "$WORK"' EXIT
 # ── live universe extraction (fail-closed, never bypassed) ──────────────────
 # One line per declaration: `name<TAB>defining file basename`.
 extract_universe() {
-  local f count=0
-  : >"$WORK/decls.tsv"
+  local files=() f
   for f in "$REDUCERS_DIR"/*.sql; do
-    [ -f "$f" ] || continue
-    count=$((count + 1))
-    if ! awk -v file="$(basename "$f")" '
-      /^[[:space:]]*CREATE (OR REPLACE )?FUNCTION[[:space:]]+/ {
-        name = $0
-        sub(/^[[:space:]]*CREATE (OR REPLACE )?FUNCTION[[:space:]]+/, "", name)
-        sub(/\(.*/, "", name)
-        gsub(/[[:space:]]/, "", name)
-        if (name == "") {
-          printf "unparsable CREATE FUNCTION declaration: %s:%d\n", file, FNR > "/dev/stderr"
-          exit 1
-        }
-        print name "\t" file
-      }' "$f" >>"$WORK/decls.tsv"; then
-      die "reducer extraction failed (see the unparsable declaration above)."
-    fi
+    [ -f "$f" ] && files+=("$f")
   done
-  [ "$count" -gt 0 ] || die "reducer extraction found zero .sql files under $REDUCERS_DIR — refusing to render a vacuous matrix."
+  [ "${#files[@]}" -gt 0 ] || die "reducer extraction found zero .sql files under $REDUCERS_DIR — refusing to render a vacuous matrix."
+  if ! awk '
+    /^[[:space:]]*CREATE (OR REPLACE )?FUNCTION[[:space:]]+/ {
+      file = FILENAME
+      sub(/^.*\//, "", file)
+      name = $0
+      sub(/^[[:space:]]*CREATE (OR REPLACE )?FUNCTION[[:space:]]+/, "", name)
+      sub(/\(.*/, "", name)
+      gsub(/[[:space:]]/, "", name)
+      if (name == "") {
+        printf "unparsable CREATE FUNCTION declaration: %s:%d\n", file, FNR > "/dev/stderr"
+        exit 1
+      }
+      print name "\t" file
+    }' "${files[@]}" >"$WORK/decls.tsv"; then
+    die "reducer extraction failed (see the unparsable declaration above)."
+  fi
   sort -u "$WORK/decls.tsv" >"$WORK/name_file_map.tsv"
   # Deduplicate the NAME universe independently of its (name,file) pairs
   # (r2.3): a name overloaded across two different files is still ONE unique
@@ -139,7 +139,7 @@ extract_universe() {
   awk -F'\t' '!seen[$1]++' "$WORK/name_file_map.tsv" >"$WORK/name_map.tsv"
   cut -f1 "$WORK/name_map.tsv" >"$WORK/universe_names.txt"
   [ -s "$WORK/universe_names.txt" ] || die "reducer extraction yielded an empty function-name set — refusing to render a vacuous matrix."
-  FILE_COUNT="$count"
+  FILE_COUNT="${#files[@]}"
   DECL_COUNT="$(wc -l <"$WORK/decls.tsv" | tr -d ' ')"
   UNIVERSE_COUNT="$(wc -l <"$WORK/universe_names.txt" | tr -d ' ')"
   # Overloaded names: declaration count > 1 (r2.3(3) — overload notes).
@@ -148,20 +148,27 @@ extract_universe() {
 
 # ── files whose digest( usage is source-real (non-comment call sites) ───────
 extract_digest_files() {
-  local f
-  : >"$WORK/digest_files.txt"
+  local files=() f
   for f in "$REDUCERS_DIR"/*.sql; do
-    [ -f "$f" ] || continue
+    [ -f "$f" ] && files+=("$f")
+  done
+  : >"$WORK/digest_files.txt"
+  DIGEST_CALL_SITES=0
+  if [ "${#files[@]}" -gt 0 ]; then
     # \bdigest( equivalent, portable: the call is not part of a longer name,
     # and commented-out examples are not call sites.
-    if grep -E '([^A-Za-z0-9_]|^)digest\(' "$f" 2>/dev/null |
-      grep -qvE '^[[:space:]]*--'; then
-      basename "$f" >>"$WORK/digest_files.txt"
-    fi
-  done
-  sort -u -o "$WORK/digest_files.txt" "$WORK/digest_files.txt"
+    DIGEST_CALL_SITES="$(awk -v out="$WORK/digest_files.txt" '
+      /([^A-Za-z0-9_]|^)digest\(/ && !/^[[:space:]]*--/ {
+        sites++
+        file = FILENAME
+        sub(/^.*\//, "", file)
+        if (!seen[file]++) print file > out
+      }
+      END { print sites + 0 }
+    ' "${files[@]}")"
+    sort -u -o "$WORK/digest_files.txt" "$WORK/digest_files.txt"
+  fi
   DIGEST_FILE_COUNT="$(wc -l <"$WORK/digest_files.txt" | tr -d ' ')"
-  DIGEST_CALL_SITES="$(grep -hE '([^A-Za-z0-9_]|^)digest\(' "$REDUCERS_DIR"/*.sql 2>/dev/null | grep -cvE '^[[:space:]]*--')"
 }
 
 # ── canonical path resolution (symlink-escape containment) ───────────────────
@@ -604,30 +611,6 @@ render_inventory() { # $1 = destination
 }
 
 # ── README generated-block render ────────────────────────────────────────────
-engine_attested_count() { # $1 = engine id -> rows whose cell is non-untested
-  local eng="$1" idx=0 i
-  for i in "${!ENGINES[@]}"; do
-    if [ "${ENGINES[$i]}" = "$eng" ]; then
-      idx=$((i + 3))
-      break
-    fi
-  done
-  awk -F, -v c="$idx" 'FNR > 1 && $c != "untested" { x++ } END { print x + 0 }' "$MATRIX_CSV"
-}
-
-matrix_cell() { # $1 function, $2 engine id -> CSV cell (as-is), untested if absent
-  local fn="$1" eng="$2" idx=0 i cell
-  for i in "${!ENGINES[@]}"; do
-    if [ "${ENGINES[$i]}" = "$eng" ]; then
-      idx=$((i + 3))
-      break
-    fi
-  done
-  cell="$(awk -F, -v n="$fn" -v c="$idx" '$1 == n { print $c; found = 1 } END { if (!found) print "untested" }' "$MATRIX_CSV" | head -n 1)"
-  [ -n "$cell" ] || cell="untested"
-  printf '%s' "$cell"
-}
-
 render_block() { # $1 = destination
   local out="$1" eng dim i name cell status evidence
   local attested_any digest_rows unattested_count col_attested total_families cov cnt
@@ -653,26 +636,48 @@ render_block() { # $1 = destination
     printf '|---|'
     for eng in "${ENGINES[@]}"; do printf -- '---|'; done
     echo
-    for i in "${!DIMENSIONS[@]}"; do
-      dim="${DIMENSIONS[$i]}"
-      printf '| %s (%s) |' "$dim" "${DIM_LABELS[$i]}"
-      for eng in "${ENGINES[@]}"; do
-        # Validation and rendering share parse_status_pair: a (status,
-        # evidence) pair the validator accepted renders as `status@evidence`
-        # — an accepted cell can never silently degrade to `untested`.
-        cell="untested"
-        IFS=$'\t' read -r status evidence < <(
-          awk -F, -v e="$eng" -v d="$dim" '$1 == e && $2 == d { print $3 "\t" $4; exit }' "$WORK/caps_rows.csv"
-        )
-        if parse_status_pair "$status" "$evidence" &&
-          [ "$P_STATUS" != "untested" ] && [ -n "$P_EVIDENCE" ]; then
-          cell="${P_STATUS}@${P_EVIDENCE}"
-        fi
-        # unsupported cell: render untested, never omit
-        printf ' %s |' "$cell"
-      done
-      echo
-    done
+    local cap_dim cap_eng prev_dim=""
+    while IFS=',' read -r cap_dim cap_eng status evidence; do
+      if [ "$cap_dim" != "$prev_dim" ]; then
+        if [ -n "$prev_dim" ]; then echo; fi
+        for i in "${!DIMENSIONS[@]}"; do
+          if [ "${DIMENSIONS[$i]}" = "$cap_dim" ]; then
+            printf '| %s (%s) |' "$cap_dim" "${DIM_LABELS[$i]}"
+            break
+          fi
+        done
+        prev_dim="$cap_dim"
+      fi
+      # Validation and rendering share parse_status_pair: a (status,
+      # evidence) pair the validator accepted renders as `status@evidence`
+      # — an accepted cell can never silently degrade to `untested`.
+      cell="untested"
+      if parse_status_pair "$status" "$evidence" &&
+        [ "$P_STATUS" != "untested" ] && [ -n "$P_EVIDENCE" ]; then
+        cell="${P_STATUS}@${P_EVIDENCE}"
+      fi
+      # unsupported cell: render untested, never omit
+      printf ' %s |' "$cell"
+    done < <(awk -F, -v dims="${DIMENSIONS[*]}" -v engs="${ENGINES[*]}" '
+      BEGIN { nd = split(dims, d, " "); ne = split(engs, e, " ") }
+      {
+        k = $1 SUBSEP $2
+        if (!(k in seen)) {
+          seen[k] = 1
+          st[k] = $3
+          ev[k] = $4
+        }
+      }
+      END {
+        for (di = 1; di <= nd; di++) {
+          for (ei = 1; ei <= ne; ei++) {
+            k = e[ei] SUBSEP d[di]
+            printf "%s,%s,%s,%s\n", d[di], e[ei], st[k], ev[k]
+          }
+        }
+      }
+    ' "$WORK/caps_rows.csv")
+    if [ -n "$prev_dim" ]; then echo; fi
     echo
     echo "## Functional coverage"
     echo
@@ -687,10 +692,13 @@ render_block() { # $1 = destination
     echo
     echo "| Engine | Attested | Not attested |"
     echo "|---|---|---|"
-    for eng in "${ENGINES[@]}"; do
-      col_attested="$(engine_attested_count "$eng")"
+    while IFS=',' read -r eng col_attested; do
       printf '| %s | %s | %s |\n' "$eng" "$col_attested" "$((UNIVERSE_COUNT - col_attested))"
-    done
+    done < <(awk -F, -v engs="${ENGINES[*]}" '
+      BEGIN { n = split(engs, e, " ") }
+      FNR > 1 { for (i = 1; i <= n; i++) if ($(i + 2) != "untested") c[i]++ }
+      END { for (i = 1; i <= n; i++) printf "%s,%d\n", e[i], c[i] + 0 }
+    ' "$MATRIX_CSV")
     echo
     echo "\`uses_digest\` is SOURCE-DERIVED USAGE — a non-comment \`digest(\` call exists in the defining file ($DIGEST_FILE_COUNT files / $DIGEST_CALL_SITES call sites repo-wide). It is never a parity attestation; pgcrypto parity is attested (or not) per engine via \`pgcrypto_digest_parity\` above. Covered rows with \`uses_digest\`: $digest_rows of $CSV_ROW_COUNT."
     echo
@@ -714,14 +722,25 @@ render_block() { # $1 = destination
     printf '|---|'
     for eng in "${ENGINES[@]}"; do printf -- '---|'; done
     echo
-    for name in "${CRITICAL_PATH[@]}"; do
-      printf "| \`%s\` |" "$name"
-      for eng in "${ENGINES[@]}"; do
-        cell="$(matrix_cell "$name" "$eng")"
-        printf ' %s |' "$cell"
-      done
-      echo
-    done
+    awk -F, -v cplist="${CRITICAL_PATH[*]}" -v neng="${#ENGINES[@]}" '
+      BEGIN { nc = split(cplist, cp, " ") }
+      FNR > 1 && !($1 in seen) {
+        seen[$1] = 1
+        for (i = 1; i <= neng; i++) val[$1, i] = $(i + 2)
+      }
+      END {
+        for (k = 1; k <= nc; k++) {
+          fn = cp[k]
+          printf "| `%s` |", fn
+          for (i = 1; i <= neng; i++) {
+            v = val[fn, i]
+            if (v == "") v = "untested"
+            printf " %s |", v
+          }
+          printf "\n"
+        }
+      }
+    ' "$MATRIX_CSV"
     echo
     echo "## Unattested families"
     echo

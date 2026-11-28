@@ -98,7 +98,8 @@ run_check() {
   require_job_literal "$LANE_WORKFLOW" 'guards' 'bash scripts/run-guards.sh --known-red scripts/guards-known-red.txt' 'server-rust lane runs every guard through run-guards.sh' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'guards' 'bash scripts/run-guards-selftest.sh' 'server-rust lane proves the known-red ratchet before the guards' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'guards' 'run: npm ci' 'server-rust lane guards job installs webmail dependencies' || failed=1
-  require_job_literal "$LANE_WORKFLOW" 'guards' 'cargo install cargo-deny --locked --version 0.19.0' 'server-rust lane guards job installs cargo-deny' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'guards' 'docker cp "$cid:/usr/local/bin/cargo-deny"' 'server-rust lane guards job installs pinned cargo-deny from LANE_IMAGE' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'guards' 'cargo-deny 0.19.0' 'server-rust lane guards job verifies cargo-deny 0.19.0' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'guards' 'echo "DB_DSN=' 'server-rust lane guards job exports DB_DSN' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'guards' 'SERVER_RUST_STAGES: static' 'server-rust lane guards job runs check-server-rust static stage only' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'guards' "needs.plan.outputs.debug != 'true'" 'server-rust lane guards job runs on every non-debug lane run (merge queue, main, dispatch)' || failed=1

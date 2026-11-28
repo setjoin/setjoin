@@ -204,6 +204,40 @@ class MergeLaneShards(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("lane-result-coverage-1: no adequacy receipt", out)
 
+    def test_nextest_junit_verified_shard_receipts_are_green(self):
+        self.make("lane-result-shard-1", junit([("a::x", "t1"), ("a::x", "t2")]), "replay summary: 6 passed, 0 failed\n",
+                  receipt=receipt("nextest:1/2", REPLAYS[:6]))
+        self.make("lane-result-shard-2", junit([("b::y", "t1"), ("b::y", "t2")]), "replay summary: 4 passed, 0 failed\n",
+                  receipt=receipt("nextest:2/2", REPLAYS[6:]))
+        code, out = self.run_merge()
+        self.assertEqual(code, 0, out)
+        self.assertIn("coverage complete", out)
+
+    def test_nextest_junit_receipt_omission_is_red(self):
+        self.make("lane-result-shard-1", junit([("a::x", "t1"), ("a::x", "t2")]), "replay summary: 5 passed, 0 failed\n",
+                  receipt=receipt("nextest:1/2", REPLAYS[:5]))
+        self.make("lane-result-shard-2", junit([("b::y", "t1"), ("b::y", "t2")]), "replay summary: 4 passed, 0 failed\n",
+                  receipt=receipt("nextest:2/2", REPLAYS[6:]))
+        code, out = self.run_merge()
+        self.assertEqual(code, 1, out)
+        self.assertIn("never ran", out)
+
+    def test_nextest_junit_receipt_wrong_shard_is_red(self):
+        self.make("lane-result-shard-1", junit([("a::x", "t1"), ("a::x", "t2")]), "replay summary: 6 passed, 0 failed\n",
+                  receipt=receipt("nextest:2/2", REPLAYS[:6]))
+        self.make("lane-result-shard-2", junit([("b::y", "t1"), ("b::y", "t2")]), "replay summary: 4 passed, 0 failed\n",
+                  receipt=receipt("nextest:2/2", REPLAYS[6:]))
+        code, out = self.run_merge()
+        self.assertEqual(code, 1, out)
+        self.assertIn("selector", out)
+
+    def test_nextest_junit_receipt_prefix_rejected_for_coverage(self):
+        self.make("lane-result-coverage-1", None, "coverage summary: 2 entries measured\n",
+                  receipt=receipt("nextest:1/2", coverage=COVERAGE[:2]))
+        code, out = self.run_merge()
+        self.assertEqual(code, 1, out)
+        self.assertIn("selector", out)
+
 
 if __name__ == "__main__":
     unittest.main()

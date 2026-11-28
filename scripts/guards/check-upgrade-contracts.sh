@@ -364,13 +364,38 @@ if sed -n '/docker exec -i "$A" bash -s -- "$release_id" "$source_version"/,/^IN
   echo "[upgrade-contract] release seeding depends on jq inside the minimal Ubuntu target" >&2
   exit 1
 fi
-bash "$ROOT/deploy/scripts/test-updater-render.sh" >/dev/null
-bash "$ROOT/deploy/scripts/test-setjoin-lifecycle.sh" >/dev/null
-bash "$ROOT/deploy/scripts/test-upgrade-rollback.sh" >/dev/null
-bash "$ROOT/deploy/scripts/test-install-front-door.sh" >/dev/null
-bash "$ROOT/deploy/scripts/test-imap-sockets.sh" >/dev/null
-bash "$ROOT/deploy/scripts/test-tls-front-socket.sh" >/dev/null
-bash "$ROOT/deploy/scripts/test-tls-front-upgrade.sh" >/dev/null
+deploy_test_tmp="$(mktemp -d)"
+trap 'rm -rf "$deploy_test_tmp"' EXIT
+deploy_test_names=(
+  test-updater-render.sh
+  test-setjoin-lifecycle.sh
+  test-upgrade-rollback.sh
+  test-install-front-door.sh
+  test-imap-sockets.sh
+  test-tls-front-socket.sh
+  test-tls-front-upgrade.sh
+)
+deploy_test_pids=()
+for idx in "${!deploy_test_names[@]}"; do
+  script_name="${deploy_test_names[$idx]}"
+  if [ "$script_name" = "test-install-front-door.sh" ]; then
+    SKIP_UPGRADE_ROLLBACK_TEST=1 bash "$ROOT/deploy/scripts/$script_name" >"$deploy_test_tmp/$idx.log" 2>&1 &
+  else
+    bash "$ROOT/deploy/scripts/$script_name" >"$deploy_test_tmp/$idx.log" 2>&1 &
+  fi
+  deploy_test_pids+=("$!")
+done
+deploy_test_failed=0
+for idx in "${!deploy_test_pids[@]}"; do
+  if ! wait "${deploy_test_pids[$idx]}"; then
+    echo "[upgrade-contract] deploy/scripts/${deploy_test_names[$idx]} failed:" >&2
+    cat "$deploy_test_tmp/$idx.log" >&2
+    deploy_test_failed=1
+  fi
+done
+if [ "$deploy_test_failed" -ne 0 ]; then
+  exit 1
+fi
 for lifecycle_contract in \
   'install -o root -g root -m 0755' \
   '/usr/local/sbin/setjoinctl restart'; do
