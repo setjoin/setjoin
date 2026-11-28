@@ -2498,3 +2498,75 @@ invalidation. Proof: `tests/group_membership_notify.pg`.
 ## Blob GC (V292-V293, #550-#551)
 
 `V292__blob_mark_and_sweep_gc.sql` introduces expand-only companion GC tables (`blob_gc_state`, `blob_gc_shadow_runs`, `blob_gc_shadow_discrepancies`, `blob_gc_config` — all `ENABLE`+`FORCE ROW LEVEL SECURITY` with zero policies and worker-only ACLs restated in `scripts/provision-roles.sql`), partial 64-hex root-lookup indexes matching `blob_has_live_reference()` 1:1 (enforced by `config/blob-reference-manifest.json` + `scripts/check-blob-reference-manifest.sh`), and `reducers/blob_gc.sql`. `V293__retire_blobs_refcount_cutover_gc.sql` (#551) completes the Wave 2.4 contract-and-cutover phase: drops the 6 legacy `blobs.ref_count` / `blob_cleanup_queue` triggers & functions (keeping V235 `trg_blob_user_charge_inc/dec` and V114 `trg_drive_chunk_zero_ref`), drops `public.blobs.ref_count` and `public.blob_cleanup_queue`, retires `blob_gc_shadow_reconcile`, flips `blob_gc_config.mode = 'live'` under non-superuser `setjoin_owner` (`NOBYPASSRLS`) via `NO FORCE`/`FORCE ROW LEVEL SECURITY`, adds set-based owner/worker-callable `blob_live_catalog()`, adds `blob_gc_reactivate_v2()` (proactively scheduling 60s `blob.promote_verify` on `purging` reactivation), and adds app-callable `blob_promote_recover_enqueue`/`complete` (`tmp/blob-upload/*`). Rollout requires mandatory 2-step sequencing: run Wave 2.3 (#550) binaries on `V292` with `BLOB_GC_MODE=shadow` to verify zero discrepancies, then drain old replicas, apply `V293`, and start Wave 2.4 (#551) binaries with `BLOB_GC_MODE` unset or `live` (rollback boundary per ARCH-019 requires restore from pre-V293 backup). `public.feature_toggles` has zero `blob_gc` rows. Proof: `tests/blob_mark_and_sweep_gc.pg`, `tests/blob_refcount.pg`, `tests/blob_upload_account.pg`.
+
+## Two-tier search freshness fencing & optional `pg_bigm` (`V297__search_two_tier_optional_pg_bigm.sql`, #556)
+
+`V297__search_two_tier_optional_pg_bigm.sql` probes `pg_available_extensions` for
+optional `pg_bigm` inside an exception-trapped `DO` block (never failing on Xinchuang,
+managed PostgreSQL, or clusters without `pg_bigm`) and creates `gin_bigm_ops` indexes
+only when `pg_bigm` is present. It adds two worker-only `system_only` freshness-fencing
+tables — `public.search_dirty_keys` (preserving composite `(id, received_at_us)` mail
+keys and reserved `sub_id`) and `public.search_index_watermarks` — both with
+`ENABLE`+`FORCE ROW LEVEL SECURITY`, zero policies (deny-all to `setjoin_app` and
+`PUBLIC`), `OWNER TO setjoin_owner`, and `SELECT, INSERT, UPDATE, DELETE` granted only
+to `setjoin_worker` (restated in `scripts/provision-roles.sql`). Zero `blobs` columns
+and zero `feature_toggles` rows are added. Proof: `tests/V297__search_two_tier.pg` and
+`server-rust/crates/search/tests/two_tier_db.rs`.
+
+## Content-addressed search extraction cache & indexing outbox (`V298__search_extraction_cache_and_outbox.sql`, #557)
+
+`V298__search_extraction_cache_and_outbox.sql` adds two worker-only `system_only`
+tables — `public.search_extracted_text` (content-addressed SHA-256 extracted-text cache
+across `'blob'` and `'drive_file_version'` planes, capped at `<= 512 KiB`, non-`extracted`/
+`truncated_limit` statuses constrained to `extracted_text IS NULL`) and
+`public.search_index_outbox` (gap-free `bigserial` outbox with `processed_at`
+settlement, `txid xid8`, and optional `action_id uuid` across all 5 search corpora) —
+both with `ENABLE`+`FORCE ROW LEVEL SECURITY`, zero policies (deny-all to `setjoin_app`
+and `PUBLIC`), `OWNER TO setjoin_owner`, and table/sequence grants restricted to
+`setjoin_worker` (restated in `scripts/provision-roles.sql`), plus strictly additive
+`search_index_watermarks.indexed_outbox_seq`.
+Both `content_sha256` columns are classified `blobs_internal` in
+`config/blob-reference-manifest.json` (never pinning deleted blobs). Worker-only
+`SECURITY INVOKER` helpers (`reducers/search_extraction.sql`, embedded verbatim in `V298`)
+enforce `BZ003` (`rolbypassrls OR rolsuper`): `search_extracted_text_gc_sweep` (cross-plane
+check against both `blob_has_live_reference()` and `drive_file_versions`, preserving
+Drive 30-day admin trash; wired into `BlobGcWorker::run_live`), `search_outbox_enqueue`,
+`search_outbox_claim_batch` (`processed_at IS NULL` gap-free claim),
+`search_outbox_mark_processed`, and epoch-safe monotonic `search_watermark_advance`
+(rejects stale `EXCLUDED.epoch < w.epoch`), plus `IMMUTABLE`
+`search_scheduled_action_doc_id(uuid)` and worker-owned `SECURITY DEFINER`
+write-capture trigger `search_index_outbox_trg_fn()` attached to `messages`
+(`BEFORE DELETE` for scoped cascading attachment tombstones + `AFTER INSERT/UPDATE/DELETE`),
+`message_attachments` (direct deletes also re-index parent Mail), `chat_messages`,
+`chat_message_revisions`, `chat_message_attachments`, `drive_nodes`,
+`drive_file_versions`, and `scheduled_actions` (strictly inert until
+`search_index_watermarks` is seeded under `SETJOIN_SEARCH_TIER2_ENABLED=true`).
+Zero `blobs` columns and zero `feature_toggles` rows are added. Proof:
+`tests/V298__search_extraction.pg`, `crates/search/tests/extraction_indexing_db.rs`,
+and `bins/gateway/tests/search_worker_db.rs`.
+
+## eDiscovery provenance, lawful purge eviction & HA search leader (`V299__search_ediscovery_purge_and_ha_leader.sql`, #558)
+
+`V299__search_ediscovery_purge_and_ha_leader.sql` adds the strictly additive
+`ediscovery_searches.search_provenance jsonb` column and the worker-only
+`system_only` table `public.search_leader_leases` (`ENABLE`+`FORCE ROW LEVEL SECURITY`,
+zero policies, `OWNER TO setjoin_owner`, grants strictly to `setjoin_worker`,
+restated in `scripts/provision-roles.sql`). Worker-only `SECURITY INVOKER` helpers
+(`reducers/search_ha_leader.sql`, embedded verbatim in `V299`) enforce `BZ003`
+(`rolbypassrls OR rolsuper`): `search_leader_try_acquire` (`FOR UPDATE SKIP LOCKED`
+on `'search_writer'` with strictly monotonic `fencing_token` including same-node
+expired re-acquisition), `search_leader_heartbeat`, `search_leader_release`
+(immediate release preserving `fencing_token` monotonicity), `search_leader_current`,
+`search_fenced_settle_batch` (atomic `FOR UPDATE` lease check + outbox settlement +
+contiguous watermark advance in one transaction), `search_purge_enqueue`,
+`search_ediscovery_complete_atomic`, and `search_ediscovery_complete_kql_atomic`
+(single-transaction eDiscovery results + provenance + core `audit_write`), plus
+`IMMUTABLE` `search_chat_revision_doc_id(bigint)` and worker-owned `SECURITY DEFINER`
+`search_purge_evict_trg_fn()` attached to hard `DELETE`s on `messages`,
+`message_attachments` (evicting both the attachment and its surviving parent Mail
+for clean re-index), `chat_messages` (incl. revisions), `drive_nodes`,
+`drive_file_versions`, and `scheduled_actions` (inert while
+`search_index_watermarks` is empty). Zero `blobs` columns and zero
+`feature_toggles` rows are added. Proof: `tests/V299__search_ediscovery_purge_ha.pg`,
+`crates/search/tests/reauth_ediscovery_ha_db.rs`,
+`bins/mailctl/tests/search_cli_db.rs`, and `bins/gateway/tests/search_worker_db.rs`.

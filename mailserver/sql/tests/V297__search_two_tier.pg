@@ -1,0 +1,78 @@
+-- pgTAP for V297 two-tier search freshness fencing tables (#556).
+-- Proves ENABLE+FORCE RLS with zero policies (deny-all to setjoin_app) on
+-- search_dirty_keys and search_index_watermarks, plus setjoin_worker BYPASSRLS
+-- read/write control and non-fatal optional pg_bigm posture.
+BEGIN;
+SELECT plan(18);
+
+-- 1. Isolation posture on search_dirty_keys & search_index_watermarks
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.search_dirty_keys'::regclass),
+  true, 'V297: search_dirty_keys has RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.search_dirty_keys'::regclass),
+  true, 'V297: search_dirty_keys RLS is FORCEd');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'search_dirty_keys'),
+  0, 'V297: search_dirty_keys has zero policies (deny-all)');
+SELECT is(
+  (SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'search_dirty_keys'),
+  'setjoin_owner', 'V297: search_dirty_keys owned by setjoin_owner');
+
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.search_index_watermarks'::regclass),
+  true, 'V297: search_index_watermarks has RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.search_index_watermarks'::regclass),
+  true, 'V297: search_index_watermarks RLS is FORCEd');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'search_index_watermarks'),
+  0, 'V297: search_index_watermarks has zero policies (deny-all)');
+SELECT is(
+  (SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'search_index_watermarks'),
+  'setjoin_owner', 'V297: search_index_watermarks owned by setjoin_owner');
+
+-- 2. Privilege posture: setjoin_app has zero table privileges; setjoin_worker has DML
+SELECT is(
+  has_table_privilege('setjoin_app', 'public.search_dirty_keys', 'SELECT'),
+  false, 'V297: setjoin_app has NO SELECT privilege on search_dirty_keys');
+SELECT is(
+  has_table_privilege('setjoin_app', 'public.search_index_watermarks', 'SELECT'),
+  false, 'V297: setjoin_app has NO SELECT privilege on search_index_watermarks');
+SELECT is(
+  has_table_privilege('setjoin_worker', 'public.search_dirty_keys', 'INSERT'),
+  true, 'V297: setjoin_worker holds INSERT privilege on search_dirty_keys');
+SELECT is(
+  has_table_privilege('setjoin_worker', 'public.search_index_watermarks', 'UPDATE'),
+  true, 'V297: setjoin_worker holds UPDATE privilege on search_index_watermarks');
+
+-- 3. Worker BYPASSRLS write control (seeds rows so app denial is non-vacuous)
+SET LOCAL ROLE setjoin_worker;
+INSERT INTO public.search_dirty_keys (corpus, scope_id, doc_id, received_at_us, sub_id, op, generation)
+VALUES ('mail', 1001, 2002, 1730000000000000, 0, 'upsert', 7);
+INSERT INTO public.search_index_watermarks (corpus, epoch, generation, schema_hash)
+VALUES ('mail', 1, 7, 'sha256-v1');
+SELECT is((SELECT count(*)::int FROM public.search_dirty_keys WHERE corpus = 'mail' AND doc_id = 2002), 1,
+  'V297: setjoin_worker writes and reads search_dirty_keys');
+SELECT is((SELECT count(*)::int FROM public.search_index_watermarks WHERE corpus = 'mail' AND epoch = 1), 1,
+  'V297: setjoin_worker writes and reads search_index_watermarks');
+RESET ROLE;
+
+-- 4. App credential denial (42501 on direct table access under SET LOCAL ROLE setjoin_app)
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(
+  $stmt$SELECT count(*) FROM public.search_dirty_keys$stmt$,
+  '42501', NULL, 'search_dirty_keys denies all setjoin_app SELECT access (42501)');
+SELECT throws_ok(
+  $stmt$INSERT INTO public.search_dirty_keys (corpus, scope_id, doc_id, op) VALUES ('mail', 1, 2, 'upsert')$stmt$,
+  '42501', NULL, 'search_dirty_keys denies all setjoin_app INSERT access (42501)');
+SELECT throws_ok(
+  $stmt$SELECT count(*) FROM public.search_index_watermarks$stmt$,
+  '42501', NULL, 'search_index_watermarks denies all setjoin_app SELECT access (42501)');
+SELECT throws_ok(
+  $stmt$INSERT INTO public.search_index_watermarks (corpus, epoch, generation) VALUES ('chat', 1, 1)$stmt$,
+  '42501', NULL, 'search_index_watermarks denies all setjoin_app INSERT access (42501)');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

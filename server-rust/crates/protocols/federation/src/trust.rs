@@ -279,32 +279,34 @@ impl ClientCertVerifier for AnyClientCert {
     }
 }
 
-/// A leaf certificate chain and its private key (PEM files, like Go's
-/// `tls.LoadX509KeyPair`).
+/// A leaf certificate chain and its private key (PEM files, backed by
+/// [`setjoin_tls::ReloadingPem`] for zero-downtime mTLS hot-reload, #559).
 #[derive(Clone)]
 pub struct Identity {
-    pub chain: Vec<CertificateDer<'static>>,
-    pub key: Arc<rustls_pki_types::PrivateKeyDer<'static>>,
+    resolver: Arc<setjoin_tls::ReloadingPem>,
 }
 
 impl Identity {
     pub fn load(cert_path: &str, key_path: &str) -> Result<Identity, String> {
-        use rustls_pki_types::{pem::PemObject, PrivateKeyDer};
-        let chain: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(cert_path)
-            .map_err(|e| format!("{cert_path}: {e}"))?
-            .collect::<Result<_, _>>()
-            .map_err(|e| format!("{cert_path}: {e}"))?;
-        if chain.is_empty() {
-            return Err(format!("{cert_path}: no certificate found"));
-        }
-        let key = PrivateKeyDer::from_pem_file(key_path).map_err(|e| format!("{key_path}: {e}"))?;
+        let resolver = setjoin_tls::ReloadingPem::load(cert_path, key_path)?;
         Ok(Identity {
-            chain,
-            key: Arc::new(key),
+            resolver: Arc::new(resolver),
         })
     }
-    fn key(&self) -> rustls_pki_types::PrivateKeyDer<'static> {
-        self.key.clone_key()
+
+    /// Hot-reloading client certificate resolver for outbound mTLS connections.
+    pub fn client_cert_resolver(&self) -> Arc<dyn rustls::client::ResolvesClientCert> {
+        self.resolver.clone()
+    }
+
+    /// Hot-reloading server certificate resolver for inbound mTLS connections.
+    pub fn server_cert_resolver(&self) -> Arc<dyn rustls::server::ResolvesServerCert> {
+        self.resolver.clone()
+    }
+
+    /// Currently served leaf certificate chain.
+    pub fn served_chain(&self) -> Vec<CertificateDer<'static>> {
+        self.resolver.served_chain()
     }
 
     /// TLS 1.3 server configuration: any client certificate, no tickets.
@@ -313,8 +315,7 @@ impl Identity {
             .with_protocol_versions(&[&rustls::version::TLS13])
             .map_err(|e| e.to_string())?
             .with_client_cert_verifier(Arc::new(AnyClientCert::new()))
-            .with_single_cert(self.chain.clone(), self.key())
-            .map_err(|e| e.to_string())?;
+            .with_cert_resolver(self.resolver.clone());
         cfg.send_tls13_tickets = 0;
         cfg.session_storage = Arc::new(rustls::server::NoServerSessionStorage {});
         Ok(Arc::new(cfg))
@@ -334,8 +335,7 @@ impl Identity {
                 anchor,
                 expect_domain,
             )))
-            .with_client_auth_cert(self.chain.clone(), self.key())
-            .map_err(|e| e.to_string())?;
+            .with_client_cert_resolver(self.resolver.clone());
         cfg.resumption = rustls::client::Resumption::disabled();
         Ok(Arc::new(cfg))
     }

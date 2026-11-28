@@ -160,15 +160,110 @@ async fn starttls_reloads_the_pair_for_every_upgrade() {
         connector
             .connect(ServerName::try_from("localhost").unwrap(), socket)
             .await
-            .map(|_| ())
+            .map(|tls| tls.get_ref().1.peer_certificates().unwrap()[0].clone())
     };
-    upgrade(connector.clone()).await.unwrap();
-    // A rotation that leaves an unreadable pair ends the next upgrade; restoring
-    // it makes the following one work again, with no restart.
+    let leaf1 = upgrade(connector.clone()).await.unwrap();
+    // Intentional availability improvement (#559, ReloadingPem): a corrupt PEM
+    // write after startup retains the last-known-good certificate instead of
+    // terminating new STARTTLS upgrades, while a valid atomic rotation serves
+    // the new leaf without restarting the listener.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
     std::fs::write(&cert, "not a certificate").unwrap();
-    assert!(upgrade(connector.clone()).await.is_err());
-    std::fs::write(&cert, CERT).unwrap();
-    upgrade(connector).await.unwrap();
+    let leaf_during_corrupt = upgrade(connector.clone()).await.unwrap();
+    assert_eq!(
+        leaf_during_corrupt, leaf1,
+        "corrupt PEM must retain last-known-good certificate"
+    );
+
+    // Atomic rotation to a fresh self-signed pair serves the new leaf on the
+    // next STARTTLS upgrade (immediate recovery on new FileSig).
+    let key2 = rcgen::KeyPair::generate().unwrap();
+    let mut params2 = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
+    params2.not_after = rcgen::date_time_ymd(2037, 1, 1);
+    let cert2 = params2.self_signed(&key2).unwrap();
+    let tmp_cert = dir.0.join("cert.pem.new");
+    let tmp_key = dir.0.join("key.pem.new");
+    std::fs::write(&tmp_cert, cert2.pem()).unwrap();
+    std::fs::write(&tmp_key, key2.serialize_pem()).unwrap();
+    std::fs::rename(&tmp_key, &key).unwrap();
+    std::fs::rename(&tmp_cert, &cert).unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    let mut roots2 = RootCertStore::empty();
+    roots2.add(cert2.der().clone()).unwrap();
+    let cfg2 = ClientConfig::builder_with_provider(Arc::new(ring::default_provider()))
+        .with_protocol_versions(&[&TLS13, &TLS12])
+        .unwrap()
+        .with_root_certificates(roots2)
+        .with_no_client_auth();
+    let leaf2 = upgrade(tokio_rustls::TlsConnector::from(Arc::new(cfg2)))
+        .await
+        .unwrap();
+    assert_eq!(leaf2, *cert2.der());
+    assert_ne!(leaf2, leaf1);
+    stop.send(true).unwrap();
+}
+
+#[tokio::test]
+async fn implicit_imaps_hot_reloads_and_preserves_active_session() {
+    let dir = Dir::new("imaps-hot-reload");
+    let (cert, key) = dir.install();
+    let (addr, stop) = serve_implicit(cert.clone(), key.clone()).await;
+
+    // Open an active IMAPS session before rotating the certificate.
+    let connector1 = client(ring::default_provider().cipher_suites, &[&TLS13, &TLS12]);
+    let socket1 = TcpStream::connect(addr).await.unwrap();
+    let mut active = connector1
+        .connect(ServerName::try_from("localhost").unwrap(), socket1)
+        .await
+        .unwrap();
+    let leaf1 = active.get_ref().1.peer_certificates().unwrap()[0].clone();
+    let mut buf = [0u8; 512];
+    let n = active.read(&mut buf).await.unwrap();
+    assert!(String::from_utf8_lossy(&buf[..n]).starts_with("* OK"));
+
+    // Rotate PEM atomically on disk.
+    let key2 = rcgen::KeyPair::generate().unwrap();
+    let mut params2 = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
+    params2.not_after = rcgen::date_time_ymd(2037, 1, 1);
+    let cert2 = params2.self_signed(&key2).unwrap();
+    let tmp_cert = dir.0.join("cert.pem.new");
+    let tmp_key = dir.0.join("key.pem.new");
+    std::fs::write(&tmp_cert, cert2.pem()).unwrap();
+    std::fs::write(&tmp_key, key2.serialize_pem()).unwrap();
+    std::fs::rename(&tmp_key, &key).unwrap();
+    std::fs::rename(&tmp_cert, &cert).unwrap();
+
+    // Wait past default 1s stat debounce window.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    // Active pre-rotation session continues working cleanly.
+    active.write_all(b"a1 NOOP\r\n").await.unwrap();
+    let n = active.read(&mut buf).await.unwrap();
+    assert!(
+        String::from_utf8_lossy(&buf[..n]).contains("a1 OK NOOP completed"),
+        "active IMAPS session failed after cert rotation"
+    );
+
+    // New IMAPS handshake serves the rotated leaf certificate.
+    let mut roots2 = RootCertStore::empty();
+    roots2.add(cert2.der().clone()).unwrap();
+    let cfg2 = ClientConfig::builder_with_provider(Arc::new(ring::default_provider()))
+        .with_protocol_versions(&[&TLS13, &TLS12])
+        .unwrap()
+        .with_root_certificates(roots2)
+        .with_no_client_auth();
+    let socket2 = TcpStream::connect(addr).await.unwrap();
+    let mut tls2 = tokio_rustls::TlsConnector::from(Arc::new(cfg2))
+        .connect(ServerName::try_from("localhost").unwrap(), socket2)
+        .await
+        .unwrap();
+    let leaf2 = tls2.get_ref().1.peer_certificates().unwrap()[0].clone();
+    assert_eq!(leaf2, *cert2.der());
+    assert_ne!(leaf2, leaf1);
+    let n = tls2.read(&mut buf).await.unwrap();
+    assert!(String::from_utf8_lossy(&buf[..n]).starts_with("* OK"));
+
     stop.send(true).unwrap();
 }
 

@@ -275,7 +275,7 @@ async fn direct_tls_is_authoritative_and_http2_authority_is_preserved() {
 }
 
 #[tokio::test]
-async fn persisted_keys_resume_after_restart_and_monitor_reads_the_served_chain() {
+async fn cert_monitor_reads_the_served_chain_and_session_resumes() {
     use tokio_rustls::rustls::{pki_types::ServerName, HandshakeKind};
     let Some(db) = setjoin_conformance::harness::Db::for_case("tlsfront-live-workers") else {
         return;
@@ -284,69 +284,42 @@ async fn persisted_keys_resume_after_restart_and_monitor_reads_the_served_chain(
         .await
         .unwrap();
     let driver = tokio::spawn(connection);
-    let before=client.query_opt("SELECT value::text,encrypted,description,updated_at::text,updated_by FROM system_config WHERE key='tls_session_ticket_keys'",&[]).await.unwrap();
     let max_id: i64 = client
         .query_one("SELECT coalesce(max(id),0) FROM health_history", &[])
         .await
         .unwrap()
         .get(0);
-    let seed =
-        serde_json::json!({"current":"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=","previous":""})
-            .to_string();
-    // Owner-approved security fix 2026-11-05 (#503): the worker reads only a sealed row.
-    const SECRET: &str = "tlsfront-ticket-secret-key-0123456789abcdef";
-    let deployment_before = client.query_opt("SELECT value::text FROM system_config WHERE key='identity.deployment_id'", &[]).await.unwrap().map(|r| r.get::<_, String>(0));
-    client.execute("INSERT INTO system_config(key,value) VALUES('identity.deployment_id','\"tlsfront-deployment\"'::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",&[]).await.unwrap();
-    let codec = setjoin_config_secret::ConfigSecretCodec::new(setjoin_config_secret::keyring_from_lookup("tlsfront-deployment", |n| (n == "DB_ENCRYPTION_KEY").then(|| SECRET.to_owned())).unwrap()).unwrap();
-    let seed = String::from_utf8(codec.encrypt("tls_session_ticket_keys", seed.as_bytes()).unwrap()).unwrap();
-    client.execute("INSERT INTO system_config(key,value,encrypted,description) VALUES('tls_session_ticket_keys',$1::text::jsonb,true,'TLSFRONT fixture') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",&[&seed]).await.unwrap();
     let files = TlsFixture::new("workers");
     let subject = format!("gofree-tlsfront-{}", std::process::id());
-    let output = std::process::Command::new("openssl")
-        .current_dir(&files.0)
-        .args([
-            "req",
-            "-x509",
-            "-newkey",
-            "ec",
-            "-pkeyopt",
-            "ec_paramgen_curve:P-256",
-            "-nodes",
-            "-keyout",
-            "key.pem",
-            "-out",
-            "cert.pem",
-            "-days",
-            "8",
-            "-subj",
-            &format!("/CN={subject}"),
-            "-addext",
-            "subjectAltName=DNS:localhost",
-            "-addext",
-            "basicConstraints=critical,CA:FALSE",
-        ])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
+    let key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
+    let mut params = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
+    params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, &subject);
+    params.is_ca = rcgen::IsCa::ExplicitNoCa;
+    let now = std::time::SystemTime::now();
+    params.not_before = (now - Duration::from_secs(60)).into();
+    params.not_after = (now + Duration::from_secs(7 * 86400 + 12 * 3600)).into();
+    let cert = params.self_signed(&key).unwrap();
+    std::fs::write(files.0.join("cert.pem"), cert.pem()).unwrap();
+    std::fs::write(files.0.join("key.pem"), key.serialize_pem()).unwrap();
     let cfg = files.client(b"h2");
+    let frontend = files.frontend();
+    let workers = setjoin_gateway::tls_runtime::start(frontend.clone(), &|name| match name {
+        "RUST_WORKERS_ON" => Some("cert-monitor".into()),
+        "DB_DSN" | "DB_WORKER_DSN" => Some(db.dsn.clone()),
+        _ => None,
+    })
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(gateway().serve_tls_until(listener, frontend, async {
+        let _ = stopped.await;
+    }));
     let mut kinds = Vec::new();
     for _ in 0..2 {
-        let frontend = files.frontend();
-        let workers = setjoin_gateway::tls_runtime::start(frontend.clone(), &|name| match name {
-            "RUST_WORKERS_ON" => Some("tls-ticket-keys,cert-monitor".into()),
-            "GO_WORKERS_OFF" => Some("tls-ticket-keys,cert-monitor,http-tls,http-h2c".into()),
-            "DB_DSN" | "DB_WORKER_DSN" => Some(db.dsn.clone()),
-            "DB_ENCRYPTION_KEY" => Some(SECRET.into()),
-            _ => None,
-        })
-        .await
-        .unwrap();
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let (stop, stopped) = tokio::sync::oneshot::channel();
-        let server = tokio::spawn(gateway().serve_tls_until(listener, frontend, async {
-            let _ = stopped.await;
-        }));
         let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
         let tls = tokio_rustls::TlsConnector::from(cfg.clone())
             .connect(ServerName::try_from("localhost").unwrap(), tcp)
@@ -369,39 +342,54 @@ async fn persisted_keys_resume_after_restart_and_monitor_reads_the_served_chain(
         response.into_body().collect().await.unwrap();
         drop(sender);
         request_driver.await.unwrap().unwrap();
-        let _ = stop.send(());
-        server.await.unwrap();
-        tokio::time::timeout(Duration::from_secs(10),async {
-            loop {let row=client.query_one("SELECT count(*)::int FROM health_history WHERE id>$1 AND check_name='tls_cert' AND details LIKE $2",&[&max_id,&format!("%{subject}%")]).await.unwrap();if row.get::<_,i32>(0)>=kinds.len() as i32 {break}tokio::time::sleep(Duration::from_millis(20)).await;}
-        }).await.unwrap();
-        workers.shutdown().await.unwrap();
     }
-    let rows=client.query("SELECT id,status,value::int,threshold::int,details FROM health_history WHERE id>$1 AND check_name='tls_cert' AND details LIKE $2 ORDER BY id",&[&max_id,&format!("%{subject}%")]).await.unwrap();
-    let observed:Vec<_>=rows.iter().map(|row| {
-        let details:String=row.get(4);let mut normalized=details.replace(&subject,"SUBJECT");
-        if let Some(date)=details.split('(').nth(1).and_then(|s|s.split(')').next()) {normalized=normalized.replace(date,"DATE");}
-        serde_json::json!({"case":"seven","check_name":"tls_cert","status":row.get::<_,String>(1),"value":row.get::<_,i32>(2),"threshold":row.get::<_,i32>(3),"details":normalized})
-    }).collect();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let row = client
+                .query_one(
+                    "SELECT count(*)::int FROM health_history WHERE id>$1 AND check_name='tls_cert' AND details LIKE $2",
+                    &[&max_id, &format!("%{subject}%")],
+                )
+                .await
+                .unwrap();
+            if row.get::<_, i32>(0) >= 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let _ = stop.send(());
+    server.await.unwrap();
+    workers.shutdown().await.unwrap();
+    let rows = client
+        .query(
+            "SELECT id,status,value::int,threshold::int,details FROM health_history WHERE id>$1 AND check_name='tls_cert' AND details LIKE $2 ORDER BY id",
+            &[&max_id, &format!("%{subject}%")],
+        )
+        .await
+        .unwrap();
+    let observed: Vec<_> = rows
+        .iter()
+        .map(|row| {
+            let details: String = row.get(4);
+            let mut normalized = details.replace(&subject, "SUBJECT");
+            if let Some(date) = details
+                .split('(')
+                .nth(1)
+                .and_then(|s| s.split(')').next())
+            {
+                normalized = normalized.replace(date, "DATE");
+            }
+            serde_json::json!({"case":"seven","check_name":"tls_cert","status":row.get::<_,String>(1),"value":row.get::<_,i32>(2),"threshold":row.get::<_,i32>(3),"details":normalized})
+        })
+        .collect();
     for row in rows {
         client
             .execute(
                 "DELETE FROM health_history WHERE id=$1",
                 &[&row.get::<_, i64>(0)],
-            )
-            .await
-            .unwrap();
-    }
-    match deployment_before {
-        Some(v) => { client.execute("UPDATE system_config SET value=$1::text::jsonb WHERE key='identity.deployment_id'",&[&v]).await.unwrap(); }
-        None => { client.execute("DELETE FROM system_config WHERE key='identity.deployment_id'",&[]).await.unwrap(); }
-    }
-    if let Some(row) = before {
-        client.execute("UPDATE system_config SET value=$1::text::jsonb,encrypted=$2,description=$3,updated_at=$4::text::timestamptz,updated_by=$5 WHERE key='tls_session_ticket_keys'",&[&row.get::<_,String>(0),&row.get::<_,bool>(1),&row.get::<_,Option<String>>(2),&row.get::<_,String>(3),&row.get::<_,Option<i64>>(4)]).await.unwrap();
-    } else {
-        client
-            .execute(
-                "DELETE FROM system_config WHERE key='tls_session_ticket_keys'",
-                &[],
             )
             .await
             .unwrap();
@@ -420,7 +408,7 @@ async fn persisted_keys_resume_after_restart_and_monitor_reads_the_served_chain(
         .iter()
         .find(|v| v["case"] == "seven")
         .unwrap();
-    assert_eq!(observed, vec![expected.clone(), expected.clone()]);
+    assert_eq!(observed, vec![expected.clone()]);
 }
 
 fn short_limits() -> setjoin_gateway::http_limits::HttpLimits {

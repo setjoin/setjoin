@@ -67,11 +67,11 @@ pub mod recovery_worker;
 pub mod routes;
 pub mod rtc;
 pub mod runtime;
+pub mod search_facade;
 pub mod served_stats;
 pub mod smtp_runtime;
 pub mod supervisor;
 pub mod surface;
-pub mod ticket_keys;
 pub mod tls_runtime;
 pub mod translate;
 pub mod workers;
@@ -101,6 +101,8 @@ pub type Body = BoxBody<Bytes, BoxError>;
 
 /// Gateway-local liveness path; outside every Go route prefix.
 pub const HEALTH_PATH: &str = "/_gateway/healthz";
+/// Public liveness alias contracted by `contracts/edge/modules/health.tsp` (#561).
+pub const PUBLIC_HEALTHZ_PATH: &str = "/healthz";
 
 /// Go gives active HTTP requests 30 seconds to finish on shutdown.
 const HTTP_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
@@ -132,6 +134,8 @@ struct Shared {
     edge_limit: Option<jmap::limit::EdgeLimit>,
     http_limits: http_limits::HttpLimits,
     connections: Arc<tokio::sync::Semaphore>,
+    search_runtime: Option<Arc<setjoin_search::SearchRuntime>>,
+    search_facade: Option<Arc<search_facade::GatewaySearchFacade>>,
 }
 
 #[derive(Clone)]
@@ -161,8 +165,34 @@ impl Gateway {
                 connections: Arc::new(tokio::sync::Semaphore::new(
                     http_limits::HttpLimits::default().max_connections,
                 )),
+                search_runtime: None,
+                search_facade: None,
             }),
         })
+    }
+
+    /// Attach the optional two-tier search runtime (#556; default OFF).
+    pub fn with_search_runtime(
+        mut self,
+        search_runtime: Arc<setjoin_search::SearchRuntime>,
+    ) -> Self {
+        if let Some(shared) = Arc::get_mut(&mut self.shared) {
+            shared.search_runtime = Some(search_runtime);
+        }
+        self
+    }
+
+    /// Attach the gateway two-tier search facade (PG ACL re-auth for Mail/Chat/Drive, #558).
+    pub fn with_search_facade(mut self, facade: Arc<search_facade::GatewaySearchFacade>) -> Self {
+        if let Some(shared) = Arc::get_mut(&mut self.shared) {
+            shared.search_facade = Some(facade);
+        }
+        self
+    }
+
+    /// Inspect the attached two-tier search runtime, if configured.
+    pub fn search_runtime(&self) -> Option<&Arc<setjoin_search::SearchRuntime>> {
+        self.shared.search_runtime.as_ref()
     }
 
     /// Listener resource policy, shared by TLS and loopback HTTP.
@@ -292,9 +322,6 @@ impl Gateway {
                             accepted = frontend.accept(stream) => accepted,
                         };
                         let Ok(stream) = accepted else { return };
-                        if stream.get_ref().1.alpn_protocol() == Some(b"acme-tls/1") {
-                            return;
-                        }
                         let h2 = stream.get_ref().1.alpn_protocol() == Some(b"h2");
                         let leaf = stream
                             .get_ref()
@@ -454,7 +481,7 @@ async fn handle(
     let auth_listener = shared.inventory.auth_only();
     let auth_target = route.map_or(auth_path, |r| r.target == inventory::Target::RustAuth);
     let go_mail = shared.upstream.clone();
-    if req.uri().path() == HEALTH_PATH {
+    if req.uri().path() == HEALTH_PATH || req.uri().path() == PUBLIC_HEALTHZ_PATH {
         return match *req.method() {
             Method::GET | Method::HEAD => proxy::status(StatusCode::OK, "ok\n"),
             _ => proxy::status(StatusCode::METHOD_NOT_ALLOWED, "method not allowed\n"),
@@ -465,6 +492,14 @@ async fn handle(
             Method::GET | Method::HEAD => shared.go_proxies.response(req.method() == Method::HEAD),
             _ => proxy::status(StatusCode::METHOD_NOT_ALLOWED, "method not allowed\n"),
         };
+    }
+    if matches!(
+        req.uri().path(),
+        setjoin_search::INTERNAL_SEARCH_CANDIDATES_PATH
+            | setjoin_search::INTERNAL_SEARCH_HEALTH_PATH
+    ) {
+        return search_facade::handle_internal_search_rpc(shared.search_runtime.as_deref(), req)
+            .await;
     }
     // Go's net/http request-line unescape runs before CSRF and edge rate limiting.
     if route.is_some_and(|r| r.target == inventory::Target::LocalRust)
@@ -781,6 +816,9 @@ async fn handle(
                 identity,
                 upstream: go_mail,
             };
+            if let Some(facade) = &shared.search_facade {
+                req.extensions_mut().insert(Arc::clone(facade));
+            }
             route.handle(req, ctx).await
         }
         None => {

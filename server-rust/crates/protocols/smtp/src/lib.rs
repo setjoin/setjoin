@@ -36,7 +36,6 @@ pub struct Server {
     features: DeliveryFeatures,
     events: Option<Arc<dyn DeliveryEvents>>,
     blobs: Option<Arc<dyn RawBlobs>>,
-    tls_files: Option<(std::path::PathBuf, std::path::PathBuf)>,
     flags: Option<Arc<dyn submission::Flags>>,
     spam_store: Option<Arc<setjoin_spam::Store>>,
     inbound: Arc<inbound::Pipeline>,
@@ -54,7 +53,6 @@ impl Default for Server {
             features: DeliveryFeatures::default(),
             events: None,
             blobs: None,
-            tls_files: None,
             flags: None,
             spam_store: None,
             inbound: inbound::Pipeline::new(Default::default()),
@@ -91,15 +89,16 @@ impl Server {
         self.tls = Some(tls);
         self
     }
-    /// Production TLS (#501): the Go cipher/curve policy with the files re-read at
-    /// every handshake, so a renewed certificate is served without a restart.
+    /// Production TLS (#501, #559): Go cipher/curve policy backed by
+    /// `setjoin_tls::ReloadingPem`, so a renewed certificate is served on new
+    /// handshakes without a restart while retaining the last-known-good pair
+    /// on transient/corrupt writes.
     pub fn with_tls_files(
         mut self,
         cert: std::path::PathBuf,
         key: std::path::PathBuf,
     ) -> Result<Self, String> {
-        tls::server_config(&cert, &key)?;
-        self.tls_files = Some((cert, key));
+        self.tls = Some(tls::server_config(&cert, &key)?);
         Ok(self)
     }
     /// Per-session feature flags (`feature_toggles`): greylisting, mail
@@ -110,18 +109,10 @@ impl Server {
         self
     }
     fn tls_config(&self) -> io::Result<Option<Arc<tokio_rustls::rustls::ServerConfig>>> {
-        if let Some(tls) = &self.tls {
-            return Ok(Some(tls.clone()));
-        }
-        match &self.tls_files {
-            Some((cert, key)) => tls::server_config(cert, key)
-                .map(Some)
-                .map_err(io::Error::other),
-            None => Ok(None),
-        }
+        Ok(self.tls.clone())
     }
     fn has_tls(&self) -> bool {
-        self.tls.is_some() || self.tls_files.is_some()
+        self.tls.is_some()
     }
     fn effective(&self) -> Effective {
         let Some(flags) = &self.flags else {

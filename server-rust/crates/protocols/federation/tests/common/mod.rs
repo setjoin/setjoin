@@ -74,8 +74,7 @@ pub fn client_config(id: &Identity) -> Arc<rustls::ClientConfig> {
         .unwrap()
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(AcceptAny))
-        .with_client_auth_cert(id.chain.clone(), id.key.clone_key())
-        .unwrap();
+        .with_client_cert_resolver(id.client_cert_resolver());
     cfg.resumption = rustls::client::Resumption::disabled();
     Arc::new(cfg)
 }

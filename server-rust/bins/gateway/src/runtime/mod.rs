@@ -109,6 +109,10 @@ pub fn run_legacy_cli() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let sd_notify = SdNotify::from_env_and_scrub();
+    if let Some(err) = crate::acme::retirement_error_from_env() {
+        eprintln!("setjoin-gateway: {err}");
+        return ExitCode::FAILURE;
+    }
     let environment: Vec<(String, String)> = std::env::vars().collect();
     let env_get = |k: &str| {
         environment
@@ -261,6 +265,9 @@ pub async fn run_with_options(
         return Err("at least one subsystem must be enabled".into());
     }
     options.activated.validate_for_subsystems(subsystems)?;
+    if let Some(err) = crate::acme::retirement_error_from_env() {
+        return Err(err);
+    }
     if !options.allow_route_inventory_env
         && std::env::var("GATEWAY_ROUTE_INVENTORY")
             .ok()
@@ -319,7 +326,9 @@ pub async fn run_with_options(
                 &|name| std::env::var(name).ok(),
                 verifier,
             )?
-            .ok_or("the https descriptor requires TLS_CERT/TLS_KEY or TLS_AUTOCERT_DOMAINS")?,
+            .ok_or(
+                "the https descriptor requires TLS_CERT/TLS_KEY (or TLS_CERT_FILE/TLS_KEY_FILE)",
+            )?,
         )
     } else {
         None
@@ -500,12 +509,33 @@ pub async fn run_with_options(
         crate::blob_retention::config(),
         crate::blob_retention::Config::On(_)
     );
+    let search_caps = if subsystems.http || subsystems.workers {
+        match configuration_exec.as_ref() {
+            Some(exec) => setjoin_search::probe_pg_capabilities_exec(exec)
+                .await
+                .unwrap_or_default(),
+            None => setjoin_search::PgSearchCapabilities::default(),
+        }
+    } else {
+        setjoin_search::PgSearchCapabilities::default()
+    };
+    let mut search_runtime_raw = setjoin_search::SearchRuntime::from_env(search_caps);
+    let tier2_search_enabled = search_runtime_raw.config().tier2_enabled;
+    if tier2_search_enabled {
+        let health = search_runtime_raw.health();
+        if !health.is_healthy() {
+            eprintln!(
+                "setjoin-gateway: Tier-2 search enabled but degraded ({health:?}); falling back to Tier-1 PostgreSQL baseline"
+            );
+        }
+    }
     let need_supervisor = subsystems.workers
         && (options.require_worker_bypassrls
             || options.use_schedule_leases
             || work_queue.is_some()
             || promote_store.is_some()
             || push_drain.is_some()
+            || tier2_search_enabled
             || admin_jobs
                 .as_ref()
                 .is_some_and(|a| a.bulk.is_some() || a.eap.is_some()));
@@ -539,6 +569,148 @@ pub async fn run_with_options(
         None
     };
 
+    // Wave 3.3 (#558): attach RemoteSearchEngine & WorkQueue on BOTH worker-bearing
+    // and stateless HTTP-only follower nodes (`subsystems.http && !subsystems.workers`)
+    // when Tier-2 search is enabled.
+    let follower_worker_pool: Option<setjoin_pg::WorkerPool> = if tier2_search_enabled
+        && supervisor.is_none()
+        && subsystems.http
+    {
+        let fallback_dsn = std::env::var("DB_WORKER_DSN")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .or_else(|| std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()));
+        match fallback_dsn.and_then(|dsn| setjoin_pg::WorkerPool::from_dsn(&dsn, 2).ok()) {
+            Some(pool) => match pool.verify_bypassrls().await {
+                Ok(_) => Some(pool),
+                Err(err) => {
+                    eprintln!(
+                        "setjoin-gateway: HTTP-only search worker pool failed BYPASSRLS verification ({err:?}); disabling follower leader discovery"
+                    );
+                    None
+                }
+            },
+            None => None,
+        }
+    } else {
+        None
+    };
+
+    if tier2_search_enabled && !search_runtime_raw.config().rpc_secret.is_empty() {
+        let resolver: Option<Arc<dyn setjoin_search::LeaderResolver>> = if let Some(url) =
+            search_runtime_raw.config().leader_url_override.clone()
+        {
+            Some(Arc::new(setjoin_search::StaticLeaderResolver::new(url)))
+        } else if let Some(sup) = supervisor.as_ref() {
+            Some(Arc::new(setjoin_search::DbLeaderResolver::new(Arc::new(
+                crate::supervisor::search_worker::WorkerPoolSearchDb::new(sup.ctx().pool.clone()),
+            ))) as Arc<dyn setjoin_search::LeaderResolver>)
+        } else {
+            follower_worker_pool.as_ref().map(|pool| {
+                Arc::new(setjoin_search::DbLeaderResolver::new(Arc::new(
+                    crate::supervisor::search_worker::WorkerPoolSearchDb::new(pool.clone()),
+                ))) as Arc<dyn setjoin_search::LeaderResolver>
+            })
+        };
+        if let Some(resolver) = resolver {
+            if let Ok(remote) = setjoin_search::RemoteSearchEngine::new(
+                resolver,
+                search_runtime_raw.config().rpc_secret.clone(),
+                search_runtime_raw.config().query_timeout,
+            ) {
+                search_runtime_raw = search_runtime_raw.with_remote_tier2(Arc::new(remote));
+            }
+        }
+    }
+    let search_runtime = Arc::new(search_runtime_raw);
+    let search_work_queue = if tier2_search_enabled {
+        supervisor
+            .as_ref()
+            .map(|sup| sup.ctx().work_queue.clone())
+            .or_else(|| {
+                follower_worker_pool
+                    .as_ref()
+                    .map(|pool| setjoin_workqueue::WorkQueue::new(pool.clone()))
+            })
+    } else {
+        None
+    };
+    let search_facade = if tier2_search_enabled {
+        let explicit_app = std::env::var("DB_APP_DSN").ok().filter(|s| !s.is_empty());
+        let facade_dsn = explicit_app
+            .clone()
+            .or_else(|| std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()));
+        match facade_dsn.and_then(|dsn| setjoin_pg::AppPool::from_dsn(&dsn, 4).ok()) {
+            Some(pool) => {
+                // Verify AppPool connectivity and non-bypass RLS posture at boot.
+                let boot_ok = match setjoin_contracts::ids::ActorId::new(1) {
+                    Ok(probe_actor) => {
+                        let probe_principal = setjoin_pg::mint::user(
+                            probe_actor,
+                            setjoin_contracts::ids::Generation(1),
+                        );
+                        match pool.begin_user_read(&probe_principal).await {
+                            Ok(mut tx) => {
+                                let res = tx
+                                    .query(
+                                        "SELECT (NOT r.rolsuper AND NOT r.rolbypassrls), current_user::text \
+                                           FROM pg_catalog.pg_roles r WHERE r.rolname = current_user",
+                                        &[],
+                                    )
+                                    .await;
+                                let _ = tx.finish().await;
+                                match res {
+                                    Ok(rows) => {
+                                        let non_bypass: bool = rows
+                                            .first()
+                                            .and_then(|r| r.try_get(0).ok())
+                                            .unwrap_or(false);
+                                        if !non_bypass {
+                                            let role: String = rows
+                                                .first()
+                                                .and_then(|r| r.try_get(1).ok())
+                                                .unwrap_or_else(|| "unknown".to_owned());
+                                            eprintln!(
+                                                "setjoin-gateway: Tier-2 search facade AppPool role '{role}' holds SUPERUSER/BYPASSRLS (configure DB_APP_DSN with a NOBYPASSRLS role); disabling Tier-2 facade and deferring to canonical Tier-1 PG"
+                                            );
+                                            false
+                                        } else {
+                                            true
+                                        }
+                                    }
+                                    Err(err) => {
+                                        eprintln!(
+                                            "setjoin-gateway: Tier-2 search facade AppPool posture probe failed ({err:?}); disabling facade"
+                                        );
+                                        false
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                eprintln!(
+                                    "setjoin-gateway: Tier-2 search facade AppPool boot connect failed ({err:?}); disabling facade"
+                                );
+                                false
+                            }
+                        }
+                    }
+                    Err(_) => false,
+                };
+                if boot_ok {
+                    Some(Arc::new(crate::search_facade::GatewaySearchFacade::new(
+                        Arc::clone(&search_runtime),
+                        pool,
+                    )))
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
+    } else {
+        None
+    };
+
     let cron = if subsystems.workers && !options.use_schedule_leases {
         workers::cron_scheduler(work_queue.is_some()).await?
     } else {
@@ -566,7 +738,7 @@ pub async fn run_with_options(
         // committed `blob.promote_recover` and `blob.promote_verify` intents never
         // stall unprocessed (#551). WORM arming and residual `blob.s3_reap_retry`
         // drain boot alongside when blob-cleanup, work-queue, or WORM is enabled (#549/#551).
-        if let Some(store) = promote_store {
+        if let Some(store) = promote_store.clone() {
             let promote_consumer = crate::supervisor::worm::BlobPromoteConsumer::new(store.clone());
             sup.spawn("blob-promote-consumer", move |ctx| {
                 promote_consumer.run(ctx)
@@ -580,6 +752,47 @@ pub async fn run_with_options(
                 });
             }
             wq_consumer_spawned = true;
+        }
+        // Wave 3.2/3.3 (#557/#558): opt-in content-addressed extraction, SKIP LOCKED
+        // single-writer search leader (indexing + lawful purge compaction), and
+        // watermark-complete eDiscovery consumer (strictly OFF unless
+        // SETJOIN_SEARCH_TIER2_ENABLED=true).
+        if search_runtime.config().tier2_enabled {
+            if let (Some(engine), Some(store)) = (search_runtime.tier2().cloned(), promote_store) {
+                let single_flight = Arc::new(setjoin_search::ExtractionSingleFlight::default());
+                let extract_consumer =
+                    crate::supervisor::search_worker::SearchExtractConsumer::new(store.clone())
+                        .with_single_flight(Arc::clone(&single_flight));
+                sup.spawn("search-extract-consumer", move |ctx| {
+                    extract_consumer.run(ctx)
+                });
+                let rpc_url = search_runtime
+                    .config()
+                    .node_rpc_url
+                    .clone()
+                    .unwrap_or_else(|| format!("http://{listen}"));
+                // Start strictly non-leader until SearchLeaderElector acquires the lease.
+                search_runtime.set_leader_active(false);
+                let leader_elector = crate::supervisor::search_worker::SearchLeaderElector::new(
+                    Arc::clone(&engine),
+                    store,
+                    rpc_url,
+                    search_runtime.config().leader_lease_secs,
+                )
+                .with_single_flight(single_flight)
+                .with_freshness_fence(search_runtime.freshness_fence().clone())
+                .with_leader_gate(search_runtime.leader_gate());
+                sup.spawn("search-leader-elector", move |ctx| leader_elector.run(ctx));
+                let edisc_engine: Option<Arc<dyn setjoin_search::SearchEngine>> =
+                    Some(Arc::clone(&engine) as Arc<dyn setjoin_search::SearchEngine>);
+                let ediscovery_consumer =
+                    crate::supervisor::search_worker::SearchEdiscoveryConsumer::new(edisc_engine)
+                        .with_local_tantivy(engine);
+                sup.spawn("search-ediscovery-consumer", move |ctx| {
+                    ediscovery_consumer.run(ctx)
+                });
+                wq_consumer_spawned = true;
+            }
         }
         // Wire durable WorkQueue + legacy SKIP LOCKED drain consumer for
         // bulk_role_jobs, eap_apply_jobs, and guest_notification_intents,
@@ -739,6 +952,8 @@ pub async fn run_with_options(
                 listen_hub: options.listen_hub.clone(),
                 allow_private_keys: options.allow_private_keys,
                 boot_posture: options.boot_posture.clone(),
+                search_facade: search_facade.clone(),
+                search_work_queue,
             },
         )
         .await?;
@@ -783,7 +998,11 @@ pub async fn run_with_options(
         let mut gateway = Gateway::new(config, route_table)?
             .with_http_limits(http_limits)
             .map_err(|e| format!("GATEWAY_MAX_CONNECTIONS: {e}"))?
-            .with_configuration(&configuration);
+            .with_configuration(&configuration)
+            .with_search_runtime(search_runtime.clone());
+        if let Some(facade) = search_facade {
+            gateway = gateway.with_search_facade(facade);
+        }
         if let Some(authority) = options.auth_authority.clone() {
             gateway = gateway.with_auth_authority(authority);
         } else {
@@ -825,58 +1044,6 @@ pub async fn run_with_options(
             crate::tls_runtime::start(frontend.clone(), &|name| std::env::var(name).ok()).await?,
         ),
         None => None,
-    };
-
-    if subsystems.http {
-        crate::acme::guard(
-            std::env::var("RUST_WORKERS_ON").ok().as_deref(),
-            std::env::var("GO_WORKERS_OFF").ok().as_deref(),
-            activated.acme.is_some(),
-            tls_frontend.is_some(),
-            &std::env::var("TLS_AUTOCERT_CHALLENGE").unwrap_or_default(),
-        )?;
-    }
-    let acme_store = setjoin_acme::Http01Store::default();
-    let dns_degraded = std::env::var("TLS_AUTOCERT_CHALLENGE").as_deref() == Ok("dns-01");
-    let acme_settings = if subsystems.http || subsystems.workers {
-        crate::acme::settings(&|name| std::env::var(name).ok()).or_else(|e| {
-            if workers::listed("RUST_WORKERS_ON", crate::acme::RENEWAL) && !dns_degraded {
-                Err(e)
-            } else {
-                if workers::listed("RUST_WORKERS_ON", crate::acme::RENEWAL) {
-                    eprintln!("TLS: managed ACME client creation failed: {e}");
-                }
-                Ok(None)
-            }
-        })?
-    } else {
-        None
-    };
-    let acme_hostname = acme_settings
-        .as_ref()
-        .map(|s| s.hostname.clone())
-        .unwrap_or_else(|| std::env::var("HOSTNAME").unwrap_or_default());
-    let acme_renewal = if subsystems.http || subsystems.workers {
-        acme_settings
-            .filter(|_| workers::listed("RUST_WORKERS_ON", crate::acme::RENEWAL))
-            .map(|s| {
-                crate::acme::Renewal::new(
-                    s,
-                    acme_store.clone(),
-                    tls_frontend.as_ref().map(|f| f.tls_alpn_store()),
-                )
-            })
-            .transpose()
-            .or_else(|e| {
-                if dns_degraded {
-                    eprintln!("TLS: managed ACME client creation failed: {e}");
-                    Ok(None)
-                } else {
-                    Err(e)
-                }
-            })?
-    } else {
-        None
     };
 
     let setup_control_ready = if subsystems.workers
@@ -1006,30 +1173,12 @@ pub async fn run_with_options(
         });
     }
 
-    if let Some(worker) = acme_renewal {
-        let stop = root_stop.clone();
-        bg_tasks.spawn(async move {
-            worker.run_until(stop.cancelled_owned()).await;
-            ("acme-renewal", Ok(()))
-        });
-    }
     if let Some((socket, path, control)) = setup_control_ready {
         let stop = root_stop.clone();
         bg_tasks.spawn(async move {
             crate::setup_control::serve(socket, path, control, stop.cancelled_owned()).await;
             ("setup-control", Ok(()))
         });
-    }
-    if subsystems.http {
-        if let Some(listener) = activated.acme {
-            let stop = root_stop.clone();
-            let store = acme_store.clone();
-            let host = acme_hostname.clone();
-            bg_tasks.spawn(async move {
-                crate::acme::serve_http80(listener, store, host, stop.cancelled_owned()).await;
-                ("acme-http80", Ok(()))
-            });
-        }
     }
 
     if let Some((denylist, direct)) = session_worker {

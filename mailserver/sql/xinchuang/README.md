@@ -49,22 +49,22 @@ Engines: polardb = PolarDB for PostgreSQL · opengauss = openGauss · gaussdb = 
 
 Counting unit: the function NAME. Live universe extracted from `mailserver/sql/reducers/*.sql`:
 
-- Reducer files: 819 · declarations: 1268 · unique names: 1265
+- Reducer files: 821 · declarations: 1285 · unique names: 1282
 - Represented in `compatibility_matrix.csv`: 106 names (106 rows) — representation is not attestation
 - Names with any evidence-bearing cell (attested anywhere): 0
-- Canonical complement (no CSV row): 1159 → `unattested_functions.csv`
+- Canonical complement (no CSV row): 1176 → `unattested_functions.csv`
 
-Per-engine attestation against the full 1265-name universe (a name is attested-for-engine iff its cell is non-`untested`):
+Per-engine attestation against the full 1282-name universe (a name is attested-for-engine iff its cell is non-`untested`):
 
 | Engine | Attested | Not attested |
 |---|---|---|
-| polardb | 0 | 1265 |
-| opengauss | 0 | 1265 |
-| gaussdb | 0 | 1265 |
-| kingbase | 0 | 1265 |
-| dameng | 0 | 1265 |
-| oceanbase_pg | 0 | 1265 |
-| oceanbase_oracle | 0 | 1265 |
+| polardb | 0 | 1282 |
+| opengauss | 0 | 1282 |
+| gaussdb | 0 | 1282 |
+| kingbase | 0 | 1282 |
+| dameng | 0 | 1282 |
+| oceanbase_pg | 0 | 1282 |
+| oceanbase_oracle | 0 | 1282 |
 
 `uses_digest` is SOURCE-DERIVED USAGE — a non-comment `digest(` call exists in the defining file (73 files / 142 call sites repo-wide). It is never a parity attestation; pgcrypto parity is attested (or not) per engine via `pgcrypto_digest_parity` above. Covered rows with `uses_digest`: 17 of 106.
 
@@ -183,6 +183,7 @@ The reducers below are the certification critical path for the primary combinati
 | scheduled | 13 |
 | scim | 5 |
 | scope | 2 |
+| search | 17 |
 | secure | 1 |
 | security | 2 |
 | sender | 4 |
@@ -202,7 +203,7 @@ The reducers below are the certification critical path for the primary combinati
 | webhook | 10 |
 | work | 21 |
 | worker | 5 |
-| Total | 1159 across 103 families |
+| Total | 1176 across 104 families |
 
 <!-- END GENERATED -->
 

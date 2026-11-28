@@ -44,8 +44,6 @@ pub struct Server {
     pub(crate) auth_db: Option<setjoin_pg::ScopedExecutor>,
     pub(crate) tx_factory: Option<setjoin_authz::principals::TxFactory>,
     pub(crate) tls: Option<Arc<ServerConfig>>,
-    /// Certificate files reloaded for every STARTTLS upgrade, as Go does.
-    pub(crate) tls_files: Option<(PathBuf, PathBuf)>,
     pub(crate) mode: TlsMode,
     pub(crate) threat: ThreatPolicy,
     pub(crate) webhooks: WebhookPolicy,
@@ -72,7 +70,6 @@ impl Server {
             auth_db: None,
             tx_factory,
             tls: None,
-            tls_files: None,
             mode: TlsMode::None,
             threat,
             webhooks,
@@ -118,17 +115,19 @@ impl Server {
         self
     }
 
-    /// Production STARTTLS: validates the pair now (Go refuses to start on a bad
-    /// pair) and, like Go's `handleStartTLS`, reloads it for every upgrade so a
-    /// rotated certificate is picked up without a restart.
+    /// Production STARTTLS: validates the pair at start (refusing a bad pair)
+    /// and backs upgrades with [`setjoin_tls::ReloadingPem`] so rotated PEM
+    /// files are served without a restart while corrupt writes retain the
+    /// last-known-good certificate (#559).
     pub fn with_starttls_files(mut self, cert: PathBuf, key: PathBuf) -> Result<Self, String> {
         self.tls = Some(tls::server_config(&cert, &key)?);
-        self.tls_files = Some((cert, key));
         self.mode = TlsMode::Starttls;
         Ok(self)
     }
 
-    /// Production implicit TLS: the pair is loaded once at start (Go's `Start`).
+    /// Production implicit TLS (IMAPS): validates the pair at start and backs
+    /// handshakes with [`setjoin_tls::ReloadingPem`] for zero-downtime hot
+    /// reload (#559).
     pub fn with_tls_files(mut self, cert: PathBuf, key: PathBuf) -> Result<Self, String> {
         self.tls = Some(tls::server_config(&cert, &key)?);
         self.mode = TlsMode::Implicit;

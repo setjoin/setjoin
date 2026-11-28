@@ -2,22 +2,6 @@
   "version": 1,
   "routes": [
     {
-      "listener": "acme",
-      "method": "*",
-      "path": "/.well-known/acme-challenge/",
-      "family": "F08",
-      "slice": "acme-control",
-      "upstream": "local-rust",
-      "state": "ON",
-      "sources": [
-        "mailserver/cmd/mailserverd/main.go"
-      ],
-      "oracle_goldens": [
-        "server-rust/tests/conformance/acme/goldens/acme-http80-token-responder.json",
-        "server-rust/tests/conformance/acme/goldens/acme-http80-https-redirect.json"
-      ]
-    },
-    {
       "listener": "asrbot",
       "method": "GET",
       "path": "/healthz",

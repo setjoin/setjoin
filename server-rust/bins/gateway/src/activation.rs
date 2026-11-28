@@ -5,9 +5,9 @@
 //! passes to it. One unnamed descriptor is the HTTP front door. With names
 //! (`FileDescriptorName=`), `http` (plus systemd's default unit names
 //! `setjoin-gateway` / `setjoin-server` / `setjoind`), `https`, `auth`, `imap`,
-//! `imaps`, `acme`, `federation`, `smtp`, `smtps`, and `submission` are
-//! mapped explicitly; any unknown descriptor name or duplicate slot is refused
-//! fail-closed.
+//! `imaps`, `federation`, `smtp`, `smtps`, and `submission` are
+//! mapped explicitly; any unknown descriptor name (including the retired `acme`
+//! socket unit, #560) or duplicate slot is refused fail-closed.
 //!
 //! Every inherited descriptor in `FIRST_FD..FIRST_FD+count` is atomically
 //! wrapped in `OwnedFd` with `FD_CLOEXEC` set **before** any fallible
@@ -22,7 +22,7 @@ use tokio::net::TcpListener;
 const FIRST_FD: i32 = 3;
 
 /// Maximum number of socket-activated listeners accepted in one process.
-pub const MAX_LISTEN_FDS: usize = 10;
+pub const MAX_LISTEN_FDS: usize = 9;
 
 /// Guardrail against corrupted `LISTEN_FDS` values when wrapping raw FDs.
 const MAX_CAPTURE_FDS: usize = 64;
@@ -36,8 +36,6 @@ pub struct Activated {
     pub auth: Option<TcpListener>,
     pub imap: Option<TcpListener>,
     pub imaps: Option<TcpListener>,
-    /// The :80 descriptor named `acme` (#305): HTTP-01 answers and the https redirect.
-    pub acme: Option<TcpListener>,
     /// Federation s2s TLS, whole-listener ownership (#347).
     pub federation: Option<TcpListener>,
     /// SMTP: inbound :25, the implicit-TLS variant and submission (#501).
@@ -54,10 +52,9 @@ impl Activated {
         &self,
         subsystems: setjoin_boot::Subsystems,
     ) -> Result<(), String> {
-        let checks: [(&str, bool, &str, bool); 10] = [
+        let checks: [(&str, bool, &str, bool); 9] = [
             ("http", self.http.is_some(), "http", subsystems.http),
             ("https", self.https.is_some(), "http", subsystems.http),
-            ("acme", self.acme.is_some(), "http", subsystems.http),
             ("auth", self.auth.is_some(), "auth", subsystems.auth),
             (
                 "imap",
@@ -114,7 +111,6 @@ pub enum Slot {
     Auth,
     Imap,
     Imaps,
-    Acme,
     Federation,
     Smtp,
     Smtps,
@@ -160,7 +156,12 @@ pub fn plan(count: usize, names: Option<&str>) -> Result<Vec<Slot>, String> {
             "auth" | "setjoin-auth" | "setjoin-auth.socket" => Slot::Auth,
             "imap" => Slot::Imap,
             "imaps" => Slot::Imaps,
-            "acme" => Slot::Acme,
+            "acme" => {
+                return Err(
+                    "socket activation: descriptor `acme` (setjoin-acme.socket) was retired in Release N+1 (#560); remove setjoin-acme.socket and migrate to an edge TLS/ACME terminator (see docs/guides/EDGE_TLS_ACME_MIGRATION.md)"
+                        .into(),
+                );
+            }
             "federation" => Slot::Federation,
             "smtp" => Slot::Smtp,
             "smtps" => Slot::Smtps,
@@ -298,7 +299,6 @@ impl CapturedActivation {
             let (name, subsystem, enabled) = match slot {
                 Slot::Http => ("http", "http", subsystems.http),
                 Slot::Https => ("https", "http", subsystems.http),
-                Slot::Acme => ("acme", "http", subsystems.http),
                 Slot::Auth => ("auth", "auth", subsystems.auth),
                 Slot::Imap => ("imap", "protocols", subsystems.protocols),
                 Slot::Imaps => ("imaps", "protocols", subsystems.protocols),
@@ -329,7 +329,6 @@ impl CapturedActivation {
                 Slot::Auth => out.auth = Some(listener),
                 Slot::Imap => out.imap = Some(listener),
                 Slot::Imaps => out.imaps = Some(listener),
-                Slot::Acme => out.acme = Some(listener),
                 Slot::Federation => out.federation = Some(listener),
                 Slot::Smtp => out.smtp = Some(listener),
                 Slot::Smtps => out.smtps = Some(listener),
@@ -510,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    fn names_select_all_ten_slots_and_default_unit_names_map_to_http() {
+    fn names_select_all_nine_slots_and_default_unit_names_map_to_http() {
         assert_eq!(
             plan(3, Some("setjoin-gateway:imap:imaps")).unwrap(),
             vec![Slot::Http, Slot::Imap, Slot::Imaps]
@@ -525,8 +524,8 @@ mod tests {
         );
         assert_eq!(
             plan(
-                10,
-                Some("http:https:auth:imap:imaps:acme:federation:smtp:smtps:submission")
+                9,
+                Some("http:https:auth:imap:imaps:federation:smtp:smtps:submission")
             )
             .unwrap(),
             vec![
@@ -535,16 +534,22 @@ mod tests {
                 Slot::Auth,
                 Slot::Imap,
                 Slot::Imaps,
-                Slot::Acme,
                 Slot::Federation,
                 Slot::Smtp,
                 Slot::Smtps,
                 Slot::Submission,
             ]
         );
+        let acme_err = plan(1, Some("acme")).unwrap_err();
+        assert!(
+            acme_err.contains("retired")
+                && acme_err.contains("#560")
+                && acme_err.contains("docs/guides/EDGE_TLS_ACME_MIGRATION.md"),
+            "{acme_err}"
+        );
         assert!(plan(
-            11,
-            Some("http:https:auth:imap:imaps:acme:federation:smtp:smtps:submission:extra")
+            10,
+            Some("http:https:auth:imap:imaps:federation:smtp:smtps:submission:extra")
         )
         .is_err());
     }

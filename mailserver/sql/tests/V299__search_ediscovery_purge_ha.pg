@@ -1,0 +1,240 @@
+-- pgTAP for V299 eDiscovery provenance column, HA SKIP LOCKED single-writer
+-- search leader leases, fencing tokens, lawful purge eviction trigger/helper,
+-- and worker-only FORCE RLS / BZ003 denial (#558).
+BEGIN;
+SELECT plan(50);
+
+-- 1. Additive eDiscovery provenance column
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'ediscovery_searches'
+       AND column_name = 'search_provenance'
+       AND data_type = 'jsonb'
+  ),
+  'V299: ediscovery_searches.search_provenance jsonb column exists');
+
+-- 2. Isolation posture on search_leader_leases
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.search_leader_leases'::regclass),
+  true, 'V299: search_leader_leases has RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.search_leader_leases'::regclass),
+  true, 'V299: search_leader_leases RLS is FORCEd');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'search_leader_leases'),
+  0, 'V299: search_leader_leases has zero policies (deny-all)');
+SELECT is(
+  (SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'search_leader_leases'),
+  'setjoin_owner', 'V299: search_leader_leases owned by setjoin_owner');
+
+-- Trigger function ownership & SECURITY DEFINER posture
+SELECT is(
+  (SELECT pg_get_userbyid(p.proowner) FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'search_purge_evict_trg_fn'),
+  'setjoin_worker', 'V299: search_purge_evict_trg_fn owned by setjoin_worker');
+SELECT is(
+  (SELECT p.prosecdef FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'search_purge_evict_trg_fn'),
+  true, 'V299: search_purge_evict_trg_fn is SECURITY DEFINER');
+
+-- 3. Privilege posture: setjoin_app denied; setjoin_worker granted
+SELECT is(
+  has_table_privilege('setjoin_app', 'public.search_leader_leases', 'SELECT'),
+  false, 'V299: setjoin_app has NO SELECT privilege on search_leader_leases');
+SELECT is(
+  has_table_privilege('setjoin_worker', 'public.search_leader_leases', 'INSERT'),
+  true, 'V299: setjoin_worker holds INSERT privilege on search_leader_leases');
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.search_leader_try_acquire(text,text,integer)', 'EXECUTE'),
+  false, 'V299: setjoin_app has NO EXECUTE on search_leader_try_acquire');
+SELECT is(
+  has_function_privilege('setjoin_worker', 'public.search_leader_try_acquire(text,text,integer)', 'EXECUTE'),
+  true, 'V299: setjoin_worker has EXECUTE on search_leader_try_acquire');
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.search_leader_heartbeat(text,bigint,bigint,bigint,integer)', 'EXECUTE'),
+  false, 'V299: setjoin_app has NO EXECUTE on search_leader_heartbeat');
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.search_leader_release(text,bigint)', 'EXECUTE'),
+  false, 'V299: setjoin_app has NO EXECUTE on search_leader_release');
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.search_leader_current()', 'EXECUTE'),
+  false, 'V299: setjoin_app has NO EXECUTE on search_leader_current');
+SELECT is(
+  has_function_privilege('setjoin_app', 'public.search_purge_enqueue(text,bigint,bigint,timestamptz,bigint)', 'EXECUTE'),
+  false, 'V299: setjoin_app has NO EXECUTE on search_purge_enqueue');
+
+-- 4. Worker BYPASSRLS functional control: leader acquire, contention, heartbeat, fencing, takeover, release, purge enqueue
+SET LOCAL ROLE setjoin_worker;
+
+DELETE FROM public.search_leader_leases;
+DELETE FROM public.search_index_watermarks;
+DELETE FROM public.work_items WHERE kind = 'search.purge_evict';
+
+-- Deterministic chat revision negative doc id
+SELECT ok(
+  public.search_chat_revision_doc_id(42) < 0,
+  'V299: search_chat_revision_doc_id returns strictly negative bigint');
+
+-- Inert purge enqueue while search_index_watermarks is empty (Tier-2 OFF)
+SELECT is(
+  public.search_purge_enqueue('mail', 1, 2, now(), 0),
+  0::bigint, 'V299: search_purge_enqueue is no-op returning 0 when Tier-2 watermarks are empty');
+
+-- No active leader initially
+SELECT is(
+  (SELECT count(*)::int FROM public.search_leader_current()),
+  0, 'V299: search_leader_current is empty before initial acquire');
+
+-- Node A acquires initial lease with fencing_token = 1
+SELECT is(
+  (SELECT acquired FROM public.search_leader_try_acquire('node-a', 'http://10.0.0.1:8090', 30)),
+  true, 'V299: node-a acquires initial search leader lease');
+SELECT is(
+  (SELECT fencing_token FROM public.search_leader_current()),
+  1::bigint, 'V299: initial search leader fencing_token is 1');
+SELECT is(
+  (SELECT holder_node_id FROM public.search_leader_current()),
+  'node-a', 'V299: search_leader_current reports node-a');
+
+-- Node B cannot steal active lease
+SELECT is(
+  (SELECT acquired FROM public.search_leader_try_acquire('node-b', 'http://10.0.0.2:8090', 30)),
+  false, 'V299: node-b fails to steal active search leader lease');
+SELECT is(
+  (SELECT holder_node_id FROM public.search_leader_try_acquire('node-b', 'http://10.0.0.2:8090', 30)),
+  'node-a', 'V299: failed acquire returns current active holder node-a');
+
+-- Node A renews via heartbeat with matching fencing_token
+SELECT is(
+  public.search_leader_heartbeat('node-a', 1, 3, 7, 30),
+  true, 'V299: node-a heartbeat succeeds with matching fencing_token=1');
+SELECT is(
+  (SELECT epoch FROM public.search_leader_current()),
+  3::bigint, 'V299: heartbeat advances leader epoch to 3');
+SELECT is(
+  (SELECT generation FROM public.search_leader_current()),
+  7::bigint, 'V299: heartbeat advances leader generation to 7');
+
+-- Wrong fencing token or wrong node rejected by heartbeat
+SELECT is(
+  public.search_leader_heartbeat('node-a', 99, 3, 8, 30),
+  false, 'V299: heartbeat with stale/wrong fencing_token returns false');
+SELECT is(
+  public.search_leader_heartbeat('node-b', 1, 3, 8, 30),
+  false, 'V299: heartbeat from non-holder node returns false');
+
+-- Graceful release expires lease immediately while preserving monotonic fencing_token
+SELECT is(
+  public.search_leader_release('node-a', 1),
+  true, 'V299: node-a gracefully releases search leader lease');
+SELECT is(
+  (SELECT count(*)::int FROM public.search_leader_current()),
+  0, 'V299: search_leader_current returns empty immediately after release');
+
+-- Node B immediately takes over with strictly incremented fencing_token = 2
+SELECT is(
+  (SELECT acquired FROM public.search_leader_try_acquire('node-b', 'http://10.0.0.2:8090', 30)),
+  true, 'V299: node-b acquires lease immediately after node-a release');
+SELECT is(
+  (SELECT fencing_token FROM public.search_leader_current()),
+  2::bigint, 'V299: takeover increments fencing_token monotonically to 2');
+
+-- Stale Node A heartbeat with old fencing_token=1 is fenced out
+SELECT is(
+  public.search_leader_heartbeat('node-a', 1, 3, 9, 30),
+  false, 'V299: stale node-a heartbeat is rejected after takeover');
+
+-- Same-node re-acquisition after lease expiry MUST increment fencing_token monotonically (2 -> 3)
+SELECT is(
+  public.search_leader_release('node-b', 2),
+  true, 'V299: node-b releases lease before same-node expired re-acquire test');
+SELECT is(
+  (SELECT fencing_token FROM public.search_leader_try_acquire('node-b', 'http://10.0.0.2:8090', 30)),
+  3::bigint, 'V299: same-node expired re-acquire increments fencing_token monotonically to 3');
+
+-- Seed watermarks and verify search_purge_enqueue enqueues search.purge_evict work item
+INSERT INTO public.search_index_watermarks (corpus, epoch, generation, indexed_outbox_seq, schema_hash)
+VALUES ('mail', 1, 1, 0, 'test-hash')
+ON CONFLICT (corpus) DO NOTHING;
+
+SELECT ok(
+  public.search_purge_enqueue('mail', 101, 5005, now(), 0) > 0,
+  'V299: search_purge_enqueue enqueues search.purge_evict work item when watermarks active');
+
+-- Atomic HA fenced settlement: stale token returns settled=false with ZERO mutations;
+-- active holder token settles outbox + advances watermark in ONE transaction!
+INSERT INTO public.search_index_outbox (corpus, op, scope_id, entity_id, sub_id)
+VALUES ('mail', 'upsert', 101, 777001, 0);
+
+SELECT is(
+  (SELECT settled FROM public.search_fenced_settle_batch(
+      'node-b', 2,
+      ARRAY[(SELECT MAX(seq) FROM public.search_index_outbox WHERE entity_id = 777001)],
+      'mail', 1, 5,
+      (SELECT MAX(seq) FROM public.search_index_outbox WHERE entity_id = 777001),
+      'test-hash'
+  )),
+  false, 'V299: search_fenced_settle_batch rejects stale fencing_token with settled=false');
+
+SELECT is(
+  (SELECT count(*)::int FROM public.search_index_outbox WHERE entity_id = 777001 AND processed_at IS NULL),
+  1, 'V299: rejected search_fenced_settle_batch leaves outbox untouched');
+
+SELECT is(
+  (SELECT settled FROM public.search_fenced_settle_batch(
+      'node-b', 3,
+      ARRAY[(SELECT MAX(seq) FROM public.search_index_outbox WHERE entity_id = 777001)],
+      'mail', 1, 5,
+      (SELECT MAX(seq) FROM public.search_index_outbox WHERE entity_id = 777001),
+      'test-hash'
+  )),
+  true, 'V299: search_fenced_settle_batch settles atomically with valid fencing_token=3');
+
+SELECT is(
+  (SELECT count(*)::int FROM public.search_index_outbox WHERE entity_id = 777001 AND processed_at IS NOT NULL),
+  1, 'V299: accepted search_fenced_settle_batch marks outbox processed atomically');
+
+-- Verify child-table BEFORE DELETE purge triggers are attached
+SELECT ok(
+  EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_search_purge_message_attachments' AND NOT tgisinternal),
+  'V299: trg_search_purge_message_attachments trigger attached');
+SELECT ok(
+  EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_search_purge_drive_file_versions' AND NOT tgisinternal),
+  'V299: trg_search_purge_drive_file_versions trigger attached');
+SELECT ok(
+  EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_search_purge_scheduled_actions' AND NOT tgisinternal),
+  'V299: trg_search_purge_scheduled_actions trigger attached');
+
+RESET ROLE;
+
+-- 5. App credential denial (42501 on direct table and function access under SET LOCAL ROLE setjoin_app)
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(
+  $stmt$SELECT count(*) FROM public.search_leader_leases$stmt$,
+  '42501', NULL, 'search_leader_leases denies all setjoin_app SELECT access (42501)');
+SELECT throws_ok(
+  $stmt$INSERT INTO public.search_leader_leases (lease_key, holder_node_id, rpc_url, leased_until) VALUES ('x', 'n', 'u', now())$stmt$,
+  '42501', NULL, 'search_leader_leases denies all setjoin_app INSERT access (42501)');
+SELECT throws_ok(
+  $stmt$SELECT * FROM public.search_leader_try_acquire('n', 'http://127.0.0.1:8090', 30)$stmt$,
+  '42501', NULL, 'V299: setjoin_app cannot execute search_leader_try_acquire');
+SELECT throws_ok(
+  $stmt$SELECT * FROM public.search_leader_current()$stmt$,
+  '42501', NULL, 'V299: setjoin_app cannot execute search_leader_current');
+SELECT throws_ok(
+  $stmt$SELECT public.search_ediscovery_complete_atomic(1, 1, ARRAY[]::bigint[], 0, '{}'::jsonb)$stmt$,
+  '42501', NULL, 'V299: setjoin_app cannot execute search_ediscovery_complete_atomic');
+SELECT throws_ok(
+  $stmt$SELECT public.search_ediscovery_complete_kql_atomic(1, 1, 'true', ARRAY[]::text[], '{}'::jsonb)$stmt$,
+  '42501', NULL, 'V299: setjoin_app cannot execute search_ediscovery_complete_kql_atomic');
+SELECT throws_ok(
+  $stmt$SELECT * FROM public.search_fenced_settle_batch('n', 1, ARRAY[]::bigint[], 'mail', 1, 1, 0, 'h')$stmt$,
+  '42501', NULL, 'V299: setjoin_app cannot execute search_fenced_settle_batch');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

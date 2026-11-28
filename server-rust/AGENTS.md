@@ -9,7 +9,7 @@ Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go se
 
 - `Cargo.toml` — workspace (resolver 2, edition 2021, `rust-version` 1.97.1):
   - `bins/gateway` (Cargo package `setjoin-gateway`, binary `setjoin-server`, #220/#142, [ARCH-027](../docs/adr/ARCH-027-rust-front-door-gateway.md), [ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md))
-    — Canonical Rust server front door and protocol/HTTP host (systemd unit `setjoin-gateway.service` unchanged): [contract](bins/gateway/DOX.md). Route inventory dispatch, auth upstream (`setjoin-auth`), protocols (HTTP/h2c/HTTPS/ACME, JMAP, IMAP, SMTP, CalDAV, CardDAV, LDAP, Federation), and all 51 background workers.
+    — Canonical Rust server front door and protocol/HTTP host (systemd unit `setjoin-gateway.service` unchanged): [contract](bins/gateway/DOX.md). Route inventory dispatch, auth upstream (`setjoin-auth`), protocols (HTTP/h2c/HTTPS, JMAP, IMAP, SMTP, CalDAV, CardDAV, LDAP, Federation), and background workers (built-in ACME and Go ticket rotation retired in `#560`).
   - `bins/asrbot` (`setjoin-asrbot`, #356) — Rust `asrbotd`, the Meet captions room bot: [contract](bins/asrbot/DOX.md).
   - `crates/authz` (`setjoin-authz`) — shared `authorize` chain; [contract](crates/authz/DOX.md#shared-authorize-chain-moved-verbatim-from-server-rustagentsmd-385).
   - `crates/contracts` (`setjoin-contracts`) — typed command/authority
@@ -28,10 +28,8 @@ Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go se
   - `crates/sql-catalog` (`setjoin-sql-catalog`, #541) — zero-proc-macro typed
     SQL contract catalog (`SqlContract`, `SqlScope`, `pg_rfc3339!`);
     [contract](crates/sql-catalog/DOX.md).
-  - `tests/conformance` — DB-backed parity and recorded-golden harness; [contract](DOX.md#conformance-harness-contract).
-  - `tests/sql-contracts` (`setjoin-sql-contracts`, `verify-sql-contracts`, #541) —
-    disposable-Postgres SQL contract verifier gated by `scripts/check-rust-sql-contracts.sh`
-    and `scripts/check-rust-sql-contracts-selftest.sh`; [contract](crates/sql-catalog/DOX.md).
+  - `tests/conformance` — DB-backed parity/golden harness; [contract](DOX.md#conformance-harness-contract).
+  - `tests/sql-contracts` (`setjoin-sql-contracts`, #541) — disposable-Postgres SQL verifier (`scripts/check-rust-sql-contracts*.sh`); [contract](crates/sql-catalog/DOX.md).
 - `pilot/` — separate pilot workspace; [contract](DOX.md#pilot-workspace-contract).
 - `tools/schema-simulation/` — separate tooling workspace; [contract](DOX.md#schema-simulation-workspace).
 
@@ -72,7 +70,6 @@ Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go se
 - `crates/schema` (`setjoin-schema`) — embedded canonical SQL catalog; [contract](crates/schema/DOX.md) (#354).
 
 - `crates/backup` (`setjoin-backup`) — backup formats and transports; [contract](crates/backup/DOX.md) (#355).
-- `crates/acme` (`setjoin-acme`) — managed ACME challenges, issuance and cache; [contract](crates/acme/DOX.md) (#305, #413).
 Unflagged request admission: [authz DOX](crates/authz/DOX.md).
 
 Rust operation receipts: [foundation contract](crates/pg/DOX.md#rust-operation-receipts-257265).
@@ -116,7 +113,7 @@ Typed worker error projection: [PG contract](crates/pg/DOX.md#typed-worker-query
 - `bins/setjoind` (#543) — unified binary (`--subsystems`), `AuthAuthority`, `ListenHub`, strict schema refusal; [contract](bins/setjoind/DOX.md).
 - `crates/domains/identity` (`setjoin-identity`, #112) — F21 login/session/token, MFA and connector slices; [contract](crates/domains/identity/DOX.md).
 Authentication-time user transactions: [pg contract](crates/pg/DOX.md#authentication-time-user-transactions-112).
-- `crates/tls` (`setjoin-tls`, #413) — native TLS, certificates and Go-compatible session tickets; [contract](crates/tls/DOX.md).
+- `crates/tls` (`setjoin-tls`, #413, #559, #560) — slim pure-`rustls` TLS transport, atomic PEM hot-reloading (`ReloadingPem`), and optional HTTP mTLS `PeerCertificate`; [contract](crates/tls/DOX.md).
 
 
 Shared HTTP runtime gates and F03 evaluator (#187): [gateway contract](bins/gateway/runtime-access.DOX.md).
@@ -144,3 +141,5 @@ Shared Go UUID identifiers (#455): [contracts](crates/contracts/DOX.md#go-uuid-i
 - `crates/calendar-format` — shared Go calendar parser; [contract](crates/calendar-format/DOX.md).
 - `crates/workqueue` (#548/#549) — durable WorkQueue, `worker_schedules` leases, DLQ (`operator`), privileged `worker` (family-isolated). `bins/gateway/src/supervisor/` owns `WorkerSupervisor`, boot `BYPASSRLS`, WORM arming, drain-then-retire.
 - `SyncWakeupHub` (`bins/gateway/src/jmap/sync_hub.rs`, #552), `chat_changes` (`#553`), IMAP CONDSTORE/QRESYNC (`#554`): [gateway DOX](bins/gateway/DOX.md), [IMAP DOX](crates/protocols/imap/DOX.md).
+- `crates/search` (`setjoin-search`, #556/#557/#558) — foundation two-tier search, pure-MIT `tantivy` + extraction/indexing + PG re-auth/eDiscovery/purge compaction/HA RPC; [contract](crates/search/DOX.md).
+- `crates/edge-contract` (`setjoin-edge-contract`, #561) — edge-only plain `serde` DTOs generated from `contracts/edge/openapi/edge.v1.yaml` (zero OpenAPI proc-macros; `scripts/check-openapi-proc-macro-ban.sh` + `scripts/check-edge-contract-drift.sh`); [contract](crates/edge-contract/DOX.md).

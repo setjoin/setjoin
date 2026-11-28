@@ -527,7 +527,18 @@ fn mail_security_slice_ownership_is_exhaustive_and_disjoint() {
         if route["state"] == "ON" {
             // Each slice ticket appends its name once its oracle is green.
             assert!(
-                ["quarantine", "queue", "spam", "tls", "dlp", "dmarc", "threat", "smime", "trace"].contains(&slice),
+                [
+                    "quarantine",
+                    "queue",
+                    "spam",
+                    "tls",
+                    "dlp",
+                    "dmarc",
+                    "threat",
+                    "smime",
+                    "trace"
+                ]
+                .contains(&slice),
                 "{key:?}"
             );
         }
@@ -610,7 +621,7 @@ fn platform_slice_ownership_is_exhaustive_and_disjoint() {
     assert_eq!(
         counts,
         BTreeMap::from([
-            ("acme-control", 9),
+            ("acme-control", 8),
             ("configuration", 1),
             ("jobs-storage", 14),
             ("system-features", 27),
@@ -619,7 +630,7 @@ fn platform_slice_ownership_is_exhaustive_and_disjoint() {
             ("webhooks", 6),
         ])
     );
-    assert_eq!(keys.len(), 121);
+    assert_eq!(keys.len(), 120);
 }
 
 /// F19 User mail settings and profile has four slices (#306..#309); every route belongs to
@@ -651,7 +662,10 @@ fn user_settings_slice_ownership_is_exhaustive_and_disjoint() {
         assert!(keys.insert(key), "duplicate F19 registration");
         if route["state"] == "ON" {
             assert!(
-                matches!(slice, "settings-a" | "settings-b" | "settings-c" | "profile"),
+                matches!(
+                    slice,
+                    "settings-a" | "settings-b" | "settings-c" | "profile"
+                ),
                 "{key:?}"
             );
         }

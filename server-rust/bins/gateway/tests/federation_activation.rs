@@ -3,13 +3,95 @@ use crate::common::boot::CommandBootExt;
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 #[test]
 fn systemd_names_select_federation_separately_from_http_and_imap() {
-    let slots =
-        setjoin_gateway::activation::plan(5, Some("http:imap:imaps:acme:federation")).unwrap();
-    assert_eq!(
-        format!("{slots:?}"),
-        "[Http, Imap, Imaps, Acme, Federation]"
-    );
+    let slots = setjoin_gateway::activation::plan(4, Some("http:imap:imaps:federation")).unwrap();
+    assert_eq!(format!("{slots:?}"), "[Http, Imap, Imaps, Federation]");
     assert!(setjoin_gateway::activation::plan(2, Some("federation:federation")).is_err());
+    let retired = setjoin_gateway::activation::plan(2, Some("http:acme"))
+        .expect_err("retired acme socket must fail closed");
+    assert!(
+        retired.contains("retired")
+            && retired.contains("#560")
+            && retired.contains("EDGE_TLS_ACME_MIGRATION.md"),
+        "unexpected retired acme error: {retired}"
+    );
+}
+
+#[tokio::test]
+async fn activated_gateway_refuses_retired_acme_socket_fail_closed() {
+    let sockets: Vec<_> = (0..2)
+        .map(|_| std::net::TcpListener::bind("127.0.0.1:0").unwrap())
+        .collect();
+    let fds: Vec<_> = sockets.iter().map(|s| s.as_raw_fd()).collect();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let notify_path = tmp.path().join("notify.sock");
+    let notify_sock = std::os::unix::net::UnixDatagram::bind(&notify_path).expect("bind notify");
+    notify_sock
+        .set_nonblocking(true)
+        .expect("nonblocking notify");
+
+    let mut command = Command::new("bash");
+    command
+        .env_clear()
+        .env("GATEWAY_AUTH_UPSTREAM", "http://127.0.0.1:9")
+        .env("NOTIFY_SOCKET", &notify_path)
+        .env("LISTEN_FDNAMES", "http:acme")
+        .env("LISTEN_FDS", "2")
+        .arg("-c")
+        .arg("export LISTEN_PID=$$; exec \"$1\"")
+        .arg("gofree-fed2-acme-refuse")
+        .arg(env!("CARGO_BIN_EXE_setjoin-server"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    unsafe {
+        command.pre_exec(move || {
+            for (i, fd) in fds.iter().enumerate() {
+                if libc::dup2(*fd, 100 + i as i32) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            for i in 0..2 {
+                if libc::dup2(100 + i, 3 + i) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::fcntl(3 + i, libc::F_SETFD, 0) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                libc::close(100 + i);
+            }
+            Ok(())
+        });
+    }
+    let output = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio::task::spawn_blocking(move || command.output()),
+    )
+    .await
+    .expect("gateway must refuse retired acme socket promptly")
+    .expect("join")
+    .expect("spawn setjoin-server");
+
+    assert!(
+        !output.status.success(),
+        "gateway must fail closed when systemd passes retired acme FD"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("acme")
+            && stderr.contains("#560")
+            && stderr.contains("EDGE_TLS_ACME_MIGRATION.md"),
+        "expected retired acme error on stderr, got: {stderr}"
+    );
+    let mut buf = [0u8; 256];
+    let mut ready_seen = false;
+    while let Ok(n) = notify_sock.recv(&mut buf) {
+        if String::from_utf8_lossy(&buf[..n]).contains("READY=1") {
+            ready_seen = true;
+        }
+    }
+    assert!(
+        !ready_seen,
+        "gateway must refuse retired acme FD before sending READY=1"
+    );
 }
 
 use setjoin_federation::{

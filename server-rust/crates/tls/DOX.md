@@ -1,58 +1,37 @@
-# setjoin-tls (#413)
+# setjoin-tls (#413, #559, #560)
 
-Foundation TLS transport for the Rust front door. No database access or business logic.
-`Frontend::from_env` reads Go’s `TLS_CERT` / `TLS_KEY` (with native `TLS_CERT_FILE` /
-`TLS_KEY_FILE` aliases when neither Go name is present) and `TLS_AUTOCERT_DOMAINS` /
-`TLS_AUTOCERT_CACHE_DIR`; no configured source means no TLS frontend. It accepts TLS 1.2/1.3,
-with ALPN `h2` then `http/1.1`, using ring-backed rustls pinned in Cargo.toml.
-TLS 1.3 sends one session ticket, matching Go.
-The complete TLS handshake (ClientHello plus negotiation) is bounded to 30 seconds.
+Slim pure-`rustls` (ring) TLS transport for all Setjoin listeners. Zero database access, zero business logic, zero `openssl` / `openssl-sys` / `setjoin-acme` dependencies, and standard semver `rustls = "0.23"` / `tokio-rustls = "0.26"` (no private exact `rustls` pin).
 
-Certificate selection mirrors frozen `mailserverd`: managed hashed cache (exact configured
-SNI or one-label wildcard, currently unexpired) → autocert literal `name` / `name-rsa`
-cache (exact whitelist, hostname match, unexpired) → startup-loaded static pair. Managed
-blobs are reread at selection, so atomic ACME cache replacements affect new handshakes.
-Serving never registers an account, issues a certificate, or writes a cache entry.
+## Certificate Loading & Atomic PEM Hot-Reload (`ReloadingPem`)
 
-Tests: `cargo test --locked -p setjoin-tls --test listener -- --test-threads=1` checks the
-external TLS socket: both ALPNs, exact served certificate, SNI fallback, live replacement,
-expired/corrupt cache fallback, and the distinct autocert filename namespace.
+`ReloadingPem` (#559, `src/reloading_pem.rs`) powers every TLS listener in Setjoin:
 
-Session tickets use Go 1.26's SHA-512 key expansion and AES-128-CTR + HMAC-SHA256 envelope;
-RustCrypto/ring implement every primitive and authentication comparison. The live key ring
-accepts only the supplied current/previous generation. `state.rs` translates Go's server
-SessionState into pinned rustls 0.23.46 metadata, and Rust-issued tickets serialize back into
-Go's format. Both stacks retain responsibility for PSKs, key schedules and binders. TCP
-0-RTT is disabled; expired (>7 days), malformed and unauthenticated tickets miss closed.
-The rustls version is pinned because its serialized session format is private.
+1. Direct HTTPS (`crates/tls` `Frontend`) & standalone auth (`bins/auth`)
+2. SMTP STARTTLS / SMTPS (`crates/protocols/smtp`)
+3. IMAP STARTTLS / IMAPS (`crates/protocols/imap`)
+4. LDAPS (`crates/protocols/ldap`)
+5. Federation mTLS (`crates/protocols/federation`)
+6. `bins/gateway` & `bins/setjoind` direct HTTPS startup and `CertMonitor` (`Frontend::served_chain()`)
 
-`go_interchange` replays archived Go TLS 1.2/1.3 sessions (decrypting the immutable recorded Go
-tickets directly via `Tickets::open` and translating retargeted timestamps via `state::for_rustls`),
-verifies live `Frontend`-issued tickets against Go's `SHA-512` → `AES-128-CTR` + `HMAC-SHA256`
-envelope and `SessionState` wire layout, and compares live TLS 1.3 current/previous, older-generation,
-bad-MAC and expired-ticket behavior with immutable Go recordings.
-A deliberately wrong key must fail the resumption oracle. Replay runs 100% in pure Rust with zero
-Docker and zero Go. See [recording contract](../../tests/conformance/tlsfront/README.md).
-Application resumption data is not installed by this frontend.
+`Frontend::from_env` reads `TLS_CERT` / `TLS_KEY` (falling back to native `TLS_CERT_FILE` / `TLS_KEY_FILE` aliases when neither primary variable is present); no configured pair returns `Ok(None)`. `ReloadingPem`:
 
-`Frontend::from_env_with_client_verifier` (#468) accepts the gateway's optional
-ring-backed rustls client verifier; TLS continues to own proof of key possession
-and chain verification. The transport has no database dependency. The gateway
-passes the connection's first peer leaf to HTTP requests as `PeerCertificate`
-extensions; forwarded certificate headers never populate that type.
+- validates regular files (`metadata.is_file()`) and caps reads at `1 MiB` (`Read::take((1 << 20) + 1)`);
+- watches subsecond metadata signatures via `std::fs::metadata()` (following symlinks such as `/etc/letsencrypt/live/...`);
+- separates disk I/O from `RwLock<State>` behind a `try_lock()` reload mutex so concurrent handshakes never block;
+- debounces stat checks (`1s` default), throttles repeated failures on the same `(cert_sig, key_sig)` (`3s` default) while recovering immediately on any new file signature, and retains the last-known-good `CertifiedKey` on corrupt or transient writes.
 
-`Frontend::served_chain` is the source for the gateway's certificate monitor: the first usable
-configured SNI's complete served chain, or the static-only empty-SNI selection. It reads through
-the same selector as actual connections; no caller supplies unrelated certificate metadata.
+## Handshake Policy, Resumption & Optional mTLS
 
-TLS-ALPN validation shares `Frontend::tls_alpn_store` with the renewal worker. A pending
-matching SNI plus offered `acme-tls/1` gets its isolated RFC 8737 certificate and no session
-tickets. Ordinary connections keep the application certificate. The gateway closes a
-completed validation handshake without HTTP dispatch. See [ACME contract](../acme/DOX.md).
+- Accepts TLS 1.2 and TLS 1.3 with ALPN `h2` then `http/1.1`; handshake total timeout is bounded to 30 seconds.
+- Session resumption uses `rustls`'s built-in ring `Ticketer` (shared across the AES-GCM and ChaCha20 server configs; TLS 1.3 sends 1 ticket, 0-RTT disabled). Go TLS session-ticket wire interchange (`state.rs`, `tickets.rs`, `tls-ticket-keys` DB worker) was retired in `#560`.
+- Built-in ACME (`crates/acme`, `DirCache`, `TlsAlpnStore`, `setjoin-acme.socket`) was retired in `#560`. Operators manage ACME at the edge (Caddy or certbot) exporting PEM files; see `docs/guides/EDGE_TLS_ACME_MIGRATION.md`.
+- `Frontend::from_env_with_client_verifier` (#468) installs the gateway's optional ring-backed rustls client verifier. The gateway exposes the connection's first verified peer leaf to HTTP requests as `PeerCertificate` request extensions; forwarded certificate headers never populate `PeerCertificate`.
+- `Frontend::served_chain` returns the live chain from `ReloadingPem` for `CertMonitor`.
+- TLS policy (`src/policy.rs`) restricts key exchange to X25519 / P-256 and the four configured TLS 1.2 ECDHE AES-GCM suites (TLS 1.2 ChaCha and P-384 are refused). TLS 1.3 cipher preference follows host AES-GCM hardware capability (`aes_gcm_hardware()`) and client preference.
 
-TLS policy is restricted to X25519/P-256 and the four configured TLS 1.2 ECDHE AES-GCM
-suites. TLS 1.2 ChaCha/P-384 are refused. TLS 1.3 ordering follows Go's client preference
-and AES-GCM hardware predicate (AES+PCLMUL on x86_64, AES+PMULL on arm64); the same-hash
-AES128/ChaCha PSK bridge preserves Go's resumption when a client changes suites.
-`tests/policy.rs` replays immutable Go negotiations with both hardware predicates,
-including rejected ALPN/curves/suites, cold-SNI alert and cross-suite resumption.
+## Verification
+
+- `cargo test --locked -p setjoin-tls`:
+  - `tests/listener.rs` — ALPN (`h2` / `http/1.1`), built-in `Ticketer` session resumption, 30s handshake timeout, `TLS_CERT`/`TLS_KEY` loading.
+  - `tests/pem_hot_reload.rs` — DANE-EE key-reuse & full key rotation with active h2 survival, concurrent fault tolerance & cooldown recovery, symlink rotation, size/mismatch startup refusal, and direct HTTPS + mTLS `PeerCertificate` across atomic PEM swap.
+  - `tests/policy.rs` — TLS 1.2/1.3 cipher/curve/ALPN negotiation against immutable recordings with both AES-GCM hardware predicates.

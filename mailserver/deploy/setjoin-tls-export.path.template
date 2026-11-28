@@ -1,0 +1,20 @@
+# Setjoin Edge TLS PEM Export Path Unit Template (#559)
+#
+# Render placeholders and install to /etc/systemd/system/setjoin-tls-export.path
+# alongside setjoin-tls-export.service. Watches Caddy's managed certificate file
+# and triggers an atomic, DANE-guarded export to /etc/mail/tls whenever Caddy
+# issues or renews a certificate.
+#
+# Example CADDY_CERT_PATH (Let's Encrypt ACME v2):
+#   /var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/{{HOSTNAME}}/{{HOSTNAME}}.crt
+
+[Unit]
+Description=Watch Caddy certificate renewals for Setjoin PEM export
+After=caddy.service
+
+[Path]
+PathChanged={{CADDY_CERT_PATH}}
+Unit=setjoin-tls-export.service
+
+[Install]
+WantedBy=multi-user.target

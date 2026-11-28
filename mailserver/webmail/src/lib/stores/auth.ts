@@ -1,8 +1,8 @@
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { logger } from '$lib/logger';
-import { httpRequest } from '$lib/http';
 import { problemDetail } from '$lib/errors';
+import { createEdgeClient, EDGE_DEFAULT_ALLOW_STATUSES } from '$lib/edge/client';
 import { loadSessionStore, jmapSession } from '$lib/stores/session';
 import type { ConsoleId } from '$lib/admin/consoles';
 import { getOrCreateDpopKey, rememberAccessTokenForProofs, onRecoveredAccessTokenRotation } from '$lib/auth/dpop';
@@ -10,16 +10,104 @@ import { Base64UrlDecodeError, base64urlToBuffer, bufferToBase64url } from '$lib
 import { disconnect } from '$lib/jmap/websocket';
 import { resetJmapAuthContext } from '$lib/jmap/client';
 
-// These auth calls are PRE-LOGIN: pass loginRedirect:null so a 401 throws the
-// caller's own message instead of redirect-looping back to '/'. They route the
-// raw fetch + timeout + abort through httpRequest; the business-logic response
-// parsing (success body, error copy) stays in the caller, exactly as before.
-//
-// login()/loginWithCaptcha() are the deliberate exception: they must READ the
-// 401/403/429/202 response BODY (threat / MFA / force-change parsing in
-// parseLoginResponse), and httpRequest throws on those statuses before the body
-// is reachable — so they keep their hand-rolled fetch. The header comment in
-// http.ts records this exemption.
+// All /auth/* calls route through schema-first openapi-fetch clients backed by
+// $lib/http's DPoP / timeout / abort machinery with loginRedirect: null so
+// pre-login 401s never redirect-loop back to '/'.
+
+const ALL_STATUSES_PASSTHROUGH = [400, 401, 403, 404, 405, 409, 410, 412, 413, 415, 422, 423, 429, 500, 502, 503, 504];
+
+const AUTH_UNAUTHORIZED_SENTINEL = '__setjoin_auth_unauthorized__';
+const AUTH_ERROR_FALLBACK_SENTINEL = '__setjoin_auth_fallback__';
+const REAUTH_REQUIRED_MARKER = JSON.stringify({ reauth_required: true });
+
+// Pre-login / raw-response client ONLY for /auth/me, /auth/login, and
+// loginWithCaptcha where callers must inspect 202/401/403/429 bodies directly.
+const authRawEdge = createEdgeClient({
+	loginRedirect: null,
+	allowStatuses: ALL_STATUSES_PASSTHROUGH
+});
+
+// Strict-throw client for /auth/refresh and /auth/logout: throws on any non-2xx
+// so refreshSession()'s catch preserves existing token retention semantics.
+const authRefreshEdge = createEdgeClient({
+	loginRedirect: null,
+	allowStatuses: []
+});
+
+async function authProblemOnError(res: Response): Promise<string> {
+	if (res.status === 403) {
+		const body = (await (typeof res.clone === 'function' ? res.clone() : res)
+			.json()
+			.catch(() => null)) as { code?: unknown } | null;
+		if (body && body.code === 'reauth_required') {
+			return REAUTH_REQUIRED_MARKER;
+		}
+	}
+	return problemDetail(res, AUTH_ERROR_FALLBACK_SENTINEL);
+}
+
+// Shared authenticated /auth/* client:
+// - 401 is NOT in allowStatuses -> httpRequest runs DPoP admission recovery + replay.
+// - 403 is NOT in allowStatuses -> httpRequest runs ToU & Risk remediation hooks
+//   BEFORE falling through to authProblemOnError (reauth_required / problemDetail).
+const authEdge = createEdgeClient({
+	loginRedirect: null,
+	unauthorizedMessage: AUTH_UNAUTHORIZED_SENTINEL,
+	onError: authProblemOnError,
+	allowStatuses: [...EDGE_DEFAULT_ALLOW_STATUSES, 423]
+});
+
+function extractAuthErrorMessage(error: unknown, fallback: string): string {
+	if (error && typeof error === 'object') {
+		const obj = error as Record<string, unknown>;
+		if (typeof obj.detail === 'string' && obj.detail.trim()) return obj.detail;
+		if (typeof obj.title === 'string' && obj.title.trim()) return obj.title;
+	}
+	return fallback;
+}
+
+function mapThrownAuthError(
+	err: unknown,
+	fallback: string,
+	opts: { allowReauth?: boolean; forceFallbackOnNonReauth?: boolean } = {}
+): Error {
+	if (err instanceof Error) {
+		if (opts.allowReauth && err.message === REAUTH_REQUIRED_MARKER) {
+			return new ReauthRequiredError();
+		}
+		if (
+			err.message === AUTH_UNAUTHORIZED_SENTINEL ||
+			err.message === AUTH_ERROR_FALLBACK_SENTINEL ||
+			err.message === REAUTH_REQUIRED_MARKER ||
+			opts.forceFallbackOnNonReauth
+		) {
+			return new Error(fallback);
+		}
+		return err;
+	}
+	return new Error(fallback);
+}
+
+async function runAuthCall<T>(
+	call: () => Promise<{ data?: T; error?: unknown; response: Response }>,
+	fallback: string,
+	opts: { allowReauth?: boolean; forceFallback?: boolean } = {}
+): Promise<{ data?: T; error?: unknown; response: Response }> {
+	let result: { data?: T; error?: unknown; response: Response };
+	try {
+		result = await call();
+	} catch (err) {
+		throw mapThrownAuthError(err, fallback, {
+			allowReauth: opts.allowReauth,
+			forceFallbackOnNonReauth: opts.forceFallback
+		});
+	}
+	if (!result.response.ok || result.error !== undefined) {
+		const msg = opts.forceFallback ? fallback : extractAuthErrorMessage(result.error, fallback);
+		throw new Error(msg);
+	}
+	return result;
+}
 
 export interface AuthUser {
 	email: string;
@@ -29,14 +117,7 @@ export interface AuthUser {
 	totp_enabled?: boolean;
 	totp_enabled_at?: string;
 	delegates?: Array<{ id: number; email: string; permission: string }>;
-	/** whole-pipeline review UX #17 — the caller's own numeric user id, straight
-	 *  from the validated JWT claims (never a client-derived guess). Optional so
-	 *  a pre-this-change gateway (no `user_id` field on /auth/me) degrades
-	 *  gracefully — callers needing self-identity should still fall back to a
-	 *  displayName match when this is absent. */
 	userId?: number;
-	/** Server-derived account class (P14): 'guest' renders the External badge
-	 *  and fail-closes the rail. Absent on pre-G0 gateways => member. */
 	accountType?: 'member' | 'guest';
 }
 
@@ -53,39 +134,13 @@ export const authInitializing = writable<boolean>(true);
 export const authResolution = writable<AuthResolution>({ state: 'probing', attempt: 0 });
 export const impersonating = writable<boolean>(false);
 
-/**
- * Bumped on every SESSION lifecycle transition (r2 defect 10 / scheme v7
- * §3.1): a new session established (password, captcha, passkey, TOTP/push
- * completion), a token rotation (refreshSession), impersonation, and every
- * teardown (logout, reset, account switch). Identity-only fencing misses the
- * same-account case — logout → login as the SAME user, or a /auth/refresh
- * rotation — leaves pending ceremony/grant state pointing at a DEAD session
- * (grants bind the access JTI; a rotated or replaced session can never
- * consume them). Consumers (the settings MFA surfaces) retire pending proofs,
- * secrets and responses on ANY change of [$authGeneration, accountIdentity].
- */
 export const authGeneration = writable<number>(0);
 export function bumpAuthGeneration(): void {
 	authGeneration.update((n) => n + 1);
 }
 
-// r4 §3.1: the per-tab admission recovery is the one token (re)bind that does
-// NOT flow through this store — a stale tab whose shared-cookie token was
-// rotated away by another tab discovers the rotation mid-request in dpop.ts.
-// Subscribe the SAME retire path a /auth/refresh rotation drives: whenever the
-// recovery lands a token DIFFERENT from the one this page remembered, the
-// generation bumps and every lifecycle consumer (both settings MFA surfaces)
-// retires pending ceremony/grant state whose grants bind a dead JTI.
 onRecoveredAccessTokenRotation(() => bumpAuthGeneration());
 
-/**
- * Remembers (or forgets) the session's access token so DPoP proofs carry the
- * RFC 9449 ath binding the authserver verifier enforces (r2 defect 1). Every
- * response body that (re-)establishes a session carries access_token; a
- * session change WITHOUT a readable token (impersonation, teardown) must
- * FORGET the stale one — a stale ath binds proofs to a dead token and 401s
- * every possession call.
- */
 function rememberSessionToken(data: Record<string, unknown> | null | undefined): void {
 	const token = data?.access_token;
 	if (typeof token === 'string' && token.length > 0) {
@@ -95,11 +150,6 @@ function rememberSessionToken(data: Record<string, unknown> | null | undefined):
 	}
 }
 
-// User-scoped process singletons (ChatStore today) register here instead of
-// auth.ts importing them directly. That keeps the auth boundary authoritative
-// for logout/reset/identity switches without creating auth <-> feature-store
-// cycles. The WebSocket hub is transport infrastructure, so auth owns its
-// explicit disconnect directly.
 const authSessionTeardowns = new Set<() => void>([resetJmapAuthContext]);
 
 export function registerAuthSessionTeardown(teardown: () => void): () => void {
@@ -108,9 +158,9 @@ export function registerAuthSessionTeardown(teardown: () => void): () => void {
 }
 
 function teardownAuthSession(): void {
-	bumpAuthGeneration(); // pending ceremony/grant state belongs to a dead session
-	rememberAccessTokenForProofs(null); // its token is equally dead
-	retainedRegistrationOptions = null; // its registration ceremony too
+	bumpAuthGeneration();
+	rememberAccessTokenForProofs(null);
+	retainedRegistrationOptions = null;
 	disconnect();
 	for (const teardown of authSessionTeardowns) {
 		try {
@@ -121,21 +171,10 @@ function teardownAuthSession(): void {
 	}
 }
 
-/**
- * The account's lifecycle identity, derived the same way for every consumer:
- * the JWT-claim user id when the gateway provides it, else the email. Exported
- * so identity-sensitive consumers (e.g. the E5 settings race guard) bind the
- * REAL account identity instead of re-deriving their own.
- */
 export function authIdentity(value: Pick<AuthUser, 'email' | 'userId'>): string {
 	return value.userId != null ? `user:${value.userId}` : `email:${value.email.toLowerCase()}`;
 }
 
-/**
- * Admin consoles the current user may access, derived from the
- * urn:setjoin:params:jmap:mail vendor capability in /jmap/session.
- * Falls back to [] when the session has not loaded or the key is absent.
- */
 export const adminConsoles = derived(jmapSession, ($session): ConsoleId[] => {
 	const mailCaps = $session?.capabilities?.['urn:setjoin:params:jmap:mail'];
 	if (mailCaps && typeof mailCaps === 'object' && mailCaps !== null) {
@@ -148,17 +187,6 @@ export const adminConsoles = derived(jmapSession, ($session): ConsoleId[] => {
 	return [];
 });
 
-/**
- * The current admin's OWN resolved permissions, parsed from the same
- * urn:setjoin:params:jmap:mail vendor-capability admin block in /jmap/session.
- *
- * This replaces the old always-false `isReadOnly` stub: a read-tier admin now
- * gets each write control disabled (via hasPermission below) instead of an
- * enabled button that 403s on click. The server remains the single source of
- * truth — it permission-gates every write endpoint — so this only mirrors the
- * enforced set for UX. Falls back to [] when the session has not loaded or the
- * admin block is absent (a non-admin gets []).
- */
 export const adminPermissions = derived(jmapSession, ($session): string[] => {
 	const mailCaps = $session?.capabilities?.['urn:setjoin:params:jmap:mail'];
 	if (mailCaps && typeof mailCaps === 'object' && mailCaps !== null) {
@@ -171,12 +199,6 @@ export const adminPermissions = derived(jmapSession, ($session): string[] => {
 	return [];
 });
 
-/**
- * True iff the resolved permission set `perms` grants `perm`. Pure membership
- * helper for gating admin write controls, e.g.
- * `disabled={!hasPermission($adminPermissions, 'queue.write')}`. Reactivity comes
- * from subscribing to `$adminPermissions`; the server still enforces every write.
- */
 export function hasPermission(perms: string[], perm: string): boolean {
 	return perms.includes(perm);
 }
@@ -206,23 +228,9 @@ function validAuthPayload(data: unknown): data is {
 
 async function doCheckAuth(attempt: number, signal: AbortSignal): Promise<AuthProbe> {
 	logger.log('checkAuth: fetching /auth/me');
-	// Pre-login probe: never redirect on 401 and never throw on non-ok — we treat
-	// a non-ok response as "not authenticated" and reset the stores. The shared
-	// timeout/abort still applies via httpRequest. onError captures the Response
-	// so the warn + return-false path below is reached identically to before.
-	let nonOk: Response | null = null;
-	const res = await httpRequest('/auth/me', {
-		method: 'GET',
+	const { response: res } = await authRawEdge.GET('/auth/me', {
 		signal,
-		loginRedirect: null,
-		allowStatuses: [401],
-		onError: (r) => {
-			nonOk = r;
-			return '';
-		}
-	}).catch((err) => {
-		if (nonOk) return nonOk;
-		throw err;
+		parseAs: 'stream'
 	});
 	logger.log('checkAuth: /auth/me response', { status: res.status, ok: res.ok });
 	if (res.status === 401) {
@@ -238,8 +246,6 @@ async function doCheckAuth(attempt: number, signal: AbortSignal): Promise<AuthPr
 		if (!validAuthPayload(data)) {
 			return { resolution: { state: 'unavailable', attempt, cause: 'invalid-response' }, impersonating: false };
 		}
-		// Never log the full /auth/me payload — it carries PII (email, display_name, delegates).
-		// ?debug=1 enables the logger in prod, so log only non-PII flow flags.
 		logger.log('checkAuth: success', { isAdmin: data.is_admin, hasMailbox: data.has_mailbox });
 		const nextUser = { email: data.email, displayName: data.display_name, isAdmin: data.is_admin, hasMailbox: data.has_mailbox, totp_enabled: data.totp_enabled, totp_enabled_at: data.totp_enabled_at, delegates: data.delegates, userId: data.user_id, accountType: data.account_type } satisfies AuthUser;
 		return { resolution: { state: 'authenticated', attempt, user: nextUser }, impersonating: data.impersonating === true };
@@ -270,22 +276,12 @@ function applyProbe(probe: AuthProbe): boolean {
 
 /**
  * Re-mint the access token, then re-derive auth + live capabilities.
- *
- * Used by JIT activation's cold-start path (D6): when a non-admin is granted an
- * eligible role and activates it, the live token still carries is_admin=false —
- * POST /auth/refresh rotates it (re-deriving is_admin=true), then checkAuth()
- * reloads /auth/me and /jmap/session so $adminConsoles / $adminPermissions /
- * effectiveCaps reflect the now-active role. The refresh failure is swallowed:
- * checkAuth still runs so the UI converges on the server's truth.
  */
 export async function refreshSession(): Promise<void> {
-	await httpRequest('/auth/refresh', { method: 'POST', loginRedirect: null })
-		.then(async (res) => {
-			// The rotation response carries the NEW access token (new JTI): every
-			// outstanding grant stopped being consumable at rotation (§2.5) —
-			// re-bind the ath source and retire pending grant state (r2 defect 10).
+	await authRefreshEdge
+		.POST('/auth/refresh', { parseAs: 'stream' })
+		.then(async ({ response: res }) => {
 			if (res.ok) rememberSessionToken((await res.json().catch(() => null)) as Record<string, unknown> | null);
-			else rememberAccessTokenForProofs(null);
 		})
 		.catch(() => {
 			/* non-fatal: fall through to checkAuth, which reloads from the current token */
@@ -294,7 +290,6 @@ export async function refreshSession(): Promise<void> {
 	await checkAuth();
 }
 
-// Check auth state by calling the backend. HttpOnly cookies are sent automatically.
 export async function checkAuth(): Promise<boolean> {
 	logger.log('checkAuth: start');
 	if (!browser) {
@@ -331,13 +326,6 @@ export async function checkAuth(): Promise<boolean> {
 
 let initialAuthProbeStarted = false;
 
-/**
- * Start the one page-load auth probe from the application shell.
- *
- * This is explicit instead of a module-import side effect: public booking
- * imports the root layout but must not contact authenticated `/auth` or JMAP
- * surfaces merely because the auth store was evaluated.
- */
 export function ensureInitialAuthProbe(): void {
 	const resolution = get(authResolution);
 	if (!browser || initialAuthProbeStarted || resolution.state !== 'probing' || resolution.attempt !== 0) return;
@@ -346,12 +334,6 @@ export function ensureInitialAuthProbe(): void {
 	void checkAuth();
 }
 
-/**
- * The SPA's DPoP public JWK (CA-3a token binding), or undefined when key
- * generation fails (unsupported browser / blocked storage). Absent ⇒ the
- * server issues an unbound token (buildCnf treats a missing jwk as opt-out) —
- * login must never fail because binding could not be set up.
- */
 async function dpopJwkForLogin(): Promise<JsonWebKey | undefined> {
 	try {
 		return (await getOrCreateDpopKey()).jwk;
@@ -364,14 +346,18 @@ async function dpopJwkForLogin(): Promise<JsonWebKey | undefined> {
 export async function login(email: string, password: string, rememberDevice: boolean = false): Promise<Record<string, unknown>> {
 	logger.log('login: start', { rememberDevice });
 	const dpop_jwk = await dpopJwkForLogin();
-	const res = await fetch('/auth/login', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
+	const { error, response: res } = await authRawEdge.POST('/auth/login', {
 		credentials: 'include',
-		body: JSON.stringify({ email, password, remember_device: rememberDevice, dpop_jwk })
+		parseAs: 'stream',
+		body: {
+			email,
+			password,
+			remember_device: rememberDevice,
+			dpop_jwk: dpop_jwk as Record<string, unknown> | undefined
+		}
 	});
 	logger.log('login: /auth/login response', { status: res.status, ok: res.ok });
-	const data = await parseLoginResponse(res);
+	const data = await parseLoginResponse(res, error);
 	rememberSessionToken(data);
 	bumpAuthGeneration();
 	logger.log('login: success, calling checkAuth');
@@ -429,13 +415,16 @@ export class ThreatBlockedError extends Error {
 	}
 }
 
-/**
- * Shared response parser for login and loginWithCaptcha.
- * Checks threat, MFA, force-change, and generic error responses.
- */
-async function parseLoginResponse(res: Response): Promise<Record<string, unknown>> {
+async function readLoginErrorBody(res: Response, parsedError: unknown): Promise<Record<string, unknown>> {
+	if (parsedError && typeof parsedError === 'object') {
+		return parsedError as Record<string, unknown>;
+	}
+	return (await res.json().catch(() => ({}))) as Record<string, unknown>;
+}
+
+async function parseLoginResponse(res: Response, parsedError?: unknown): Promise<Record<string, unknown>> {
 	if (res.status === 403) {
-		const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+		const data = await readLoginErrorBody(res, parsedError);
 		if (data.status === 'force_password_change') {
 			throw new ForcePasswordChangeError('You must change your password before signing in');
 		}
@@ -456,7 +445,7 @@ async function parseLoginResponse(res: Response): Promise<Record<string, unknown
 		}
 	}
 	if (res.status === 429) {
-		const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+		const data = await readLoginErrorBody(res, parsedError);
 		throw new ThreatBlockedError(
 			(data.error as string) || 'rate_limited',
 			undefined,
@@ -481,7 +470,7 @@ async function parseLoginResponse(res: Response): Promise<Record<string, unknown
 		}
 	}
 	if (!res.ok) {
-		const prob = await res.json().catch(() => ({ detail: '' })) as { detail?: string };
+		const prob = await readLoginErrorBody(res, parsedError) as { detail?: string };
 		throw new Error(prob.detail || 'Wrong password.');
 	}
 	return (await res.json()) as Record<string, unknown>;
@@ -496,18 +485,24 @@ export async function loginWithCaptcha(
 ): Promise<Record<string, unknown>> {
 	logger.log('loginWithCaptcha: start');
 	const dpop_jwk = await dpopJwkForLogin();
-	const res = await fetch('/auth/login', {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			'X-Captcha-Token': captchaToken,
-			'X-Captcha-Answer': captchaAnswer
-		},
+	const { error, response: res } = await authRawEdge.POST('/auth/login', {
 		credentials: 'include',
-		body: JSON.stringify({ email, password, remember_device: rememberDevice, dpop_jwk })
+		parseAs: 'stream',
+		params: {
+			header: {
+				'X-Captcha-Token': captchaToken,
+				'X-Captcha-Answer': captchaAnswer
+			}
+		},
+		body: {
+			email,
+			password,
+			remember_device: rememberDevice,
+			dpop_jwk: dpop_jwk as Record<string, unknown> | undefined
+		}
 	});
 	logger.log('loginWithCaptcha: /auth/login response', { status: res.status, ok: res.ok });
-	const data = await parseLoginResponse(res);
+	const data = await parseLoginResponse(res, error);
 	rememberSessionToken(data);
 	bumpAuthGeneration();
 	logger.log('loginWithCaptcha: success, calling checkAuth');
@@ -516,17 +511,8 @@ export async function loginWithCaptcha(
 	return data;
 }
 
-// Base64url <-> ArrayBuffer helpers live in $lib/util/base64url (also used by
-// auth/dpop.ts). Re-exported here so existing WebAuthn call sites (below +
-// settings passkey enrollment) are unchanged.
 export { base64urlToBuffer, bufferToBase64url };
 
-// WebAuthn wire descriptors arrive as JSON with the credential id still a
-// base64url STRING (Go base64.RawURLEncoding), but navigator.credentials needs
-// ArrayBuffer ids — casting the array through makes any NONEMPTY allowCredentials
-// fail credential.get outright (Astra r1 P1, auth.ts:831). Decode every
-// descriptor id; malformed input fails closed on the typed Base64UrlDecodeError
-// before any ceremony is attempted.
 interface WireCredentialDescriptor {
 	id?: unknown;
 	type?: unknown;
@@ -552,16 +538,16 @@ function decodeCredentialDescriptors(
 export async function startWebAuthnLogin(email: string): Promise<void> {
 	logger.log('startWebAuthnLogin: begin');
 
-	// Step 1: GET /auth/webauthn/login/begin
-	const beginRes = await httpRequest(`/auth/webauthn/login/begin?email=${encodeURIComponent(email)}`, {
-		loginRedirect: null,
-		unauthorizedMessage: 'Passkey login unavailable',
-		onError: () => 'Passkey login unavailable'
-	});
-	const beginData = await beginRes.json() as { publicKey: { challenge: string; rpId: string; allowCredentials?: unknown[] } };
-	const pkOptions = beginData.publicKey;
+	const { data: beginData } = await runAuthCall(
+		() => authEdge.GET('/auth/webauthn/login/begin', { params: { query: { email } } }),
+		'Passkey login unavailable',
+		{ forceFallback: true }
+	);
+	if (!beginData?.publicKey) {
+		throw new Error('Passkey login unavailable');
+	}
+	const pkOptions = beginData.publicKey as { challenge: string; rpId: string; allowCredentials?: unknown[] };
 
-	// Step 2: Prepare PublicKeyCredentialRequestOptions
 	const publicKey: PublicKeyCredentialRequestOptions = {
 		challenge: base64urlToBuffer(pkOptions.challenge),
 		rpId: pkOptions.rpId,
@@ -569,7 +555,6 @@ export async function startWebAuthnLogin(email: string): Promise<void> {
 		userVerification: 'preferred'
 	};
 
-	// Step 3: Call navigator.credentials.get()
 	let assertion: PublicKeyCredential | null;
 	try {
 		assertion = await navigator.credentials.get({ publicKey }) as PublicKeyCredential | null;
@@ -580,12 +565,7 @@ export async function startWebAuthnLogin(email: string): Promise<void> {
 		throw new Error('Passkey authentication cancelled');
 	}
 
-	// Step 4: Serialize the assertion for JSON transport
 	const response = assertion.response as AuthenticatorAssertionResponse;
-	// CA-3a/DPoP: WebAuthn login is passwordless, so this IS the completion
-	// request — there is no earlier password step to have sent a JWK on. The
-	// server reads dpop_jwk as an extra top-level field alongside the
-	// assertion (authserver webauthn.go:WebAuthnLoginFinish).
 	const dpop_jwk = await dpopJwkForLogin();
 	const serialized = {
 		id: assertion.id,
@@ -597,22 +577,16 @@ export async function startWebAuthnLogin(email: string): Promise<void> {
 			userHandle: response.userHandle ? bufferToBase64url(response.userHandle) : null
 		},
 		type: assertion.type,
-		dpop_jwk
+		dpop_jwk: dpop_jwk as Record<string, unknown> | undefined
 	};
 
-	// Step 5: POST /auth/webauthn/login/finish
-	const finishRes = await httpRequest('/auth/webauthn/login/finish', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(serialized),
-		loginRedirect: null,
-		unauthorizedMessage: 'Passkey authentication failed',
-		onError: () => 'Passkey authentication failed'
-	});
+	const { data: finishPayload } = await runAuthCall(
+		() => authEdge.POST('/auth/webauthn/login/finish', { body: serialized }),
+		'Passkey authentication failed',
+		{ forceFallback: true }
+	);
+	const finishData = (finishPayload ?? {}) as Record<string, unknown>;
 
-	const finishData = await finishRes.json().catch(() => ({})) as Record<string, unknown>;
-
-	// Step 6: Check for MFA still required after passkey
 	if (finishData.status === 'mfa_required' || finishData.mfa_required) {
 		const mfaToken = finishData.mfa_token as string;
 		const method = (finishData.mfa_method as string) || 'totp';
@@ -627,70 +601,55 @@ export async function startWebAuthnLogin(email: string): Promise<void> {
 		throw new MFARequiredError('MFA verification required', mfaToken, challenge);
 	}
 
-	// Step 7: Success — bind the ath source to the issued token, retire any
-	// pre-login pending state, and check auth.
 	rememberSessionToken(finishData);
 	bumpAuthGeneration();
 	await checkAuth();
 }
 
 export async function verifyTOTP(code: string, mfaToken: string): Promise<Record<string, unknown>> {
-	// CA-3a/DPoP: TOTP verify is a SEPARATE request from the password step that
-	// issued mfaToken, so the JWK can't ride request context server-side — the
-	// SPA re-sends it here (see stores/auth.test.ts + authserver totp.go).
 	const dpop_jwk = await dpopJwkForLogin();
-	const res = await httpRequest('/auth/totp/verify', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ code, mfa_token: mfaToken, dpop_jwk }),
-		loginRedirect: null,
-		unauthorizedMessage: 'TOTP verification failed',
-		onError: (r) => problemDetail(r, 'TOTP verification failed')
-	});
-	const data = (await res.json()) as Record<string, unknown>;
-	rememberSessionToken(data);
+	const { data } = await runAuthCall(
+		() =>
+			authEdge.POST('/auth/totp/verify', {
+				body: {
+					code,
+					mfa_token: mfaToken,
+					dpop_jwk: dpop_jwk as Record<string, unknown> | undefined
+				}
+			}),
+		'TOTP verification failed'
+	);
+	if (data === undefined) throw new Error('TOTP verification failed');
+	const payload = data as Record<string, unknown>;
+	rememberSessionToken(payload);
 	bumpAuthGeneration();
 	await checkAuth();
-	return data;
+	return payload;
 }
 
-/**
- * Complete a number-match push MFA sign-in by POLLING for OUT-OF-BAND approval.
- *
- * The correct number rides only the enrolled device (ECIES native push /
- * webpush); the browser never receives it and so cannot submit an answer — doing
- * so was the C10 2FA bypass (a password-only attacker could read the answer from
- * the login response and replay it). Instead the device approves on its own
- * channel (/auth/mfa/approve, which stamps approved_at) and the browser polls
- * /auth/push/status until the server reports approval, at which point that
- * response carries the issued session (and sets the HttpOnly cookie).
- *
- * Resolves once approved (after checkAuth converges auth state); throws on an
- * invalid/expired session or if the challenge TTL elapses with no approval.
- */
 export async function verifyPush(nonce: string, mfaToken: string): Promise<Record<string, unknown>> {
 	const POLL_INTERVAL_MS = 2000;
-	const deadline = Date.now() + 130_000; // challenge TTL is 120s; small margin.
-	// CA-3a/DPoP: fetched once before the poll loop (not per-iteration) — the
-	// key is IndexedDB-cached anyway, but only the poll that actually resolves
-	// (approved:true) has its cnf embedded server-side.
+	const deadline = Date.now() + 130_000;
 	const dpop_jwk = await dpopJwkForLogin();
 	for (;;) {
-		const res = await httpRequest('/auth/push/status', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ nonce, mfa_token: mfaToken, dpop_jwk }),
-			loginRedirect: null,
-			unauthorizedMessage: 'Push verification failed',
-			onError: (r) => problemDetail(r, 'Push verification failed')
-		});
-		const data = (await res.json()) as Record<string, unknown>;
-		if (data.approved !== false) {
-			// Approved out-of-band: the session cookie is set; converge and return.
-			rememberSessionToken(data);
+		const { data } = await runAuthCall(
+			() =>
+				authEdge.POST('/auth/push/status', {
+					body: {
+						nonce,
+						mfa_token: mfaToken,
+						dpop_jwk: dpop_jwk as Record<string, unknown> | undefined
+					}
+				}),
+			'Push verification failed'
+		);
+		if (data === undefined) throw new Error('Push verification failed');
+		const payload = data as Record<string, unknown>;
+		if (payload.approved !== false) {
+			rememberSessionToken(payload);
 			bumpAuthGeneration();
 			await checkAuth();
-			return data;
+			return payload;
 		}
 		if (Date.now() >= deadline) {
 			throw new Error('Push approval timed out. Try again.');
@@ -703,48 +662,27 @@ export interface PasskeyCredential {
 	id: string;
 	device_name: string;
 	created_at: string;
-	/** Possession scheme v7 §1.2: the server persists the attestation's
-	 *  user-verified flag per credential. OPTIONAL on the wire so a
-	 *  pre-possession gateway degrades gracefully — absent (or false) means the
-	 *  client must NOT offer the WebAuthn-UV proof for it (fail-closed; the
-	 *  server remains the cohort authority and refuses a mis-offered proof). */
 	uv_capable?: boolean;
 }
 
 export async function fetchPasskeyCredentials(): Promise<PasskeyCredential[]> {
-	const res = await httpRequest('/auth/webauthn/credentials', {
-		loginRedirect: null,
-		unauthorizedMessage: 'Failed to load passkeys',
-		onError: () => 'Failed to load passkeys'
-	});
-	const data = await res.json() as { credentials: PasskeyCredential[] };
-	return data.credentials ?? [];
+	const { data } = await runAuthCall(
+		() => authEdge.GET('/auth/webauthn/credentials'),
+		'Failed to load passkeys',
+		{ forceFallback: true }
+	);
+	return (data?.credentials ?? []) as PasskeyCredential[];
 }
 
 export interface TOTPSetupDetails {
 	secret: string;
 	provisioningUri: string;
-	/** Possession scheme v7 §1.6: the setup arm binds the grant one-time to the
-	 *  pending enrollment and issues this id; confirm must present it back.
-	 *  Optional so a pre-binding gateway (no enrollment_id member) keeps
-	 *  working — the server, not the client, enforces the binding. */
 	enrollmentId?: string;
 }
-
-// ── ER5 s07 first-factor step-up re-auth contract (authserver mfa_reauth.go) ──
-//
-// Enrolling the FIRST authenticator (no existing verified factor) and
-// regenerating recovery codes require a FRESH re-authentication: the server
-// answers the gated arm with a typed 403 problem+json (Type
-// .../errors/reauth-required, Code "reauth_required", Remediation "reauth",
-// challenge path in the Detail). The client then POSTs the account password
-// to MFA_REAUTH_CHALLENGE_PATH and retries the gated call with the issued
-// single-use, session-bound reauth_token.
 
 export const MFA_REAUTH_CHALLENGE_PATH = '/auth/mfa/reauth';
 
 export class ReauthRequiredError extends Error {
-	/** The authenticated challenge path that mints a reauth_token. */
 	challengePath: string;
 	constructor(challengePath: string = MFA_REAUTH_CHALLENGE_PATH) {
 		super('reauth_required');
@@ -753,47 +691,11 @@ export class ReauthRequiredError extends Error {
 	}
 }
 
-// ponytail: httpRequest's outer catch rewraps every thrown error as a plain
-// Error (parseError passes only .message through — see $lib/http.ts's own
-// problemOnError/decodeProblem note), so the onError seam JSON-encodes the
-// typed re-auth contract into the message string and decodeReauthRequired
-// unpacks it into a ReauthRequiredError on the way out. String-encode-and-
-// decode beats forking httpRequest.
-function reauthAwareOnError(fallback: string) {
-	return async (res: Response): Promise<string> => {
-		if (res.status === 403) {
-			const body = (await res.clone().json().catch(() => null)) as { code?: unknown } | null;
-			if (body && body.code === 'reauth_required') {
-				return JSON.stringify({ reauth_required: true });
-			}
-		}
-		return problemDetail(res, fallback);
-	};
-}
-
-function decodeReauthRequired(err: unknown): ReauthRequiredError | null {
-	if (err instanceof Error) {
-		try {
-			const marker = JSON.parse(err.message) as { reauth_required?: unknown };
-			if (marker && marker.reauth_required === true) return new ReauthRequiredError();
-		} catch {
-			// not the reauth marker — the original error passes through
-		}
-	}
-	return null;
-}
-
 export interface MFAReauthToken {
 	reauthToken: string;
 	expiresIn: number;
 }
 
-// ── Possession scheme v7 — operation kinds (spec §1.3) ──
-//
-// Every proof grant authorizes exactly ONE operation: the request that mints a
-// grant declares what it may be consumed for, and the gated arm re-checks the
-// binding. `bootstrap.totp.enroll` is mfa_pending-scope only (login bootstrap)
-// and is never minted from a session.
 export type MFAReauthOperation =
 	| 'totp.enroll'
 	| 'totp.replace'
@@ -807,117 +709,70 @@ export const POSSESSION_TOTP_PATH = '/auth/mfa/possession/totp';
 export const POSSESSION_WEBAUTHN_BEGIN_PATH = '/auth/mfa/possession/webauthn/begin';
 export const POSSESSION_WEBAUTHN_FINISH_PATH = '/auth/mfa/possession/webauthn/finish';
 
-// v7 §3.2 T3.1/T4: `target_ref` is REQUIRED iff the operation is
-// `webauthn.revoke` and FORBIDDEN on every other operation (one proof
-// authorizes exactly one target) — so the body builder includes it only there.
-function operationBody(operation: MFAReauthOperation, targetRef?: string): Record<string, unknown> {
-	const body: Record<string, unknown> = { operation };
+function operationBody(operation: MFAReauthOperation, targetRef?: string): { operation: MFAReauthOperation; target_ref?: string } {
+	const body: { operation: MFAReauthOperation; target_ref?: string } = { operation };
 	if (operation === 'webauthn.revoke' && targetRef) body.target_ref = targetRef;
 	return body;
 }
 
-// Begin the fresh re-authentication challenge: verify the session holder's
-// account password and receive the single-use, session-bound reauth_token the
-// gated arms consume. v7 §3: the request declares the §1.3 operation the grant
-// will carry (issuance-time binding), plus target_ref for webauthn.revoke.
 export async function beginMFAReauth(
 	password: string,
 	operation: MFAReauthOperation,
 	targetRef?: string
 ): Promise<MFAReauthToken> {
-	const res = await httpRequest(MFA_REAUTH_CHALLENGE_PATH, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ password, ...operationBody(operation, targetRef) }),
-		loginRedirect: null,
-		unauthorizedMessage: 'Re-authentication failed',
-		onError: (r) => problemDetail(r, 'Re-authentication failed')
-	});
-	const data = (await res.json()) as { reauth_token?: string; expires_in?: number };
-	if (!data.reauth_token) throw new Error('Re-authentication failed');
+	const { data } = await runAuthCall(
+		() =>
+			authEdge.POST('/auth/mfa/reauth', {
+				body: { password, ...operationBody(operation, targetRef) }
+			}),
+		'Re-authentication failed'
+	);
+	if (!data?.reauth_token) throw new Error('Re-authentication failed');
 	return { reauthToken: data.reauth_token, expiresIn: data.expires_in ?? 0 };
 }
 
-// ── Possession scheme v7 — C1 possession proofs (spec §3, §3.2) ──
-//
-// A C1 (possession-capable) account proves with an enrolled factor instead of
-// the password: a current TOTP code, or a WebAuthn user-verification
-// assertion. Both mint the same session-scope, single-use reauth_token the
-// password path returns; the C2/C3 password refusal from these endpoints is
-// the wire signal that the account belongs to the password step-up cohort.
-
-// TOTP possession proof: verify a current code from the enabled authenticator
-// inside the server's issuance transaction (spec §3 row / §3.2 T3.2).
 export async function possessionTOTPProof(
 	operation: MFAReauthOperation,
 	code: string,
 	targetRef?: string
 ): Promise<MFAReauthToken> {
-	const res = await httpRequest(POSSESSION_TOTP_PATH, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ ...operationBody(operation, targetRef), code }),
-		loginRedirect: null,
-		unauthorizedMessage: 'Verification failed',
-		onError: (r) => problemDetail(r, 'Verification failed')
-	});
-	const data = (await res.json()) as { reauth_token?: string; expires_in?: number };
-	if (!data.reauth_token) throw new Error('Verification failed');
+	const { data } = await runAuthCall(
+		() =>
+			authEdge.POST('/auth/mfa/possession/totp', {
+				body: { ...operationBody(operation, targetRef), code }
+			}),
+		'Verification failed'
+	);
+	if (!data?.reauth_token) throw new Error('Verification failed');
 	return { reauthToken: data.reauth_token, expiresIn: data.expires_in ?? 0 };
 }
 
-// Session-scope finish returns the minted token; a bootstrap caller admitted
-// by its mfa_pending token instead gets `{"granted": true}` with NO new secret
-// — the grant binds the presented pending token (spec §3.2 T3.4).
 export type PossessionProof =
 	| { scope: 'session'; reauthToken: string; expiresIn: number }
 	| { scope: 'mfa_pending'; granted: true };
 
 export interface PossessionWebAuthnOptions {
-	/** mfa_pending bootstrap token (login enrollment flow). When present the
-	 *  begin/finish pair rides Mode B admission (spec §3.2 T1 Mode B) and the
-	 *  grant binds the pending JTI instead of minting a session token. */
 	mfaToken?: string;
-	/** Required iff operation === 'webauthn.revoke' (spec §3.2 T4). */
 	targetRef?: string;
 }
 
-interface PossessionFinishBody {
-	reauth_token?: string;
-	expires_in?: number;
-	granted?: boolean;
-}
-
-// Run the full management-assertion ceremony against the possession endpoints:
-// begin (assertion options, UV forced required server-side) →
-// navigator.credentials.get → finish (assertion + operation binding). The
-// caller receives either a session reauth_token or the bootstrap `granted`
-// acknowledgement (spec §1.4, §3.2 T3.3/T3.4).
 export async function provePossessionWebAuthn(
 	operation: MFAReauthOperation,
 	opts: PossessionWebAuthnOptions = {}
 ): Promise<PossessionProof> {
-	const beginBody: Record<string, unknown> = { operation };
+	const beginBody: { operation: MFAReauthOperation; mfa_token?: string; target_ref?: string } = { operation };
 	if (opts.mfaToken) beginBody.mfa_token = opts.mfaToken;
 	if (operation === 'webauthn.revoke' && opts.targetRef) beginBody.target_ref = opts.targetRef;
 
-	// Step 1: begin — assertion options with userVerification 'required' set
-	// server-side; NO ceremony cookie — the server-side ceremony row is the
-	// authority and the client's only finish obligation is the assertion.
-	const beginRes = await httpRequest(POSSESSION_WEBAUTHN_BEGIN_PATH, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(beginBody),
-		loginRedirect: null,
-		unauthorizedMessage: 'Passkey verification unavailable',
-		onError: (r) => problemDetail(r, 'Passkey verification unavailable')
-	});
-	const beginData = await beginRes.json() as { publicKey: { challenge: string; rpId: string; allowCredentials?: unknown[] } };
-	const pkOptions = beginData.publicKey;
+	const { data: beginData } = await runAuthCall(
+		() => authEdge.POST('/auth/mfa/possession/webauthn/begin', { body: beginBody }),
+		'Passkey verification unavailable'
+	);
+	if (!beginData?.publicKey) {
+		throw new Error('Passkey verification unavailable');
+	}
+	const pkOptions = beginData.publicKey as { challenge: string; rpId: string; allowCredentials?: unknown[] };
 
-	// Step 2: ask the authenticator for a USER-VERIFIED assertion. The server
-	// already forces 'required' on the ceremony; requesting it here too keeps
-	// the browser's prompt honest even if served options lag.
 	const publicKey: PublicKeyCredentialRequestOptions = {
 		challenge: base64urlToBuffer(pkOptions.challenge),
 		rpId: pkOptions.rpId,
@@ -925,7 +780,6 @@ export async function provePossessionWebAuthn(
 		userVerification: 'required'
 	};
 
-	// Step 3: the UV gesture itself.
 	let assertion: PublicKeyCredential | null;
 	try {
 		assertion = await navigator.credentials.get({ publicKey }) as PublicKeyCredential | null;
@@ -934,10 +788,21 @@ export async function provePossessionWebAuthn(
 	}
 	if (!assertion) throw new Error('Passkey verification cancelled');
 
-	// Step 4: serialize the assertion plus the ceremony bindings as top-level
-	// members (the dpop_jwk extra-member precedent, spec §3.2 T3.4).
 	const response = assertion.response as AuthenticatorAssertionResponse;
-	const finishBody: Record<string, unknown> = {
+	const finishBody: {
+		id: string;
+		rawId: string;
+		type: string;
+		response: {
+			authenticatorData: string;
+			clientDataJSON: string;
+			signature: string;
+			userHandle: string | null;
+		};
+		operation: MFAReauthOperation;
+		mfa_token?: string;
+		target_ref?: string;
+	} = {
 		id: assertion.id,
 		rawId: bufferToBase64url(assertion.rawId),
 		response: {
@@ -952,52 +817,19 @@ export async function provePossessionWebAuthn(
 	if (opts.mfaToken) finishBody.mfa_token = opts.mfaToken;
 	if (operation === 'webauthn.revoke' && opts.targetRef) finishBody.target_ref = opts.targetRef;
 
-	// Step 5: finish — ceremony row consumed and the grant issued in one tx.
-	const finishRes = await httpRequest(POSSESSION_WEBAUTHN_FINISH_PATH, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(finishBody),
-		loginRedirect: null,
-		unauthorizedMessage: 'Passkey verification failed',
-		onError: (r) => problemDetail(r, 'Passkey verification failed')
-	});
-	const data = (await finishRes.json().catch(() => ({}))) as PossessionFinishBody;
-	if (data.granted === true) return { scope: 'mfa_pending', granted: true };
-	if (!data.reauth_token) throw new Error('Passkey verification failed');
+	const { data } = await runAuthCall(
+		() => authEdge.POST('/auth/mfa/possession/webauthn/finish', { body: finishBody }),
+		'Passkey verification failed'
+	);
+	if (data?.granted === true) return { scope: 'mfa_pending', granted: true };
+	if (!data?.reauth_token) throw new Error('Passkey verification failed');
 	return { scope: 'session', reauthToken: data.reauth_token, expiresIn: data.expires_in ?? 0 };
 }
 
-// ── Passkey registration under the possession gate (spec §3 row, §3.1) ──
-//
-// `GET /auth/webauthn/register/begin` + `POST /auth/webauthn/register/finish`
-// are gated: begin carries the grant in the X-MFA-Reauth header (GET has no
-// body), finish in the reauth_token body member. The reauth_required 403 from
-// either arm surfaces as ReauthRequiredError so the settings flow can run the
-// method-aware handoff and retry with the minted proof.
 export async function enrollPasskey(reauthToken?: string): Promise<void> {
-	try {
-		await enrollPasskeyInner(reauthToken);
-	} catch (err) {
-		// A 403 problem with code reauth_required surfaces as ReauthRequiredError
-		// so the settings flow can run the method-aware handoff — never silent.
-		const reauth = decodeReauthRequired(err);
-		if (reauth) throw reauth;
-		throw err;
-	}
+	await enrollPasskeyInner(reauthToken);
 }
 
-// The creation options the FIRST begin on the current grant minted, retained
-// for the §1.6 RESUME semantics (r2 defect 9 / scheme v7 §1.6): a repeated
-// begin on the same grant answers 200 {"status":"bound"} — no second ceremony
-// is ever minted — and the client reuses its ALREADY-ISSUED options. Chosen
-// per the scheme's explicit wording ("the client reuses its already-issued
-// creation options ... no second ceremony for a bound grant") over requiring
-// a fresh proof, which would discard a perfectly bound grant every time the
-// user cancels the authenticator gesture. Cleared on success (the grant is
-// consumed) and on session teardown. If retention is lost while the grant
-// stays bound (a second tab holding the token after this page reloaded),
-// enrollment surfaces reauth_required — a fresh proof re-binds a fresh
-// ceremony honestly.
 let retainedRegistrationOptions: PublicKeyCredentialCreationOptions | null = null;
 
 interface RegistrationBeginBody {
@@ -1010,8 +842,6 @@ interface RegistrationBeginBody {
 }
 
 function creationOptionsFromBegin(publicKey: NonNullable<RegistrationBeginBody['publicKey']>): PublicKeyCredentialCreationOptions {
-	// The server sends challenge / user.id / excludeCredentials[].id as
-	// base64url strings; navigator.credentials.create needs ArrayBuffers.
 	return {
 		...(publicKey as unknown as PublicKeyCredentialCreationOptions),
 		challenge: base64urlToBuffer(publicKey.challenge),
@@ -1028,27 +858,21 @@ function creationOptionsFromBegin(publicKey: NonNullable<RegistrationBeginBody['
 }
 
 async function enrollPasskeyInner(reauthToken?: string): Promise<void> {
-	// Step 1: begin — creation options (the grant binds one-time to the
-	// ceremony's challenge hash server-side, spec §1.6). A grant ALREADY bound
-	// to its live ceremony answers {"status":"bound"}: resume with the
-	// retained options instead of assuming a fresh publicKey payload.
-	const headers: Record<string, string> = {};
-	if (reauthToken) headers['X-MFA-Reauth'] = reauthToken;
-	const beginRes = await httpRequest('/auth/webauthn/register/begin', {
-		headers,
-		loginRedirect: null,
-		unauthorizedMessage: 'Passkey enrollment unavailable',
-		onError: reauthAwareOnError('Passkey enrollment unavailable')
-	});
-	const beginData = await beginRes.json() as RegistrationBeginBody;
+	const { data: rawBeginData } = await runAuthCall(
+		() =>
+			authEdge.GET('/auth/webauthn/register/begin', {
+				params: {
+					header: reauthToken ? { 'X-MFA-Reauth': reauthToken } : undefined
+				}
+			}),
+		'Passkey enrollment unavailable',
+		{ allowReauth: true }
+	);
+	const beginData = (rawBeginData ?? {}) as RegistrationBeginBody;
 
 	let publicKey: PublicKeyCredentialCreationOptions;
 	if (beginData.status === 'bound') {
 		if (!retainedRegistrationOptions) {
-			// Retention lost but the grant stays bound: require a FRESH proof.
-			// The handoff mints one; the new grant's begin binds a new ceremony
-			// (§1.6 fail-closed strictness) instead of guessing at options this
-			// page never received.
 			throw new ReauthRequiredError();
 		}
 		publicKey = retainedRegistrationOptions;
@@ -1058,7 +882,6 @@ async function enrollPasskeyInner(reauthToken?: string): Promise<void> {
 		retainedRegistrationOptions = publicKey;
 	}
 
-	// Step 2: the credential-creation gesture.
 	let cred: PublicKeyCredential | null;
 	try {
 		cred = await navigator.credentials.create({ publicKey }) as PublicKeyCredential | null;
@@ -1067,8 +890,6 @@ async function enrollPasskeyInner(reauthToken?: string): Promise<void> {
 	}
 	if (!cred) throw new Error('Passkey enrollment cancelled');
 
-	// Step 3: serialize the attestation (ArrayBuffers → base64url) and finish
-	// with the grant so the gated arm can consume it.
 	const att = cred.response as AuthenticatorAttestationResponse;
 	const serialized = {
 		id: cred.id,
@@ -1080,39 +901,24 @@ async function enrollPasskeyInner(reauthToken?: string): Promise<void> {
 		},
 		...(reauthToken ? { reauth_token: reauthToken } : {})
 	};
-	await httpRequest('/auth/webauthn/register/finish', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(serialized),
-		loginRedirect: null,
-		unauthorizedMessage: 'Failed to register passkey',
-		onError: reauthAwareOnError('Failed to register passkey')
-	});
-	// The finish consumed the ceremony + grant: nothing to resume.
+	await runAuthCall(
+		() => authEdge.POST('/auth/webauthn/register/finish', { body: serialized }),
+		'Failed to register passkey',
+		{ allowReauth: true }
+	);
 	retainedRegistrationOptions = null;
 }
 
-// Regenerate every recovery code. Gated for EVERY account: the reauth_token
-// from beginMFAReauth is consumed before any code is minted. The first
-// attempt legitimately carries no token — the server's typed 403 contract is
-// what triggers the re-auth handoff.
 export async function generateBackupCodes(reauthToken?: string): Promise<string[]> {
-	try {
-		const res = await httpRequest('/auth/backup-codes/generate', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(reauthToken ? { reauth_token: reauthToken } : {}),
-			loginRedirect: null,
-			unauthorizedMessage: 'Recovery code generation failed',
-			onError: reauthAwareOnError('Recovery code generation failed')
-		});
-		const data = (await res.json()) as { backup_codes?: string[] };
-		return data.backup_codes ?? [];
-	} catch (err) {
-		const reauth = decodeReauthRequired(err);
-		if (reauth) throw reauth;
-		throw err;
-	}
+	const { data } = await runAuthCall(
+		() =>
+			authEdge.POST('/auth/backup-codes/generate', {
+				body: reauthToken ? { reauth_token: reauthToken } : {}
+			}),
+		'Recovery code generation failed',
+		{ allowReauth: true }
+	);
+	return data?.backup_codes ?? [];
 }
 
 function parseTOTPSetup(data: { provisioning_uri?: string; enrollment_id?: string }): TOTPSetupDetails {
@@ -1125,118 +931,71 @@ function parseTOTPSetup(data: { provisioning_uri?: string; enrollment_id?: strin
 	}
 	if (!provisioningUri || !secret) throw new Error('TOTP setup returned an invalid provisioning URI');
 	const details: TOTPSetupDetails = { secret, provisioningUri };
-	// v7 §1.6: the setup arm's issued enrollment id rides to confirm. Absent on
-	// a pre-binding gateway — tolerated there, required once the backend ships.
 	if (data.enrollment_id) details.enrollmentId = data.enrollment_id;
 	return details;
 }
 
 export async function setupTOTP(reauthToken?: string): Promise<TOTPSetupDetails> {
-	// ER5 s07 first-factor step-up: the GET arm carries the reauth_token in
-	// the X-MFA-Reauth header (fetch refuses a body on GET). A 403 problem
-	// with code "reauth_required" surfaces as a ReauthRequiredError so the
-	// settings flow can offer the re-auth challenge handoff — never silent.
-	const headers: Record<string, string> = {};
-	if (reauthToken) headers['X-MFA-Reauth'] = reauthToken;
-	try {
-		const res = await httpRequest('/auth/totp/setup', {
-			headers,
-			loginRedirect: null,
-			unauthorizedMessage: 'TOTP setup failed',
-			onError: reauthAwareOnError('TOTP setup failed')
-		});
-		return parseTOTPSetup((await res.json()) as { provisioning_uri?: string });
-	} catch (err) {
-		const reauth = decodeReauthRequired(err);
-		if (reauth) throw reauth;
-		throw err;
-	}
+	const { data } = await runAuthCall(
+		() =>
+			authEdge.GET('/auth/totp/setup', {
+				params: {
+					header: reauthToken ? { 'X-MFA-Reauth': reauthToken } : undefined
+				}
+			}),
+		'TOTP setup failed',
+		{ allowReauth: true }
+	);
+	return parseTOTPSetup(data ?? {});
 }
 
 export interface TOTPConfirmOptions {
-	/** The single-use reauth_token the gated confirm arm consumes. */
 	reauthToken?: string;
-	/** v7 §1.6: the enrollment_id setup issued — confirm must reference the
-	 *  binding, so stale (grant, enrollment) combinations refuse by design. */
 	enrollmentId?: string;
 }
 
 export async function confirmTOTP(code: string, opts: TOTPConfirmOptions = {}): Promise<void> {
-	const body: Record<string, unknown> = { code };
+	const body: { code: string; reauth_token?: string; enrollment_id?: string } = { code };
 	if (opts.reauthToken) body.reauth_token = opts.reauthToken;
 	if (opts.enrollmentId) body.enrollment_id = opts.enrollmentId;
-	try {
-		await httpRequest('/auth/totp/confirm', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body),
-			loginRedirect: null,
-			unauthorizedMessage: 'TOTP confirmation failed',
-			onError: reauthAwareOnError('TOTP confirmation failed')
-		});
-	} catch (err) {
-		const reauth = decodeReauthRequired(err);
-		if (reauth) throw reauth;
-		throw err;
-	}
+	await runAuthCall(
+		() => authEdge.POST('/auth/totp/confirm', { body }),
+		'TOTP confirmation failed',
+		{ allowReauth: true }
+	);
 }
 
-// Bootstrap enrollment setup (mfa_pending scope, login flow). For a C2/C3
-// account the password bootstrap grant was committed at login, so the bare
-// token works. For a C1 passkey-holder NO grant exists yet: the arm answers
-// the typed 403 reauth_required (§1.6 zero-rows rule) and the caller must run
-// the webauthn_uv management ceremony (provePossessionWebAuthn with the SAME
-// mfa_token) before retrying — v7 §1.5.1 step 5. Returns the setup-issued
-// enrollmentId the confirm arm must present (§1.6).
 export async function setupTOTPEnrollment(mfaToken: string): Promise<TOTPSetupDetails> {
-	try {
-		const res = await httpRequest('/auth/totp/enroll/setup', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ mfa_token: mfaToken }),
-			loginRedirect: null,
-			unauthorizedMessage: 'MFA enrollment could not be started',
-			onError: reauthAwareOnError('MFA enrollment could not be started')
-		});
-		return parseTOTPSetup((await res.json()) as { provisioning_uri?: string; enrollment_id?: string });
-	} catch (err) {
-		const reauth = decodeReauthRequired(err);
-		if (reauth) throw reauth;
-		throw err;
-	}
+	const { data } = await runAuthCall(
+		() => authEdge.POST('/auth/totp/enroll/setup', { body: { mfa_token: mfaToken } }),
+		'MFA enrollment could not be started',
+		{ allowReauth: true }
+	);
+	return parseTOTPSetup(data ?? {});
 }
 
-// Bootstrap enrollment confirm: consumes the mfa_pending grant in the
-// promotion tx. The setup-issued enrollmentId rides the request per §1.6 so
-// stale (grant, enrollment) combinations refuse by construction.
 export async function confirmTOTPEnrollment(
 	code: string,
 	mfaToken: string,
 	enrollmentId?: string
 ): Promise<Record<string, unknown>> {
 	const dpop_jwk = await dpopJwkForLogin();
-	const body: Record<string, unknown> = { code, mfa_token: mfaToken, dpop_jwk };
+	const body: { code: string; mfa_token: string; dpop_jwk?: Record<string, unknown>; enrollment_id?: string } = {
+		code,
+		mfa_token: mfaToken,
+		dpop_jwk: dpop_jwk as Record<string, unknown> | undefined
+	};
 	if (enrollmentId) body.enrollment_id = enrollmentId;
-	const res = await httpRequest('/auth/totp/enroll/confirm', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(body),
-		loginRedirect: null,
-		unauthorizedMessage: 'MFA enrollment confirmation failed',
-		onError: (r) => problemDetail(r, 'MFA enrollment confirmation failed')
-	});
-	const data = (await res.json()) as Record<string, unknown>;
-	// The completion response carries the ISSUED session (the server bound the
-	// token to the dpop_jwk this request presented), so apply the SAME
-	// token-retention + generation transition verifyTOTP applies BEFORE
-	// probing (r3: bootstrap completion previously called checkAuth with no
-	// remembered token and no generation advance — with binding enabled every
-	// subsequent proof omitted ath or hashed a stale token, and the fresh
-	// session authenticated nowhere).
-	rememberSessionToken(data);
+	const { data } = await runAuthCall(
+		() => authEdge.POST('/auth/totp/enroll/confirm', { body }),
+		'MFA enrollment confirmation failed'
+	);
+	if (data === undefined) throw new Error('MFA enrollment confirmation failed');
+	const payload = data as Record<string, unknown>;
+	rememberSessionToken(payload);
 	bumpAuthGeneration();
 	await checkAuth();
-	return data;
+	return payload;
 }
 
 export interface TOTPRemovalStepUp {
@@ -1244,73 +1003,41 @@ export interface TOTPRemovalStepUp {
 	expiresIn: number;
 }
 
-// Begin MFA de-enrollment: verify the session password plus a second factor —
-// the current TOTP code, or a recovery code when the authenticator is lost —
-// per the server's factor/recovery decision table. Returns a single-use,
-// session-bound step-up token that removeTOTP() consumes. A user with no
-// authenticator and no recovery codes is refused here (self-service path
-// ends; the admin/support recovery flow applies).
 export async function beginTOTPRemoval(password: string, code: string): Promise<TOTPRemovalStepUp> {
-	const res = await httpRequest('/auth/totp/remove/begin', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ password, code }),
-		loginRedirect: null,
-		unauthorizedMessage: 'TOTP removal failed',
-		onError: (r) => problemDetail(r, 'TOTP removal failed')
-	});
-	const data = (await res.json()) as { step_up_token?: string; expires_in?: number };
-	if (!data.step_up_token) throw new Error('TOTP removal failed');
+	const { data } = await runAuthCall(
+		() => authEdge.POST('/auth/totp/remove/begin', { body: { password, code } }),
+		'TOTP removal failed'
+	);
+	if (!data?.step_up_token) throw new Error('TOTP removal failed');
 	return { stepUpToken: data.step_up_token, expiresIn: data.expires_in ?? 0 };
 }
 
-// Complete MFA de-enrollment: consume the step-up token with the typed
-// confirmation. The server removes the factor and every recovery code in one
-// serialized transaction; replayed tokens and double-submissions are refused.
 export async function removeTOTP(stepUpToken: string): Promise<void> {
-	await httpRequest('/auth/totp/remove', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ step_up_token: stepUpToken, confirm: 'REMOVE' }),
-		loginRedirect: null,
-		unauthorizedMessage: 'TOTP removal failed',
-		onError: (r) => problemDetail(r, 'TOTP removal failed')
-	});
+	await runAuthCall(
+		() => authEdge.POST('/auth/totp/remove', { body: { step_up_token: stepUpToken, confirm: 'REMOVE' } }),
+		'TOTP removal failed'
+	);
 }
 
 export async function changePassword(oldPassword: string, newPassword: string): Promise<Record<string, unknown>> {
 	logger.log('changePassword: start');
-	const res = await httpRequest('/auth/change-password', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ oldPassword, newPassword }),
-		loginRedirect: null,
-		unauthorizedMessage: 'Password change failed',
-		onError: async (r) => {
-			const detail = await problemDetail(r, 'Password change failed');
-			logger.error('changePassword: failed', { status: r.status, body: detail });
-			return detail;
-		}
-	});
-	logger.log('changePassword: response', { status: res.status, ok: res.ok });
-	const data = (await res.json()) as Record<string, unknown>;
+	const { data, response } = await runAuthCall(
+		() => authEdge.POST('/auth/change-password', { body: { oldPassword, newPassword } }),
+		'Password change failed'
+	);
+	logger.log('changePassword: response', { status: response.status, ok: response.ok });
+	if (data === undefined) throw new Error('Password change failed');
 	logger.log('changePassword: success, calling checkAuth');
 	const authOk = await checkAuth();
 	logger.log('changePassword: checkAuth result', { authOk });
-	return data;
+	return data as Record<string, unknown>;
 }
 
 export async function logout(): Promise<void> {
 	logger.log('logout: start');
 	try {
-		// Silent-on-error by design: the finally always resets local auth state,
-		// so the user is logged out client-side even if the server call fails.
-		// loginRedirect:null keeps a 401 from redirect-looping instead of resetting.
-		const res = await httpRequest('/auth/logout', {
-			method: 'POST',
-			loginRedirect: null
-		});
-		logger.log('logout: /auth/logout response', { status: res.status });
+		const { response } = await authRefreshEdge.POST('/auth/logout', { parseAs: 'stream' });
+		logger.log('logout: /auth/logout response', { status: response.status });
 	} catch (err) {
 		logger.error('logout: error', err);
 	} finally {
@@ -1327,20 +1054,17 @@ export async function logout(): Promise<void> {
 	}
 }
 
-// Impersonate another user as an admin. Returns the target email on success.
 export async function impersonateUser(userId: number): Promise<string> {
-	const res = await httpRequest(`/auth/admin/users/${userId}/impersonate`, {
-		method: 'POST',
-		loginRedirect: null,
-		unauthorizedMessage: 'Impersonation failed',
-		onError: (r) => problemDetail(r, 'Impersonation failed')
-	});
-	const data = (await res.json()) as { target_email: string; impersonating: boolean };
-	// The impersonation cookie swapped the session for one this page never saw
-	// a token for — a stale ath would 401 every possession call (r2 defect 1).
+	const { data } = await runAuthCall(
+		() =>
+			authEdge.POST('/auth/admin/users/{id}/impersonate', {
+				params: { path: { id: userId } }
+			}),
+		'Impersonation failed'
+	);
+	if (data === undefined) throw new Error('Impersonation failed');
 	rememberAccessTokenForProofs(null);
 	bumpAuthGeneration();
-	// Re-check auth — the impersonation cookie is now set, /auth/me returns target user
 	await checkAuth();
 	return data.target_email;
 }

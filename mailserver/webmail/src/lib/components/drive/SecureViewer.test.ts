@@ -105,7 +105,7 @@ describe('SecureViewer', () => {
 
 		expect(httpRequest).toHaveBeenCalledWith(
 			'/api/drive/versions/42/content',
-			{},
+			expect.objectContaining({ method: 'GET', allowStatuses: [] }),
 		);
 		expect((screen.getByAltText('report.png') as HTMLImageElement).src).toBe('blob:mock-1'); // createdUrls[0] — instrumented harness
 	});
@@ -322,7 +322,12 @@ describe('SecureViewer', () => {
 			source: { kind: 'online' },
 			onclose: vi.fn(),
 		});
-		await vi.waitFor(() => expect(httpRequest).toHaveBeenCalledWith('/api/drive/versions/42/content', {}));
+		await vi.waitFor(() =>
+			expect(httpRequest).toHaveBeenCalledWith(
+				'/api/drive/versions/42/content',
+				expect.objectContaining({ method: 'GET', allowStatuses: [] }),
+			)
+		);
 		unmount();
 		blobGate.resolve(new Blob(['x'], { type: 'image/png' }));
 		await tick();

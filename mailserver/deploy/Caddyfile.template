@@ -1,0 +1,37 @@
+# Setjoin Official Edge TLS/ACME Caddyfile Template (#559)
+#
+# Install to /etc/caddy/Caddyfile after substituting {{HOSTNAME}} and
+# {{ACME_EMAIL}}. Pair with setjoin-tls-export.path + setjoin-tls-export.service
+# so Caddy's renewed PEM files are atomically exported to /etc/mail/tls for
+# Setjoin's IMAPS, IMAP STARTTLS, SMTPS, Submission, LDAPS, and Federation
+# listeners (hot-reloaded by setjoin_tls::ReloadingPem without restarting).
+#
+# NOTE on DANE-EE (TLSA 3 1 1) key pinning:
+#   `reuse_private_keys` is placed in Caddy v2's top-level global options block
+#   below. Note Caddy's upstream caveat: unlike `certbot --reuse-key`, Caddy's
+#   CertMagic may still rotate private keys across certain issuer/account state
+#   changes. `export-edge-pem.sh` enforces DANE_ENFORCE_KEY_PIN=1 by default and
+#   fails closed (printing double-TLSA rollover instructions) if the SPKI hash
+#   ever changes unexpectedly. If strict DANE-EE key pinning is mandatory, prefer
+#   certbot with `--reuse-key` (see docs/guides/EDGE_TLS_ACME_MIGRATION.md).
+
+{
+	email {{ACME_EMAIL}}
+	key_type p256
+	reuse_private_keys
+}
+
+{{HOSTNAME}} {
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+	}
+
+	# Proxy strictly to literal IPv4 loopback 127.0.0.1:8090 — NEVER `localhost`,
+	# which can resolve to ::1 and break TRUSTED_PROXY_IP=127.0.0.1 /
+	# GATEWAY_TRUSTED_PROXIES=127.0.0.1.
+	# Caddy v2 automatically sets X-Forwarded-For (replacing untrusted client
+	# headers with the observed peer IP) and X-Forwarded-Proto=https.
+	reverse_proxy 127.0.0.1:8090 {
+		flush_interval -1
+	}
+}

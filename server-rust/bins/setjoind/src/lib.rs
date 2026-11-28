@@ -150,13 +150,17 @@ pub fn run_cli() -> ExitCode {
     // Capture and scrub NOTIFY_SOCKET immediately so child processes never inherit it.
     let sd_notify = SdNotify::from_env_and_scrub();
 
-    if std::env::var("GATEWAY_ROUTE_INVENTORY")
-        .ok()
-        .is_some_and(|v| !v.is_empty())
-    {
+    if std::env::var_os("GATEWAY_ROUTE_INVENTORY").is_some_and(|v| !v.is_empty()) {
         eprintln!(
             "setjoind: GATEWAY_ROUTE_INVENTORY is retired in setjoind; unified routing is always active"
         );
+        return ExitCode::FAILURE;
+    }
+
+    // Release N+1 (#560): refuse retired built-in ACME env vars BEFORE std::env::vars(),
+    // boot, DB pools, ListenHub, or any listener bind.
+    if let Some(error) = setjoin_gateway::acme::retirement_error_from_env() {
+        eprintln!("setjoind: {error}");
         return ExitCode::FAILURE;
     }
 
@@ -440,21 +444,7 @@ fn build_auth_tls(
     let (Some(cert), Some(key)) = (cert_path, key_path) else {
         return Ok(None);
     };
-    use tokio_rustls::rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
-    let certs = CertificateDer::pem_file_iter(cert)
-        .map_err(|e| format!("read auth TLS cert: {e}"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("parse auth TLS cert: {e}"))?;
-    let key = PrivateKeyDer::from_pem_file(key).map_err(|e| format!("parse auth TLS key: {e}"))?;
-    let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
-    let mut tls = tokio_rustls::rustls::ServerConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
-        .map_err(|e| format!("auth TLS protocol config: {e}"))?
-        .with_no_client_auth()
-        .with_single_cert(certs, key)
-        .map_err(|e| format!("auth TLS cert/key mismatch: {e}"))?;
-    tls.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-    Ok(Some(tokio_rustls::TlsAcceptor::from(Arc::new(tls))))
+    setjoin_auth::load_reloading_tls_config(cert, key).map(Some)
 }
 
 async fn shutdown_signal() {

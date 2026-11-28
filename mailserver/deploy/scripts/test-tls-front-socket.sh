@@ -12,13 +12,8 @@ HOSTNAME=mail.example.test
 LISTEN_ADDR=:443
 TLS_CERT=/fixture/leaf.crt
 TLS_KEY=/fixture/leaf.key
-TLS_AUTOCERT_DOMAINS=mail.example.test
-TLS_AUTOCERT_CHALLENGE=tls-alpn-01
-TLS_AUTOCERT_EMAIL=ops@example.test
 TLS_AUTOCERT_CACHE_DIR=/var/cache/mailserver/fixture-autocert
-TLS_SESSION_TICKET_KEY_ROTATE_SECS=60
-TLS_DNS_PROVIDER=cloudflare
-TLS_DNS_CONFIG={"CF_API_TOKEN":"literal-$-value"}
+GATEWAY_HTTPS_LISTEN=:1443
 DB_DSN=postgres://app@fixture/db
 GO_WORKERS_OFF=backup-engine,federation-service,federation-residue-reap
 RUST_WORKERS_ON=federation-residue-reap
@@ -35,35 +30,36 @@ render_tls_front_env "$TLS_ENV" "$CONFIG_ENV"
 render_federation_env "$tmp/federation.env" "$CONFIG_ENV" "$DB_CRED_FILE"
 render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/setjoin-gateway.service"
 test -s "$tmp/setjoin-https.socket"
+test ! -e "$tmp/setjoin-acme.socket"
 grep -qx 'FileDescriptorName=https' "$tmp/setjoin-https.socket"
-grep -qx 'ListenStream=443' "$tmp/setjoin-https.socket"
+grep -qx 'ListenStream=1443' "$tmp/setjoin-https.socket"
 grep -qx 'Service=setjoin-gateway.service' "$tmp/setjoin-https.socket"
 grep -qx 'Wants=setjoin-https.socket' "$tmp/setjoin-gateway.service"
 grep -qx "EnvironmentFile=-$TLS_ENV" "$tmp/setjoin-gateway.service"
 grep -qx 'ReadWritePaths=-/var/cache/mailserver/fixture-autocert' "$tmp/setjoin-gateway.service"
 grep -qx 'CapabilityBoundingSet=' "$tmp/setjoin-gateway.service"
 grep -qx 'LISTEN_ADDR=127.0.0.1:0' "$CONFIG_ENV"
-for name in cert-monitor tls-ticket-keys http-tls http-h2c acme-renewal; do
+for name in cert-monitor http-tls http-h2c; do
   for key in GO_WORKERS_OFF RUST_WORKERS_ON; do
     sed -n "s/^$key=//p" "$tmp/federation.env" | tr ',' '\n' | grep -qx "$name"
   done
 done
+for retired in acme-renewal tls-ticket-keys http-port80; do
+  if grep -q "$retired" "$tmp/federation.env"; then echo "retired worker $retired leaked to federation.env" >&2; exit 1; fi
+done
 grep -q '^RUST_WORKERS_ON=.*federation-residue-reap' "$tmp/federation.env"
 grep -qx 'TLS_CERT=/fixture/leaf.crt' "$TLS_ENV"
-grep -qx 'TLS_SESSION_TICKET_KEY_ROTATE_SECS=60' "$TLS_ENV"
-grep -Fxq 'TLS_DNS_CONFIG={"CF_API_TOKEN":"literal-$-value"}' "$TLS_ENV"
-if grep -Eq 'OWNER_DSN|S3_SECRET|JWT_SECRET|DB_DSN' "$TLS_ENV"; then echo 'secret leaked to tls.env' >&2; exit 1; fi
+grep -qx 'TLS_KEY=/fixture/leaf.key' "$TLS_ENV"
+if grep -Eq 'OWNER_DSN|S3_SECRET|JWT_SECRET|DB_DSN|TLS_AUTOCERT_|TLS_DNS_|TLS_SESSION_TICKET_' "$TLS_ENV"; then echo 'secret or retired ACME var leaked to tls.env' >&2; exit 1; fi
 test "$(mode_of "$TLS_ENV")" = 640
 # Re-rendering is idempotent and leaves unrelated worker ownership intact.
 cp "$CONFIG_ENV" "$tmp/once.env"
 configure_tls_front "$CONFIG_ENV"
 diff -u "$tmp/once.env" "$CONFIG_ENV"
-# Config regeneration preserves managed settings and literal credentials;
-# explicit empty/updated environment assignments override previous values.
-TLS_AUTOCERT_EMAIL=new@example.test TLS_DNS_PROVIDER=cloudflare tls_front_preserve_settings "$CONFIG_ENV" > "$tmp/preserved.env"
-grep -qx 'TLS_AUTOCERT_EMAIL=new@example.test' "$tmp/preserved.env"
-grep -qx 'TLS_SESSION_TICKET_KEY_ROTATE_SECS=60' "$tmp/preserved.env"
-grep -Fxq 'TLS_DNS_CONFIG={"CF_API_TOKEN":"literal-$-value"}' "$tmp/preserved.env"
+# Config regeneration preserves managed settings; explicit overrides win.
+GATEWAY_HTTPS_LISTEN=:2443 tls_front_preserve_settings "$CONFIG_ENV" > "$tmp/preserved.env"
+grep -qx 'GATEWAY_HTTPS_LISTEN=:2443' "$tmp/preserved.env"
+grep -qx 'TLS_AUTOCERT_CACHE_DIR=/var/cache/mailserver/fixture-autocert' "$tmp/preserved.env"
 if grep -Eq 'OWNER_DSN|S3_SECRET|JWT_SECRET|DB_DSN' "$tmp/preserved.env"; then echo 'secret leaked to preserved.env' >&2; exit 1; fi
 GATEWAY_HTTPS_LISTEN='[::1]:1443' render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/setjoin-gateway.service"
 grep -Fxq 'ListenStream=[::1]:1443' "$tmp/setjoin-https.socket"
@@ -593,5 +589,80 @@ for leak_case in '!!float "super-secret-scalar-val"' '!!int "super-secret-scalar
     exit 1
   fi
 done
+
+# Default single-node install writes HTTP_MODE=proxy alongside TLS_CERT:
+# native HTTPS MUST stay enabled (setjoin-https.socket rendered) unless TLS_EDGE_PROXY=true.
+cat > "$tmp/default-http-proxy.env" <<'ENV'
+HOSTNAME=mail.example.test
+HTTP_MODE=proxy
+TLS_CERT=/etc/mail/tls/server.pem
+TLS_KEY=/etc/mail/tls/server-key.pem
+GO_WORKERS_OFF="backup-engine,tls-ticket-keys,http-port80"
+RUST_WORKERS_ON='federation-residue-reap,tls-ticket-keys,http-port80'
+ENV
+configure_tls_front "$tmp/default-http-proxy.env"
+mkdir -p "$tmp/default-http-proxy-units"
+CONFIG_ENV="$tmp/default-http-proxy.env" GATEWAY_ENV="$tmp/default-http-proxy-gw.env" TLS_ENV="$tmp/default-http-proxy-tls.env" \
+  render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/default-http-proxy-units/setjoin-gateway.service"
+test -s "$tmp/default-http-proxy-units/setjoin-https.socket"
+grep -qx 'RUST_WORKERS_ON=federation-residue-reap,cert-monitor,http-tls,http-h2c' "$tmp/default-http-proxy.env"
+grep -qx 'GO_WORKERS_OFF=backup-engine,cert-monitor,http-tls,http-h2c' "$tmp/default-http-proxy.env"
+
+# Explicit same-host edge proxy opt-out (TLS_EDGE_PROXY=true + TLS_CERT for SMTPS/IMAPS/LDAPS):
+# must NOT enable http-tls/cert-monitor or render setjoin-https.socket (avoids :443 collision),
+# and must strip retired/http-tls workers even when quoted in config.env.
+cat > "$tmp/proxy-config.env" <<'ENV'
+HOSTNAME=mail.example.test
+HTTP_MODE=proxy
+TLS_EDGE_PROXY=true
+TLS_CERT=/etc/mail/tls/server.pem
+TLS_KEY=/etc/mail/tls/server-key.pem
+GO_WORKERS_OFF="backup-engine,cert-monitor,http-tls,tls-ticket-keys,http-port80"
+RUST_WORKERS_ON='federation-residue-reap,cert-monitor,http-tls,tls-ticket-keys,http-port80'
+ENV
+configure_tls_front "$tmp/proxy-config.env"
+render_tls_front_env "$tmp/proxy-tls.env" "$tmp/proxy-config.env"
+mkdir -p "$tmp/proxy-units"
+CONFIG_ENV="$tmp/proxy-config.env" GATEWAY_ENV="$tmp/proxy-gateway.env" TLS_ENV="$tmp/proxy-tls.env" \
+  SETJOIND_ENV="$tmp/proxy-setjoind.env" SETJOIND_AUTH_ENV="$tmp/proxy-setjoind-auth.env" \
+  render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/proxy-units/setjoin-gateway.service"
+CONFIG_ENV="$tmp/proxy-config.env" GATEWAY_ENV="$tmp/proxy-gateway.env" TLS_ENV="$tmp/proxy-tls.env" \
+  SETJOIND_ENV="$tmp/proxy-setjoind.env" SETJOIND_AUTH_ENV="$tmp/proxy-setjoind-auth.env" \
+  render_setjoind_unit "$ROOT/mailserver/deploy/setjoind.service.template" "$tmp/proxy-units/setjoind.service"
+test ! -e "$tmp/proxy-units/setjoin-https.socket"
+grep -qx 'TLS_CERT=/etc/mail/tls/server.pem' "$tmp/proxy-tls.env"
+grep -qx 'TLS_KEY=/etc/mail/tls/server-key.pem' "$tmp/proxy-tls.env"
+if grep -Eq '(http-tls|cert-monitor|tls-ticket-keys|http-port80)' "$tmp/proxy-config.env"; then
+  echo 'TLS_EDGE_PROXY=true retained http-tls/cert-monitor or retired workers in config.env' >&2
+  cat "$tmp/proxy-config.env" >&2
+  exit 1
+fi
+grep -qx 'RUST_WORKERS_ON=federation-residue-reap' "$tmp/proxy-config.env"
+tls_front_preserve_settings "$tmp/proxy-config.env" > "$tmp/proxy-preserved.env"
+grep -qx 'TLS_EDGE_PROXY=true' "$tmp/proxy-preserved.env"
+
+# Preflight ignores quoted-empty legacy ACME vars and refuses any non-empty ACME_*/TLS_DNS_*/TLS_AUTOCERT_*.
+cat > "$tmp/empty-acme.env" <<'ENV'
+TLS_CERT=/etc/mail/tls/server.pem
+TLS_KEY=/etc/mail/tls/server-key.pem
+TLS_AUTOCERT_DOMAINS=""
+TLS_DNS_CONFIG=''
+TLS_AUTOCERT_ROLLOUT="false"
+TLS_AUTOCERT_CACHE_DIR=/var/cache/mailserver/autocert
+ENV
+check_no_retired_acme_config "$tmp/empty-acme.env"
+
+cat > "$tmp/bad-acme.env" <<'ENV'
+TLS_DNS_TSIG_SECRET="super-secret-tsig-560"
+ACME_EMAIL=ops@example.test
+ENV
+rc=0
+err=$(check_no_retired_acme_config "$tmp/bad-acme.env" 2>&1) || rc=$?
+[ "$rc" -ne 0 ] || { echo 'expected check_no_retired_acme_config to refuse retired vars' >&2; exit 1; }
+printf '%s' "$err" | grep -q 'ACME_EMAIL,TLS_DNS_TSIG_SECRET'
+if printf '%s' "$err" | grep -q 'super-secret-tsig-560'; then
+  echo "preflight leaked secret value: $err" >&2
+  exit 1
+fi
 
 echo 'native TLS release socket: PASS'

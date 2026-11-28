@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "policy": "Minimum 12-month compatibility window before any approved breaking removal or incompatible schema change.",
+  "waivers": []
+}

@@ -34,6 +34,8 @@ pub struct RouteDeps {
     /// `setjoind` nodes even when `AUTHSERVER_URL` is unset (#543).
     pub allow_private_keys: bool,
     pub boot_posture: Arc<setjoin_boot::BootPosture>,
+    pub search_facade: Option<Arc<crate::search_facade::GatewaySearchFacade>>,
+    pub search_work_queue: Option<setjoin_workqueue::WorkQueue>,
 }
 
 /// Build the HTTP route table and shared edge rate limiter.
@@ -202,6 +204,8 @@ async fn build_with_keys<K: KeySource + 'static>(
         listen_hub,
         allow_private_keys: _,
         boot_posture,
+        search_facade,
+        search_work_queue,
     } = deps;
     let issuer = env("JWT_ISSUER").unwrap_or_else(|| "mailserver".into());
     eprintln!(
@@ -223,11 +227,17 @@ async fn build_with_keys<K: KeySource + 'static>(
                 env("DB_ENCRYPTION_KEY").unwrap_or_default(),
                 env("AUDIT_HMAC_KEY").unwrap_or_default(),
             ),
-        jobs: crate::compliance::SearchJobs::new(
-            setjoin_pg::workers::WorkerDatabase::new(&compliance_worker_dsn)
-                .map_err(|e| e.to_string())?,
-            pool,
-        ),
+        jobs: {
+            let jobs = crate::compliance::SearchJobs::new(
+                setjoin_pg::workers::WorkerDatabase::new(&compliance_worker_dsn)
+                    .map_err(|e| e.to_string())?,
+                pool,
+            );
+            match search_work_queue {
+                Some(q) => jobs.with_tier2_work_queue(q),
+                None => jobs,
+            }
+        },
         store: Some(Arc::new(crate::recovery_worker::S3Store::from_env()?)),
         worm: Some(worm),
         keys: keys.clone(),
@@ -856,14 +866,23 @@ async fn build_with_keys<K: KeySource + 'static>(
     let (assist_exec, assist_keys, assist_issuer) = (exec.clone(), keys.clone(), issuer.clone());
     let commands = Arc::new(JmapCommands {
         worker: Some(compliance.worker.clone()),
-        services: Some(Arc::new(crate::jmap::JmapServices::from_env(
-            ScopedExecutor::from_dsn(&env("DB_WORKER_DSN").unwrap_or_else(|| dsn.clone()), pool)
+        services: Some(Arc::new({
+            let svcs = crate::jmap::JmapServices::from_env(
+                ScopedExecutor::from_dsn(
+                    &env("DB_WORKER_DSN").unwrap_or_else(|| dsn.clone()),
+                    pool,
+                )
                 .map_err(|e| e.0)?
                 .with_audit_keys(
                     env("DB_ENCRYPTION_KEY").unwrap_or_default(),
                     env("AUDIT_HMAC_KEY").unwrap_or_default(),
                 ),
-        ))),
+            );
+            match search_facade {
+                Some(facade) => svcs.with_search_facade(facade),
+                None => svcs,
+            }
+        })),
         exec,
         keys: keys.clone(),
         issuer: issuer.clone(),
@@ -882,7 +901,7 @@ async fn build_with_keys<K: KeySource + 'static>(
             .map_err(|e| format!("push DB_WORKER_DSN: {e}"))?,
     );
     push.production = env("TLS_CERT_FILE").is_some()
-        || env("TLS_AUTOCERT_DOMAINS").is_some()
+        || env("TLS_CERT").is_some()
         || env("HTTP_MODE").as_deref() == Some("proxy");
     let hostname = env("HOSTNAME").unwrap_or_else(|| "localhost".into());
     if push.production && hostname != "localhost" {

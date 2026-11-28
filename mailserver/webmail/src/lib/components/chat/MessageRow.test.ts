@@ -15,16 +15,15 @@ vi.mock('$lib/meet/api', async () => {
 	return { ...actual, resolveSlug: (...a: unknown[]) => resolveSlug(...a) };
 });
 
-const typedFetch = vi.fn();
-vi.mock('$lib/http', async () => {
-	const actual = await vi.importActual<typeof import('$lib/http')>('$lib/http');
-	return { ...actual, typedFetch: (...a: unknown[]) => typedFetch(...a) };
-});
-
+const getNodesMeta = vi.fn();
 const fetchVersionContent = vi.fn();
 vi.mock('$lib/drive/api', async () => {
 	const actual = await vi.importActual<typeof import('$lib/drive/api')>('$lib/drive/api');
-	return { ...actual, fetchVersionContent: (...a: unknown[]) => fetchVersionContent(...a) };
+	return {
+		...actual,
+		getNodesMeta: (...a: unknown[]) => getNodesMeta(...a),
+		fetchVersionContent: (...a: unknown[]) => fetchVersionContent(...a),
+	};
 });
 
 function attachment(over: Partial<ChatAttachment> = {}): ChatAttachment {
@@ -92,7 +91,7 @@ const createObjectURL = vi.fn(() => 'blob:mock-url');
 const revokeObjectURL = vi.fn();
 
 beforeEach(() => {
-	typedFetch.mockReset();
+	getNodesMeta.mockReset();
 	fetchVersionContent.mockReset();
 	createObjectURL.mockClear();
 	revokeObjectURL.mockClear();
@@ -364,7 +363,7 @@ describe('MessageRow — Task 16 locale-aware relative timestamps', () => {
 // mounts MessageAttachments for a real attachment.
 describe('MessageRow — attachments (wiring smoke test; see MessageAttachments.test.ts)', () => {
 	it('an image attachment resolves and renders a thumbnail through the mounted MessageAttachments child', async () => {
-		typedFetch.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
+		getNodesMeta.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
 		fetchVersionContent.mockResolvedValue({ blob: async () => new Blob(['x'], { type: 'image/png' }) });
 		render(MessageRow, { ...baseProps, message: msg({ attachments: [attachment()] }) });
 		await waitFor(() => expect(screen.getByAltText('pic.png')).toBeTruthy());
@@ -528,7 +527,7 @@ describe('MessageRow — A3 QoL Task 15: read receipts (DES-010)', () => {
 // this smoke test proves MessageRow still mounts it for a voice message.
 describe('MessageRow — voice messages (wiring smoke test; see MessageAttachments.test.ts)', () => {
 	it('a ready voice attachment renders a native <audio> player through the mounted MessageAttachments child', async () => {
-		typedFetch.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
+		getNodesMeta.mockResolvedValue([{ nodeId: 5, headVersionId: 9, deletedAt: null }]);
 		const voiceMsg = msg({
 			messageId: 20,
 			msgType: 'voice',

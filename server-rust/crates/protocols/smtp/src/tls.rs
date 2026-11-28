@@ -1,11 +1,11 @@
-//! Production TLS configuration (#501): the policy of frozen Go's SMTP listeners
-//! (identical to the IMAP policy of #345, `imap/src/tls.rs`),
-//! `tlsutil.DefaultCipherSuites` / `DefaultCurves` with `MinVersion` TLS 1.2.
+//! Production TLS configuration (#501, #559): the policy of frozen Go's SMTP
+//! listeners (identical to the IMAP policy of #345, `imap/src/tls.rs`),
+//! `tlsutil.DefaultCipherSuites` / `DefaultCurves` with `MinVersion` TLS 1.2,
+//! backed by [`setjoin_tls::ReloadingPem`] for non-blocking PEM hot-reload.
 //! rustls (ring) supplies the primitives; this module only selects from them.
 use std::{path::Path, sync::Arc};
 use tokio_rustls::rustls::{
     crypto::{ring, CryptoProvider},
-    pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer},
     version::{TLS12, TLS13},
     ServerConfig, SupportedCipherSuite,
 };
@@ -37,26 +37,15 @@ fn provider() -> Arc<CryptoProvider> {
     Arc::new(provider)
 }
 
-/// Load one certificate chain and key into Go's TLS policy. Errors name the
-/// failing file but never its content.
+/// Load one certificate chain and key into Go's TLS policy with hot-reloading
+/// PEM resolution (`ReloadingPem`). Errors name the failing file but never its
+/// content.
 pub fn server_config(cert: &Path, key: &Path) -> Result<Arc<ServerConfig>, String> {
-    let chain: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(cert)
-        .map_err(|e| format!("TLS certificate {}: {e}", cert.display()))?
-        .collect::<Result<_, _>>()
-        .map_err(|e| format!("TLS certificate {}: {e}", cert.display()))?;
-    if chain.is_empty() {
-        return Err(format!(
-            "TLS certificate {}: no certificate",
-            cert.display()
-        ));
-    }
-    let key =
-        PrivateKeyDer::from_pem_file(key).map_err(|e| format!("TLS key {}: {e}", key.display()))?;
+    let resolver = Arc::new(setjoin_tls::ReloadingPem::load(cert, key)?);
     let config = ServerConfig::builder_with_provider(provider())
         .with_protocol_versions(&[&TLS12, &TLS13])
         .map_err(|e| format!("TLS protocol versions: {e}"))?
         .with_no_client_auth()
-        .with_single_cert(chain, key)
-        .map_err(|e| format!("TLS certificate/key pair: {e}"))?;
+        .with_cert_resolver(resolver);
     Ok(Arc::new(config))
 }

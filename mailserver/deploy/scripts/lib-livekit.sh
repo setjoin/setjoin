@@ -485,29 +485,6 @@ After=setjoin-https.socket
 [Install]
 Also=setjoin-https.socket
 TLS
-    if [ -n "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_DOMAINS)" ]; then
-      local key_file
-      key_file=$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_KEY_FILE)
-      if [ -n "$key_file" ]; then
-        case "$key_file" in /*) ;; *) echo 'ACME account key must be absolute' >&2; return 1;; esac
-        case "$key_file" in *[[:space:]#\&]*) echo 'invalid ACME account key path' >&2; return 1;; esac
-        printf '\n[Service]\nReadWritePaths=-%s\n' "${key_file%/*}" >> "$outfile"
-      fi
-      if [ "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_CHALLENGE)" = http-01 ]; then
-        case "$(tls_front_value "$CONFIG_ENV" HTTP_MODE)" in ''|redirect)
-          cp "${template%/*}/setjoin-acme.socket.template" "${outfile%/*}/setjoin-acme.socket"
-          cat >> "$outfile" <<'ACME'
-
-[Unit]
-Wants=setjoin-acme.socket
-After=setjoin-acme.socket
-
-[Install]
-Also=setjoin-acme.socket
-ACME
-        esac
-      fi
-    fi
   fi
   # The shared threat gate qualifies the complete IMAP listener (#420).
   if imap_front_enabled "${CONFIG_ENV:-}"; then
@@ -591,8 +568,8 @@ render_federation_env() {
       [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ] || exit 1
     fi
     for key in GO_WORKERS_OFF RUST_WORKERS_ON; do
-      allowed='^(federation-residue-reap|cert-monitor|tls-ticket-keys|http-tls|http-h2c|acme-renewal)$'
-      if [ "$key" = GO_WORKERS_OFF ]; then allowed='^(federation-(service|residue-reap)|cert-monitor|tls-ticket-keys|http-tls|http-h2c|acme-renewal|http-port80)$'; fi
+      allowed='^(federation-residue-reap|cert-monitor|http-tls|http-h2c)$'
+      if [ "$key" = GO_WORKERS_OFF ]; then allowed='^(federation-(service|residue-reap)|cert-monitor|http-tls|http-h2c)$'; fi
       names=""
       if [ -e "$config" ]; then
         raw_val="$(sed -n "s/^$key=//p" "$config")" || exit 1
@@ -987,30 +964,6 @@ After=setjoin-https.socket
 [Install]
 Also=setjoin-https.socket
 TLS
-    if [ -n "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_DOMAINS)" ]; then
-      local key_file
-      key_file=$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_KEY_FILE)
-      if [ -n "$key_file" ]; then
-        case "$key_file" in /*) ;; *) echo 'ACME account key must be absolute' >&2; return 1;; esac
-        case "$key_file" in *[[:space:]#\&]*) echo 'invalid ACME account key path' >&2; return 1;; esac
-        printf '\n[Service]\nReadWritePaths=-%s\n' "${key_file%/*}" >> "$outfile"
-      fi
-      if [ "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_CHALLENGE)" = http-01 ]; then
-        case "$(tls_front_value "$CONFIG_ENV" HTTP_MODE)" in ''|redirect)
-          _repoint_socket_for_setjoind \
-            "$tmpl_dir/setjoin-acme.socket.template" "$out_dir/setjoin-acme.socket" "$runtime_dir" || return 1
-          cat >> "$outfile" <<'ACME'
-
-[Unit]
-Wants=setjoin-acme.socket
-After=setjoin-acme.socket
-
-[Install]
-Also=setjoin-acme.socket
-ACME
-        esac
-      fi
-    fi
   fi
 
   if imap_front_enabled "${CONFIG_ENV:-}"; then
@@ -1524,8 +1477,66 @@ CONF
 
 # Native TLS front door (#413). Read literal EnvironmentFile assignments; never source secrets.
 tls_front_value() { sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -1 || true; }
+tls_front_edge_proxy() {
+  [ -f "$1" ] || return 1
+  local val
+  val="$(config_env_value "$1" TLS_EDGE_PROXY | tr '[:upper:]' '[:lower:]')"
+  case "$val" in
+    true|1|yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 tls_front_enabled() {
-  [ -f "$1" ] && { [ -n "$(tls_front_value "$1" TLS_CERT)" ] || [ -n "$(tls_front_value "$1" TLS_AUTOCERT_DOMAINS)" ]; }
+  [ -f "$1" ] && [ -n "$(config_env_value "$1" TLS_CERT)" ] && ! tls_front_edge_proxy "$1"
+}
+# Release N+1 (#560) fail-closed preflight for retired built-in ACME configuration.
+# Parses systemd EnvironmentFile quoting (so "" / '' empty assignments are ignored)
+# and inspects both CONFIG_ENV and the caller's environment without leaking values.
+check_no_retired_acme_config() {
+  local config="${1:-}"
+  python3 - "$_LIB_LIVEKIT_DIR/yaml-config.py" "$config" <<'PY'
+import importlib.util, os, sys
+
+yc_path, config_path = sys.argv[1], sys.argv[2]
+parsed = {}
+if config_path and os.path.isfile(config_path):
+    spec = importlib.util.spec_from_file_location("yc", yc_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    parsed = mod.parse_systemd_env_file(config_path)
+
+truthy = {"1", "t", "T", "TRUE", "true", "True"}
+triggers = set()
+
+def inspect(items):
+    for key, val in items:
+        if key == "TLS_AUTOCERT_CACHE_DIR":
+            continue
+        if key == "TLS_AUTOCERT_ROLLOUT":
+            if val.strip() in truthy:
+                triggers.add("TLS_AUTOCERT_ROLLOUT")
+            continue
+        if key == "RUST_WORKERS_ON":
+            if any(part.strip() == "acme-renewal" for part in val.split(",")):
+                triggers.add("RUST_WORKERS_ON=acme-renewal")
+            continue
+        if key.startswith(("ACME_", "TLS_DNS_", "TLS_AUTOCERT_")):
+            if val.strip():
+                triggers.add(key)
+
+inspect(parsed.items())
+inspect(os.environ.items())
+
+if triggers:
+    names = ",".join(sorted(triggers))
+    sys.stderr.write(
+        f"   ✗ Built-in ACME (triggers=[{names}]) was retired in Release N+1 (#560); "
+        f"remove ACME_*/TLS_AUTOCERT_*/TLS_DNS_* and `acme-renewal` from {config_path or 'environment'} "
+        "and migrate to an edge TLS/ACME proxy + mailserver/deploy/scripts/export-edge-pem.sh "
+        "(see docs/guides/EDGE_TLS_ACME_MIGRATION.md).\n"
+    )
+    sys.exit(1)
+PY
 }
 tls_front_set() {
   local config="$1" key="$2" value="$3" tmp
@@ -1536,28 +1547,42 @@ tls_front_set() {
   rm -f "$tmp"
 }
 configure_tls_front() {
-  local config="$1" key names worker mode http_mode additions
-  tls_front_enabled "$config" || return 0
-  # Overseer binds before launchWorker checks its switches. It must reserve only
-  # an unused loopback socket; systemd owns the public TLS descriptor.
-  tls_front_set "$config" LISTEN_ADDR 127.0.0.1:0 || return 1
-  mode=$(tls_front_value "$config" TLS_AUTOCERT_CHALLENGE)
-  http_mode=$(tls_front_value "$config" HTTP_MODE)
+  local config="$1" key names filtered worker additions is_edge_proxy=0
+  [ -f "$config" ] || return 0
+  if tls_front_edge_proxy "$config"; then
+    is_edge_proxy=1
+  fi
+  # Always strip retired Release N workers (#560) from existing config.env,
+  # and strip http-tls/cert-monitor when TLS_EDGE_PROXY=true so a same-host
+  # edge proxy (Caddy/Angie) owns :443 while Setjoin keeps TLS_CERT for mail/LDAP.
   for key in GO_WORKERS_OFF RUST_WORKERS_ON; do
-    names=$(tls_front_value "$config" "$key")
-    additions='cert-monitor tls-ticket-keys http-tls http-h2c'
-    if [ -n "$(tls_front_value "$config" TLS_AUTOCERT_DOMAINS)" ]; then
-      case "$mode" in
-        ''|tls-alpn-01|dns-01) additions="$additions acme-renewal" ;;
-        http-01)
-          # #305's native :80 responder implements redirect mode. Proxy/serve
-          # still host legacy API shapes on Go :80; retain that named owner.
-          case "$http_mode" in ''|redirect)
-            additions="$additions acme-renewal"
-            if [ "$key" = GO_WORKERS_OFF ]; then additions="$additions http-port80"; fi ;;
-          esac ;;
-      esac
+    if grep -q "^$key=" "$config" 2>/dev/null; then
+      names=$(config_env_value "$config" "$key")
+      filtered=""
+      local _old_ifs="$IFS"
+      IFS=','
+      for worker in $names; do
+        worker="${worker#"${worker%%[![:space:]]*}"}"
+        worker="${worker%"${worker##*[![:space:]]}"}"
+        [ -n "$worker" ] || continue
+        case "$worker" in
+          tls-ticket-keys|http-port80) continue ;;
+          http-tls|cert-monitor)
+            if [ "$is_edge_proxy" = 1 ]; then continue; fi
+            ;;
+        esac
+        filtered="${filtered:+$filtered,}$worker"
+      done
+      IFS="$_old_ifs"
+      tls_front_set "$config" "$key" "$filtered" || return 1
     fi
+  done
+  tls_front_enabled "$config" || return 0
+  # Reserve only an unused loopback socket; systemd owns the public TLS descriptor.
+  tls_front_set "$config" LISTEN_ADDR 127.0.0.1:0 || return 1
+  for key in GO_WORKERS_OFF RUST_WORKERS_ON; do
+    names=$(config_env_value "$config" "$key")
+    additions='cert-monitor http-tls http-h2c'
     for worker in $additions; do
       case ",$names," in *,$worker,*) ;; *) names="${names:+$names,}$worker" ;; esac
     done
@@ -1567,9 +1592,8 @@ configure_tls_front() {
 render_tls_front_env() {
   local outfile="$1" config="$2" tmp
   tmp=$(mktemp "${outfile}.XXXXXX") || return 1
-  # Paths/credentials needed by TLS/ACME only. DB tiers/worker ownership are in
-  # the existing least-privilege federation.env, loaded before this file.
-  grep -E '^(HOSTNAME|TLS_CERT|TLS_KEY|TLS_AUTOCERT_(DOMAINS|EMAIL|KEY_FILE|CHALLENGE)|TLS_DNS_(PROVIDER|CONFIG|RESOLVERS)|TLS_SESSION_TICKET_KEY_ROTATE_SECS|AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|PROFILE|SHARED_CREDENTIALS_FILE|CONFIG_FILE|ROLE_ARN|WEB_IDENTITY_TOKEN_FILE|ROLE_SESSION_NAME|CONTAINER_CREDENTIALS_RELATIVE_URI|CONTAINER_CREDENTIALS_FULL_URI|CONTAINER_AUTHORIZATION_TOKEN|CONTAINER_AUTHORIZATION_TOKEN_FILE|EC2_METADATA_DISABLED|EC2_METADATA_SERVICE_ENDPOINT|ENDPOINT_URL|ENDPOINT_URL_ROUTE_53))=' "$config" > "$tmp" || true
+  # Static PEM paths only; DB tiers/worker ownership live in federation.env.
+  grep -E '^(HOSTNAME|TLS_CERT|TLS_KEY)=' "$config" > "$tmp" || true
   chmod 0640 "$tmp"
   mv -f "$tmp" "$outfile"
 }
@@ -1681,7 +1705,7 @@ _is_empty_preserved_key() {
 # honoring explicit environment assignments without evaluating any value.
 tls_front_preserve_settings() {
   local config="$1" key value rc=0 line="" ordered="" extra_key="" seen=0 existing=""
-  local keys=(SETJOIN_CONFIG INTERNAL_DOMAINS SMTP_FRONT_ENABLED SMTP_INBOUND_ADDR SMTP_INBOUND_TLS_ADDR SMTP_SUBMISSION_ADDR SMTP_INBOUND_TLS_ENFORCE SMTP_INBOUND_MAX_CONNS SMTP_SUBMISSION_MAX_CONNS SMTP_PER_USER_MAX_CONNS SMTP_TLS_CERT_FILE SMTP_TLS_KEY_FILE IMAP_ADDR IMAP_TLS_ADDR IMAP_MAX_CONNS IMAP_PER_USER_MAX_CONNS IMAP_TLS_CERT_FILE IMAP_TLS_KEY_FILE TLS_AUTOCERT_DOMAINS TLS_AUTOCERT_EMAIL TLS_AUTOCERT_CACHE_DIR TLS_AUTOCERT_KEY_FILE TLS_AUTOCERT_CHALLENGE TLS_DNS_PROVIDER TLS_DNS_CONFIG TLS_DNS_RESOLVERS TLS_SESSION_TICKET_KEY_ROTATE_SECS GATEWAY_HTTPS_LISTEN WORM_MODE WORM__MODE WORM_RETENTION_DAYS WORM_LEGAL_HOLD_ENABLED AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE AWS_CONFIG_FILE AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE AWS_EC2_METADATA_DISABLED AWS_EC2_METADATA_SERVICE_ENDPOINT AWS_ENDPOINT_URL AWS_ENDPOINT_URL_ROUTE_53)
+  local keys=(SETJOIN_CONFIG INTERNAL_DOMAINS SMTP_FRONT_ENABLED SMTP_INBOUND_ADDR SMTP_INBOUND_TLS_ADDR SMTP_SUBMISSION_ADDR SMTP_INBOUND_TLS_ENFORCE SMTP_INBOUND_MAX_CONNS SMTP_SUBMISSION_MAX_CONNS SMTP_PER_USER_MAX_CONNS SMTP_TLS_CERT_FILE SMTP_TLS_KEY_FILE IMAP_ADDR IMAP_TLS_ADDR IMAP_MAX_CONNS IMAP_PER_USER_MAX_CONNS IMAP_TLS_CERT_FILE IMAP_TLS_KEY_FILE TLS_AUTOCERT_CACHE_DIR TLS_EDGE_PROXY GATEWAY_HTTPS_LISTEN WORM_MODE WORM__MODE WORM_RETENTION_DAYS WORM_LEGAL_HOLD_ENABLED)
   if [ -f "$config" ]; then
     ordered=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-order --ci-keys WORM_MODE,WORM__MODE,WORM_RETENTION_DAYS "$config" "${keys[@]}") || return 1
     while IFS= read -r key; do

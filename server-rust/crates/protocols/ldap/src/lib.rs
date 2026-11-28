@@ -3,7 +3,9 @@
 mod cancel;
 mod directory;
 mod filter;
+mod tls;
 mod wire;
+pub use tls::server_config as production_tls;
 use futures_util::{SinkExt, StreamExt};
 use ldap3_proto::{proto::*, LdapCodec};
 use setjoin_authz::principals::{MailboxPrincipal, PrincipalError, TxFactory, UserPrincipal};
@@ -119,6 +121,18 @@ impl Server {
         self
     }
 
+    /// Production STARTTLS configuration backed by [`setjoin_tls::ReloadingPem`].
+    /// Preserves Go's recorded STARTTLS rejection behavior on plaintext LDAP sockets.
+    pub fn with_starttls_files(
+        mut self,
+        cert: impl AsRef<std::path::Path>,
+        key: impl AsRef<std::path::Path>,
+    ) -> Result<Self, String> {
+        self.tls = Some(tls::server_config(cert.as_ref(), key.as_ref())?);
+        self.starttls = true;
+        Ok(self)
+    }
+
     pub fn new(db: setjoin_pg::ScopedExecutor, domain: impl Into<String>) -> Self {
         let tx_factory = db.try_app_pool().map(TxFactory::new);
         Self {
@@ -131,6 +145,17 @@ impl Server {
     pub fn with_tls(mut self, tls: Arc<tokio_rustls::rustls::ServerConfig>) -> Self {
         self.tls = Some(tls);
         self
+    }
+    /// Production implicit LDAPS configuration backed by [`setjoin_tls::ReloadingPem`]
+    /// so rotated PEM files are served on new handshakes without restarting (#559).
+    pub fn with_tls_files(
+        mut self,
+        cert: impl AsRef<std::path::Path>,
+        key: impl AsRef<std::path::Path>,
+    ) -> Result<Self, String> {
+        self.tls = Some(tls::server_config(cert.as_ref(), key.as_ref())?);
+        self.starttls = false;
+        Ok(self)
     }
     pub async fn serve(
         self: Arc<Self>,
