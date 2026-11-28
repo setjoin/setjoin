@@ -185,7 +185,7 @@ CREATE OR REPLACE FUNCTION provision_account(
   p_scim_external_id TEXT, p_aliases TEXT[], p_guest BOOLEAN,
   p_invited_by BIGINT, p_guest_expires_at TIMESTAMPTZ, p_create_only BOOLEAN
 ) RETURNS JSONB LANGUAGE sql AS $$ SELECT '{}'::jsonb $$;
-\i mailserver/sql/reducers/provision_account.sql
+\i sql/reducers/provision_account.sql
 SELECT is((SELECT count(*) FROM pg_proc WHERE proname='provision_account'),
   1::bigint, 'upgrade path leaves exactly one provision_account overload');
 SELECT ok((SELECT (provision_account(p_email => 'upgrade-proof@wp3-audit.test',
