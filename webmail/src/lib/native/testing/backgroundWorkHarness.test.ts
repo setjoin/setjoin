@@ -11,7 +11,7 @@
  * TEST-BUILD-ONLY: the harness module under test refuses non-test imports.
  */
 
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -61,6 +61,19 @@ describe('E4-I receipt producer/validator agreement (r5 finding 6)', () => {
 			// repo-root-relative fixture path, character for character.
 			expect(caseFixturePath(caseId)).toBe(entry!.fixture);
 			expect(caseFixturePath(caseId)).toMatch(/^webmail\//);
+		}
+	});
+
+	it('falls back to the parent of webmail when the sentinel script is absent', () => {
+		const realExists = fs.existsSync.bind(fs);
+		const spy = vi.spyOn(fs, 'existsSync').mockImplementation((p) => {
+			if (String(p).endsWith('check-connectivity-aware-sync-cases.mjs')) return false;
+			return realExists(p);
+		});
+		try {
+			expect(repositoryRootDir()).toBe(repositoryRoot);
+		} finally {
+			spy.mockRestore();
 		}
 	});
 
