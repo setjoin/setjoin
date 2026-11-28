@@ -40,16 +40,18 @@ BEGIN
       AND p.partnatts = 1                         -- single-column key (excludes expression keys: attnum 0 never joins)
       AND a.atttypid = 'timestamptz'::regtype     -- month-partitioned by time
     ORDER BY
-      -- #334: safety-critical no-DEFAULT tables first, then `messages` BEFORE
-      -- `message_tags` so partition FK locks acquire `mailboxes` -> `tags` in
+      -- #334: safety-critical no-DEFAULT tables first, then every other
+      -- DEFAULT-backed parent (including `mailbox_audit_log` and `messages`,
+      -- both of which hold FKs to `mailboxes`), and `message_tags` LAST (FK to
+      -- `tags`) so partition FK locks always acquire `mailboxes` -> `tags` in
       -- the same order as mailbox creation (`INSERT INTO mailboxes` ->
       -- `trg_mailbox_tag_after_insert` -> `INSERT INTO tags`) and canonical
-      -- #481 lock order, preventing 40P01 deadlocks.
+      -- #481 lock order, preventing 40P01 deadlocks even if `messages_YYYY_MM`
+      -- already existed or timed out.
       CASE
         WHEN p.partdefid = 0 THEN 0
-        WHEN c.relname = 'messages' THEN 1
         WHEN c.relname = 'message_tags' THEN 2
-        ELSE 3
+        ELSE 1
       END,
       c.relname
   LOOP

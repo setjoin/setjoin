@@ -2573,3 +2573,13 @@ for clean re-index), `chat_messages` (incl. revisions), `drive_nodes`,
 `feature_toggles` rows are added. Proof: `tests/V299__search_ediscovery_purge_ha.pg`,
 `crates/search/tests/reauth_ediscovery_ha_db.rs`,
 `bins/mailctl/tests/search_cli_db.rs`, and `bins/gateway/tests/search_worker_db.rs`.
+
+## Audit hash UTF-8 encoding (`V300__audit_row_hash_utf8.sql`, #181)
+
+`V300__audit_row_hash_utf8.sql` replaces `::bytea` casts in both the V2 (`sha256`) and
+V3 (`hmac`, including `app.audit_hmac_key`) branches of `public.audit_row_hash_v` with
+`pg_catalog.convert_to(..., 'UTF8')` and re-asserts V087 ACLs idempotently. Titles or
+notes containing `"` or `\` (escaped by `audit_canon` as `\"` / `\\`) no longer fail
+with `22P02` (`invalid input syntax for type bytea`), while plain ASCII without
+backslashes hashes byte-identically to the legacy formula so existing chains verify
+unchanged. Proof: `tests/audit_row_hash_escape.pg` and `tests/audit_chain_v2.pg`.
