@@ -7,7 +7,7 @@
 -- M4 annotation reservation failing closed (BZ277), the meeting_end
 -- same-txn cancel arm, and the meeting_get projection keys. The FORCE-RLS
 -- cross-tenant proof lives in meet_presentation_rls.pg (both sides
--- machine-guarded by scripts/rls-denial-allowlist.txt + rls-allow-allowlist.txt).
+-- machine-guarded by scripts/guards/rls-denial-allowlist.txt + rls-allow-allowlist.txt).
 --
 -- Plan: retired-docs:superpowers/plans/2026-08-25-meet-document-presentation-
 -- semantic-recording.md, M2. Contracts: internal/meet/presentation/

@@ -41,7 +41,7 @@ ALTER TABLE public.federation_allowlist FORCE  ROW LEVEL SECURITY;
 -- federation_allowlist: ZERO policies (deny-all to setjoin_app) — same shape
 -- as chat_link_previews/chat_audit_log (V122/V126). Task 3 (E4) adds the
 -- federation_peer_authorize SECURITY DEFINER writer + scope/enabled/rate
--- columns; denial pgTAP lands with that writer (scripts/rls-denial-allowlist.txt
+-- columns; denial pgTAP lands with that writer (scripts/guards/rls-denial-allowlist.txt
 -- carries this table as PENDING until then).
 
 -- ─────────────────────────────────────────────────────────────────────────

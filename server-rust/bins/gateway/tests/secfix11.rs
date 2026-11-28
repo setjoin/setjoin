@@ -1,7 +1,7 @@
 //! Owner-approved security fixes of 2026-11-05 (#542): the deploy wizard and airgap upload
 //! (#455 review). Each test drives the real Rust route (a gateway with the updates-deploy
 //! adapter, a real SSH peer for the wizard) and states the secure behaviour. The mutants
-//! (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/test-secfix11-mutants.py)
+//! (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/dev/test-secfix11-mutants.py)
 //! restore frozen Go's behaviour and must make these tests fail.
 //! Airgap tests need `GOFREE_AIRGAP_FIXTURE_ROOT=/dev/shm` on the shared host.
 mod common;

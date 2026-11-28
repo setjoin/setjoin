@@ -271,7 +271,7 @@ fn signing_pipeline_runs_rust_build_sign_verify_before_publishing_manifest() {
     ]});
     fs::write(root.join("roots"), serde_json::to_vec(&roots).unwrap()).unwrap();
     let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../scripts/sign-server-release.sh");
+        .join("../../../scripts/deploy/sign-server-release.sh");
     // Helper stdout must contain only the signature; a sed adapter strips the
     // libtest framing. Key material stays public and test-only.
     fs::write(&helper, format!("#!/bin/sh\nexport REL1_HELPER_KEY=\"$3\"\n'{}' --exact pipeline_fixture_helper --nocapture | sed -n 's/.*REL1_SIGNATURE://p'\n", std::env::current_exe().unwrap().display())).unwrap();

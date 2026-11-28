@@ -156,7 +156,7 @@ verbatim. A query with **no** ownership scoping is a cross-mailbox leak.
 Because RLS is deferred, the steady state is fail-open: a forgotten predicate leaks and
 nothing at the DB layer denies it. These guards convert that to **fail-closed-at-CI**:
 
-- **`scripts/check-account-scope.sh`** — over the reducer layer. **Negative** checks
+- **`scripts/guards/check-account-scope.sh`** — over the reducer layer. **Negative** checks
   A–G catch a *wrong* predicate (the `user_id`/`mailbox_id` confusion, a retired
   `p_account_id` param, a mailbox id matched against `users`, seam bypasses, user-keyed
   push channels, single-address calendar lookups). **Positive** check **H** catches the
@@ -188,7 +188,7 @@ nothing at the DB layer denies it. These guards convert that to **fail-closed-at
     design): message_trace and other trace/journal tables, system_config, domains,
     feature_toggles, signing_keys, threat/audit tables.
 
-- **`scripts/check-table-ownership-manifest.sh`** (`config/table-ownership-manifest.json`,
+- **`scripts/guards/check-table-ownership-manifest.sh`** (`config/table-ownership-manifest.json`,
   Issue #539) — **positive** static guard over all logical base/parent tables in
   `mailserver/sql/dbschema/V*.sql` and all Rust domain crates (`server-rust/crates/domains/*`):
   1. Classifies every logical table with an owning domain crate (or `foundation`),
@@ -202,7 +202,7 @@ nothing at the DB layer denies it. These guards convert that to **fail-closed-at
   3. Enforces R1–R3 ownership predicates in predicate context (`WHERE`/`JOIN ... ON`/
      `HAVING`/`USING`, never projection-only) for `SELECT`, and in `WHERE` for
      `UPDATE`/`DELETE`, respecting explicit `r1_r3_allowlist` entries.
-  Ships with `scripts/check-table-ownership-manifest-selftest.sh` (auto-discovered by
+  Ships with `scripts/guards/check-table-ownership-manifest-selftest.sh` (auto-discovered by
   `scripts/run-guards.sh`) proving all failure modes fire.
 
 All three guards ship with a `-selftest.sh` that injects a violation and asserts the guard
@@ -231,7 +231,7 @@ NOBYPASSRLS`, owns nothing), `setjoin_worker` (`BYPASSRLS`, cross-tenant workers
 `setjoin-server`, `setjoin-auth`, `mailctl schema preflight`, `setjoin-updater`,
 `install.sh`, and `upgrade.sh` all enforce Release N+1 (`FailClosedReleaseNPlus1`)
 unconditionally with zero production bypass flags (guarded by
-`scripts/check-rls-fail-closed.sh`). Single-DSN permissive installs and
+`scripts/guards/check-rls-fail-closed.sh`). Single-DSN permissive installs and
 superuser-DSN rollbacks are retired. See `docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md`
 for operator preflight and provisioning steps.
 
@@ -295,8 +295,8 @@ grep -rn 'req\.MailboxID\|req\.UserID\|req\.UserId' --include="*.go" mailserver/
 
 # Per-user isolation: the positive CI guards (load-bearing) PLUS native RLS on the
 # messages/message_tags hot tables (W6/V004 — latent until the prod DSN switch):
-bash scripts/check-account-scope.sh        # reducer layer (negative A–G + positive H)
-bash scripts/check-table-ownership-manifest.sh  # schema ownership, FORCE RLS ratchet, Rust cross-domain & R1-R3 guard
+bash scripts/guards/check-account-scope.sh        # reducer layer (negative A–G + positive H)
+bash scripts/guards/check-table-ownership-manifest.sh  # schema ownership, FORCE RLS ratchet, Rust cross-domain & R1-R3 guard
 bash scripts/check-gateway-ownership.sh    # raw gateway query surface (positive)
 # Native RLS is now ENABLE+FORCE on messages + message_tags only (V004); confirm:
 #   psql -d <db> -tAc "SELECT relname, relforcerowsecurity FROM pg_class

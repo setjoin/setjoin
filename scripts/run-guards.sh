@@ -4,7 +4,7 @@
 #
 # "Which guards gate a merge" used to be a literal list re-typed (and drifted)
 # across test.sh / ci-local.sh / lint.sh, while GitHub CI ran none of them.
-# This script makes the guard set the FILESYSTEM: every scripts/check-*.sh
+# This script makes the guard set the FILESYSTEM: every scripts/guards/check-*.sh
 # (excluding *-selftest.sh companions) runs here, self-test first, so adding a
 # guard = dropping a file — no orchestrator edits, nothing to forget.
 #
@@ -27,7 +27,7 @@
 #             guard still runs, self-test first; its failure is printed as a warning and
 #             does not fail the run. A listed name with no guard file fails the run.
 #
-# Consumers: scripts/test.sh (merge gate) · scripts/ci-local.sh (--no-db path)
+# Consumers: scripts/test.sh (merge gate) · scripts/ci/ci-local.sh (--no-db path)
 #            (the xinchuang-ci.yml unit-tests job that also ran it was retired).
 # ──────────────────────────────────────────────────────────────────────────
 source "$(dirname "$0")/_base.sh"
@@ -48,7 +48,7 @@ if [ -n "$KNOWN_RED_FILE" ]; then
   while IFS= read -r line; do
     line="${line%%#*}"; line="${line//[[:space:]]/}"
     [ -n "$line" ] || continue
-    [ -f "$ROOT/scripts/$line.sh" ] || { echo "known-red entry has no guard: $line" >&2; exit 2; }
+    [ -f "$ROOT/scripts/guards/$line.sh" ] || { echo "known-red entry has no guard: $line" >&2; exit 2; }
     known_red+=("$line")
   done < "$KNOWN_RED_FILE"
 fi
@@ -61,11 +61,11 @@ no_selftest=()
 skipped=()
 ran=0
 
-for g in "$ROOT"/scripts/check-*.sh; do
+for g in "$ROOT"/scripts/guards/check-*.sh; do
   case "$g" in *-selftest.sh) continue ;; esac
   name="$(basename "$g" .sh)"
   # Release-signing workflow gate (requires GITHUB_REPOSITORY and BUILD_RUN_ID;
-  # exercised by scripts/test-check-server-release-build.sh, not a repo-tree guard).
+  # exercised by scripts/guards/test-check-server-release-build.sh, not a repo-tree guard).
   [[ "$name" == "check-server-release-build" ]] && continue
 
   if [ "$NO_DB" = 1 ] && grep -q '^# guard-requires: db' "$g"; then

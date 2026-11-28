@@ -2,7 +2,7 @@
 //! the real handler against the disposable database, replay, IdP-initiated policy,
 //! RelayState allow-list, provisioning, audit rows and the metadata fetch policy.
 //! Mutants (`SETJOIN_SAMLACS_MUTANT`, feature `oracle-mutants`) are driven by
-//! `scripts/test-samlacs-mutants.py`. Synthetic keys only.
+//! `scripts/dev/test-samlacs-mutants.py`. Synthetic keys only.
 #![allow(dead_code, unused_imports)]
 mod common;
 include!("saml_oracle/harness.rs");

@@ -12,7 +12,7 @@ green built state (tables + types + sequences + indexes + constraints + triggers
 trigger functions + the 123 deferred `ADD FK`, with the reducers stripped — they stay
 the canonical `CREATE OR REPLACE` source in `reducers/`) plus the seed data and the
 `schema_migrations` baseline row (version = 1). The loader (`scripts/load-test-schema.sh`,
-`scripts/setup-test-env.sh`) now builds `baseline → reducers → fixtures`; the replay
+`scripts/ci/setup-test-env.sh`) now builds `baseline → reducers → fixtures`; the replay
 chain is gone.
 
 These files are kept **for provenance only** — the "who/what defined each table"

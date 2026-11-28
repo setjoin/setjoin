@@ -2,8 +2,8 @@
 
 Search intent, Sender Control, Mail Work, private comments, notifications,
 analytics, integrations, and shared drafts are independent OFF-by-default
-features. Run `bash scripts/verify-webmail-productivity.sh list` to see the
-scoped gates and `bash scripts/verify-webmail-productivity.sh quick` before a
+features. Run `bash scripts/ci/verify-webmail-productivity.sh list` to see the
+scoped gates and `bash scripts/ci/verify-webmail-productivity.sh quick` before a
 canary. Enable only one bounded cohort at a time.
 
 PostgreSQL reducers own permissions, generations, immutable events, receipts,

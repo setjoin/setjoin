@@ -1288,7 +1288,7 @@ async fn enabled_imip_signed_bytes_match_frozen_go() {
 // Owner-approved security fixes of 2026-11-05 (#544). The first four replay the recorded
 // frozen-Go case through its reviewed expectation (`oracle/security/`, pinned in
 // `oracle/divergences.json`); the secure-only cases were derived from recorded ones by
-// `oracle/derive-secfix12.py`. `scripts/test-secfix12-mutants.py` restores each bug.
+// `oracle/derive-secfix12.py`. `scripts/dev/test-secfix12-mutants.py` restores each bug.
 #[tokio::test]
 async fn secfix12_imip_request_binds_attendee_to_envelope_recipient() {
     let _guard = RegenGuard;

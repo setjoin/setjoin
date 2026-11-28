@@ -38,7 +38,7 @@ npm run build
 Verify zero drift against committed artifacts:
 
 ```bash
-bash scripts/check-edge-contract-drift.sh
+bash scripts/guards/check-edge-contract-drift.sh
 ```
 
 ## 12-Month Compatibility Window Policy
@@ -46,7 +46,7 @@ bash scripts/check-edge-contract-drift.sh
 All contracted HTTP edge APIs follow a **12-month compatibility window**:
 
 - **Additive changes** (new endpoints, new optional request fields, new optional response fields, widened unions) are non-breaking and allowed at any time.
-- **Breaking changes** (removed paths/methods, removed response properties, newly required request properties, narrowed enums, incompatible property types) are **blocked in CI** by `scripts/check-edge-contract-breaking.sh` (`oasdiff breaking` + deterministic OpenAPI 3.1 diff checker).
+- **Breaking changes** (removed paths/methods, removed response properties, newly required request properties, narrowed enums, incompatible property types) are **blocked in CI** by `scripts/guards/check-edge-contract-breaking.sh` (`oasdiff breaking` + deterministic OpenAPI 3.1 diff checker).
 - A breaking change may land **only** after a 12-month deprecation period recorded in `contracts/edge/approved-breaking.json` with:
   - `id`: unique waiver identifier (e.g., `EDGE-BREAK-2026-001`)
   - `change_key`: exact breaking change fingerprint reported by `check-edge-contract-breaking.py`
@@ -57,5 +57,5 @@ All contracted HTTP edge APIs follow a **12-month compatibility window**:
 
 ## Coverage Ratchet & Proc-Macro Ban
 
-- `scripts/check-edge-contract-ratchet.sh` + `config/edge-contract-ratchet.json` enforce a monotonic coverage ratchet over non-JMAP/non-DAV HTTP routes in `server-rust/bins/gateway/route-inventory.json`: no new contractable route may land without an `EdgeContract` entry, and covered routes can never regress.
-- `scripts/check-openapi-proc-macro-ban.sh` enforces that OpenAPI proc-macro crates (`utoipa`, `aide`, `poem-openapi`, `schemars`, etc.) never enter `server-rust/crates/domains/*`, `server-rust/crates/contracts/*`, or `server-rust/crates/pg/*`.
+- `scripts/guards/check-edge-contract-ratchet.sh` + `config/edge-contract-ratchet.json` enforce a monotonic coverage ratchet over non-JMAP/non-DAV HTTP routes in `server-rust/bins/gateway/route-inventory.json`: no new contractable route may land without an `EdgeContract` entry, and covered routes can never regress.
+- `scripts/guards/check-openapi-proc-macro-ban.sh` enforces that OpenAPI proc-macro crates (`utoipa`, `aide`, `poem-openapi`, `schemars`, etc.) never enter `server-rust/crates/domains/*`, `server-rust/crates/contracts/*`, or `server-rust/crates/pg/*`.

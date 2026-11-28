@@ -7,44 +7,44 @@
   "publicationLeaf": null,
   "sources": [
     {
-      "path": "scripts/run-pgtap-evidence.sh",
-      "sha256": "6b751c708211ecb20adcd2bf93428018062d533094d8f27fe9442321c3daa789"
+      "path": "scripts/ci/run-pgtap-evidence.sh",
+      "sha256": "c0ded4df53cb633957063047ca9ab4a22f9f4c936e9a539d77f2c362b3d6569e"
     },
     {
-      "path": "scripts/check-architecture-r2-evidence.sh",
-      "sha256": "14aeca70325785cbe70b20e9093ced65cd793599689675e1b785f5b014c8051a"
+      "path": "scripts/guards/check-architecture-r2-evidence.sh",
+      "sha256": "fc631cf287f7cc95c2da0cc8849786bae80eb3070dc4f7e86221b7ad5890d73c"
     },
     {
       "path": "docs/verification/architecture-r3-cases.json",
-      "sha256": "3c81bdd560582aedebcb28d2edd3cc37443ff521b89a6a8b812a3013a183bd75"
+      "sha256": "39061a0c82a912e41d7923014bb477b36f19177284f4215b4fdf95c25ed5d9e7"
     },
     {
-      "path": "scripts/verify-architecture-r3.sh",
-      "sha256": "4c973be0b92b39e3632145777bbc7a6d7e4faeb571a78d89e218e6bbfad32e9f"
+      "path": "scripts/ci/verify-architecture-r3.sh",
+      "sha256": "2346cbfb5b1cd15a8de66b446c73432a9c2634c5468d018d5a567f107d14c657"
     },
     {
       "path": "docs/verification/architecture-r4-cases.json",
       "sha256": "a1f5302ff814b375f225179eb5f64a3f690721b6cca223b723f1f6b5ee011d31"
     },
     {
-      "path": "scripts/verify-architecture-r4.sh",
-      "sha256": "fd16e5a3fa49f79d368b3a42bf35845aa34b37aca4ba80e27ddc575c782619a3"
+      "path": "scripts/ci/verify-architecture-r4.sh",
+      "sha256": "d5c3da09aadf419ed2d9e8c79e26fcae53b22ac991b8a1ed39d62e91597aed72"
     },
     {
       "path": "docs/verification/connectivity-aware-sync-cases.json",
-      "sha256": "630568098e08ee3832492350af230a7e3bf2a6546773d6a6952443e258b9127f"
+      "sha256": "94f3decd01e2a3f7c5c7acf8f094fc81efb1aef874f2ec41aa0f5b5c1224edaa"
     },
     {
-      "path": "scripts/check-connectivity-aware-sync-cases.mjs",
-      "sha256": "f5c4f8b7dc90d2656ee74ab0af54a2a81d671f722f21ac26db5bbfe3bec806e7"
+      "path": "scripts/guards/check-connectivity-aware-sync-cases.mjs",
+      "sha256": "2497d8465a116071bcca8ea9a94cecaf067e6f63cd6db3157aad17b453a10c57"
     },
     {
-      "path": "scripts/verify-connectivity-aware-sync.sh",
-      "sha256": "117b84d7d75c3ff0250bd54805192812c2076763deca34789a40d8de3f020f0b"
+      "path": "scripts/ci/verify-connectivity-aware-sync.sh",
+      "sha256": "3856ae2f321e3dad4c9ff6bdbef03854ee2a399b831b397bbc606539c3905cbc"
     },
     {
-      "path": "scripts/verify-office-foundation.sh",
-      "sha256": "6bc198a6cf133032a04d59df203169a7fa1fd4ce9457b29858ca60bc2b66013c"
+      "path": "scripts/ci/verify-office-foundation.sh",
+      "sha256": "529ec949b4a23115306ab29d3cbc1cc7cf8b18a9dc4129f1255817db65ed069d"
     }
   ],
   "programs": [

@@ -120,7 +120,7 @@ export function readRuntimeResumeAuthority({ repoRoot, expected, stateDirectory 
 }
 
 export function resumeStateDecision(authority) {
-  const command = (...args) => ({ argv: ['bash', 'scripts/verify-security-program.sh', 'coverage', ...args] });
+  const command = (...args) => ({ argv: ['bash', 'scripts/ci/verify-security-program.sh', 'coverage', ...args] });
   const attemptId = authority.attemptId ?? 'attempt-fixture';
   const shardId = authority.shardId ?? 'S01/P01';
   const approvalId = authority.approvalId ?? 'approval-fixture';
@@ -130,7 +130,7 @@ export function resumeStateDecision(authority) {
     detached: { exitFamily: 'OK', stateBranch: 'DETACHED', action: 'REJOIN_EXISTING', targetVerdict: 'SAFE_ATTACH', whySafe: 'The detached journal entry retains one bound scan ID, so attach cannot create a replacement scan', next: command('attach', '--attempt', attemptId) },
     orphaned: { exitFamily: 'HOLD', stateBranch: 'ORPHANED_START', action: 'RECONCILE_START', targetVerdict: 'SAFE_RECONCILE', whySafe: 'The journal proves a start request but no scan ID; reconciliation cannot launch a replacement', next: command('reconcile-start', '--attempt', attemptId) },
     'completion-unknown': { exitFamily: 'HOLD', stateBranch: 'COMPLETION_UNKNOWN', action: 'RECONCILE_COMPLETION', targetVerdict: 'SAFE_RECONCILE', whySafe: 'The journal retains the existing scan ID while terminal evidence is unknown, so only reconciliation is allowed', next: command('reconcile-completion', '--attempt', attemptId) },
-    blocked: { exitFamily: 'BLOCKED', stateBranch: 'BLOCKED', action: 'RESOLVE_PREREQUISITE', targetVerdict: 'SAFE_BLOCKED', whySafe: 'Persisted authority is readable but not eligible; the next command is read-only doctor', next: { argv: ['bash', 'scripts/verify-security-program.sh', '--doctor', '--offline'] } },
+    blocked: { exitFamily: 'BLOCKED', stateBranch: 'BLOCKED', action: 'RESOLVE_PREREQUISITE', targetVerdict: 'SAFE_BLOCKED', whySafe: 'Persisted authority is readable but not eligible; the next command is read-only doctor', next: { argv: ['bash', 'scripts/ci/verify-security-program.sh', '--doctor', '--offline'] } },
     eligible: { exitFamily: 'OK', stateBranch: 'ELIGIBLE', action: 'START_DRY_RUN', targetVerdict: 'SAFE_DRY_RUN', whySafe: 'Eligibility binds the approved shard to the current revision, inventory, and shard generation; dry-run starts nothing', next: command('start', '--shard', shardId, '--approval', approvalId, '--dry-run') },
     complete: { exitFamily: 'OK', stateBranch: 'COMPLETE', action: 'ALL_COVERAGE_RECONCILED', targetVerdict: 'SAFE_TERMINAL', whySafe: 'The retained attempt reached verified admission and has no remaining transition', next: null },
   };

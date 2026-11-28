@@ -420,7 +420,7 @@ limited to the granting assignments' domains, `/device/register` refuses a revok
 requires a DPoP proof (ath, htm, htu) for a cnf-bound one (#495). Tests: `tests/secfix3.rs`;
 reviewed expectations under `tests/conformance/identity-{login,token,webauthn}/security` (the
 `SECFIX3_WRITE_SECURITY=1` switch writes an expectation for review, never in CI). Mutants:
-`scripts/test-secfix3-mutants.py` (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`).
+`scripts/dev/test-secfix3-mutants.py` (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`).
 
 OIDC Provider startup and profile (#339): [domain contract](../../crates/domains/identity/OIDC.md).
 `OIDC_PROVIDER_ENABLED`, `HOSTNAME`, `OIDC_PROVIDER_PRIVATE_KEY_FILE` and
@@ -497,7 +497,7 @@ any refusal is a generic 401/400/413/503 problem, an audit row `saml.acs.<class>
 cleared single-use tracking cookie. A link-purpose answer is held and completed by the same-site
 `GET /auth/saml/{idp}/link/complete` (never a login). Contract, checks, replay cache and limits:
 [ACS.md](../../crates/domains/identity/ACS.md). Tests: `saml_acs` (HTTP/database),
-`saml_interop` (real IdP container), mutants `scripts/test-samlacs-mutants.py`.
+`saml_interop` (real IdP container), mutants `scripts/dev/test-samlacs-mutants.py`.
 
 OIDC RP follow-ups (#547, owner-approved security fixes 2026-11-05): the per-login address
 update is gone (`rust_identity_rp_settle` never rewrites `users.email`); with
@@ -511,13 +511,13 @@ per flow) and answers a `200` refresh page to `GET /auth/oidc/link/complete?prov
 the same-site request that proves the live session and releases the assertion once
 (`rust_identity_rp_link_take`) into `rust_identity_rp_link_finish` (same pattern as the SAML ACS).
 A callback that does carry the session still completes directly. Tests `rp_secfix13`; mutants
-`scripts/test-secfix13-mutants.py`.
+`scripts/dev/test-secfix13-mutants.py`.
 
 OIDC login flow cookies (#548, owner-approved functional fix 2026-11-09): `GET /auth/oidc/login`
 sets `oidc_state/nonce/provider/verifier` `SameSite=Lax` (Go: Strict, so the IdP's cross-site redirect
 never carried them) and the callback's flow-cookie clears are Lax too; the session `access_token`
 cookie stays Strict. Detail: [RP.md](../../crates/domains/identity/RP.md). Test `rp_oidclax`
-(callback with Lax-eligible cookies only); mutants `scripts/test-oidclax-mutants.py`.
+(callback with Lax-eligible cookies only); mutants `scripts/dev/test-oidclax-mutants.py`.
 
 
 ## Fail-closed identity reads (#454, #455)

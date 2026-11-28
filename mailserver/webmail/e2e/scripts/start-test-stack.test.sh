@@ -11,7 +11,7 @@
 # arms run against a sandboxed TMPDIR, unused ports, a skipped webmail build,
 # and an unreachable Postgres, so nothing outside the sandbox is touched.
 #
-# L2-C9 arms (7-14): the e2e DB-target guard (scripts/e2e-test-db-guard.sh).
+# L2-C9 arms (7-14): the e2e DB-target guard (scripts/ci/e2e-test-db-guard.sh).
 # Wrong DB names and remote hosts are refused before ANY filesystem effect
 # (the guard precedes INSTANCE_DIR derivation); the connected
 # cluster-identity + disposable-marker gate is exercised hermetically via a
@@ -265,7 +265,7 @@ c9_gate() {
     E2E_PGUSER="mail" \
     E2E_CLUSTER_REGISTRY="$c9_registry" \
     "$@" \
-    bash -c 'source "$1" && e2e_validate_test_db_cluster' guard "$ROOT/scripts/e2e-test-db-guard.sh" 2>&1
+    bash -c 'source "$1" && e2e_validate_test_db_cluster' guard "$ROOT/scripts/ci/e2e-test-db-guard.sh" 2>&1
   return "$?"
 }
 
@@ -399,7 +399,7 @@ grep -q 'problem=cluster_identity_unreadable' <<<"$out" || {
 # resets), so the gate cannot drift below the destructive ops. Also pins the
 # shipped quoted-variable SQL forms in the loader and the guard file.
 c9_line_of() { grep -n "$1" "$2" | head -1 | cut -d: -f1; }
-c9_guard_src="$(c9_line_of 'scripts/e2e-test-db-guard.sh' "$SCRIPT")"
+c9_guard_src="$(c9_line_of 'scripts/ci/e2e-test-db-guard.sh' "$SCRIPT")"
 c9_pure_call="$(c9_line_of 'e2e_validate_test_db || exit' "$SCRIPT")"
 c9_instance_dir="$(c9_line_of '^INSTANCE_DIR=' "$SCRIPT")"
 c9_gate_call="$(c9_line_of 'e2e_validate_test_db_cluster || exit' "$SCRIPT")"
@@ -436,11 +436,11 @@ grep -q "COMMENT ON DATABASE :\"db_name\" IS 'setjoin-disposable-test-db';" "$c9
   echo 'C9 arm 12: loader disposable-marker stamp missing or unquoted' >&2
   exit 1
 }
-grep -q ":'db_name'" "$ROOT/scripts/e2e-test-db-guard.sh" || {
+grep -q ":'db_name'" "$ROOT/scripts/ci/e2e-test-db-guard.sh" || {
   echo 'C9 arm 12: guard probe lost the quoted-variable form' >&2
   exit 1
 }
-grep -q 'ARCH_R2_TEST_MODE' "$ROOT/scripts/e2e-test-db-guard.sh" && {
+grep -q 'ARCH_R2_TEST_MODE' "$ROOT/scripts/ci/e2e-test-db-guard.sh" && {
   echo 'C9 arm 12: the e2e guard must stay kill-switch-free' >&2
   exit 1
 }
@@ -454,7 +454,7 @@ out="$(env PATH="$c9_shim:$PATH" \
   C9_SHIM_IDENTITY='7399960342260465476' C9_SHIM_DB_STATE='' \
   E2E_PGHOST='127.0.0.1' E2E_PGPORT='1' E2E_PGUSER='mail' \
   E2E_CLUSTER_REGISTRY="$c9_registry_boot" \
-  bash "$ROOT/scripts/e2e-test-db-guard.sh" --bootstrap 2>&1)" && rc=0 || rc=$?
+  bash "$ROOT/scripts/ci/e2e-test-db-guard.sh" --bootstrap 2>&1)" && rc=0 || rc=$?
 [[ "$rc" -eq 0 ]] || {
   echo "C9 arm 13a: bootstrap of a verified loopback cluster failed: $out" >&2
   exit 1
@@ -483,7 +483,7 @@ out="$(env PATH="$c9_shim:$PATH" \
   C9_SHIM_IDENTITY='7399960342260465476' C9_SHIM_DB_STATE='' \
   E2E_PGHOST='db.internal.example.com' E2E_PGPORT='1' E2E_PGUSER='mail' \
   E2E_CLUSTER_REGISTRY="$c9_registry_boot" \
-  bash "$ROOT/scripts/e2e-test-db-guard.sh" --bootstrap 2>&1)" && rc=0 || rc=$?
+  bash "$ROOT/scripts/ci/e2e-test-db-guard.sh" --bootstrap 2>&1)" && rc=0 || rc=$?
 [[ "$rc" -ne 0 ]] || {
   echo 'C9 arm 13b: remote bootstrap target accepted' >&2
   exit 1

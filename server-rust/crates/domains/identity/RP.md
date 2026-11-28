@@ -87,7 +87,7 @@ commit. `rp_faults` cuts the actual PG wire before/after every publishing comman
 ## Owner-approved security fixes (SECFIX8, #530, 2026-11-06)
 
 Divergences from frozen Go, each pinned by `bins/auth/tests/rp_secfix8.rs` and a
-restored-bug mutant (`scripts/test-secfix8-mutants.py`, env `SETJOIN_SECFIX8_MUTANT`):
+restored-bug mutant (`scripts/dev/test-secfix8-mutants.py`, env `SETJOIN_SECFIX8_MUTANT`):
 
 - The first IdP group grant records provider provenance (`rust_identity_rp_map`
   inserts the membership and the provenance in two statements; Go's single CTE could
@@ -126,4 +126,4 @@ their qualified companions.
   The callback's four flow-cookie clears are Lax too, for consistency (browsers store a cookie of any
   SameSite value on a top-level navigation response). The session `access_token` stays Strict and is
   stored on that response. Test `rp_oidclax`; mutants `oidc-login-cookies-strict`, `oidc-clear-cookies-strict`
-  (`SETJOIN_OIDCLAX_MUTANT`, `scripts/test-oidclax-mutants.py`).
+  (`SETJOIN_OIDCLAX_MUTANT`, `scripts/dev/test-oidclax-mutants.py`).

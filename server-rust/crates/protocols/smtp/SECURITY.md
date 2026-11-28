@@ -8,7 +8,7 @@ and the secure behaviour is asserted in `tests/secfix_inbound.rs` and
 `tests/transport.rs`. `session.rs` checks every record names a real recorded case.
 
 Mutants: build with `--features oracle-mutants` and `SETJOIN_SMTP_MUTANT=<id>`;
-`scripts/test-smtp-secfix-mutants.py` (REQUIRE_DB=1 and the disposable DSNs) requires
+`scripts/dev/test-smtp-secfix-mutants.py` (REQUIRE_DB=1 and the disposable DSNs) requires
 each to be rejected by its secure test, then runs the same tests on the ordinary build.
 
 | Issue | Fix | Mutant id |

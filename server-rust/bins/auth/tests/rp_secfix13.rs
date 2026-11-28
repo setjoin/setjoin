@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 //! Owner-approved OIDC relying-party follow-ups (#547, decision 2026-11-05). Each test states
-//! the secure behaviour at the real front door; `scripts/test-secfix13-mutants.py` restores the
+//! the secure behaviour at the real front door; `scripts/dev/test-secfix13-mutants.py` restores the
 //! defect (feature `oracle-mutants`, `SETJOIN_SECFIX13_MUTANT`, or a bug-restored reducer) and
 //! requires the matching test to fail.
 mod common;

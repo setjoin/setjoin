@@ -61,7 +61,7 @@ admission's exhausted-window path and transport debounce scheduling are deferred
 helper behavior, rather than a claim of whole-family coverage.
 
 Native Rust per-route line/region coverage is measured by the committed catalog
-and the required `bash scripts/check-server-rust.sh` lane. Every registration has
+and the required `bash scripts/guards/check-server-rust.sh` lane. Every registration has
 its real HTTP floor and status mutant; the family also rejects missing notify,
 missing audit, missing authority filtering and double state bumps. Actual COMMIT
 cuts cover both outcomes of the user-scoped reducer/receipt transaction. See

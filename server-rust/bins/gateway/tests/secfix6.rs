@@ -1,6 +1,6 @@
 //! Owner-approved security fixes of 2026-11-05 (#512): cross-tenant data paths. Each test
 //! drives the real Rust command, read or pure function with the secure expectation; the
-//! mutants (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/test-secfix6-mutants.py)
+//! mutants (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`, scripts/dev/test-secfix6-mutants.py)
 //! restore frozen Go's behaviour and must make these tests (or the re-baselined recorded
 //! replays named in the mutant script) fail.
 mod common;

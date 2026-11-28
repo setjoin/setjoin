@@ -2,7 +2,7 @@
 
 Parent: [Platform](DOX.md). Owner-approved divergences from frozen Go (2026-11-05), all
 tested by `bins/gateway/tests/secfix11.rs` and rejected-mutant proven by
-`scripts/test-secfix11-mutants.py` (`SETJOIN_SECFIX3_MUTANT`, feature `oracle-mutants`).
+`scripts/dev/test-secfix11-mutants.py` (`SETJOIN_SECFIX3_MUTANT`, feature `oracle-mutants`).
 
 | Fix | Behaviour | Mutant |
 | --- | --- | --- |

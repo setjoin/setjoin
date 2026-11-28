@@ -42,7 +42,7 @@
       },
       "commands": [
         "cd mailserver && go test ./cmd/mailserverd -run '^(TestSMTPInboundConstructionSites_UseCommonConfigurationExactlyOnce|TestConfigureSMTPInboundCommon_.*)$' -count=1",
-        "bash scripts/e2e.sh smtp"
+        "bash scripts/dev/e2e.sh smtp"
       ],
       "alternateCommands": []
     },
@@ -120,7 +120,7 @@
       "candidate": "R5-4",
       "lane": "rehearsal",
       "caseId": "R5-REHEARSAL-BOOTSTRAP-BOUNDARY",
-      "owner": "scripts/unified-deployment-*.sh",
+      "owner": "scripts/deploy/unified-deployment-*.sh",
       "gateClass": "merge",
       "warmEstimateSeconds": 60,
       "allowedDispositions": [
@@ -132,7 +132,7 @@
         "passDisposition": "implemented",
         "absentDisposition": "no-change",
         "marker": {
-          "path": "scripts/rehearsal-totp.test.sh",
+          "path": "scripts/deploy/rehearsal-totp.test.sh",
           "selector": "R5_REHEARSAL_BOOTSTRAP_BOUNDARY"
         },
         "alternateMarker": {
@@ -146,10 +146,10 @@
         ]
       },
       "commands": [
-        "bash scripts/rehearsal-totp.test.sh",
-        "node scripts/check-architecture-r5-boundaries.mjs rehearsal",
-        "node scripts/check-architecture-r5-boundaries.mjs self-test",
-        "bash scripts/check-unified-deployment-contracts-selftest.sh"
+        "bash scripts/deploy/rehearsal-totp.test.sh",
+        "node scripts/guards/check-architecture-r5-boundaries.mjs rehearsal",
+        "node scripts/guards/check-architecture-r5-boundaries.mjs self-test",
+        "bash scripts/guards/check-unified-deployment-contracts-selftest.sh"
       ],
       "alternateCommands": []
     },
@@ -216,13 +216,13 @@
         ]
       },
       "commands": [
-        "bash scripts/check-architecture-r5-collisions.sh admin",
+        "bash scripts/guards/check-architecture-r5-collisions.sh admin",
         "cd mailserver/webmail && npm exec vitest run src/lib/admin/client.test.ts src/lib/admin/transport.test.ts",
         "cd mailserver/webmail && npm run check",
         "cd mailserver/webmail && npm run build"
       ],
       "alternateCommands": [
-        "bash scripts/check-architecture-r5-collisions.sh admin"
+        "bash scripts/guards/check-architecture-r5-collisions.sh admin"
       ]
     },
     {
@@ -287,13 +287,13 @@
         ]
       },
       "commands": [
-        "node scripts/check-architecture-r5-boundaries.mjs evidence",
-        "node scripts/check-architecture-r5-boundaries.mjs self-test",
-        "bash scripts/check-architecture-r2-evidence.sh --self-test",
-        "bash scripts/check-architecture-r3-evidence.sh --self-test",
-        "bash scripts/verify-architecture-r4.test.sh",
-        "node scripts/check-connectivity-aware-sync-cases.test.mjs",
-        "bash scripts/verify-office-foundation.sh --self-test"
+        "node scripts/guards/check-architecture-r5-boundaries.mjs evidence",
+        "node scripts/guards/check-architecture-r5-boundaries.mjs self-test",
+        "bash scripts/guards/check-architecture-r2-evidence.sh --self-test",
+        "bash scripts/guards/check-architecture-r3-evidence.sh --self-test",
+        "bash scripts/ci/verify-architecture-r4.test.sh",
+        "node scripts/guards/check-connectivity-aware-sync-cases.test.mjs",
+        "bash scripts/ci/verify-office-foundation.sh --self-test"
       ],
       "alternateCommands": []
     },
@@ -362,11 +362,11 @@
         ]
       },
       "commands": [
-        "bash scripts/verify-architecture-r3.sh chat-reconcile"
+        "bash scripts/ci/verify-architecture-r3.sh chat-reconcile"
       ],
       "alternateCommands": [
-        "node scripts/check-architecture-r5-dispositions.mjs chat",
-        "bash scripts/verify-architecture-r3.sh chat-reconcile"
+        "node scripts/guards/check-architecture-r5-dispositions.mjs chat",
+        "bash scripts/ci/verify-architecture-r3.sh chat-reconcile"
       ]
     },
     {
@@ -395,7 +395,7 @@
         ]
       },
       "commands": [
-        "node scripts/check-architecture-r5-dispositions.mjs exchange"
+        "node scripts/guards/check-architecture-r5-dispositions.mjs exchange"
       ],
       "alternateCommands": []
     },
@@ -429,11 +429,11 @@
         ]
       },
       "commands": [
-        "bash scripts/verify-architecture-r3.sh compose-state"
+        "bash scripts/ci/verify-architecture-r3.sh compose-state"
       ],
       "alternateCommands": [
-        "node scripts/check-architecture-r5-dispositions.mjs compose",
-        "bash scripts/verify-architecture-r3.sh compose-state"
+        "node scripts/guards/check-architecture-r5-dispositions.mjs compose",
+        "bash scripts/ci/verify-architecture-r3.sh compose-state"
       ]
     },
     {
@@ -469,7 +469,7 @@
         "cd mailserver/webmail && npm exec vitest run src/lib/stores/calendarActionStore.svelte.test.ts src/routes/calendar.test.ts"
       ],
       "alternateCommands": [
-        "node scripts/check-architecture-r5-dispositions.mjs calendar",
+        "node scripts/guards/check-architecture-r5-dispositions.mjs calendar",
         "cd mailserver/webmail && npm exec vitest run src/lib/stores/calendarActionStore.svelte.test.ts src/lib/components/CalendarApp.test.ts"
       ]
     },
@@ -499,7 +499,7 @@
         ]
       },
       "commands": [
-        "node scripts/check-architecture-r5-dispositions.mjs offline",
+        "node scripts/guards/check-architecture-r5-dispositions.mjs offline",
         "cd mailserver/webmail && npm exec vitest run src/lib/offline/storeFacade.test.ts src/routes/settings/storage/page.test.ts"
       ],
       "alternateCommands": []

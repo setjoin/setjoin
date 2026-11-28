@@ -45,7 +45,7 @@ exercise that real middleware denial and its independent core audit. Unmirrored
 shared-authz gates continue forwarding to Go.
 
 Native Rust line/region measurements for each of the six routes are emitted by
-`bash scripts/check-server-rust.sh` via the committed route catalog. The complete
+`bash scripts/guards/check-server-rust.sh` via the committed route catalog. The complete
 suite also covers six actual COMMIT cuts, both rollback switches on all six routes, six status mutants,
 three database mutants and generated request IDs. No accepted divergences.
 

@@ -150,7 +150,7 @@ The core idea is borrowed from SpaceTimeDB: **the database is the application se
 | Webmail frontend | SvelteKit | Fast, small bundle; SSR for initial load; component model fits mail UI |
 | Mobile | Swift (iOS) + Kotlin (Android) | Native apps using JMAP over HTTPS; no special protocol |
 | Monitoring | Prometheus + Grafana | pg_stat_* + custom gauges; dashboards for mail queue, spam rates |
-| Dev deployment | systemd | `bash scripts/dev.sh` starts full stack as background processes |
+| Dev deployment | systemd | `bash scripts/dev/dev.sh` starts full stack as background processes |
 | Prod deployment | systemd | systemctl start/stop for all services; journald logging |
 | Small team option | Single Go binary | For < 20 users: one binary + external PG + SeaweedFS |
 

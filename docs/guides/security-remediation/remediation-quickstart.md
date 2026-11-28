@@ -45,9 +45,9 @@ usage; the wrapper does not forward `--check` — use the bare wrapper or
 ## 3. Read the program control-plane state
 
 ```bash
-bash scripts/verify-security-program.sh --doctor
-bash scripts/verify-security-program.sh coverage status
-bash scripts/verify-security-program.sh coverage resume
+bash scripts/ci/verify-security-program.sh --doctor
+bash scripts/ci/verify-security-program.sh coverage status
+bash scripts/ci/verify-security-program.sh coverage resume
 ```
 
 Doctor verifies the frozen C0 authority and read platform; status prints phase
@@ -140,7 +140,7 @@ Every operation validates, for that specific occurrence: the contract version
 (`setjoin.sec.security-program-remediation/v1`), the caller authority
 (`service_role` only — anything else is `E_SECURITY_PROGRAM_APPROVAL_REQUIRED`),
 existence in the sealed ledger (unknown IDs are never guessed), and the current
-state. The frozen contract binds `scripts/verify-security-program.sh` as the
+state. The frozen contract binds `scripts/ci/verify-security-program.sh` as the
 canonical controller; the dispatcher's `coverage` namespace today exposes the
 read/resume/dry-run paths and holds execution verbs, and the plan's
 "Initial verification front doors" name the `remediation full` /

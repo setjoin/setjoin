@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 //! Owner-approved functional fix (#548, decision 2026-11-09): the four OIDC login flow cookies are
 //! SameSite=Lax so the IdP's cross-site redirect to the callback carries them.
-//! `scripts/test-oidclax-mutants.py` restores Strict (feature `oracle-mutants`,
+//! `scripts/dev/test-oidclax-mutants.py` restores Strict (feature `oracle-mutants`,
 //! `SETJOIN_OIDCLAX_MUTANT`) and requires this test to fail.
 mod common;
 include!("rp_oracle/harness.rs");

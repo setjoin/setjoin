@@ -135,7 +135,7 @@ need the org-wide grant (403). Named location, auth strength and break-glass wri
 simulate, why-lookup, coverage and the break-glass read the org-wide read grant (403); the
 sign-in log by user needs reach (by correlation id: org-wide); the sessions log is filtered by
 reach on the worker credential; a missing policy id is a plain 404 like a foreign one. Tests: `bins/gateway/tests/secfix4.rs`; mutant
-`ca-policy-foreign` in `scripts/test-secfix4-mutants.py`.
+`ca-policy-foreign` in `scripts/dev/test-secfix4-mutants.py`.
 
 Priority floor (owner decision 2026-11-06, #467): a caller without an org-wide `access.policy_write`
 grant may not place a policy ahead of any live policy outside its reach. `rust_ca_priority_floor`
@@ -146,4 +146,4 @@ admin's policies from the floor in steps of ten (org-wide admins keep `ca_policy
 unchanged). Mutant `ca-priority-ahead`; test `scoped_policies_stay_behind_org_wide_policies`.
 
 ## Security fix: route-permission reach and org-wide list reads (#529, owner-approved 2026-11-06)
-`console::can_reach` (session revoke) uses `admin_can_reach_perm(.., '{access.policy_write}')`, not any grant. The named-location, auth-strength and template lists, `doctor` and `resolve-principals` need an organization-wide `access.policy_read|write` grant (`conditional_access_more::serve`, like coverage and break-glass). Goldens `loc-list`, `strength-list`, `templates-list`, `doctor`, `principals` `-foreign` re-baselined. Mutants `ca-revoke-any-grant`, `ca-list-reads-any-grant` (`scripts/test-secfix8-mutants.py`).
+`console::can_reach` (session revoke) uses `admin_can_reach_perm(.., '{access.policy_write}')`, not any grant. The named-location, auth-strength and template lists, `doctor` and `resolve-principals` need an organization-wide `access.policy_read|write` grant (`conditional_access_more::serve`, like coverage and break-glass). Goldens `loc-list`, `strength-list`, `templates-list`, `doctor`, `principals` `-foreign` re-baselined. Mutants `ca-revoke-any-grant`, `ca-list-reads-any-grant` (`scripts/dev/test-secfix8-mutants.py`).

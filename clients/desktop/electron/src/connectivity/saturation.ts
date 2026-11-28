@@ -4,13 +4,13 @@
 //! from the composition root).
 //!
 //! WHY THIS EXISTS: the E6 paired-run harness
-//! (`scripts/run-connectivity-e6-harness.mjs`, frozen profile
+//! (`scripts/dev/run-connectivity-e6-harness.mjs`, frozen profile
 //! `e6-electron-macos-arm64-v1`) requires its candidate member to declare
 //! optional-work saturation with an explicit basis. The strongest basis
 //! (`saturation-endpoint-verified`) needs a loopback URL answering
 //! `{"saturating":<bool>}` that the workload driver polls during the
 //! measurement window. This module is that endpoint, plus the harness
-//! readiness line the pair launcher (`scripts/e6-client-pair-launch.mjs`)
+//! readiness line the pair launcher (`scripts/dev/e6-client-pair-launch.mjs`)
 //! parses for the measured main/renderer PIDs.
 //!
 //! HONESTY POSTURE (read before wiring the endpoint into a claim): the E4-I

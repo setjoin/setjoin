@@ -5,13 +5,13 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Dedicated config for the retained-prior-artifact update rehearsal
-// (scripts/verify-webmail-performance.sh rehearsal). It is deliberately NOT
+// (scripts/ci/verify-webmail-performance.sh rehearsal). It is deliberately NOT
 // discoverable by the default `playwright test` run: testDir points at
 // ./rehearsal only, so the ordinary e2e and CSP lanes never execute or skip
 // this spec. The rehearsal is a separate command from the timing run and must
 // never be passable as one.
 //
-//   bash scripts/verify-webmail-performance.sh rehearsal
+//   bash scripts/ci/verify-webmail-performance.sh rehearsal
 const BASE_URL = process.env.E2E_SERVER ?? 'http://localhost:8080';
 const AUTH_USER = join(__dirname, 'playwright/.auth/user.json');
 const JSON_REPORT = process.env.PLAYWRIGHT_JSON_OUTPUT_FILE ?? './test-results/playwright-rehearsal.json';

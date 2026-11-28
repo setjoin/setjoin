@@ -111,8 +111,8 @@ space.
 From a development checkout with local PostgreSQL prerequisites:
 
 ```bash
-RUN_PREFIX=driveacl-local bash scripts/drive-acl-smoke.sh all
-RUN_PREFIX=driveacl-selftest bash scripts/drive-acl-smoke.sh self-test
+RUN_PREFIX=driveacl-local bash scripts/dev/drive-acl-smoke.sh all
+RUN_PREFIX=driveacl-selftest bash scripts/dev/drive-acl-smoke.sh self-test
 ```
 
 The first command creates a scratch database, seeds synthetic identities and a

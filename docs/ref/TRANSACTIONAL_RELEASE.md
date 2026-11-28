@@ -32,7 +32,7 @@ the publisher does not itself classify helper key IDs as production or test.
 
 No workflow publishes releases yet, and the public repository holds no signing
 material; release builds and owner-side signing are planned separately.
-`scripts/sign-server-release.sh` remains the signing entry point. It takes the signer
+`scripts/deploy/sign-server-release.sh` remains the signing entry point. It takes the signer
 helper, the trust-roots file and two distinct key IDs (`SETJOIN_RELEASE_SIGNER_HELPER`,
 `SETJOIN_RELEASE_TRUST_ROOTS_PATH`, `SETJOIN_RELEASE_KEY_A`/`SETJOIN_RELEASE_KEY_B`)
 and an unsigned inventory (`manifest.draft.json` and `artifacts/`), hashes the

@@ -21,4 +21,4 @@
 
 - `cargo test --manifest-path server-rust/Cargo.toml -p setjoind -- --test-threads=1`
 - `cargo test --manifest-path server-rust/Cargo.toml -p setjoind --test shims -- --test-threads=1`
-- `python3 scripts/check-rust-family-isolation.py`
+- `python3 scripts/guards/check-rust-family-isolation.py`

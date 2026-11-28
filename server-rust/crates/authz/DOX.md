@@ -393,7 +393,7 @@ without it is refused). The policy engine clears `loaded` on invalidation so a f
 closed, classifies legacy `step_up` as enforcing, and sends a geo-tier read error down the checked
 failure path (`store::resolve_geo` returns a Result). The device resolver checks ownership before
 the single-use nonce is consumed. `PushIdentity::act()` carries impersonation provenance. Mutants:
-`scripts/test-secfix3-mutants.py`.
+`scripts/dev/test-secfix3-mutants.py`.
 
 ## Mailserver identity without a mailbox (#494)
 

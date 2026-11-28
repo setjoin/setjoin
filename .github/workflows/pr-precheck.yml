@@ -3,10 +3,10 @@ name: PR pre-check
 # STAGE 2: the required `aggregate` check on a pull request. Two working jobs run side by side and a
 # ~10 s gate job named `aggregate` (the ruleset's required check) is red unless both succeeded:
 #   light        cargo clippy --all-targets and cargo test --lib for the changed workspace packages plus
-#                cheap guards (scripts/quick-check.sh, shared with quick-check.yml)
-#   integration  the integration tests (tests/*.rs) that scripts/precheck-integration.py selects for the
+#                cheap guards (scripts/ci/quick-check.sh, shared with quick-check.yml)
+#   integration  the integration tests (tests/*.rs) that scripts/ci/precheck-integration.py selects for the
 #                change, on the lane Postgres with REQUIRE_DB=1 and the lane's skip-marker, ignored-test,
-#                and zero-test checks (scripts/server-rust-parallel-lane.sh,
+#                and zero-test checks (scripts/ci/server-rust-parallel-lane.sh,
 #                SERVER_RUST_STAGES=workspace). No server-rust code change: it ends after the selection.
 #                The run step is capped at 30 minutes; hitting the cap is a failure, never a pass.
 # Peak concurrency per pull request is two jobs (the gate starts after both end), next to the 19-job lane.
@@ -48,7 +48,7 @@ jobs:
         id: plan
         run: |
           git fetch -q origin main:refs/remotes/origin/main || true
-          bash scripts/lane-container.sh bash scripts/quick-check.sh plan
+          bash scripts/ci/lane-container.sh bash scripts/ci/quick-check.sh plan
           echo "key=$(sha256sum lane-artifacts/packages.txt | cut -c1-12)" >> "$GITHUB_OUTPUT"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -57,7 +57,7 @@ jobs:
           key: ${{ steps.plan.outputs.key }}
           save-if: false
       - name: PR pre-check
-        run: bash scripts/lane-container.sh bash scripts/quick-check.sh run
+        run: bash scripts/ci/lane-container.sh bash scripts/ci/quick-check.sh run
       - name: Summary
         if: always()
         run: |
@@ -80,7 +80,7 @@ jobs:
         id: gate
         run: |
           set -euo pipefail
-          python3 scripts/precheck-integration.py selftest
+          python3 scripts/ci/precheck-integration.py selftest
           git fetch -q origin main:refs/remotes/origin/main || true
           changed="$(git diff --name-only origin/main...HEAD)"
           # awk reads all input (no SIGPIPE under pipefail): any server-rust/ path that is not *.md
@@ -98,7 +98,7 @@ jobs:
         if: steps.gate.outputs.code == 'true'
         run: |
           set -euo pipefail
-          bash scripts/lane-container.sh python3 scripts/precheck-integration.py plan lane-artifacts
+          bash scripts/ci/lane-container.sh python3 scripts/ci/precheck-integration.py plan lane-artifacts
           echo "select=$(cat lane-artifacts/integration-select.txt)" >> "$GITHUB_OUTPUT"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: steps.select.outputs.select != ''
@@ -115,7 +115,7 @@ jobs:
           LANE_COVERAGE: '0'
           LANE_JOBS: '4'
           GOFREE_AIRGAP_FIXTURE_ROOT: /dev/shm
-        run: bash scripts/lane-container.sh bash scripts/server-rust-parallel-lane.sh
+        run: bash scripts/ci/lane-container.sh bash scripts/ci/server-rust-parallel-lane.sh
       - name: Summary
         if: always()
         run: |

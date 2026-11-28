@@ -195,7 +195,7 @@ the route's permission (list/stats `MAIL_CONSOLE`, preview `mail.export`, releas
 reject of a foreign row answer exactly like a missing one (404); stats count only reachable rows;
 release/reject repeat the rule in the UPDATE's own WHERE inside `rust_mailsec_quarantine_*` (R3).
 An organization-wide grant keeps Go's behaviour. Reviewed record: `divergences.json` (entries with
-`baseline`); test `bins/gateway/tests/secfix5.rs`; mutants `scripts/test-secfix5-mutants.py`.
+`baseline`); test `bins/gateway/tests/secfix5.rs`; mutants `scripts/dev/test-secfix5-mutants.py`.
 
 ## Spam trainer (#451)
 

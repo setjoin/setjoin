@@ -78,15 +78,15 @@ entire visible tree into a ticket.
 The deterministic local authority gate is:
 
 ```bash
-RUN_PREFIX=driveacl-ops bash scripts/drive-acl-smoke.sh all
-bash scripts/benchmark-drive-acl.sh
+RUN_PREFIX=driveacl-ops bash scripts/dev/drive-acl-smoke.sh all
+bash scripts/dev/benchmark-drive-acl.sh
 ```
 
 The smoke uses a scratch database and cleans its exact resource. Set
 `KEEP_ON_FAIL=1` only for an isolated developer database; the retained artifact
 under `test-results/drive-acl-smoke/<prefix>/` is synthetic and redacted.
 
-For a disposable full-install rehearsal, `scripts/ga-fresh-install-smoke.sh`
+For a disposable full-install rehearsal, `scripts/deploy/ga-fresh-install-smoke.sh`
 supports `KEEP_ON_FAIL=1` followed by `RESUME_INSTALL=1`; resume preserves the
 same generated test secrets and schema instead of starting over. On a Docker-
 hosted Ubuntu test container, `PRELOAD_HOST_EGRESS=1` (default) may stream the

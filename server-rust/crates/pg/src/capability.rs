@@ -2054,7 +2054,7 @@ impl WorkerTx {
 /// configured with `RecyclingMethod::Fast`, TCP keepalives, and optional
 /// opt-in guarded prepared-statement caching.
 ///
-/// Banned in `crates/domains/*` by `scripts/check-rust-family-isolation.py`.
+/// Banned in `crates/domains/*` by `scripts/guards/check-rust-family-isolation.py`.
 #[derive(Clone)]
 pub struct AppPool {
     pool: SetjoinPool,

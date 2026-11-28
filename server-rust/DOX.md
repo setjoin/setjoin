@@ -94,7 +94,7 @@ Ticket #215 (spec #209) adds the gateway's first route, `bins/gateway/src/mark_r
 
 Ticket #216 (spec #209) adds the second command on the same `POST /jmap` route: the webmail inbox list, `Email/query` served by `setjoin_jmap::query_email_list` behind its own default-OFF toggle `feature.rust_inbox_list` (shared/toggle registry, projection V275; read only by the gateway). Owned request shape (`bins/gateway/src/email_list.rs`): one `Email/query` with `accountId`, `filter` = `inMailbox` plus optional `focus` and `hasKeyword` `$seen`/`$unseen`, optional `receivedAt` sort, `position` (0..=i32::MAX) and `limit` (clamped as Go clamps it); anything else (search filters, other sorts, `anchor`, back-referenced `Email/get`, several calls) is forwarded. The two shapes never overlap; each checks its own flag, then the same mirrored precondition chain runs. The read is one static parameterised SELECT in a `READ ONLY` transaction scoped to the verified mailbox (`setjoin-pg` gains `ScopedExecutor::read_scoped`), so it cannot mark anything read, bump state, journal, audit or notify; any read failure forwards to Go. The reply is Go's bytes: the reducer JSONB compacted in PostgreSQL key order. `Email/get` (the rows' keywords) is not ported: in Go it writes an `email_get` audit row and decrypts S/MIME on read. Parity: `tests/conformance` `email_list` (13 cases, reducer and Rust; #223 added the total order `received_at` then `id`, same direction, on both sides) and gateway DB cases comparing the route's bytes with the reducer-through-Go-encoding bytes. Contract: `crates/domains/jmap/src/email_list.rs`.
 
-Ticket #217 (spec #209) adds `tools/bench-mark-read` (`bench-mark-read`), a separate std-only package with its own `Cargo.lock`, excluded from the workspace and run by `scripts/check-server-rust.sh` as a fourth root. It is the Rust-vs-Go mark-read comparison harness: a keep-alive HTTP/1.1 load driver over a frozen request sequence (each message flipped on every visit, workers own disjoint messages), nearest-rank latency percentiles, `/proc` CPU and RSS sampling of the serving processes, an interruption timeline, and a Go/Rust reply normaliser for parity; `fixture.sql` delivers the 64-message frozen fixture through `deliver()`. Evidence tooling only, never runtime authority, never linked into the gateway. Method and results: `retired-docs:verification/2026-10-29-rp07-rust-vs-go-mark-read.md`.
+Ticket #217 (spec #209) adds `tools/bench-mark-read` (`bench-mark-read`), a separate std-only package with its own `Cargo.lock`, excluded from the workspace and run by `scripts/guards/check-server-rust.sh` as a fourth root. It is the Rust-vs-Go mark-read comparison harness: a keep-alive HTTP/1.1 load driver over a frozen request sequence (each message flipped on every visit, workers own disjoint messages), nearest-rank latency percentiles, `/proc` CPU and RSS sampling of the serving processes, an interruption timeline, and a Go/Rust reply normaliser for parity; `fixture.sql` delivers the 64-message frozen fixture through `deliver()`. Evidence tooling only, never runtime authority, never linked into the gateway. Method and results: `retired-docs:verification/2026-10-29-rp07-rust-vs-go-mark-read.md`.
 
 Ticket #252 renames the pilot `mail` crate to the JMAP family, and gates the workspace on resolved family isolation and cargo-deny licence/source policy. `license-exception-reasons.toml` records a reason for each exception. See [AGENTS.md](AGENTS.md#local-contracts) for the write rule and guard commands.
 
@@ -147,13 +147,13 @@ Ticket #257 shares one-statement scoped execution and receipt lookup in `setjoin
 - The pre-#213 workspace and the pilot also pass on rustc 1.97.1; the
   DB-linked crates were verified on 1.99 only. The CI toolchain image
   (`.github/ci/linux-toolchain.Dockerfile`) asserts rustc ≥ 1.99 but cannot
-  test at build time: `bash scripts/verify-server-rust-image.sh` runs the
+  test at build time: `bash scripts/ci/verify-server-rust-image.sh` runs the
   guard (+ `--self-test`) inside it — executed on amd64 (PASS, 2026-10-29);
   **arm64 NOT_RUN**.
 
 ## Oracle adequacy
 
-- `python3 scripts/check-gofree-oracle-adequacy.py --execute --coverage` checks
+- `python3 scripts/guards/check-gofree-oracle-adequacy.py --execute --coverage` checks
   each ON route's success, cross-tenant and invalid-input recordings, plus
   mutator row effects and repeat, then executes exact replay and route/family
   mutant tests and reports instrumented Rust handler coverage for ON and
@@ -440,7 +440,7 @@ With `LISTEN_FDNAMES` the server adopts up to nine active descriptors (#345/#347
 The retired `acme` descriptor is refused fail-closed (`#560`), and unnamed counts above one
 are refused.
 
-On a root/systemd host, `python3 scripts/test-gateway-systemd.py <gateway>`
+On a root/systemd host, `python3 scripts/deploy/test-gateway-systemd.py <gateway>`
 additionally checks real `Accept=no` socket activation, a default-ON health
 response, and a queued HTTP connection during a service restart. It runs as
 `nobody` with empty effective/permitted/bounding/ambient/inheritable capability
@@ -462,7 +462,7 @@ updater are #357–#359.
 `.github/workflows/server-rust-lane.yml` runs the lane on GitHub-hosted runners (no self-hosted
 label) on the merge queue's `merge_group` commit (one run per queue entry) and `workflow_dispatch`: always the
 FULL lane including oracle coverage, except a queue entry that left the queue while waiting (`mode=gone`, see below).
-Merge-queue batching (`queue` job, `scripts/lane-job-gate.py queue-role`; default OFF, enabled by repo variable
+Merge-queue batching (`queue` job, `scripts/ci/lane-job-gate.py queue-role`; default OFF, enabled by repo variable
 `LANE_QUEUE_BATCHING=1` on a ruleset with `grouping_strategy` HEADGREEN): the batch head runs the full lane on its commit,
 which contains every earlier entry; an entry with a later queued entry (a queue branch whose commit descends from its
 own, found by `git for-each-ref --contains` over a `--depth 6 --filter=tree:0` fetch) waits and runs no lane, polling `ls-remote`
@@ -477,8 +477,8 @@ fetch 60 s, for-each-ref 30 s, and up to five run lookups of 15 s each, `QUEUE_P
 descendant, and a hidden one means `head`, which runs our own full lane: a miss is safe. A reported descendant is always
 real, because a ref is listed only when our commit is an ancestor of its tip in the fetched graph. A failed command, a
 missing own commit (`cat-file -e`) or a passed deadline returns unknown (None), never an empty set. Worst case per entry is SETTLE + CAP + the lane; the queue job
-times out at 110 min (6600 s), above CAP + 255 s + 300 s of checkout and setup (5955 s), and `scripts/test-lane-job-gate.py` asserts that. The 255 s is ENFORCED, not assumed: every git call and every API lookup is a child process run by `subprocess.run` with a timeout (`QUEUE_*_TIMEOUT_S`), and the child is killed at that timeout. A per-socket timeout would not do: `urlopen(timeout=)` bounds each blocking socket operation, not the whole response, so a trickling body could outlive the job. A `check_response_timeout`
-overrun (360 min) ejects a PR, which fails closed and never merges it. Tests: `python3 scripts/test-lane-job-gate.py`
+times out at 110 min (6600 s), above CAP + 255 s + 300 s of checkout and setup (5955 s), and `scripts/ci/test-lane-job-gate.py` asserts that. The 255 s is ENFORCED, not assumed: every git call and every API lookup is a child process run by `subprocess.run` with a timeout (`QUEUE_*_TIMEOUT_S`), and the child is killed at that timeout. A per-socket timeout would not do: `urlopen(timeout=)` bounds each blocking socket operation, not the whole response, so a trickling body could outlive the job. A `check_response_timeout`
+overrun (360 min) ejects a PR, which fails closed and never merges it. Tests: `python3 scripts/ci/test-lane-job-gate.py`
 (git, clock, sleep and the Actions API injected; no network).
 
 Commits on main before a batch's last commit are not tested individually;
@@ -499,7 +499,7 @@ the token is never logged.
 Permission: only the `queue` job gets `permissions: { contents: read, actions: read }` at job level (the workflow-level
 permissions are unchanged; no other job gains one). `GH_TOKEN: ${{ github.token }}` is passed to the queue step, and it is
 used only when `LANE_QUEUE_BATCHING=1` on a `merge_group` event; otherwise the head-at-once path makes no network call.
-`scripts/check-test-gate-wiring.sh` pins `actions: read` and the token env in the queue job.
+`scripts/guards/check-test-gate-wiring.sh` pins `actions: read` and the token env in the queue job.
 Rollout and rollback (coordinator, not this PR): the ruleset (`rulesets/27288657`, merge_queue `grouping_strategy` and
 `max_entries_to_build` 5) and `vars.LANE_QUEUE_BATCHING` change together, back up the ruleset first. Rollback: delete the
 variable (`gh variable delete LANE_QUEUE_BATCHING -R setjoin/setjoin`), restore the saved ruleset (`gh api -X PUT
@@ -510,10 +510,10 @@ A push to `main` runs CACHE REFRESH ONLY
 (`plan` output `mode=cache`: `build`, `coverage-build` and `gomod-cache` save the cargo and Go module caches; no test,
 coverage, replay or guard job; step summary "cache refresh only, no tests"; not a test pass, the queue already tested it).
 A nightly `schedule` (`30 2 * * *`, main) runs the full lane plus coverage as the backstop (`mode=full`) and skips
-cleanly (`mode=skip`) when main has no commit in the last 26 hours. The rules live in `scripts/lane-job-gate.py` (tests: `python3 scripts/test-lane-job-gate.py`, run by `aggregate` and `pre-ci.sh`). `aggregate` accepts `cache` only on push and
+cleanly (`mode=skip`) when main has no commit in the last 26 hours. The rules live in `scripts/ci/lane-job-gate.py` (tests: `python3 scripts/ci/test-lane-job-gate.py`, run by `aggregate` and `pre-ci.sh`). `aggregate` accepts `cache` only on push and
 `full`/`skip` only on schedule, and is red on `merge_group`/`workflow_dispatch` unless `mode=full`. Pull
-requests run only `pr-precheck.yml` (gate job `aggregate` over `light`: `scripts/quick-check.sh`, changed-package
-clippy/`--lib` tests and cheap guards, and `integration`: the `tests/*.rs` targets `scripts/precheck-integration.py`
+requests run only `pr-precheck.yml` (gate job `aggregate` over `light`: `scripts/ci/quick-check.sh`, changed-package
+clippy/`--lib` tests and cheap guards, and `integration`: the `tests/*.rs` targets `scripts/ci/precheck-integration.py`
 selects, run by `server-rust-parallel-lane.sh` with `SERVER_RUST_STAGES=workspace` and `SERVER_RUST_NEXTEST_SELECT`,
 30-minute cap, see `.github/CI-RUNNERS.md`); the ruleset requires `aggregate` on both, so the full lane gates every merge. The concurrency group falls back to `github.ref` (unique per queue entry). `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
 debug inputs `filter`/`adequacy_only`/`adequacy_entries`, which run one `debug` job and are never a
@@ -524,14 +524,14 @@ cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read: `SERVER_RUST_S
 `coverage-build` (instrumented archive of the coverage binaries only) and `coverage-shard 1..M`
 (every M-th coverage entry); `aggregate`, the required check. Each job is its own VM with its own
 Postgres, so host state cannot collide across shards; inside a shard the serial groups stay.
-`aggregate` runs `scripts/merge-lane-shards.py`: red unless every job wrote `lane-complete.txt`
+`aggregate` runs `scripts/ci/merge-lane-shards.py`: red unless every job wrote `lane-complete.txt`
 `rc=0`, every non-ignored test of the build's list ran exactly once and passed, no log prints a
 `*-SKIP (reason=` marker, the shards together replayed every replay and mutant of the manifest and
-the coverage shards measured every coverage entry (`python3 scripts/test-merge-lane-shards.py`).
+the coverage shards measured every coverage entry (`python3 scripts/ci/test-merge-lane-shards.py`).
 Evidence is the `lane-results-<sha>` artifact (30 days); there is no serial or compare mode on
-hosted runners (`LANE_MODE=serial` and `scripts/compare-lane-runs.py` stay for a dev host).
+hosted runners (`LANE_MODE=serial` and `scripts/ci/compare-lane-runs.py` stay for a dev host).
 
-`scripts/check-server-rust.sh` is unchanged by default; hosted CI selects with
+`scripts/guards/check-server-rust.sh` is unchanged by default; hosted CI selects with
 `SERVER_RUST_STAGES` (static, workspace, roots, adequacy), `SERVER_RUST_NEXTEST_ARCHIVE`/`_EXTRACT_TO`/
 `_PARTITION`, `LANE_ADEQUACY_SHARD=K/N`, `LANE_ADEQUACY_BINARIES` (replays and coverage launch the
 archive's binaries through the clone runner instead of `cargo test`), `LANE_COVERAGE=0` (no
@@ -552,7 +552,7 @@ job fails fast while `images.lock` has `PLACEHOLDER`) builds the lane images, th
 `ghcr.io/setjoin`, printing `.github/ci/images.lock`; `.github/actions/lane-setup` pulls exactly
 those digests (and refuses `PLACEHOLDER` lines). The GHCR packages must be public. Fork pull
 requests get a read-only token and no secrets (the lane needs none); caches are saved only from
-`main`. Locally: `bash scripts/pre-ci.sh` checks the workflow `run:` blocks.
+`main`. Locally: `bash scripts/ci/pre-ci.sh` checks the workflow `run:` blocks.
 
 - **Database per test, not per binary.** nextest runs each test in its own process; roughly 100
   gateway binaries serialise through an in-process `static SERIAL` mutex over shared database
@@ -564,7 +564,7 @@ requests get a read-only token and no secrets (the lane needs none); caches are 
   drops the clone `WITH (FORCE)`. The template is loaded once by `scripts/load-test-schema.sh`
   (`ALLOW_CONNECTIONS false`); roles are cluster-wide and provisioned once with it.
   The lane sweeps leaked `<prefix><24 hex>` clones; it never touches other databases.
-- **Serial groups.** nextest cannot isolate host state, so `scripts/server-rust-lane-groups.py`
+- **Serial groups.** nextest cannot isolate host state, so `scripts/ci/server-rust-lane-groups.py`
   scans every test target (following `mod` files and the python/shell helpers a test names) for the
   host resources it uses: fixed TCP/UDP ports, fixed `/tmp` file names, fixed docker container names
   (`docker-name:<prefix>`; a name built from the pid, clock or a counter is unique per nextest process, so
@@ -580,7 +580,7 @@ requests get a read-only token and no secrets (the lane needs none); caches are 
   collides when every id starts at 1, as in a fresh clone; the long-lived database the goldens were
   recorded on has large ids. The lane sets each template sequence to `LANE_SEQUENCE_FLOOR`
   (100000) plus a distinct offset, in both modes.
-- **Root container.** `scripts/lane-container.sh` runs each lane step as root in the pinned
+- **Root container.** `scripts/ci/lane-container.sh` runs each lane step as root in the pinned
   `setjoin-server-rust-lane` image on the host network with the Docker socket, as on the dev host:
   oracles bind `:53`/`:80`/`:636`, assert root ownership and start sibling containers. Workspace,
   `$HOME` and `/tmp` are mounted at identical paths; ownership returns to the runner user on exit.
@@ -591,7 +591,7 @@ requests get a read-only token and no secrets (the lane needs none); caches are 
 
 ## Go-deletion rehearsal (#141)
 
-> **Completed and retired in `#142` ([ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md)):** `#141` passed with `PENDING = 0`, `REHEARSAL-FORWARD-SITES = 0`, `MATRIX_HOPS = 0/0`, and `GO_PEER_REFERENCES = 0`. Go and `scripts/check-gofree-rehearsal.py` were deleted in `#142`; `scripts/test-samlacs-mutants.py` remains active in CI `roots` under `REQUIRE_DB=1`. Historical rehearsal record preserved below.
+> **Completed and retired in `#142` ([ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md)):** `#141` passed with `PENDING = 0`, `REHEARSAL-FORWARD-SITES = 0`, `MATRIX_HOPS = 0/0`, and `GO_PEER_REFERENCES = 0`. Go and `scripts/check-gofree-rehearsal.py` were deleted in `#142`; `scripts/dev/test-samlacs-mutants.py` remains active in CI `roots` under `REQUIRE_DB=1`. Historical rehearsal record preserved below.
 
 `scripts/check-gofree-rehearsal.py` (self-test `scripts/test-check-gofree-rehearsal.py`) makes the hosted
 lane the rehearsal for deleting Go. `static` (`roots` and `aggregate`): every route-inventory entry ON
@@ -610,14 +610,14 @@ across 12 toggle cells; `bins/gateway/tests/delete_gate.rs` covers Basic/Negotia
 `/carddav/` and `/api/drive/native-token`, guest and member drive tokens and member CalDAV/CardDAV
 PROPFIND controls across 5 cells. Every cell has a reviewed expected outcome (`Native(status)` or
 `Hop(owner)`); `MATRIX_HOPS` pins expected Go-hop cells (`auth 0`, `gateway 15`), which only shrink.
-In the `roots` stage under `REQUIRE_DB=1`, `scripts/check-server-rust.sh` also runs
-`scripts/test-samlacs-mutants.py` (38 SAML ACS mutant rejections and positive controls).
+In the `roots` stage under `REQUIRE_DB=1`, `scripts/guards/check-server-rust.sh` also runs
+`scripts/dev/test-samlacs-mutants.py` (38 SAML ACS mutant rejections and positive controls).
 `GO_PEER_REFERENCES` pins every source reference
 to a retired frozen Go peer binary (now `0`: absolute ban); reviewed divergences; the 51
 `worker_semantics.json` workers owned by Rust; every seam present. #141 criteria 1 and 4 stay open until
 `PENDING` is empty and `FORWARD_SITES` is 0 (gateway `.forward(` stands at `12`, excluding the exempt `rust_auth_upstream` arm, with F04 WORM `PutObjectLegalHold`, `mailboxes` `CanonicalEmail`, `mail_security` TLS/trace settings, `directory_sync`, `surface`, `rtc`, and non-Kerberos `drive_native` checks native). `env` (every lane job): any Go upstream or recording
 variable present (even empty) is red; with `LANE_GO_MASKED=1` a reachable `go` is red.
-`scripts/lane-container.sh` masks `/usr/local/go` in the lane container. `lane_go_watch` wraps the
+`scripts/ci/lane-container.sh` masks `/usr/local/go` in the lane container. `lane_go_watch` wraps the
 nextest run and the adequacy gate: ready only after a probe's event came back through `docker events`
 (container and image events, no event filter); the ready line holds the image id of every
 `.github/ci/images.lock` entry (a tag that does not resolve to its pinned digest is red), a snapshot of
@@ -665,12 +665,12 @@ every address is US, so every source is geo-blocked); `tarpit` = `geo` with `GEO
 
 ## Rust guard self-test
 
-- `bash scripts/check-server-rust.sh --self-test` — proves the guard fires on a
+- `bash scripts/guards/check-server-rust.sh --self-test` — proves the guard fires on a
   throwaway crate. Both run automatically from `scripts/run-guards.sh`.
 
 ## Family dependency guards
 
-- Family crates must not depend on another family crate. `python3 scripts/check-rust-family-isolation.py` inspects Cargo's resolved graph, including direct dev/build dependencies, transitive dependencies and local overrides; non-workspace paths are forbidden. Dev-only dependencies of intermediate crates are excluded, as Cargo does not build them for dependants. `cargo deny --locked check` enforces `deny.toml` (licences, sources, bans and RustSec advisories, #388; an advisory `ignore` needs `{ id, reason }`, enforced by the exception guard); MPL-2.0 dependencies must remain unmodified. Record each licence exception's exact crate spec and reason in `license-exception-reasons.toml`; `scripts/check-rust-license-exceptions.py` enforces it. The guards and fixtures run in `scripts/check-server-rust.sh` (Python 3.11+, cargo-deny 0.19.0).
+- Family crates must not depend on another family crate. `python3 scripts/guards/check-rust-family-isolation.py` inspects Cargo's resolved graph, including direct dev/build dependencies, transitive dependencies and local overrides; non-workspace paths are forbidden. Dev-only dependencies of intermediate crates are excluded, as Cargo does not build them for dependants. `cargo deny --locked check` enforces `deny.toml` (licences, sources, bans and RustSec advisories, #388; an advisory `ignore` needs `{ id, reason }`, enforced by the exception guard); MPL-2.0 dependencies must remain unmodified. Record each licence exception's exact crate spec and reason in `license-exception-reasons.toml`; `scripts/guards/check-rust-license-exceptions.py` enforces it. The guards and fixtures run in `scripts/guards/check-server-rust.sh` (Python 3.11+, cargo-deny 0.19.0).
 
 Conformance fixture teardown releases audit/message-partition locks before
 atomic mailbox/user/domain deletion, retaining FK cascades and the deferred

@@ -40,7 +40,7 @@ name: server-rust lane
 #   coverage-build  one instrumented archive of the coverage binaries only
 #   coverage 1..M   every M-th oracle coverage entry
 #   aggregate       the required check: every job green AND every test, replay, mutant and
-#                   coverage entry ran exactly once (scripts/merge-lane-shards.py)
+#                   coverage entry ran exactly once (scripts/ci/merge-lane-shards.py)
 # workflow_dispatch keeps the debug inputs: filter or adequacy_only runs ONE job, never a lane result.
 # Fork pull requests get a read-only token and no secrets (the lane needs none: the Postgres
 # password is generated per job) and never save a cache; only runs on main (push, schedule, dispatch) save caches.
@@ -92,7 +92,7 @@ env:
   GOFREE_AIRGAP_FIXTURE_ROOT: /dev/shm
 
 jobs:
-  # Merge-queue batching decision (scripts/lane-job-gate.py queue-role). ls-remote and fetch are anonymous reads of
+  # Merge-queue batching decision (scripts/ci/lane-job-gate.py queue-role). ls-remote and fetch are anonymous reads of
   # the public repository. actions: read is for one Actions API GET per later ref (failed_later_from_api): a later
   # ref whose lane run already failed no longer holds us back. The token is used only with the switch on, on a
   # merge_group event. Timeout 110 min is above CAP (90 min) plus the worst I/O of one poll (255 s) plus setup
@@ -110,7 +110,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           sparse-checkout: |
-            scripts/lane-job-gate.py
+            scripts/ci/lane-job-gate.py
       - id: role
         env:
           EVENT: ${{ github.event_name }}
@@ -121,7 +121,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          role="$(python3 scripts/lane-job-gate.py queue-role)"
+          role="$(python3 scripts/ci/lane-job-gate.py queue-role)"
           echo "role=$role" >> "$GITHUB_OUTPUT"
           echo "queue role: $role (event=$EVENT)"
 
@@ -143,7 +143,7 @@ jobs:
         with:
           sparse-checkout: |
             .github/ci
-            scripts/lane-job-gate.py
+            scripts/ci/lane-job-gate.py
       - name: images.lock must be pinned
         run: |
           if grep -v '^#' .github/ci/images.lock | grep -q PLACEHOLDER; then
@@ -154,8 +154,8 @@ jobs:
       # Nightly skip rule: skip unless main has a commit newer than 26 hours (one daily slot plus cron jitter).
       # Simpler than "since the last successful scheduled run": it needs no run-history lookup. A night that
       # fails or is missed is NOT retried by the next night (a commit older than 26 hours is skipped then); re-run it
-      # by hand. The cost of the window is at most one redundant full run (the mode and verdict rules live in scripts/lane-job-gate.py, tested by
-      # scripts/test-lane-job-gate.py). Uses the commits API (contents: read), no checkout depth needed.
+      # by hand. The cost of the window is at most one redundant full run (the mode and verdict rules live in scripts/ci/lane-job-gate.py, tested by
+      # scripts/ci/test-lane-job-gate.py). Uses the commits API (contents: read), no checkout depth needed.
       - id: mode
         env:
           EVENT: ${{ github.event_name }}
@@ -170,7 +170,7 @@ jobs:
             n="$(gh api "repos/$REPO/commits?sha=main&since=$since&per_page=1" --jq 'length')" # an API error fails the job (red), never skips
             echo "nightly: $n commit(s) on main since $since"
           fi
-          mode="$(python3 scripts/lane-job-gate.py mode "$EVENT" $n)"
+          mode="$(python3 scripts/ci/lane-job-gate.py mode "$EVENT" $n)"
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
           echo "event=$EVENT mode=$mode"
       - id: plan
@@ -207,7 +207,7 @@ jobs:
           shared-key: lane
           save-if: false
       - name: Run the lane (debug, not a lane result)
-        run: bash scripts/lane-container.sh bash scripts/server-rust-parallel-lane.sh
+        run: bash scripts/ci/lane-container.sh bash scripts/ci/server-rust-parallel-lane.sh
       - name: Summary
         if: always()
         run: |
@@ -242,7 +242,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the test archive and the expected test list
         run: |
-          bash scripts/lane-container.sh bash -c 'set -euo pipefail; cd server-rust
+          bash scripts/ci/lane-container.sh bash -c 'set -euo pipefail; cd server-rust
             cargo nextest archive --workspace --locked --archive-file "$LANE_BUILD/lane-tests.tar.zst"
             cargo nextest list --workspace --locked --message-format json >"$LANE_ARTIFACT_DIR/lane-list.json"'
           ls -la "$LANE_BUILD/lane-tests.tar.zst"
@@ -277,7 +277,7 @@ jobs:
           shared-key: lane
           save-if: false
       - name: Static guards, cargo-deny, pilot, schema-simulation, bench-mark-read, doc tests, SAML ACS mutants
-        run: bash scripts/lane-container.sh bash scripts/server-rust-parallel-lane.sh
+        run: bash scripts/ci/lane-container.sh bash scripts/ci/server-rust-parallel-lane.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -314,9 +314,9 @@ jobs:
         run: |
           export DB_PORT="$LANE_PG_PORT"
           # Suites in scripts/pgtap-known-red.txt (issues #401-#404) run and warn; every other suite must pass.
-          bash scripts/run-pgtap-lane.sh scripts/pgtap-known-red.txt -h 127.0.0.1 -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME"
+          bash scripts/ci/run-pgtap-lane.sh scripts/pgtap-known-red.txt -h 127.0.0.1 -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME"
       - name: Verify named pgTAP evidence
-        run: TEST_EVIDENCE_OUTPUT=test-results/pgtap/test-evidence.json bash scripts/check-test-evidence-results.sh --verify tap
+        run: TEST_EVIDENCE_OUTPUT=test-results/pgtap/test-evidence.json bash scripts/guards/check-test-evidence-results.sh --verify tap
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -448,11 +448,11 @@ jobs:
           path: ${{ runner.temp }}/list
       - name: Shard ${{ matrix.shard }} (nextest partition and replay slice)
         run: |
-          python3 scripts/lane-binaries.py "$RUNNER_TEMP/list/lane-list.json" >"$LANE_ARTIFACT_DIR/binaries.json"
+          python3 scripts/ci/lane-binaries.py "$RUNNER_TEMP/list/lane-list.json" >"$LANE_ARTIFACT_DIR/binaries.json"
           SERVER_RUST_NEXTEST_ARCHIVE="$RUNNER_TEMP/archive/lane-tests.tar.zst" \
           SERVER_RUST_NEXTEST_EXTRACT_TO="$LANE_BUILD" \
           LANE_ADEQUACY_BINARIES="$LANE_ARTIFACT_DIR/binaries.json" \
-            bash scripts/lane-container.sh bash scripts/server-rust-parallel-lane.sh
+            bash scripts/ci/lane-container.sh bash scripts/ci/server-rust-parallel-lane.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -482,9 +482,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/build-profiles"
-          LANE_COVERAGE_TARGETS="$(python3 scripts/check-gofree-oracle-adequacy.py --print-coverage-targets)" \
+          LANE_COVERAGE_TARGETS="$(python3 scripts/guards/check-gofree-oracle-adequacy.py --print-coverage-targets)" \
           LLVM_PROFILE_FILE="$RUNNER_TEMP/build-profiles/%p-%m.profraw" \
-            bash scripts/lane-container.sh bash -c 'set -euo pipefail; cd server-rust
+            bash scripts/ci/lane-container.sh bash -c 'set -euo pipefail; cd server-rust
               read -r -a sel <<<"$LANE_COVERAGE_TARGETS"
               cargo nextest archive "${sel[@]}" --locked --archive-file "$LANE_BUILD/coverage-tests.tar.zst"
               cargo nextest list "${sel[@]}" --locked --message-format json >"$LANE_ARTIFACT_DIR/coverage-list.json"'
@@ -528,13 +528,13 @@ jobs:
           path: ${{ runner.temp }}/list
       - name: Coverage shard ${{ matrix.shard }}
         run: |
-          python3 scripts/lane-binaries.py "$RUNNER_TEMP/list/coverage-list.json" >"$LANE_ARTIFACT_DIR/binaries.json"
+          python3 scripts/ci/lane-binaries.py "$RUNNER_TEMP/list/coverage-list.json" >"$LANE_ARTIFACT_DIR/binaries.json"
           LANE_COVERAGE_ARCHIVE="$RUNNER_TEMP/archive/coverage-tests.tar.zst" \
           LANE_ADEQUACY_BINARIES="$LANE_ARTIFACT_DIR/binaries.json" \
-            bash scripts/lane-container.sh bash -c 'set -euo pipefail
+            bash scripts/ci/lane-container.sh bash -c 'set -euo pipefail
               (cd server-rust && cargo nextest list --archive-file "$LANE_COVERAGE_ARCHIVE" --workspace-remap . \
                 --extract-to "$LANE_BUILD" --extract-overwrite >/dev/null)
-              bash scripts/server-rust-parallel-lane.sh'
+              bash scripts/ci/server-rust-parallel-lane.sh'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -555,13 +555,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Job results (scripts/lane-job-gate.py; its tests run first)
+      - name: Job results (scripts/ci/lane-job-gate.py; its tests run first)
         env:
           NEEDS: ${{ toJSON(needs) }}
           EVENT: ${{ github.event_name }}
         run: |
-          python3 scripts/test-lane-job-gate.py
-          python3 scripts/lane-job-gate.py verdict
+          python3 scripts/ci/test-lane-job-gate.py
+          python3 scripts/ci/lane-job-gate.py verdict
       - name: Summary (cache refresh or skipped nightly)
         if: always() && needs.plan.outputs.mode != 'full'
         env:
@@ -594,7 +594,7 @@ jobs:
           COVERAGE: ${{ needs.plan.outputs.coverage_count }}
         run: |
           set -o pipefail
-          python3 scripts/merge-lane-shards.py --list results/lane-list/lane-list.json --results results \
+          python3 scripts/ci/merge-lane-shards.py --list results/lane-list/lane-list.json --results results \
             --shards "$SHARDS" --coverage-shards "$COVERAGE" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full'

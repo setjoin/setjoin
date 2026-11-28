@@ -1,5 +1,5 @@
 -- rls_allow_backfill.pg — ALLOW-side RLS flow proofs (arch review #A4, TOP
--- REC). Closes scripts/rls-allow-allowlist.txt COVERED entries for every
+-- REC). Closes scripts/guards/rls-allow-allowlist.txt COVERED entries for every
 -- FORCE'd table that had a reducer writer + a write-capable policy but NO
 -- proof anywhere in the suite that the table's own LEGITIMATE writer
 -- actually succeeds under the constrained setjoin_app runtime role — the
@@ -17,7 +17,7 @@
 -- transaction so nothing persists.
 --
 -- Tables intentionally NOT here (already COVERED by an existing V134-era
--- flow test — see scripts/rls-allow-allowlist.txt): meetings,
+-- flow test — see scripts/guards/rls-allow-allowlist.txt): meetings,
 -- meeting_participants, meeting_join_requests, meeting_breakouts,
 -- meeting_recordings (rls_meet.pg); chat_channels, chat_channel_members,
 -- chat_messages, chat_message_reactions, chat_message_revisions (rls_chat.pg);

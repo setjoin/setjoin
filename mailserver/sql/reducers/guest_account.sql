@@ -5,7 +5,7 @@
 -- reducers) alike. They are SECURITY DEFINER + worker-owned because
 -- guest_accounts is FORCE-RLS with a self-SELECT-only policy: a raw app-pool
 -- SELECT with no app.current_user_id GUC would see zero rows and FAIL OPEN.
--- scripts/check-guest-doors.sh guards that no raw guest_accounts read
+-- scripts/guards/check-guest-doors.sh guards that no raw guest_accounts read
 -- bypasses these helpers.
 --
 -- guest_set_status is the SINGLE WRITER for both status authorities (C-7):

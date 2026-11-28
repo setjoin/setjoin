@@ -1,7 +1,7 @@
 {
   "schema": "setjoin.sec.deep-security-remediation-transitions/v2",
   "contract": "setjoin.sec.security-program-remediation/v1",
-  "canonicalController": "scripts/verify-security-program.sh",
+  "canonicalController": "scripts/ci/verify-security-program.sh",
   "frozenOn": "2026-09-22",
   "authority": {
     "accepted": [

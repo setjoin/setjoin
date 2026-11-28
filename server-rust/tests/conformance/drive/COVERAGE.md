@@ -37,7 +37,7 @@ checked-in goldens and require no Go executable or upstream.
 
 ## Native qualification, 2026-11-01
 
-`bash scripts/check-server-rust.sh` passed with `REQUIRE_DB=1` against the
+`bash scripts/guards/check-server-rust.sh` passed with `REQUIRE_DB=1` against the
 assigned disposable database. The four Cargo roots passed 830, 17, 66 and 21
 tests; all 447 replay/mutant invocations and 49 route coverage suites passed.
 Drive contributed 132 oracle tests and three executable dispatch tests.

@@ -12,9 +12,9 @@ and the executable plan is
 From a clone that already passes the normal repository bootstrap:
 
 ```bash
-bash scripts/verify-office-foundation.sh doctor
-bash scripts/verify-office-foundation.sh quick
-bash scripts/verify-office-foundation.sh core
+bash scripts/ci/verify-office-foundation.sh doctor
+bash scripts/ci/verify-office-foundation.sh quick
+bash scripts/ci/verify-office-foundation.sh core
 ```
 
 `doctor` is read-only and reports the fake-provider path separately from the
@@ -31,8 +31,8 @@ contract scaffold rather than production evidence.
 Inspect a stable explanation without a server:
 
 ```bash
-bash scripts/verify-office-foundation.sh explain E_OFFICE_PROVIDER_UNREADY
-bash scripts/verify-office-foundation.sh explain E_OFFICE_PROOF_REJECTED
+bash scripts/ci/verify-office-foundation.sh explain E_OFFICE_PROVIDER_UNREADY
+bash scripts/ci/verify-office-foundation.sh explain E_OFFICE_PROOF_REJECTED
 ```
 
 Once the gateway is available, the read-only operator view is:
@@ -85,7 +85,7 @@ evidence continue to gate release claims and provider activation policy.
 The retained executable install proofs are:
 
 ```bash
-bash scripts/e2e-office-managed-install.sh
+bash scripts/dev/e2e-office-managed-install.sh
 cd mailserver
 SETJOIN_LIVE_COLLABORA=1 go test -v ./internal/appmarket -run '^TestLiveDockerCollaboraInstall$' -count=1
 ```
@@ -94,7 +94,7 @@ Successful focused runs retain a manifest beneath
 `test-results/office-foundation/<run-id>/`. Verify a retained run with:
 
 ```bash
-bash scripts/verify-office-foundation.sh evidence test-results/office-foundation/<run-id>/manifest.json
+bash scripts/ci/verify-office-foundation.sh evidence test-results/office-foundation/<run-id>/manifest.json
 ```
 
 ## Product boundaries
@@ -138,7 +138,7 @@ verdict blocks the corresponding promotion.
 The live profile is intentionally separate:
 
 ```bash
-bash scripts/verify-office-foundation.sh live-collabora
+bash scripts/ci/verify-office-foundation.sh live-collabora
 ```
 
 The command reports the exact missing prerequisites and exits non-zero until a

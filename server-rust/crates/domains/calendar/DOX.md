@@ -204,4 +204,4 @@ contacts and GAL authority, serialization, journal effects and qualification.
 - Subscription cap (#423): `subscription_count(exec, actor)` counts in the caller's user scope, so it sees its rows under the RLS-bound credential (Go counted on the unscoped pool, saw 0). Mutant `subscription-cap-unscoped`.
 - CalDAV timezone cache (#426/#512): keyed by (calendar, TZID); `timezone_catalog` returns the calendar id. Mutant `caldav-tz-global-key` (golden `propfind-timezone-foreign` re-baselined).
 - GAL (#427/#512): `gal_users` shows a manager's name only when the manager is itself in `directory_visible_users` for the caller. Mutant `gal-manager-disclosed`.
-- Tests: `bins/gateway/tests/secfix6.rs`, `scripts/test-secfix6-mutants.py`.
+- Tests: `bins/gateway/tests/secfix6.rs`, `scripts/dev/test-secfix6-mutants.py`.

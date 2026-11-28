@@ -13,7 +13,7 @@
 --     calls; the public surface runs GUC-less): driven as setjoin_app they
 --     still mint AND record windows through FORCE, while the table itself
 --     stays dark to the same role.
--- COVERED entry: scripts/rls-denial-allowlist.txt (the allow guard
+-- COVERED entry: scripts/guards/rls-denial-allowlist.txt (the allow guard
 -- auto-excludes policy-less tables — no app-role write is structurally
 -- possible, so only this denial file is owed).
 BEGIN;

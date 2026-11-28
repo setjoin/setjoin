@@ -68,7 +68,7 @@ SELECT is((SELECT proowner::regrole::text FROM pg_proc WHERE proname='drive_memb
   'still worker-owned');
 
 -- REAL cross-tenant denial proof for chat_message_attachments FORCE-RLS
--- (scripts/rls-denial-allowlist.txt COVERED classification): land a genuine
+-- (scripts/guards/rls-denial-allowlist.txt COVERED classification): land a genuine
 -- attachment via the send reducer, then confirm a channel member can read
 -- the link row while 77099 (never joined) sees none.
 UPDATE feature_toggles SET enabled = true WHERE key = 'feature.drive';

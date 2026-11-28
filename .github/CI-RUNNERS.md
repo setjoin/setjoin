@@ -1,6 +1,6 @@
 # CI runners and labels
 
-Every workflow runs on GitHub-hosted runners. `scripts/check-workflow-log-hygiene.sh`
+Every workflow runs on GitHub-hosted runners. `scripts/guards/check-workflow-log-hygiene.sh`
 (run by `scripts/run-guards.sh`) fails on any `self-hosted` mention outside a comment.
 
 ## Where jobs run
@@ -14,7 +14,7 @@ Every workflow runs on GitHub-hosted runners. `scripts/check-workflow-log-hygien
 (pull_request, push to main, manual). The legacy Go `xinchuang-ci.yml` was removed (#142); the
 structural guards run in the server-rust lane's `guards` job (below) and locally (`scripts/run-guards.sh`).
 
-rust-floor runs on push to main and manual dispatch only (no pull_request trigger) and runs `scripts/cross-build.sh --rust` in glibc 2.28 (x86_64/arm64) and a glibc 2.36 loong64
+rust-floor runs on push to main and manual dispatch only (no pull_request trigger) and runs `scripts/ci/cross-build.sh --rust` in glibc 2.28 (x86_64/arm64) and a glibc 2.36 loong64
 sysroot, checks ELF version needs and smokes the gateway in a scratch loong64 runtime.
 
 ## Rules
@@ -59,32 +59,32 @@ Rollback and rollout: `server-rust/DOX.md#parallel-full-lane-550`.
 A push to `main` only refreshes the caches (`build`, `coverage-build`; no tests, summary
 "cache refresh only, no tests"), and a nightly `schedule` (02:30 UTC) runs the full lane plus coverage as the backstop,
 skipping cleanly when main has no commit in the last 26 hours. It never runs on `pull_request`; PRs get only `.github/workflows/pr-precheck.yml`
-(jobs `light` = `scripts/quick-check.sh` and `integration` = the changed packages' integration tests selected by
-`scripts/precheck-integration.py`, gated by a job also named `aggregate`). The rows above do not apply to either. Images come from `ghcr.io/setjoin` as pinned
+(jobs `light` = `scripts/ci/quick-check.sh` and `integration` = the changed packages' integration tests selected by
+`scripts/ci/precheck-integration.py`, gated by a job also named `aggregate`). The rows above do not apply to either. Images come from `ghcr.io/setjoin` as pinned
 in `.github/ci/images.lock`. See `server-rust/DOX.md#parallel-full-lane-550`.
 
 `run-guards.sh --known-red FILE` tolerates the guards named in `scripts/guards-known-red.txt` (each with an
 issue reference, today #348): they still run and warn. The allowlist only shrinks: a listed guard that
 passes fails the run until its line is removed; a name with no guard file is an error.
 `scripts/run-guards-selftest.sh` proves these cases and runs before the guards in the job;
-`scripts/check-test-gate-wiring.sh` asserts the job and its `aggregate` requirement.
+`scripts/guards/check-test-gate-wiring.sh` asserts the job and its `aggregate` requirement.
 
 ## quick check (agent branches)
 
-`.github/workflows/quick-check.yml` is one `ubuntu-latest` job (pinned lane image, `scripts/quick-check.sh`) on `workflow_dispatch` only (`packages`, `tests`; pull requests get the same script from `pr-precheck.yml`): `cargo clippy --all-targets` (errors fail, lints are warnings) + `cargo test --lib` for changed packages, cheap guards, rustfmt on added files.
+`.github/workflows/quick-check.yml` is one `ubuntu-latest` job (pinned lane image, `scripts/ci/quick-check.sh`) on `workflow_dispatch` only (`packages`, `tests`; pull requests get the same script from `pr-precheck.yml`): `cargo clippy --all-targets` (errors fail, lints are warnings) + `cargo test --lib` for changed packages, cheap guards, rustfmt on added files.
 It stays one job so it never competes with the 19-job full lane for the 20-job concurrency limit; pull requests run only `pr-precheck` and the merge queue runs the full lane (per batch head when batching is on; waiting entries run none).
 
 ## PR pre-check (`pr-precheck.yml`)
 
 On every pull-request update: `light` (as quick check above) and `integration` run side by side (peak two jobs per PR),
 then a ~10 s gate job `aggregate`, the ruleset's required check, is red unless both succeeded. `integration` ends at once
-when no `server-rust/` file other than `*.md` changed. Otherwise `scripts/precheck-integration.py plan` selects test targets
+when no `server-rust/` file other than `*.md` changed. Otherwise `scripts/ci/precheck-integration.py plan` selects test targets
 (rule in its docstring, fixtures in `selftest`, which runs first in the job): every `tests/*.rs` target of each changed
 package and of its normal/build reverse dependents when there are at most 5 of them; for `setjoin-gateway` and
 `setjoin-auth` only targets whose test file changed or names a changed test helper or golden, or whose name matches a
 changed path (soft caps 30 and 20: over the cap, only changed or referencing test files run);
 nothing for `server-rust/Cargo.toml`, `Cargo.lock` or `rust-toolchain*` changes. It runs them through
-`scripts/server-rust-parallel-lane.sh` with `SERVER_RUST_STAGES=workspace` and `SERVER_RUST_NEXTEST_SELECT` on the lane
+`scripts/ci/server-rust-parallel-lane.sh` with `SERVER_RUST_STAGES=workspace` and `SERVER_RUST_NEXTEST_SELECT` on the lane
 Postgres (`REQUIRE_DB=1`, skip markers, ignored and zero tests red), restoring the `lane` cargo cache
 without saving. The test step is capped at 30 minutes (job 45; an auth-domain selection of ~2000 tests needs ~5 min build + ~16 min tests + teardown); hitting the cap is red. Anything not selected, doc tests,
 replays, mutants and coverage stay with the merge queue's full lane.

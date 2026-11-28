@@ -229,7 +229,7 @@ Go active/recovery-required journals, first install and invalid destination refu
 Owner-approved security fixes (2026-11-05, tickets #506, #505, #507) live in
 [SECURITY.md](SECURITY.md): managed adoption authenticity, recovery tty guard,
 recovery wrapper path, ownership checks, `sslmode`, debug-only verify flags and the
-raise-only `--minimum-threshold`. `scripts/test-updater-secfix-mutants.py` restores
+raise-only `--minimum-threshold`. `scripts/dev/test-updater-secfix-mutants.py` restores
 each gap and requires its test to fail.
 
 #359b: `core_setjoin_auth` is an optional staged executable (`setjoin-auth`, mode 0500); adoption

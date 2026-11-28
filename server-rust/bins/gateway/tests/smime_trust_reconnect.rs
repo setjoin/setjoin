@@ -2,7 +2,7 @@
 //! being trusted across a LISTEN reconnect. Frozen Go never repaired a `smime_trust_changed`
 //! notification lost while its subscription was down. The cache serves no pool while the
 //! listener is disconnected and is cleared when the subscription is back.
-//! Mutant: `scripts/test-smtp-secfix-mutants.py` (feature `oracle-mutants`,
+//! Mutant: `scripts/dev/test-smtp-secfix-mutants.py` (feature `oracle-mutants`,
 //! `SETJOIN_MAILSEC_MUTANT=smime-no-reconnect-reload|smime-cache-while-deaf`).
 use setjoin_conformance::harness::Db;
 use setjoin_gateway::smime_trust::SmimeTrustListener;

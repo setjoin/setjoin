@@ -18,7 +18,7 @@ R3b is eligible only when these exact rows are `CLOSED` in
 - Physical Android device
 - First-use operator timing drill
 
-`bash scripts/check-upgrade-contracts.sh --rehearsal-extraction-eligible` is the
+`bash scripts/guards/check-upgrade-contracts.sh --rehearsal-extraction-eligible` is the
 fail-closed eligibility check. While any row is open or missing it returns
 nonzero with `rehearsal_u8_hold_open` and names every blocking row. The normal
 upgrade-contract lane treats that result as an expected, visible hold; it does
@@ -28,10 +28,10 @@ not pretend the deferred extraction has shipped.
 
 | Owner | Scope | Current authority |
 | --- | --- | --- |
-| `scripts/unified-deployment-readiness.sh` | Exact A/B/C Ubuntu containers, private DNS, SMTP sink, subnet collision checks, first provisioning, guarded resume, status, exact cleanup | Resource existence, naming, subnet, and base evidence authority |
-| `scripts/transactional-updater-rehearsal.sh` | U3/U4 restore proof, signed release fixtures, updater preview/challenge/intent, switch and rollback | Updater execution and terminal-OFF evidence authority |
-| `scripts/transactional-upgrade-rehearsal.sh` | U5–U8 orchestration, `.pass` checkpoints, bounded delegation, hardware gate, combined cleanup | Continuity phase/resume orchestration authority |
-| `scripts/transactional-continuity-rewind.sh` | Complete-machine snapshot/rewind, Egress/Podman state, later-message receipt, adversarial receipt, idempotent recovered copy | Portable rewind and private evidence authority |
+| `scripts/deploy/unified-deployment-readiness.sh` | Exact A/B/C Ubuntu containers, private DNS, SMTP sink, subnet collision checks, first provisioning, guarded resume, status, exact cleanup | Resource existence, naming, subnet, and base evidence authority |
+| `scripts/deploy/transactional-updater-rehearsal.sh` | U3/U4 restore proof, signed release fixtures, updater preview/challenge/intent, switch and rollback | Updater execution and terminal-OFF evidence authority |
+| `scripts/deploy/transactional-upgrade-rehearsal.sh` | U5–U8 orchestration, `.pass` checkpoints, bounded delegation, hardware gate, combined cleanup | Continuity phase/resume orchestration authority |
+| `scripts/deploy/transactional-continuity-rewind.sh` | Complete-machine snapshot/rewind, Egress/Podman state, later-message receipt, adversarial receipt, idempotent recovered copy | Portable rewind and private evidence authority |
 
 ## Duplication and authority matrix
 

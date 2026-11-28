@@ -5,44 +5,44 @@
   "decision": "implemented-pure-totp-only",
   "sources": [
     {
-      "path": "scripts/rehearsal-totp.sh",
+      "path": "scripts/deploy/rehearsal-totp.sh",
       "sha256": "b27e80529ab6f67a19238e9875593fc3033db50cf624ce9a545654d7a7caa355"
     },
     {
-      "path": "scripts/rehearsal-totp.test.sh",
-      "sha256": "7cf87e66fcf624dd98032517d7b835dc6e5e391cfc443eff9c9006385f96da62"
+      "path": "scripts/deploy/rehearsal-totp.test.sh",
+      "sha256": "8e683d085dec65aa51d0bbd76254f2aa6bb297a7e78a6e4663aa6eae91f745da"
     },
     {
-      "path": "scripts/unified-deployment-d3.sh",
-      "sha256": "769e233cc334b775954b487a46a1259dbd63b5383f0b2a6ddd78f635d100020a"
+      "path": "scripts/deploy/unified-deployment-d3.sh",
+      "sha256": "b3773759a116e50e47dd235eeaf036141e06e1409a324f5b7c87c025e75a174c"
     },
     {
-      "path": "scripts/unified-deployment-d4.sh",
-      "sha256": "162413127ad3ecfeabe4cf88830e42265f707493f55c2f81ea9aa8d974e07a9c"
+      "path": "scripts/deploy/unified-deployment-d4.sh",
+      "sha256": "7c91dddeb8d547d5a111bbdc6d69ebce85071465fd05f4cdaa6b5b12e2fed56c"
     },
     {
-      "path": "scripts/unified-deployment-d4-oidc-flow.sh",
+      "path": "scripts/deploy/unified-deployment-d4-oidc-flow.sh",
       "sha256": "282681fc3384ba6e1c500cb3fd19f345210fecf42a4a680b6747b71acbb13fd4"
     },
     {
-      "path": "scripts/unified-deployment-d5.sh",
-      "sha256": "9708ad0fe9562aa90a8fa5fd99fa731a3491e7b7e5b5c3920ea300308a854fd1"
+      "path": "scripts/deploy/unified-deployment-d5.sh",
+      "sha256": "254201bc54fdff5bc42cd3e0c741cbe91a391715388d8f3ebbfcfb7802ae1ddf"
     },
     {
-      "path": "scripts/unified-deployment-readiness.sh",
-      "sha256": "d1b6b7a40990c0aee94666e108f9ad8c6a78ac29ad2e3a76aea23aa4d4a5661c"
+      "path": "scripts/deploy/unified-deployment-readiness.sh",
+      "sha256": "1747db7f6e9de45e6d9bcf90a00178c5e09d937e0244911f3086f7714e7638bd"
     },
     {
-      "path": "scripts/transactional-upgrade-rehearsal.sh",
-      "sha256": "78a93074e7b7efa5dbc8d13d12cf360afa0ace70bb4de1cd5fb42b9fbfcf3845"
+      "path": "scripts/deploy/transactional-upgrade-rehearsal.sh",
+      "sha256": "781eb2a81c4bf31314f39d8c4956ea8803e238be0d27e66257b937ca05152f89"
     },
     {
-      "path": "scripts/transactional-updater-rehearsal.sh",
-      "sha256": "496c0d262e1ac7a65227c104bd61646c5b54b9ce8d3d49cf11d49c686bfd7079"
+      "path": "scripts/deploy/transactional-updater-rehearsal.sh",
+      "sha256": "4506b2f044884723d9c28d8bc59044537dff8142b301335914c2baca11d2a5c3"
     },
     {
-      "path": "scripts/transactional-continuity-rewind.sh",
-      "sha256": "b0e8d4f112758b8004e6eadcf5c087e0cf0eb4822ecd35d847a5c83579952194"
+      "path": "scripts/deploy/transactional-continuity-rewind.sh",
+      "sha256": "2b42189a3e3c433cfba418e6c5eab87cf6287e17f8198c7e05101b85b6d2f828"
     }
   ],
   "operations": [
@@ -66,7 +66,7 @@
       ],
       "differences": [],
       "disposition": "extracted-pure-leaf",
-      "owner": "scripts/rehearsal-totp.sh"
+      "owner": "scripts/deploy/rehearsal-totp.sh"
     },
     {
       "id": "http-response-capture",
@@ -129,7 +129,7 @@
         "all other paths use bearer tokens and no cookie jar"
       ],
       "disposition": "scenario-local",
-      "owner": "scripts/unified-deployment-d4-oidc-flow.sh"
+      "owner": "scripts/deploy/unified-deployment-d4-oidc-flow.sh"
     },
     {
       "id": "enrollment-reset-policy",

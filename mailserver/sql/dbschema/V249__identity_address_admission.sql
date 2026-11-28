@@ -6,7 +6,7 @@
 -- case-insensitive — and is executed live by BOTH co-evolving twins
 -- (mailserver/sql/reducers/resolve_identity.sql and
 -- authserver/internal/connector/connector.go:ResolveIdentitySQL, guarded by
--- scripts/check-identity-predicate.sh). Before this migration the match space
+-- scripts/guards/check-identity-predicate.sh). Before this migration the match space
 -- had no cross-table exclusion: `users.ad_upn` had no unique index at all and
 -- no relation prevented one address from being claimed by TWO enabled persons
 -- (e.g. person A's UPN simultaneously person B's email). Both resolvers ended

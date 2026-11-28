@@ -34,7 +34,7 @@
 -- security_event_enqueue (function ACLs, NOT apply_worker_ownership — that
 -- applicator grants setjoin_app EXECUTE by contract, V118:19-20), and delivery
 -- drains on the BYPASSRLS worker pool, which FORCE RLS cannot see. NOT a
--- membership-scoped table: no entry in scripts/rls-coverage-allowlist.txt
+-- membership-scoped table: no entry in scripts/guards/rls-coverage-allowlist.txt
 -- classes (worker-owned substrate).
 CREATE TABLE public.security_event_outbox (
     id               BIGSERIAL PRIMARY KEY,

@@ -37,7 +37,7 @@ ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 # gate runs further below, after pg_isready and before the destructive load,
 # the loader's cluster-global role provisioning, and the ALTER ROLE password
 # resets.
-source "$ROOT/scripts/e2e-test-db-guard.sh"
+source "$ROOT/scripts/ci/e2e-test-db-guard.sh"
 e2e_validate_test_db || exit $?
 INSTANCE_DIR="${TMPDIR:-/tmp}/setjoin-e2e-${DB_NAME}-${GATEWAY_PORT}"
 CONTROL_SOCKET="${E2E_CONTROL_SOCKET:-$INSTANCE_DIR/control.sock}"

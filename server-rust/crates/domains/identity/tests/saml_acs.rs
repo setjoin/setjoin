@@ -1,7 +1,7 @@
 //! Verified SAML ACS (#546): signature, wrapping, canonicalization and assertion
 //! checks, one red-green slice per check. Mutant ids (`SETJOIN_SAMLACS_MUTANT`, with
 //! the `oracle-mutants` feature) restore each check's absence; see
-//! `scripts/test-samlacs-mutants.py`.
+//! `scripts/dev/test-samlacs-mutants.py`.
 #[path = "saml_acs/support.rs"]
 mod support;
 use setjoin_identity::saml_acs::{process, Claims, Fail};

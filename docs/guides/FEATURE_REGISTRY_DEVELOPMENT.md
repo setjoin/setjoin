@@ -51,8 +51,8 @@ contracts, they do not become a second source of business authority.
 
    ```bash
    go run ./shared/toggle/cmd/feature-registry-gen --check
-   bash scripts/verify-architecture-r2.sh registry
-   bash scripts/verify-architecture-r2.sh full
+   bash scripts/ci/verify-architecture-r2.sh registry
+   bash scripts/ci/verify-architecture-r2.sh full
    ```
 
 `--check` verifies every versioned migration/snapshot checksum and requires the
@@ -71,8 +71,8 @@ runtime inventory test/golden, and either document the exact operation in
 `mailserver/api/openapi.yaml` or add a reviewer-approved exact pending entry.
 
 ```bash
-bash scripts/verify-architecture-r2.sh route
-bash scripts/verify-architecture-r2.sh route --self-test
+bash scripts/ci/verify-architecture-r2.sh route
+bash scripts/ci/verify-architecture-r2.sh route --self-test
 ```
 
 Expected: an exact-operation count followed by `route-inventory: PASS`. The
@@ -86,7 +86,7 @@ exact segment prefix, add query/hash, near-prefix, absent-capability, Guest, and
 zero-app tests, then run:
 
 ```bash
-bash scripts/verify-architecture-r2.sh app
+bash scripts/ci/verify-architecture-r2.sh app
 ```
 
 ### Add a worker launch
@@ -96,7 +96,7 @@ to `worker_semantics.json` and update the AST-derived golden. Do not introduce a
 second supervisor or a direct `go worker.Run(...)` call.
 
 ```bash
-bash scripts/verify-architecture-r2.sh worker
+bash scripts/ci/verify-architecture-r2.sh worker
 ```
 
 ### Add a feature key
@@ -106,7 +106,7 @@ typed catalog, generated SQL, signed release compatibility, reducer/API/UI
 behavior, and observe/enforce tests agree.
 
 ```bash
-bash scripts/verify-architecture-r2.sh registry
+bash scripts/ci/verify-architecture-r2.sh registry
 ```
 
 ### Add a native bridge member
@@ -117,8 +117,8 @@ projection, implement the supported shell seams, and run the production
 recorder checks:
 
 ```bash
-node scripts/native-contract-conformance.mjs --write
-bash scripts/verify-architecture-r2.sh native
+node scripts/guards/native-contract-conformance.mjs --write
+bash scripts/ci/verify-architecture-r2.sh native
 ```
 
 The checker derives capabilities with the pinned TypeScript compiler and checks
@@ -129,10 +129,10 @@ allowed; advertising an unsupported member is not.
 ## Front door, diagnostics, and timing evidence
 
 ```bash
-bash scripts/verify-architecture-r2.sh --doctor
-bash scripts/verify-architecture-r2.sh --help
-bash scripts/verify-architecture-r2.sh          # hermetic quick lane
-bash scripts/verify-architecture-r2.sh full     # DB + canonical deterministic gates
+bash scripts/ci/verify-architecture-r2.sh --doctor
+bash scripts/ci/verify-architecture-r2.sh --help
+bash scripts/ci/verify-architecture-r2.sh          # hermetic quick lane
+bash scripts/ci/verify-architecture-r2.sh full     # DB + canonical deterministic gates
 ```
 
 Each lane publishes a schema-versioned, hash-bound manifest atomically under
@@ -144,10 +144,10 @@ minutes (scheduled p95: sample 19 of 20) and planted diagnostics within 30
 seconds.
 
 ```bash
-bash scripts/verify-architecture-r2.sh benchmark --class warm --samples 5 --warmup 1
-bash scripts/check-architecture-r2-dx-metrics.sh --require
+bash scripts/ci/verify-architecture-r2.sh benchmark --class warm --samples 5 --warmup 1
+bash scripts/guards/check-architecture-r2-dx-metrics.sh --require
 
-bash scripts/verify-architecture-r2.sh benchmark --class warm --samples 20 --warmup 2
+bash scripts/ci/verify-architecture-r2.sh benchmark --class warm --samples 20 --warmup 2
 ```
 
 Fingerprints contain toolchain/lock digests and coarse machine classes, never a

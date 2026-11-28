@@ -1,6 +1,6 @@
 //! Secure-behaviour tests for the owner-approved OIDC provider security fixes
 //! (2026-11-05, #523). Each test fails against the matching frozen-Go defect
-//! restored by `scripts/test-secfix7-mutants.py` (feature `oracle-mutants`).
+//! restored by `scripts/dev/test-secfix7-mutants.py` (feature `oracle-mutants`).
 mod common;
 include!("oidc_oracle/harness.rs");
 #[path = "oidc_oracle/grants.rs"]

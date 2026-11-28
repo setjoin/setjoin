@@ -426,7 +426,7 @@ and exact parameter arity locally before executing via unnamed
 `setjoin_pg::mint` (`mint` feature) is enabled only on `setjoin-authz` and
 composition-root binaries (`bins/gateway`, `bins/auth`); `WorkerPool` and
 `WorkerTx` (`worker-pool` feature) are enabled only on composition-root
-binaries. `scripts/check-rust-family-isolation.py` enforces both `cargo
+binaries. `scripts/guards/check-rust-family-isolation.py` enforces both `cargo
 metadata` feature rules (including renamed `setjoin-pg` dependency forwarding)
 and hard bans across all `crates/domains/*/{src,tests}` on `setjoin_pg::mint`,
 `capability::mint`, `::mint`, `AppPool`, `AdminWorkerPool`, `PreAuthReadTx`,

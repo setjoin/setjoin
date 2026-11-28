@@ -12,7 +12,7 @@ Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Re
 - [Local Contracts](DOX.md#local-contracts)
   - [Reducer conventions (non-negotiable)](DOX.md#reducer-conventions-non-negotiable)
   - [Schema conventions](DOX.md#schema-conventions)
-  - [Queue failure contract (F1 — enforced by scripts/check-queue-contract.sh)](DOX.md#queue-failure-contract-f1--enforced-by-scriptscheck-queue-contractsh)
+  - [Queue failure contract (F1 — enforced by scripts/guards/check-queue-contract.sh)](DOX.md#queue-failure-contract-f1--enforced-by-scriptsguardscheck-queue-contractsh)
   - [Schema-truth rule (post-collapse — ARCH-007)](DOX.md#schema-truth-rule-post-collapse--arch-007)
   - [Post-collapse change-management model](DOX.md#post-collapse-change-management-model)
   - [Migration numbering](DOX.md#migration-numbering)

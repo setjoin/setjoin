@@ -41,14 +41,14 @@ Leaf crate defining compile-time static SQL contracts (`SqlContract`, `SqlScope`
 
 ## Verification
 
-- `bash scripts/check-rust-sql-contracts-selftest.sh` — proves all 8 negative
+- `bash scripts/guards/check-rust-sql-contracts-selftest.sh` — proves all 8 negative
   mutant classes fail deterministically (broken column `42703`, bind type
   `42804`/`BIND_TYPE_MISMATCH`, column type `COLUMN_TYPE_MISMATCH`, custom OID
   `CUSTOM_OID_FORBIDDEN`, `FORCE RLS` violation `42501`/`RLS_VIOLATION` +
   worker-only function `42501`, `format!` SQL `SQL_INTERPOLATION_FORBIDDEN`,
   uncataloged raw SQL `UNCATALOGED_SQL`, proc-macro/`sqlx` injection
   `PROC_MACRO_FORBIDDEN`).
-- `bash scripts/check-rust-sql-contracts.sh` — runs static scanner
-  (`scripts/check-rust-sql-contracts.py` + `config/sql-contracts-legacy-ratchet.json`)
+- `bash scripts/guards/check-rust-sql-contracts.sh` — runs static scanner
+  (`scripts/guards/check-rust-sql-contracts.py` + `config/sql-contracts-legacy-ratchet.json`)
   and `verify-sql-contracts` against disposable PostgreSQL 17. Auto-discovered
   by `scripts/run-guards.sh` (`# guard-requires: db`).

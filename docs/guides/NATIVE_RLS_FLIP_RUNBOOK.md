@@ -111,7 +111,7 @@ Do not proceed unless every one of these is true:
 2. **All isolation tests are green** — the full test suite (`bash
    scripts/test.sh`), including the dual-tenant isolation proofs. If your
    vendor build didn't ship these green, do not flip.
-3. **The coverage guard is green.** `scripts/check-rls-coverage.sh` must exit
+3. **The coverage guard is green.** `scripts/guards/check-rls-coverage.sh` must exit
    0. This is a machine check that every code path touching an RLS-protected
    table is either scoped to one mailbox, routed onto the worker (bypass)
    pool, or explicitly reviewed and allow-listed. If it fails, the flip is
@@ -214,8 +214,8 @@ Do not proceed unless every one of these is true:
   that one org. A cross-organization recall/audit scenario is explicitly out
   of scope for this program.
 - Not a replacement for the application-layer checks and CI guards
-  (`scripts/check-account-scope.sh`,
-  `scripts/check-rls-coverage.sh`). Those stay load-bearing — RLS is a second,
+  (`scripts/guards/check-account-scope.sh`,
+  `scripts/guards/check-rls-coverage.sh`). Those stay load-bearing — RLS is a second,
   independent layer, not a reason to relax the first one.
 - Not something you do as part of a routine code deploy. This is a
   deliberate, hand-authorized operational change with its own maintenance

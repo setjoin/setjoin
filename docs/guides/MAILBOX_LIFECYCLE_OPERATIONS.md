@@ -1,7 +1,7 @@
 # Mailbox lifecycle operations
 
 The lifecycle feature is OFF by default. Before any canary, run
-`bash scripts/verify-mailbox-lifecycle.sh quick`, confirm the parity report has
+`bash scripts/ci/verify-mailbox-lifecycle.sh quick`, confirm the parity report has
 no conflicts, and test with a disposable mailbox.
 
 Use explicit verbs: **suspend** keeps the user binding and blocks access;

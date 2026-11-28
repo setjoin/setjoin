@@ -4,9 +4,9 @@ This is the operator entry point for the whole-codebase coverage program. It doe
 not authorize a scan or remediation.
 
 ```bash
-bash scripts/verify-security-program.sh --doctor
-bash scripts/verify-security-program.sh coverage status
-bash scripts/verify-security-program.sh coverage resume
+bash scripts/ci/verify-security-program.sh --doctor
+bash scripts/ci/verify-security-program.sh coverage status
+bash scripts/ci/verify-security-program.sh coverage resume
 ```
 
 Doctor and status validate the frozen C0 authority. Resume reconstructs the safe

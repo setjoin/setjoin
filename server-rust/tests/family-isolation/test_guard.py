@@ -8,7 +8,7 @@ import unittest
 
 GUARD = (
     pathlib.Path(__file__).resolve().parents[3]
-    / "scripts/check-rust-family-isolation.py"
+    / "scripts/guards/check-rust-family-isolation.py"
 )
 
 

@@ -192,8 +192,8 @@ schema to remove audit/notify or add two mailbox state bumps; the tenant mutant
 makes the worker mailbox predicate tautological without changing token identity.
 They must fail the same recorded comparison and drop their schemas afterward.
 
-Integration qualification runs `python3 scripts/check-gofree-oracle-adequacy.py
---execute --coverage` and `bash scripts/check-server-rust.sh`. Worker tasks run
+Integration qualification runs `python3 scripts/guards/check-gofree-oracle-adequacy.py
+--execute --coverage` and `bash scripts/guards/check-server-rust.sh`. Worker tasks run
 the affected targets and default guards with assigned full-schema owner/app
 DSNs, `REQUIRE_DB=1`, task-owned target and two Cargo jobs. Never treat a DB skip
 as pass.

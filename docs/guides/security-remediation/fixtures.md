@@ -129,7 +129,7 @@ deep-security-remediation: reopened/HOLD — a predecessor boundary case is re-o
 
 ## Dispatcher
 
-### `bash scripts/verify-security-program.sh --help` — exit 0, stdout (redirected = pipe rows)
+### `bash scripts/ci/verify-security-program.sh --help` — exit 0, stdout (redirected = pipe rows)
 
 ```text
 command	help
@@ -165,7 +165,7 @@ unavailable[3]	rollback execution
 unavailable[4]	external capability probe
 ```
 
-### `bash scripts/verify-security-program.sh --help --json` — exit 0, stdout
+### `bash scripts/ci/verify-security-program.sh --help --json` — exit 0, stdout
 
 ```json
 {
@@ -209,7 +209,7 @@ unavailable[4]	external capability probe
 }
 ```
 
-### `bash scripts/verify-security-program.sh --doctor` — exit 0, stdout (pipe rows)
+### `bash scripts/ci/verify-security-program.sh --doctor` — exit 0, stdout (pipe rows)
 
 ```text
 c0	PASS
@@ -248,7 +248,7 @@ Interactive terminals render the same document as human text; it begins
 `doctor: PASS` and ends `CONTROL PLANE USABLE` (asserted by the dispatcher
 self-test).
 
-### `bash scripts/verify-security-program.sh --doctor --json` — exit 0, stdout
+### `bash scripts/ci/verify-security-program.sh --doctor --json` — exit 0, stdout
 
 ```json
 {
@@ -281,7 +281,7 @@ self-test).
 }
 ```
 
-### `bash scripts/verify-security-program.sh coverage status` — exit 0, stdout (pipe rows)
+### `bash scripts/ci/verify-security-program.sh coverage status` — exit 0, stdout (pipe rows)
 
 ```text
 authorizedCount	5824
@@ -327,7 +327,7 @@ status	PASS
 treePathCount	6199
 ```
 
-### `bash scripts/verify-security-program.sh coverage resume` — exit 3 (intentional HOLD), stderr (pipe rows)
+### `bash scripts/ci/verify-security-program.sh coverage resume` — exit 3 (intentional HOLD), stderr (pipe rows)
 
 The expected fresh-session result while T7-DX acceptance is open:
 
@@ -347,7 +347,7 @@ networkStarts	0
 next	null
 problem	The operator control plane is incomplete
 rerun.argv[0]	bash
-rerun.argv[1]	scripts/verify-security-program.sh
+rerun.argv[1]	scripts/ci/verify-security-program.sh
 rerun.argv[2]	--doctor
 rerun.argv[3]	--offline
 safeAction	Complete the named gates before C0.5
@@ -360,7 +360,7 @@ targetVerdict	SAFE_HOLD
 whySafe	No admitted attempt or shard authority exists, so no scanner may start
 ```
 
-### `bash scripts/verify-security-program.sh coverage resume --json` — exit 3, stderr (JSON diagnostic)
+### `bash scripts/ci/verify-security-program.sh coverage resume --json` — exit 3, stderr (JSON diagnostic)
 
 The same diagnostic in versioned JSON (stdout stays empty):
 
@@ -383,7 +383,7 @@ The same diagnostic in versioned JSON (stdout stays empty):
   "next": null,
   "problem": "The operator control plane is incomplete",
   "rerun": {
-    "argv": ["bash", "scripts/verify-security-program.sh", "--doctor", "--offline"]
+    "argv": ["bash", "scripts/ci/verify-security-program.sh", "--doctor", "--offline"]
   },
   "safeAction": "Complete the named gates before C0.5",
   "scanLaunch": "HOLD",
@@ -396,7 +396,7 @@ The same diagnostic in versioned JSON (stdout stays empty):
 }
 ```
 
-### `bash scripts/verify-security-program.sh bogus-command` — exit 2, stderr (pipe rows)
+### `bash scripts/ci/verify-security-program.sh bogus-command` — exit 2, stderr (pipe rows)
 
 A usage failure is one versioned diagnostic; `rerun.argv` points at `--help` and
 `helpCommands` carries the full valid grammar (18 rows, elided here — the exact
@@ -418,7 +418,7 @@ helpCommands[0]	inventory compile --check
 networkStarts	0
 problem	The command grammar is invalid
 rerun.argv[0]	bash
-rerun.argv[1]	scripts/verify-security-program.sh
+rerun.argv[1]	scripts/ci/verify-security-program.sh
 rerun.argv[2]	--help
 safeAction	Run --help
 scanLaunch	HOLD
@@ -427,7 +427,7 @@ schema	setjoin.security-program.diagnostic/v1
 status	FAIL
 ```
 
-### `bash scripts/verify-security-program.sh coverage explain HOLD` — exit 0, stdout
+### `bash scripts/ci/verify-security-program.sh coverage explain HOLD` — exit 0, stdout
 
 ```text
 command	explain HOLD
@@ -437,7 +437,7 @@ status	PASS
 subject	HOLD
 ```
 
-### `bash scripts/verify-security-program.sh coverage explain E_SECURITY_PROGRAM_APPROVAL_REQUIRED` — exit 0, stdout
+### `bash scripts/ci/verify-security-program.sh coverage explain E_SECURITY_PROGRAM_APPROVAL_REQUIRED` — exit 0, stdout
 
 ```text
 command	explain E_SECURITY_PROGRAM_APPROVAL_REQUIRED
@@ -458,7 +458,7 @@ subject	E_SECURITY_PROGRAM_APPROVAL_REQUIRED
 ### `coverage explain` on a checker code — exit 2, stderr (JSON)
 
 `coverage explain` knows `C0`, `HOLD`, and the `E_SECURITY_PROGRAM_*` catalog
-only. `bash scripts/verify-security-program.sh coverage explain E_SEC_REM_STALE --json`
+only. `bash scripts/ci/verify-security-program.sh coverage explain E_SEC_REM_STALE --json`
 returns the usage diagnostic (abridged; full shape as the exit-2 capture above):
 
 ```json
@@ -469,7 +469,7 @@ returns the usage diagnostic (abridged; full shape as the exit-2 capture above):
   "command": "diagnostic",
   "exitFamily": "FAIL",
   "problem": "The command grammar is invalid",
-  "rerun": { "argv": ["bash", "scripts/verify-security-program.sh", "--help"] },
+  "rerun": { "argv": ["bash", "scripts/ci/verify-security-program.sh", "--help"] },
   "safeAction": "Run --help",
   "schema": "setjoin.security-program.diagnostic/v1",
   "status": "FAIL"
@@ -478,7 +478,7 @@ returns the usage diagnostic (abridged; full shape as the exit-2 capture above):
 
 Checker codes are explained by the [error catalog](error-catalog.md) instead.
 
-### `bash scripts/verify-security-program.sh coverage evidence` — exit 0, stdout
+### `bash scripts/ci/verify-security-program.sh coverage evidence` — exit 0, stdout
 
 ```text
 absolutePathsExposed	false
@@ -499,7 +499,7 @@ status	PASS
 verified	true
 ```
 
-### `bash scripts/verify-security-program.sh coverage migrate --check` — exit 0, stdout
+### `bash scripts/ci/verify-security-program.sh coverage migrate --check` — exit 0, stdout
 
 ```text
 adapterInvoked	true
@@ -529,7 +529,7 @@ With `--to v2` the same command reports `targetVersion v2`,
 `migrationRequired true` (the v1-to-v2 dry check), and distinct
 source/target projection hashes; it still publishes nothing.
 
-### `bash scripts/verify-security-program.sh coverage show --section S01` — exit 0, stdout
+### `bash scripts/ci/verify-security-program.sh coverage show --section S01` — exit 0, stdout
 
 ```text
 command	coverage show --section S01
@@ -544,7 +544,7 @@ shardId	S01/P01
 status	PASS
 ```
 
-### `bash scripts/verify-security-program.sh coverage list` — exit 0, stdout (head/tail; 204 rows total)
+### `bash scripts/ci/verify-security-program.sh coverage list` — exit 0, stdout (head/tail; 204 rows total)
 
 Lists phases and all 30 owner sections/shards. Head:
 
@@ -580,7 +580,7 @@ status	PASS
 count from the command, never from this sentence); resolve one with
 `coverage show --path-token TOKEN`.
 
-### `bash scripts/verify-security-program.sh coverage benchmark --journey resume --samples 5 --warmup 2` — exit 0, stdout (head; 205 rows total)
+### `bash scripts/ci/verify-security-program.sh coverage benchmark --journey resume --samples 5 --warmup 2` — exit 0, stdout (head; 205 rows total)
 
 Measured 48s wall on the capture host; the full document carries eight journey
 rows (one per resume state branch) plus privacy flags:

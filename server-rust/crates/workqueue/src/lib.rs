@@ -9,7 +9,7 @@
 //! - `worker` feature: enables `setjoin-pg/worker-pool` and the `WorkQueue`
 //!   claim / heartbeat / settle / reclaim / consumer API. Strictly restricted
 //!   to composition roots (`setjoin-gateway`, `setjoind`) by
-//!   `scripts/check-rust-family-isolation.py`.
+//!   `scripts/guards/check-rust-family-isolation.py`.
 //! - `operator` feature: enables `OperatorConnection`-based DLQ helpers for
 //!   `setjoin-mailctl`.
 #![forbid(unsafe_code)]

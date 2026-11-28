@@ -8,7 +8,7 @@
 #   * The required lane is .github/workflows/xinchuang-ci.yml — this workflow
 #     must never be wired into it and xinchuang-ci.yml is not modified here.
 #
-# What it runs (lane body: scripts/run-meet-renderer-qualification.sh, the
+# What it runs (lane body: scripts/dev/run-meet-renderer-qualification.sh, the
 # 2026-09-20 renderer-qualification record §11 linux-ci-host re-qualification):
 #   A1 corpus verify (frozen manifest, consumed as renderer input everywhere)
 #   A2 pinned LibreOffice engine (input `engine_version`, default 26.8.0.3;
@@ -16,7 +16,7 @@
 #      `soffice --version` must equal the pin)
 #   A3 digest-verified linux pdfium artifact (pdfium-linux-x64.tgz,
 #      chromium/8057)
-#   A4 producer capture via scripts/gen-meet-m0-corpus.sh acquire (staging
+#   A4 producer capture via scripts/dev/gen-meet-m0-corpus.sh acquire (staging
 #      only; fragment recorded for the future manifest rev-3 platform-marked
 #      rows — recorded, never re-pinned or committed by this lane)
 #   B  network-denial canary: bubblewrap smoke (must start), denied probes
@@ -97,7 +97,7 @@ jobs:
           MEET_QUAL_ENGINE_VERSION: ${{ inputs.engine_version }}
           MEET_QUAL_PDFIUM_REF: ${{ inputs.pdfium_ref }}
           MEET_QUAL_RUN_DIR: ${{ github.workspace }}/meet-renderer-qual-run
-        run: bash scripts/run-meet-renderer-qualification.sh
+        run: bash scripts/dev/run-meet-renderer-qualification.sh
 
       - name: Upload run-scoped receipts (never committed)
         if: always()

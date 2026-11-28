@@ -1,7 +1,7 @@
 //! In-process [`AuthAuthority`] implementation wrapping [`AuthServer`] (#543).
 //!
 //! Gated behind the `in-process-authority` Cargo feature, which CI restricts
-//! exclusively to `setjoin-auth` and `setjoind` (`scripts/check-rust-family-isolation.py`).
+//! exclusively to `setjoin-auth` and `setjoind` (`scripts/guards/check-rust-family-isolation.py`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

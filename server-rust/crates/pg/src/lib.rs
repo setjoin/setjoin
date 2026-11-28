@@ -33,7 +33,7 @@
 //!
 //! Principal minting (`mint`) and `WorkerPool` (`worker-pool`) are Cargo
 //! feature-gated and statically isolated from `crates/domains/*` by
-//! `scripts/check-rust-family-isolation.py`.
+//! `scripts/guards/check-rust-family-isolation.py`.
 //!
 //! # Outcomes
 //!

@@ -34,5 +34,5 @@ tempfile = "=3.27.0"
 
 [features]
 # Test-only: restores each recorded security gap so a test must reject it
-# (scripts/test-updater-secfix-mutants.py). Never enabled in a shipped build.
+# (scripts/dev/test-updater-secfix-mutants.py). Never enabled in a shipped build.
 oracle-mutants = []

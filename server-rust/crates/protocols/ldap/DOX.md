@@ -122,7 +122,7 @@ before binding; release Abandon's no-op admission permit; serialize Bind as a
 connection-wide barrier. Original Go goldens are
 unchanged; `oracle/divergences.json` names the exact secure wire observations and
 owner decision. `oracle-mutants` is an explicit test-only build feature restoring
-these bugs. `scripts/test-authrt-ldap-mutants.py` requires all four socket tests
+these bugs. `scripts/dev/test-authrt-ldap-mutants.py` requires all four socket tests
 to reject that build, then reruns the ordinary secure build and cleans fixtures.
 Run the listener target with strict DSNs, one test thread; no test is skipped.
 

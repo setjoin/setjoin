@@ -38,7 +38,7 @@ Modes and boundaries:
   protocol  Docker-backed IMAP connector E2E plus SMTP/LDAP Go surface suites
             and the explicit local protocol contract. The external
             link-protect Safe Browsing lane is not part of `all`; run it only
-            with its credentials/services through `scripts/e2e.sh link-protect`.
+            with its credentials/services through `scripts/dev/e2e.sh link-protect`.
   browser   Full Playwright against exactly E2E_SERVER, followed by the
             self-contained strict-CSP suite against its static-build loopback
             server. E2E_SERVER must be an exact http(s) origin. The full suite
@@ -130,9 +130,9 @@ validate_origin() {
 
 run_static() {
   echo "==> [static] build"
-  bash "$ROOT/scripts/build.sh"
+  bash "$ROOT/scripts/ci/build.sh"
   echo "==> [static] local CI without database"
-  bash "$ROOT/scripts/ci-local.sh" --no-db
+  bash "$ROOT/scripts/ci/ci-local.sh" --no-db
 }
 
 run_core() {
@@ -281,7 +281,7 @@ run_harmony() {
 run_protocol() {
   require_command docker
   echo "==> [protocol] Docker IMAP connector E2E + SMTP/LDAP Go surface suites"
-  bash "$ROOT/scripts/e2e.sh" all
+  bash "$ROOT/scripts/dev/e2e.sh" all
 }
 
 run_browser() {
@@ -291,23 +291,23 @@ run_browser() {
   (cd "$ROOT/mailserver/webmail" && \
     E2E_SERVER="$E2E_SERVER" E2E_CSP_REQUIRE_GATEWAY_HEADER=1 \
     GUEST_E2E_EVIDENCE="$ROOT/mailserver/webmail/test-results/guest-e2e-evidence" \
-    bash "$ROOT/scripts/playwright-supported.sh" -- npm run test:e2e)
+    bash "$ROOT/scripts/ci/playwright-supported.sh" -- npm run test:e2e)
   echo "==> [browser] strict CSP static-build origin=http://127.0.0.1:8199"
   (cd "$ROOT/mailserver/webmail" && \
     E2E_CSP_REQUIRE_GATEWAY_HEADER=0 \
-    bash "$ROOT/scripts/playwright-supported.sh" -- npm run test:e2e:csp)
+    bash "$ROOT/scripts/ci/playwright-supported.sh" -- npm run test:e2e:csp)
   echo "==> [browser] verifying named Playwright release evidence"
   TEST_EVIDENCE_ORIGIN="$E2E_SERVER" \
   TEST_EVIDENCE_CSP_ORIGIN="http://127.0.0.1:8199" \
   TEST_EVIDENCE_OUTPUT="mailserver/webmail/test-results/playwright-evidence.json" \
-    bash "$ROOT/scripts/check-test-evidence-results.sh" --verify playwright-json
+    bash "$ROOT/scripts/guards/check-test-evidence-results.sh" --verify playwright-json
 }
 
 run_onboarding() {
   require_command curl
   require_command npm
   echo "==> [onboarding] disposable first-boot browser journey"
-  bash "$ROOT/scripts/e2e-onboarding.sh"
+  bash "$ROOT/scripts/dev/e2e-onboarding.sh"
 }
 
 run_browser_complete() {
@@ -315,7 +315,7 @@ run_browser_complete() {
   require_command docker
   require_command npm
   echo "==> [browser-complete] isolated complete browser matrix"
-  bash "$ROOT/scripts/e2e-browser-complete.sh"
+  bash "$ROOT/scripts/dev/e2e-browser-complete.sh"
 }
 
 run_mobile() {
@@ -331,12 +331,12 @@ run_continuity() {
   local prefix="${RUN_PREFIX:-continuity-$(date -u +%Y%m%d-%H%M%S)-$$}"
   echo "==> [continuity] prefix=$prefix"
   RUN_PREFIX="$prefix" FORCE="${FORCE:-1}" \
-    bash "$ROOT/scripts/transactional-upgrade-rehearsal.sh" deterministic
+    bash "$ROOT/scripts/deploy/transactional-upgrade-rehearsal.sh" deterministic
 }
 
 run_performance() {
   echo "==> [performance] real Go-gateway Webmail CI surrogate"
-  bash "$ROOT/scripts/verify-webmail-performance.sh" ci
+  bash "$ROOT/scripts/ci/verify-webmail-performance.sh" ci
 }
 
 run_all() {

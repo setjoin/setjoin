@@ -397,5 +397,5 @@ from the stored row; the scope sits in the mutating statement's own WHERE (R3).
 
 Tests: `bins/gateway/tests/secfix4.rs` (refused foreign / allowed own / allowed global),
 re-baselined goldens under `tests/conformance/admin-identity/security/`. Mutants:
-`scripts/test-secfix4-mutants.py` (feature `oracle-mutants`, env `SETJOIN_SECFIX3_MUTANT`,
+`scripts/dev/test-secfix4-mutants.py` (feature `oracle-mutants`, env `SETJOIN_SECFIX3_MUTANT`,
 reducer mutants reload a bug-restored reducer into the disposable DB).

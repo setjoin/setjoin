@@ -43,8 +43,8 @@ export TEST_SUBNET=172.30.241.0/24
 Run the local contracts first:
 
 ```bash
-bash scripts/check-unified-deployment-contracts-selftest.sh
-bash scripts/check-unified-deployment-contracts.sh
+bash scripts/guards/check-unified-deployment-contracts-selftest.sh
+bash scripts/guards/check-unified-deployment-contracts.sh
 cd mailserver
 go test ./cmd/mailserverd ./internal/federation ./internal/admin ./internal/ad ./internal/ldapsync
 cd ../mailctl
@@ -68,9 +68,9 @@ Copy or clone the exact candidate tree onto the authorized Ubuntu host, then:
 
 ```bash
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-readiness.sh preflight
+  bash scripts/deploy/unified-deployment-readiness.sh preflight
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-readiness.sh provision
+  bash scripts/deploy/unified-deployment-readiness.sh provision
 ```
 
 The owned topology is:
@@ -89,7 +89,7 @@ retained A/B/C state:
 
 ```bash
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-readiness.sh resume-provision
+  bash scripts/deploy/unified-deployment-readiness.sh resume-provision
 ```
 
 ## Execute phases
@@ -99,18 +99,18 @@ Run phases serially because later phases intentionally compose earlier state:
 ```bash
 # Native-RLS, database/blob backup, isolated restore and rollback posture.
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d2.sh prepare
+  bash scripts/deploy/unified-deployment-d2.sh prepare
 
 # Guest OFF baseline, real MIME invite URL, terminal-token cases and browser.
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d3.sh prepare
+  bash scripts/deploy/unified-deployment-d3.sh prepare
 # Follow the phase's browser-ready/verify/supersede actions as reported.
 
 # Real TLS LDAP source, model-v2 shadow rail and resumable 24-hour observer.
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d4.sh prepare
+  bash scripts/deploy/unified-deployment-d4.sh prepare
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d4.sh status
+  bash scripts/deploy/unified-deployment-d4.sh status
 
 # Authentication-only sources have a separate real-login observation rail.
 # After D4 has configured A as RP and C as Setjoin OP, store the dedicated
@@ -123,29 +123,29 @@ install -m 0600 /path/to/test-admin-email \
 install -m 0600 /path/to/test-admin-password \
   "test-results/deployment-readiness/$RUN_PREFIX/d4/oidc/private/admin-password"
 RUN_PREFIX="$RUN_PREFIX" \
-  bash scripts/unified-deployment-d4-auth-observer.sh observe
+  bash scripts/deploy/unified-deployment-d4-auth-observer.sh observe
 RUN_PREFIX="$RUN_PREFIX" \
-  bash scripts/unified-deployment-d4-auth-observer.sh status
+  bash scripts/deploy/unified-deployment-d4-auth-observer.sh status
 
 # Three-stack mTLS, wrong anchor, hub/spoke DM+room, partition/dedup and rotation.
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d5.sh prepare
+  bash scripts/deploy/unified-deployment-d5.sh prepare
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d5.sh journey
+  bash scripts/deploy/unified-deployment-d5.sh journey
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d5.sh rotate
+  bash scripts/deploy/unified-deployment-d5.sh rotate
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d5.sh adversarial
+  bash scripts/deploy/unified-deployment-d5.sh adversarial
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d5.sh peer-reset
+  bash scripts/deploy/unified-deployment-d5.sh peer-reset
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d5.sh pressure
+  bash scripts/deploy/unified-deployment-d5.sh pressure
 
 # Guest + Identity canary + Federation composition during the 24-hour window.
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d6.sh prepare
+  bash scripts/deploy/unified-deployment-d6.sh prepare
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d6.sh status
+  bash scripts/deploy/unified-deployment-d6.sh status
 ```
 
 Each action is idempotent at its named checkpoint. Resume the failed action;
@@ -164,15 +164,15 @@ status, and cleanup behavior and adds resumable continuity checkpoints:
 
 ```bash
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/transactional-upgrade-rehearsal.sh provision
+  bash scripts/deploy/transactional-upgrade-rehearsal.sh provision
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/transactional-upgrade-rehearsal.sh updater
+  bash scripts/deploy/transactional-upgrade-rehearsal.sh updater
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" REWIND_ATTEMPT=attempt-1 \
-  bash scripts/transactional-upgrade-rehearsal.sh rewind
+  bash scripts/deploy/transactional-upgrade-rehearsal.sh rewind
 RUN_PREFIX="$RUN_PREFIX" FORCE=1 \
-  bash scripts/transactional-upgrade-rehearsal.sh deterministic
+  bash scripts/deploy/transactional-upgrade-rehearsal.sh deterministic
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/transactional-upgrade-rehearsal.sh cleanup
+  bash scripts/deploy/transactional-upgrade-rehearsal.sh cleanup
 ```
 
 Use `resume-provision` only for the guarded installer retry. If rewind fails,
@@ -200,7 +200,7 @@ time cannot satisfy the authentication gate. Verify the latter with:
 
 ```bash
 RUN_PREFIX="$RUN_PREFIX" \
-  bash scripts/unified-deployment-d4-auth-observer.sh verify-window
+  bash scripts/deploy/unified-deployment-d4-auth-observer.sh verify-window
 ```
 
 The observer resets only the dedicated disposable C test administrator between
@@ -256,15 +256,15 @@ Inspect without mutation:
 
 ```bash
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-readiness.sh status
+  bash scripts/deploy/unified-deployment-readiness.sh status
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d4.sh status
+  bash scripts/deploy/unified-deployment-d4.sh status
 RUN_PREFIX="$RUN_PREFIX" \
-  bash scripts/unified-deployment-d4-auth-observer.sh status
+  bash scripts/deploy/unified-deployment-d4-auth-observer.sh status
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d5.sh status
+  bash scripts/deploy/unified-deployment-d5.sh status
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d6.sh status
+  bash scripts/deploy/unified-deployment-d6.sh status
 ```
 
 On terminal success, failure or cancellation, run feature-phase cleanup first, confirm toggles and
@@ -272,17 +272,17 @@ allow-lists match the pre-run snapshot, then delete only the exact prefix:
 
 ```bash
 RUN_PREFIX="$RUN_PREFIX" \
-  bash scripts/unified-deployment-d4-auth-observer.sh stop
+  bash scripts/deploy/unified-deployment-d4-auth-observer.sh stop
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d6.sh cleanup
+  bash scripts/deploy/unified-deployment-d6.sh cleanup
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d5.sh cleanup
+  bash scripts/deploy/unified-deployment-d5.sh cleanup
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d4.sh cleanup
+  bash scripts/deploy/unified-deployment-d4.sh cleanup
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-d3.sh cleanup
+  bash scripts/deploy/unified-deployment-d3.sh cleanup
 RUN_PREFIX="$RUN_PREFIX" TEST_SUBNET="$TEST_SUBNET" \
-  bash scripts/unified-deployment-readiness.sh cleanup
+  bash scripts/deploy/unified-deployment-readiness.sh cleanup
 ```
 
 Cleanup is intentionally ordered from the most composed phase back to the

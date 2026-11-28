@@ -68,7 +68,7 @@ case-specific receipt after comparison, and executes the per-route status and
 applicable family effect mutants ([gate contract](../../../DOX.md#oracle-adequacy)). An ON command needs success, cross-tenant and invalid
 cases; a mutator also needs row-effect goldens and a repeated request. OFF
 commands with recorded cases still run and report coverage. Use
-`python3 scripts/check-gofree-oracle-adequacy.py --execute --coverage` with
+`python3 scripts/guards/check-gofree-oracle-adequacy.py --execute --coverage` with
 the disposable DB environment, `DB_APP_DSN`, and Rust `llvm-tools`; pass
 `--coverage-output PATH` to retain the JSON report. The standard Rust lane
 runs this check when a DB is available.

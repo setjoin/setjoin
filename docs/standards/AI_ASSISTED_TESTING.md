@@ -161,7 +161,7 @@ The machine-readable registry is
 `scripts/check-feature-test-contracts.sh`.
 
 `docs/verification/required-test-evidence.json` separately pins the required
-requirement and evidence IDs. `scripts/check-required-test-evidence.sh` rejects
+requirement and evidence IDs. `scripts/guards/check-required-test-evidence.sh` rejects
 silent deletion, renaming, or duplication of those IDs, so shrinking the
 feature registry cannot make an obligation disappear unnoticed.
 

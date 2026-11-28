@@ -1,6 +1,6 @@
 //! Owner-approved security fixes of 2026-11-05 (#499 items 2-4). Each test breaks
 //! one table through a shadowing view, so the engine's read fails at runtime; the
-//! mutant script (`scripts/test-secfix3-mutants.py`) restores each frozen-Go defect.
+//! mutant script (`scripts/dev/test-secfix3-mutants.py`) restores each frozen-Go defect.
 use setjoin_conditional_access::policy::eval::{Context, Engine};
 use setjoin_conformance::{
     fixture,

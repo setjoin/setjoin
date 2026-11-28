@@ -103,7 +103,7 @@ Register at the IdP: SP entity ID = the AuthnRequest Issuer `{root}/saml/metadat
 
 `tests/saml_acs.rs` (library, one test per check), `tests/saml_acs_c14n.rs`, auth
 `tests/saml_acs.rs` (HTTP, database), auth `tests/saml_interop.rs` (SimpleSAMLphp in a
-`gofree-samlacs-` container). `scripts/test-samlacs-mutants.py` restores each check's
+`gofree-samlacs-` container). `scripts/dev/test-samlacs-mutants.py` restores each check's
 absence (`SETJOIN_SAMLACS_MUTANT`, feature `oracle-mutants`) and requires its test to fail.
 Divergence entries for the old ACS 404 goldens and the changed login goldens:
 `tests/conformance/identity-saml/divergences.json` (`feature/`, owner-approved feature

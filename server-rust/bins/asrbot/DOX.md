@@ -57,7 +57,7 @@ regression tests. Same routes, same FunASR and LiveKit interactions, same output
   existing goldens under `tests/goldens/` continue running as permanent regression tests against
   the Rust `asrbotd` binary.
 - The inventory rows of the `asrbot` listener are `ON`/`rust-asrbot` with `oracle_goldens`;
-  `scripts/check-gofree-oracle-adequacy.py` checks the recorded statuses per route and, with
+  `scripts/guards/check-gofree-oracle-adequacy.py` checks the recorded statuses per route and, with
   `--execute`, runs one replay per golden and one `status_mutant_*` per route.
 - Not proven here: a join against a real `livekit-server` and a real FunASR container (the live
   round-trip must be repeated for the Rust binary before `feature.meet_captions` flips on anywhere);

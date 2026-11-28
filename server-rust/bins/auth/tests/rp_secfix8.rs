@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 //! Owner-approved OIDC relying-party security fixes (#530, 2026-11-06). Each
-//! test states the secure behaviour; `scripts/test-secfix8-mutants.py` restores
+//! test states the secure behaviour; `scripts/dev/test-secfix8-mutants.py` restores
 //! the frozen-Go defect and requires the matching test to fail.
 mod common;
 include!("rp_oracle/harness.rs");

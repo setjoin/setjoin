@@ -1,5 +1,5 @@
 //! Owner-approved security fixes of 2026-11-05 (#490 #491 #495 #487): each test
-//! asserts the secure behaviour; `scripts/test-secfix3-mutants.py` restores the
+//! asserts the secure behaviour; `scripts/dev/test-secfix3-mutants.py` restores the
 //! frozen-Go bug (feature `oracle-mutants`, `SETJOIN_SECFIX3_MUTANT`) and requires
 //! the test to fail. Tests hold the family advisory lock like the other auth cases.
 mod common;

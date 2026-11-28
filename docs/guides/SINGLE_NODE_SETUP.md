@@ -33,7 +33,7 @@ installer is **idempotent**: re-running it preserves your existing
 > `config.env` and `LISTEN_ADDR=127.0.0.1:8443` into `auth.env` so the pair
 > can never drift apart (a 2026-07-06 real deploy 502'd every login because
 > nothing pinned them together). The dev reference
-> `scripts/deploy-and-test.sh` runs auth on `8444` only because *its* gateway
+> `scripts/deploy/deploy-and-test.sh` runs auth on `8444` only because *its* gateway
 > occupies `8443` — do not copy that port into a production config.
 
 > **setjoin Meet's SFU is provisioned unconditionally, even with `feature.meet`
@@ -122,7 +122,7 @@ below). Run on Linux with systemd (the installer writes the
 
 ```bash
 git clone https://github.com/setjoin/setjoin.git && cd setjoin
-bash scripts/build.sh                       # → mailserver/mailserverd, authserver/authserverd
+bash scripts/ci/build.sh                       # → mailserver/mailserverd, authserver/authserverd
 cd mailserver/webmail && npm ci && npm run build && cd ../..
 ```
 

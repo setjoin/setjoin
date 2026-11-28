@@ -85,9 +85,9 @@ Exact recording inputs and corpus hashes: [tests/recording.json](tests/recording
 Rust replays never need that Go binary; it is an ignored recording-time artifact.
 
 Verification: the workspace includes this crate automatically in
-`bash scripts/check-server-rust.sh`. Also run `cargo fmt --check` and
+`bash scripts/guards/check-server-rust.sh`. Also run `cargo fmt --check` and
 `cargo clippy -p setjoin-mailctl --all-targets -- -D warnings` in the workspace,
-and `bash scripts/check-agent-context-budget.sh` at the repository root.
+and `bash scripts/guards/check-agent-context-budget.sh` at the repository root.
 
 ## Direct database commands (#354)
 

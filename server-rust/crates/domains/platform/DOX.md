@@ -247,7 +247,7 @@ queue reads and the storage reads, `requireQueueWrite` for the journal retry,
 
 Auxiliary listener the gateway never mounts publicly (`listener` `control` in the inventory, ON as
 `local-rust`; its oracle is the Go-recorded goldens named in each entry's `oracle_goldens`, checked
-by `scripts/check-gofree-oracle-adequacy.py` like the captions bot). Built-in ACME :80,
+by `scripts/guards/check-gofree-oracle-adequacy.py` like the captions bot). Built-in ACME :80,
 `setjoin-acme.socket`, `crates/acme`, and the `acme-renewal` worker were retired in Release N+1
 (`#560`; `bins/gateway/src/acme.rs` now enforces a fail-closed startup error directing operators to
 `docs/guides/EDGE_TLS_ACME_MIGRATION.md`).

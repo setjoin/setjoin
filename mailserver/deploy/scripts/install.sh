@@ -5,7 +5,7 @@
 # Scope: a single host serving <100 users. For 100+ users or HA (zero SPOF,
 # automatic failover) use the 3-node guide: docs/guides/HA_OVERVIEW.md.
 #
-# Adapted from scripts/setup-test-env.sh (the working dev reference). Unlike
+# Adapted from scripts/ci/setup-test-env.sh (the working dev reference). Unlike
 # that script this targets a REAL config dir (/etc/setjoin), generates and
 # PERSISTS production secrets, installs the systemd units (gateway + auth
 # server), provisions the first admin, and health-checks — and it is IDEMPOTENT: re-running never overwrites
@@ -580,7 +580,7 @@ DB_DIRECT_OWNER_DSN="$DB_DIRECT_DSN"
 # config.env below: explicit beats compiled default, and the 2026-07-06 real
 # :443 deploy 502'd on every /auth/login exactly because nothing pinned the
 # gateway upstream and the auth listen port together). The dev reference
-# (scripts/deploy-and-test.sh) runs auth on 8444 only because ITS gateway
+# (scripts/deploy/deploy-and-test.sh) runs auth on 8444 only because ITS gateway
 # squats 8443 — do not copy that port here.
 AUTHSERVER_URL="$(get_env AUTHSERVER_URL)"; AUTHSERVER_URL="${AUTHSERVER_URL:-http://127.0.0.1:8443}"
 AUTH_LISTEN="${AUTHSERVER_URL#http://}"; AUTH_LISTEN="${AUTH_LISTEN#https://}"; AUTH_LISTEN="${AUTH_LISTEN%%/*}"

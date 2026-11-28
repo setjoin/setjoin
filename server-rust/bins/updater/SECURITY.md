@@ -2,7 +2,7 @@
 
 Owner-approved security fix 2026-11-05 (#506, #505, #507). Each behavioural fix has
 a test and an `oracle-mutants` feature branch that restores the gap;
-`scripts/test-updater-secfix-mutants.py` requires every mutant to be rejected, the
+`scripts/dev/test-updater-secfix-mutants.py` requires every mutant to be rejected, the
 ordinary build green and the `--release` binary to reject the test-only verify flags.
 Never enable the feature in a shipped build.
 
@@ -51,7 +51,7 @@ Never enable the feature in a shipped build.
 ## Delivery of the release trust roots (#507)
 The vendor PUBLIC release roots are not in the repository: they are provisioned in the
 signing environment (`SETJOIN_RELEASE_TRUST_ROOTS_PATH`).
-`scripts/package-server-release.sh` therefore takes them from the build input
+`scripts/deploy/package-server-release.sh` therefore takes them from the build input
 `SETJOIN_RELEASE_TRUST_ROOTS` (validated: schema 1, purpose release, 1..16 ed25519 keys,
 none test-only) and ships `server-rust/release-roots.json`; without it the package builds
 with a warning. `install.sh` calls `install_release_roots`

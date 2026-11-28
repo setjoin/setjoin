@@ -11,7 +11,7 @@ The spec-writing contract for `mailserver/webmail/e2e/`. Parent: `webmail/AGENTS
 
 `scripts/start-test-stack.sh` builds the Webmail SPA first, then builds instance-scoped gateway/authserver/mailctl binaries below `${TMPDIR}/setjoin-e2e-<db>-<gateway-port>`, reloads `mailserver_e2e` from the collapsed baseline + forward migrations + reducers, creates the catalog-derived current/next monthly partitions **before** `fixtures/seed.sql` can place current-month rows in a DEFAULT partition, starts SeaweedFS S3, and runs the servers in the FOREGROUND under an overseer. Building before the database reset prevents stale `build/` output from testing an older product; `E2E_SKIP_WEBMAIL_BUILD=1` is allowed only when the caller already built and verified the same output, and the script refuses that override when `build/index.html` is absent. The default gateway/auth/S3 ports are `8080`/`8443`/`9000`; the disposable SMTP inbound/submission/IMAP listeners bind only `127.0.0.1` on `1025`/`1587`/`1143`, preserving the production IMAP TLS fence without exposing test authentication. Each has a matching `E2E_*_PORT` override. The reaper kills only this exact instance's binaries/Seaweed children and refuses non-E2E port owners, so isolated stacks can coexist. Pass the matching `E2E_SERVER=http://localhost:<gateway-port>` to Playwright; config, setup, helpers, and seeded `authserver.public_url` then share that browser-visible origin. Ordinary mode passes empty `LIVEKIT_*` values even if the parent shell previously ran a meeting gate; `E2E_MEET_LIVE=1` alone starts the pinned LiveKit container and wires the SFU. Poll `/health` for HTTP 200 — never a blind sleep or body-agnostic curl; child exit, degraded health, or timeout fails and cleans every sibling.
 
-The complete front door is `bash scripts/verify-all.sh browser-complete` (or `bash scripts/e2e-browser-complete.sh`). It runs default user/admin, live CA/device, strict CSP, uninitialized onboarding, and real LiveKit phases with separate JSON reports below `test-results/browser-complete/`. `check-complete-browser-evidence.mjs` rejects failures, retry-flakes, unexpected gated skips, and any default skip not discharged by a passing real phase. The sole browser-honesty exclusion is the active native offline-mail journey. Coverage policy and the feature/dimension ledger live in `COVERAGE.md`.
+The complete front door is `bash scripts/verify-all.sh browser-complete` (or `bash scripts/dev/e2e-browser-complete.sh`). It runs default user/admin, live CA/device, strict CSP, uninitialized onboarding, and real LiveKit phases with separate JSON reports below `test-results/browser-complete/`. `check-complete-browser-evidence.mjs` rejects failures, retry-flakes, unexpected gated skips, and any default skip not discharged by a passing real phase. The sole browser-honesty exclusion is the active native offline-mail journey. Coverage policy and the feature/dimension ledger live in `COVERAGE.md`.
 
 `E2E_MAXIMAL_FEATURES=1` is the disposable startup-interaction diagnostic. It
 enables every registered feature before authserver/gateway boot except two
@@ -40,12 +40,12 @@ not-applicable exclusions carry an explicit reason. The live gateway browser
 run sets `E2E_CSP_REQUIRE_GATEWAY_HEADER=1` so `csp.spec.ts` checks the actual
 `Content-Security-Policy` response header; the standalone static CSP run checks
 only the meta policy and always starts a fresh loopback server through
-`scripts/playwright-supported.sh`.
+`scripts/ci/playwright-supported.sh`.
 
 The full link-protect SMTP/Safe Browsing flow is an external credential/service
 gate and is intentionally absent from the default protocol `all` lane. Use
-`scripts/e2e.sh link-protect` only with its explicit credentials; the local
-`scripts/e2e.sh link-protect-local` lane covers the in-process token contract.
+`scripts/dev/e2e.sh link-protect` only with its explicit credentials; the local
+`scripts/dev/e2e.sh link-protect-local` lane covers the in-process token contract.
 
 ## Project routing — tags, not skips
 
@@ -116,7 +116,7 @@ Apps card, proves the reducer queue reaches the updater/Docker runner, waits via
 the admin API for `connected_inactive`, checks the browser-visible terminal
 state, live discovery and the manifest-bound revision digest, then restores the
 toggle and removes only fixed test runtime resources. The source-bound front
-door is `bash scripts/e2e-office-managed-install.sh`. An external runner may be
+door is `bash scripts/dev/e2e-office-managed-install.sh`. An external runner may be
 used through `E2E_MANAGED_OFFICE_EXTERNAL_RUNNER=1` when a supported browser is
 connected to a separate Linux Docker host; that mode never runs or cleans Docker
 on the browser host.
@@ -149,7 +149,7 @@ pass unless the whole assertion succeeds on a later attempt.
 
 ## Supported Linux browser runtime
 
-`scripts/playwright-supported.sh` keeps the Playwright test process, database
+`scripts/ci/playwright-supported.sh` keeps the Playwright test process, database
 helpers, and artifacts on the controller host. `auto` uses the host on macOS or
 supported Ubuntu 22.04/24.04, accepts an explicit loopback-only
 `PLAYWRIGHT_CONNECT_WS_ENDPOINT` for a separate supported browser host, and

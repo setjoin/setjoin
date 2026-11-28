@@ -139,7 +139,7 @@ DB_ENCRYPTION_KEY="your-32-char-aes-encryption-key"
 4. **启动服务**
 
 ```bash
-bash scripts/dev.sh
+bash scripts/dev/dev.sh
 # 或使用 systemd：
 sudo systemctl start setjoin-gateway setjoin-authserver
 ```
