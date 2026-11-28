@@ -1023,7 +1023,7 @@ Workers use the established worker credential; these wrappers add no grants.
 | Reducer | File | Contract | Arguments | Effects |
 | --- | --- | --- | --- | --- |
 | `rust_identity_device_register` | rust_identity_device_register.sql | Frozen device registration transaction, invoker rights and authenticated user GUC; conflict key includes owner. First creation returns true; repeat metadata update never rotates trust root. | verified user, metadata/fingerprint, existing-codec sealed secret | device row + checked registered event; no state/audit/notify in Go |
-| `rust_device_checkin` | rust_device_checkin.sql | Frozen authserver device check-in after a verified device proof (#341): effective policy first, ≤100 request-ordered events through `mdm_checkin_event_append` (NULL aborts), Go's invoker-rights error-ignored `last_seen` UPDATE; one transaction. | verified device id, events jsonb `[{type,data}]` | effective-policy jsonb; no audit/notify/state bump (Go writes none) |
+| `rust_device_checkin` | rust_device_checkin.sql | Device check-in after a verified device proof (#341, #345): worker-owned SECURITY DEFINER; effective policy first, ≤100 request-ordered events through `mdm_checkin_event_append` (NULL aborts), R3-scoped `devices.last_seen = now()` UPDATE for the proven device; one transaction. | verified device id, events jsonb `[{type,data}]` | effective-policy jsonb; updates `devices.last_seen`; no audit/notify/state bump |
 
 ### Rust identity credential writes (#332)
 

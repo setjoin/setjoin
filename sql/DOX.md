@@ -2098,16 +2098,19 @@ No schema/seed changes. `tests/rust_identity_device_register.pg` checks ownershi
 repeat behavior and event-failure rollback; Rust HTTP recordings verify complete
 rows and decrypt the envelope against the secret returned to its proven owner.
 
-### Rust device check-in (#341)
+### Rust device check-in (#341, #345)
 
 `reducers/rust_device_checkin.sql` is the accept side of device trust after the
-Rust proof seam: `mdm_effective_policy` before any write, at most 100
-request-ordered `mdm_checkin_event_append` calls (NULL aborts; the cap is an
-owner-approved security fix) and Go's error-ignored `last_seen` UPDATE under
-the caller's credential (no row for `setjoin_app` without a GUC, as in Go;
-the only reader is admin_updates.go's update list, follow-up #345). Atomic
-where Go committed per event (fault-only). `tests/rust_device_checkin.pg`
-covers invoker rights, layering, ordering, R1–R3, cap, wipe, abort and the
+Rust proof seam: worker-owned `SECURITY DEFINER` with pinned `search_path`,
+running `mdm_effective_policy` before any write, at most 100 request-ordered
+`mdm_checkin_event_append` calls (NULL aborts; the cap is an owner-approved
+security fix), and an R3-scoped `UPDATE public.devices SET last_seen = now()
+WHERE id = p_device_id` so the proven device's `last_seen` advances under
+`setjoin_app` FORCE RLS (#345; approved divergence from frozen Go, recorded in
+`server/tests/conformance/identity-device/divergences.json`). Atomic where Go
+committed per event (fault-only). `tests/rust_device_checkin.pg` covers definer
+posture/ownership/ACL, layering, ordering, R1–R3 `last_seen` isolation, cap,
+wipe, abort (verifying failed check-ins leave `last_seen` untouched), and the
 accepted revoked-mid-flight residual.
 
 ### Rust identity refresh (#332)

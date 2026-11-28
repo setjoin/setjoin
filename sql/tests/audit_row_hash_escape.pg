@@ -1,0 +1,128 @@
+-- pgTAP: #181 audit_row_hash_v handles '"' and '\' via convert_to(..., 'UTF8')
+-- instead of ::bytea (which raised 22P02 invalid input syntax for type bytea
+-- when audit_canon emitted '\"' or '\\' for titles containing quotes/backslashes).
+BEGIN;
+SELECT plan(12);
+
+SELECT mk_account('hash181') AS mb \gset
+CREATE TEMP TABLE _u AS
+SELECT user_id AS uid FROM account_scope(:mb);
+
+-- 1–2: Backward compatibility — plain ASCII without backslashes hashes
+-- byte-for-byte identically to the legacy ::bytea formula in both V2 and V3.
+SELECT set_config('app.audit_hmac_key', '', false);
+SELECT is(
+  public.audit_row_hash_v(
+    false, 1, '2026-06-01T00:00:00Z'::timestamptz, (SELECT uid FROM _u),
+    '10.0.0.1'::inet, 'chat_channel_create', 'chat_channel', 42,
+    NULL, '{"name":"Plain Title"}'::jsonb, 'note', 'prevhash'
+  ),
+  encode(sha256((
+    '1' || ('2026-06-01T00:00:00Z'::timestamptz)::text || (SELECT uid::text FROM _u) ||
+    ('10.0.0.1'::inet)::text || 'chat_channel_create' || 'chat_channel' || '42' ||
+    public.audit_canon(NULL) || public.audit_canon('{"name":"Plain Title"}'::jsonb) ||
+    'note' || 'prevhash'
+  )::bytea), 'hex'),
+  'V2 convert_to matches legacy ::bytea byte-for-byte on plain ASCII'
+);
+
+SELECT set_config('app.audit_hmac_key', 'pgtap-hmac-key-181', false);
+SELECT is(
+  public.audit_row_hash_v(
+    true, 1, '2026-06-01T00:00:00Z'::timestamptz, (SELECT uid FROM _u),
+    '10.0.0.1'::inet, 'chat_channel_create', 'chat_channel', 42,
+    NULL, '{"name":"Plain Title"}'::jsonb, 'note', 'prevhash'
+  ),
+  'v3:' || encode(public.hmac((
+    '1' || ('2026-06-01T00:00:00Z'::timestamptz)::text || (SELECT uid::text FROM _u) ||
+    ('10.0.0.1'::inet)::text || 'chat_channel_create' || 'chat_channel' || '42' ||
+    public.audit_canon(NULL) || public.audit_canon('{"name":"Plain Title"}'::jsonb) ||
+    'note' || 'prevhash'
+  )::bytea, 'pgtap-hmac-key-181'::bytea, 'sha256'), 'hex'),
+  'V3 convert_to matches legacy ::bytea byte-for-byte on plain ASCII'
+);
+
+-- 3–5: Quotes and backslashes in JSONB payload and notes succeed in both V2 and V3.
+SELECT lives_ok(
+  $$SELECT public.audit_row_hash_v(
+      false, 2, '2026-06-01T00:00:00Z'::timestamptz, 1, '10.0.0.2'::inet,
+      'chat_channel_create', 'chat_channel', 43,
+      NULL, jsonb_build_object('name', E'Q4 "Plan" \\ Review'), E'notes with " and \\', 'prev'
+    )$$,
+  'V2 audit_row_hash_v accepts double quotes and backslashes without 22P02'
+);
+
+SELECT lives_ok(
+  $$SELECT public.audit_row_hash_v(
+      true, 2, '2026-06-01T00:00:00Z'::timestamptz, 1, '10.0.0.2'::inet,
+      'chat_channel_create', 'chat_channel', 43,
+      NULL, jsonb_build_object('name', E'Q4 "Plan" \\ Review'), E'notes with " and \\', 'prev'
+    )$$,
+  'V3 audit_row_hash_v accepts double quotes and backslashes without 22P02'
+);
+
+SELECT ok(
+  public.audit_row_hash_v(
+    true, 2, '2026-06-01T00:00:00Z'::timestamptz, 1, '10.0.0.2'::inet,
+    'chat_channel_create', 'chat_channel', 43,
+    NULL, jsonb_build_object('name', E'Q4 "Plan" \\ Review'), E'notes with " and \\', 'prev'
+  ) ~ '^v3:[0-9a-f]{64}$',
+  'V3 hash with quotes and backslashes produces well-formed v3:<64-hex> checksum'
+);
+
+-- 6: Backslash inside app.audit_hmac_key itself also does not fail with 22P02.
+SELECT set_config('app.audit_hmac_key', E'key\\with"slash', false);
+SELECT lives_ok(
+  $$SELECT public.audit_row_hash_v(
+      true, 3, '2026-06-01T00:00:00Z'::timestamptz, 1, NULL,
+      'chat_channel_create', 'chat_channel', 44,
+      NULL, jsonb_build_object('name', E'Backslash \\ Key'), NULL, NULL
+    )$$,
+  'V3 audit_row_hash_v handles backslashes in app.audit_hmac_key'
+);
+
+-- 7–8: End-to-end chat_channel_create with '"' and '\' under keyless V2.
+SELECT set_config('app.audit_hmac_key', '', false);
+SELECT lives_ok(
+  $$SELECT chat_channel_create((SELECT uid FROM _u), E'Q4 "Roadmap" \\ Sync', E'Topic "A" \\ B', 'public')$$,
+  'chat_channel_create succeeds with double quote and backslash in title (V2)'
+);
+
+SELECT ok(
+  (SELECT bool_and(valid) FROM public.verify_audit_chain(NULL, NULL)),
+  'admin_audit_log chain verifies after V2 chat_channel_create with quotes and backslashes'
+);
+
+-- 9–12: End-to-end chat_channel_create with '"' and '\' under keyed V3 + chat compliance audit.
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+SELECT set_config('app.audit_hmac_key', 'pgtap-hmac-key-181', false);
+
+CREATE TEMP TABLE _ch (id bigint);
+SELECT lives_ok(
+  $$INSERT INTO _ch SELECT chat_channel_create((SELECT uid FROM _u), E'Exec "Review" \\ Final', E'Notes \\ "ok"', 'private')$$,
+  'chat_channel_create succeeds with double quote and backslash in title (V3)'
+);
+
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM admin_audit_log
+     WHERE action = 'chat_channel_create'
+       AND target_id = (SELECT id FROM _ch)
+       AND checksum LIKE 'v3:%'
+       AND after_state->>'name' = E'Exec "Review" \\ Final'
+  ),
+  'V3 admin_audit_log row recorded v3 checksum and preserved exact title'
+);
+
+SELECT ok(
+  (SELECT bool_and(valid) FROM public.verify_audit_chain(NULL, NULL)),
+  'mixed V2+V3 admin_audit_log chain verifies with quotes and backslashes'
+);
+
+SELECT ok(
+  (SELECT bool_and(valid) FROM public.verify_chat_audit_chain((SELECT id FROM _ch), NULL, NULL)),
+  'per-channel chat_audit_log chain verifies after V3 chat_channel_create'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

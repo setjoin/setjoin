@@ -795,7 +795,7 @@ BEGIN
     SELECT m.*
     FROM messages m
     WHERE m.mailbox_id = p_mailbox_id AND m.is_deleted
-    ORDER BY m.deleted_at DESC
+    ORDER BY m.deleted_at DESC, m.id DESC
     LIMIT p_limit OFFSET p_position
   LOOP
     -- Same single-sourced row projection jmap_email_get uses, so the inline
@@ -810,10 +810,10 @@ BEGIN
 
   RETURN jsonb_build_object(
     'accountId', p_mailbox_id::TEXT,
-    'ids', (SELECT jsonb_agg(id::TEXT) FROM (
-      SELECT m.id FROM messages m
+    'ids', (SELECT jsonb_agg(sub.id::TEXT ORDER BY sub.deleted_at DESC, sub.id DESC) FROM (
+      SELECT m.id, m.deleted_at FROM messages m
       WHERE m.mailbox_id = p_mailbox_id AND m.is_deleted
-      ORDER BY m.deleted_at DESC
+      ORDER BY m.deleted_at DESC, m.id DESC
       LIMIT p_limit OFFSET p_position
     ) sub),
     'total', v_total,

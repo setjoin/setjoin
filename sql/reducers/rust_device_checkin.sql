@@ -1,27 +1,31 @@
--- #341: frozen authserver/internal/device HandleCheckin effects after the
--- device proof (RequireDeviceHMAC -> shared/device.VerifyDeviceRequest, whose
+-- #341 / #345: device check-in effects after the device proof
+-- (RequireDeviceHMAC -> DeviceResolver::verify_request, whose
 -- device_nonce_claim commits first in its own statement). One transaction:
--- the effective policy (mdm_effective_policy, resolved BEFORE any write as in
--- Go), the reported events in request order through the worker-owned
--- mdm_checkin_event_append seam (a NULL return - the device row did not
--- resolve - aborts the whole command), then Go's UpdateLastSeen statement.
+-- the effective policy (mdm_effective_policy, resolved BEFORE any write),
+-- the reported events in request order through the worker-owned
+-- mdm_checkin_event_append seam (a NULL return — the device row did not
+-- resolve — aborts the whole command), then an R3-scoped heartbeat UPDATE
+-- (`devices.last_seen = now() WHERE id = p_device_id`).
 --
--- SECURITY INVOKER on purpose: frozen Go runs `UPDATE devices SET last_seen`
--- on the request pool with no user GUC and discards its error; under
--- devices_self (FORCE RLS) as setjoin_app it matches no row. The heartbeat is
--- mirrored under the caller's own credential (functional parity; follow-up
--- #345), never widened through a definer. Go committed each event separately;
--- the reducer invariant makes the check-in atomic (fault-only difference).
--- More than 100 events is refused (owner-approved security fix, #341: Go had
--- no bound; the HTTP layer refuses first, before the proof).
+-- SECURITY DEFINER owned by setjoin_worker (#345): device check-in runs on the
+-- request pool (`setjoin_app`) without a user GUC because authentication is by
+-- per-device HMAC proof rather than user session. Under `devices_self`
+-- (FORCE RLS), an invoker-rights UPDATE silently matched zero rows and left
+-- `devices.last_seen` stale forever. Worker-owned SECURITY DEFINER (matching
+-- `rust_device_secret_reseal` and V254's `mdm_effective_policy` /
+-- `mdm_checkin_event_append`) updates `last_seen` for ONLY the proven
+-- `p_device_id`, while a failed proof never invokes this reducer.
+--
+-- More than 100 events is refused (owner-approved security fix, #341: the HTTP
+-- layer refuses first, before the proof).
 --
 -- R1/R2/R3: every read and write is keyed on p_device_id, which the caller
 -- passes only from a VerifiedDevice (HMAC + body digest + freshness + committed
--- nonce). No audit/notify/state bump: Go's device check-in writes none.
+-- nonce). No audit/notify/state bump.
 CREATE OR REPLACE FUNCTION rust_device_checkin(p_device_id bigint, p_events jsonb)
 RETURNS jsonb
-LANGUAGE plpgsql VOLATILE SECURITY INVOKER
-SET search_path = pg_catalog, public AS $$
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp AS $$
 DECLARE
     v_policy jsonb;
     v_event  jsonb;
@@ -62,13 +66,12 @@ BEGIN
         END IF;
     END LOOP;
 
-    -- Go: `_, _ = pool.Exec(UPDATE devices SET last_seen = now() WHERE id = $1)`.
-    BEGIN
-        UPDATE devices SET last_seen = now() WHERE id = p_device_id;
-    EXCEPTION WHEN OTHERS THEN
-        NULL;
-    END;
+    -- #345: R3-scoped heartbeat for the proven device only.
+    UPDATE public.devices
+       SET last_seen = now()
+     WHERE id = p_device_id;
 
     RETURN v_policy;
 END;
 $$;
+SELECT apply_worker_ownership('rust_device_checkin(bigint,jsonb)'::regprocedure);
