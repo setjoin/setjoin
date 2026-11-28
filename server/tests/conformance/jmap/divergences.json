@@ -280,5 +280,27 @@
     "reviewed": true,
     "review": "Wave 1.4 (#542) PolicyGate mailbox lifecycle enforcement on SSE push",
     "secure_test": "crates/authz/tests/policy_gate_db.rs::surface_matrix_enforces_revocation_lockdown_guest_entitlement_and_lifecycle"
+  },
+  {
+    "baseline": "goldens/jmap-session-native.json",
+    "sha256": "36a13cbf5311174b5c448e1c08766b8377c011c7c37110f3806ca67b2d2ae4a1",
+    "expectation": "security/jmap-session-native.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#260: jmap_session_device_register preserves app.current_user_id so native JMAP discovery passes user_devices FORCE RLS under setjoin_app and returns offline capabilities)",
+    "issue": "#260",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/jmap_other.rs::jmap_session_native"
+  },
+  {
+    "baseline": "goldens/jmap-session-native-row-effects.json",
+    "sha256": "0088f9dbc613dc6ea278fab14723d0390e50e1be24decfe904712cfd1af35304",
+    "expectation": "security/jmap-session-native-row-effects.json",
+    "reason": "owner-approved post-parity fix 2026-11-28 (#260: jmap_session_device_register preserves app.current_user_id so native JMAP discovery passes user_devices FORCE RLS under setjoin_app and registers the native device)",
+    "issue": "#260",
+    "reviewer": "owner 2026-11-28",
+    "reviewed": true,
+    "review": "owner-approved post-parity fix 2026-11-28",
+    "secure_test": "bins/gateway/tests/jmap_other.rs::jmap_session_native"
   }
 ]

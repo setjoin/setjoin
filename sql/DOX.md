@@ -2067,10 +2067,10 @@ the Rust HTTP oracle checks recorded committed rows and tag-channel notification
 ## Rust JMAP native discovery (#316)
 
 `reducers/jmap_session_device_register.sql` is an invoker
-adapter around `offline_device_register`, with a function-local empty user GUC
-to match Go's mailbox-only CallScoped. PostgreSQL restores the incoming GUC on
-exit. It preserves Go's app-role RLS fallback, while the pre-flip owner pool can
-register a device. Gateway Go-byte/effect coverage is in `tests/jmap_other.rs`.
+adapter around `offline_device_register` that preserves the caller's
+authenticated `app.current_user_id` and `app.current_mailbox_id` GUCs (`#260`)
+so native discovery device registration succeeds under `setjoin_app` RLS.
+Gateway coverage is in `tests/jmap_other.rs`.
 
 ## Rust JMAP Identity batch (#316)
 

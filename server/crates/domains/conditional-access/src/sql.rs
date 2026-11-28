@@ -529,7 +529,7 @@ pub const SIGNIN_LOG_BY_CORRELATION: SqlContract = SqlContract {
     sql: concat!(
         "SELECT id, ",
         pg_rfc3339!("occurred_at"),
-        ", user_id, CASE WHEN source_ip IS NULL THEN '' WHEN masklen(source_ip) = (CASE family(source_ip) WHEN 4 THEN 32 ELSE 128 END) THEN host(source_ip) ELSE source_ip::text END, \
+        ", user_id, CASE WHEN source_ip IS NULL THEN NULL WHEN masklen(source_ip) = (CASE family(source_ip) WHEN 4 THEN 32 ELSE 128 END) THEN host(source_ip) ELSE source_ip::text END, \
          protocol, client_type, device_fp, country, matched_policy_id, decision, would_decision, report_only, correlation_id, evaluated::text \
          FROM ca_signin_log WHERE correlation_id = $1 ORDER BY occurred_at DESC LIMIT $2"
     ),
@@ -546,7 +546,7 @@ pub const SIGNIN_LOG_BY_USER: SqlContract = SqlContract {
     sql: concat!(
         "SELECT id, ",
         pg_rfc3339!("occurred_at"),
-        ", user_id, CASE WHEN source_ip IS NULL THEN '' WHEN masklen(source_ip) = (CASE family(source_ip) WHEN 4 THEN 32 ELSE 128 END) THEN host(source_ip) ELSE source_ip::text END, \
+        ", user_id, CASE WHEN source_ip IS NULL THEN NULL WHEN masklen(source_ip) = (CASE family(source_ip) WHEN 4 THEN 32 ELSE 128 END) THEN host(source_ip) ELSE source_ip::text END, \
          protocol, client_type, device_fp, country, matched_policy_id, decision, would_decision, report_only, correlation_id, evaluated::text \
          FROM ca_signin_log WHERE user_id = $1 ORDER BY occurred_at DESC LIMIT $2"
     ),
@@ -585,7 +585,7 @@ pub const WHY_BY_CORRELATION: SqlContract = SqlContract {
     sql: concat!(
         "SELECT id, ",
         pg_rfc3339!("occurred_at"),
-        ", user_id, CASE WHEN source_ip IS NULL THEN '' WHEN masklen(source_ip) = (CASE family(source_ip) WHEN 4 THEN 32 ELSE 128 END) THEN host(source_ip) ELSE source_ip::text END, \
+        ", user_id, CASE WHEN source_ip IS NULL THEN NULL WHEN masklen(source_ip) = (CASE family(source_ip) WHEN 4 THEN 32 ELSE 128 END) THEN host(source_ip) ELSE source_ip::text END, \
          protocol, client_type, device_fp, country, matched_policy_id, decision, would_decision, report_only, correlation_id, evaluated::text \
          FROM ca_signin_log WHERE correlation_id = $1 AND occurred_at >= now() - make_interval(secs => $2::bigint::double precision) ORDER BY occurred_at DESC"
     ),
@@ -602,7 +602,7 @@ pub const WHY_BY_USER_AND_CORRELATION: SqlContract = SqlContract {
     sql: concat!(
         "SELECT id, ",
         pg_rfc3339!("occurred_at"),
-        ", user_id, CASE WHEN source_ip IS NULL THEN '' WHEN masklen(source_ip) = (CASE family(source_ip) WHEN 4 THEN 32 ELSE 128 END) THEN host(source_ip) ELSE source_ip::text END, \
+        ", user_id, CASE WHEN source_ip IS NULL THEN NULL WHEN masklen(source_ip) = (CASE family(source_ip) WHEN 4 THEN 32 ELSE 128 END) THEN host(source_ip) ELSE source_ip::text END, \
          protocol, client_type, device_fp, country, matched_policy_id, decision, would_decision, report_only, correlation_id, evaluated::text \
          FROM ca_signin_log WHERE user_id = $1 AND correlation_id = $2 AND occurred_at >= now() - make_interval(secs => $3::bigint::double precision) ORDER BY occurred_at DESC"
     ),
@@ -619,7 +619,7 @@ pub const WHY_BY_USER: SqlContract = SqlContract {
     sql: concat!(
         "SELECT id, ",
         pg_rfc3339!("occurred_at"),
-        ", user_id, CASE WHEN source_ip IS NULL THEN '' WHEN masklen(source_ip) = (CASE family(source_ip) WHEN 4 THEN 32 ELSE 128 END) THEN host(source_ip) ELSE source_ip::text END, \
+        ", user_id, CASE WHEN source_ip IS NULL THEN NULL WHEN masklen(source_ip) = (CASE family(source_ip) WHEN 4 THEN 32 ELSE 128 END) THEN host(source_ip) ELSE source_ip::text END, \
          protocol, client_type, device_fp, country, matched_policy_id, decision, would_decision, report_only, correlation_id, evaluated::text \
          FROM ca_signin_log WHERE user_id = $1 AND occurred_at >= now() - make_interval(secs => $2::bigint::double precision) ORDER BY occurred_at DESC LIMIT 200"
     ),

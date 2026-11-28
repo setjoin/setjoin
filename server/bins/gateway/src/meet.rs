@@ -413,8 +413,9 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
                     )
                 }
                 Kind::Create => {
-                    let Ok(fields) = body_fields(&mut r).await else {
-                        return problem(400, "invalid JSON", &path, &c, id, &language);
+                    let fields = match body_fields(&mut r).await {
+                        Ok(fields) => fields,
+                        Err(err) => return body_error(err, &path, &c, id, &language),
                     };
                     let Ok(meeting) = new_meeting(&fields) else {
                         return problem(400, "invalid JSON", &path, &c, id, &language);
@@ -482,8 +483,9 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
                     let Ok(meeting) = unescaped(3).parse::<i64>() else {
                         return problem(400, "invalid meeting id", &path, &c, id, &language);
                     };
-                    let Ok(fields) = body_fields(&mut r).await else {
-                        return problem(400, "invalid JSON", &path, &c, id, &language);
+                    let fields = match body_fields(&mut r).await {
+                        Ok(fields) => fields,
+                        Err(err) => return body_error(err, &path, &c, id, &language),
                     };
                     let Some(operation) = crate::jmap::random() else {
                         return problem(500, "request failed", &path, &c, id, &language);
@@ -583,13 +585,38 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
     }
 }
 
-async fn body_fields(r: &mut Request<Body>) -> Result<crate::chat::Fields, ()> {
-    // Go's DecodeJSON reports every failure (including the size cap) as 400.
+enum BodyError {
+    TooLarge,
+    Invalid,
+}
+
+async fn body_fields(r: &mut Request<Body>) -> Result<crate::chat::Fields, BodyError> {
     let bytes = match read_body(r).await {
         Ok(v) => v,
-        Err(ReadError::TooLarge | ReadError::Transport) => return Err(()),
+        Err(ReadError::TooLarge) => return Err(BodyError::TooLarge),
+        Err(ReadError::Transport) => return Err(BodyError::Invalid),
     };
-    decode_fields(&bytes)
+    decode_fields(&bytes).map_err(|()| BodyError::Invalid)
+}
+
+fn body_error(
+    err: BodyError,
+    path: &str,
+    c: &RequestContext,
+    id: String,
+    language: &str,
+) -> Response<Body> {
+    match err {
+        BodyError::TooLarge => problem(
+            413,
+            "request body exceeds the allowed size",
+            path,
+            c,
+            id,
+            language,
+        ),
+        BodyError::Invalid => problem(400, "invalid JSON", path, c, id, language),
+    }
 }
 
 fn new_meeting(fields: &crate::chat::Fields) -> Result<setjoin_meet::NewMeeting, ()> {
@@ -877,7 +904,7 @@ impl Authed<'_> {
     async fn fields(&self, r: &mut Request<Body>) -> Result<crate::chat::Fields, Response<Body>> {
         body_fields(r)
             .await
-            .map_err(|()| self.problem(400, "invalid JSON"))
+            .map_err(|err| body_error(err, self.path, self.c, self.id.clone(), self.language))
     }
 
     async fn run(

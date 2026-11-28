@@ -160,7 +160,7 @@ pub async fn sod_class(
     })
 }
 
-/// Mirrors Go's mailbox-only CallScoped scope through the SQL adapter.
+/// Registers the native JMAP discovery device under the caller's owner scope (#260).
 pub async fn register_device(
     tx_factory: &TxFactory,
     owner: &OwnerCapability,

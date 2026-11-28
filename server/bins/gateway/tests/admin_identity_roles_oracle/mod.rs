@@ -856,7 +856,7 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
             record(&file, &json!({"format":1,"route":route_name,"case":label,"go_source":source,"observation":observation}))?;
             record(&row_file, &json!({"format":1,"route":route_name,"case":format!("{label}-row-effects"),"go_source":source,"effects":observation["effects"]}))?;
         } else {
-            let expected: Value = serde_json::from_slice(&std::fs::read(&file)?)?;
+            let expected: Value = common::golden_doc(&file, "observation", &observation);
             let compared = golden::compare(&expected["observation"], &observation);
             if mutant {
                 let error = compared.err().ok_or("planted status mutant survived")?;
@@ -871,7 +871,7 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
                 return Ok(());
             }
             compared?;
-            let expected: Value = serde_json::from_slice(&std::fs::read(row_file)?)?;
+            let expected: Value = common::golden_doc(&row_file, "effects", &observation["effects"]);
             golden::compare(&expected["effects"], &observation["effects"])?;
             eprintln!("GOLDEN-REPLAY: {route_name} :: {label}");
         }

@@ -1,7 +1,7 @@
 -- Public seam for the F01 scope-set transactions (#279): every refusal is a
 -- status (no rows), duplicates raise 23505, data and audit commit together.
 BEGIN;
-SELECT plan(27);
+SELECT plan(29);
 CREATE TEMP TABLE adm3_acc(kind text,mailbox_id bigint,user_id bigint);
 INSERT INTO adm3_acc(kind,mailbox_id) VALUES('admin',mk_account('adm3-admin')),('stranger',mk_account('adm3-stranger')),('target',mk_account('adm3-target'));
 UPDATE adm3_acc a SET user_id=m.user_id FROM mailboxes m WHERE m.id=a.mailbox_id;
@@ -13,6 +13,8 @@ SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='scope_set_cre
 SELECT throws_ok($$SELECT rust_admin_scope_set_create((SELECT user_id FROM adm3_acc WHERE kind='admin'),'adm3-set',NULL,'','')$$,'23505',NULL,'a duplicate global name raises 23505');
 SELECT is(rust_admin_scope_set_update((SELECT user_id FROM adm3_acc WHERE kind='admin'),99999999,'x',NULL,''),false,'update of a missing set reports no row');
 SELECT is(rust_admin_scope_set_update((SELECT user_id FROM adm3_acc WHERE kind='admin'),(SELECT id FROM adm3_set),'adm3-renamed',NULL,''),true,'update patches the set');
+SELECT throws_ok($$SELECT rust_admin_scope_set_update((SELECT user_id FROM adm3_acc WHERE kind='admin'),(SELECT id FROM adm3_set),'',NULL,'')$$,'22023',NULL,'empty rename is rejected (#166)');
+SELECT throws_ok($$SELECT rust_admin_scope_set_update((SELECT user_id FROM adm3_acc WHERE kind='admin'),(SELECT id FROM adm3_set),'   ',NULL,'')$$,'22023',NULL,'whitespace-only rename is rejected (#166)');
 SELECT is((SELECT description FROM admin_scope_sets WHERE id=(SELECT id FROM adm3_set)),'d','absent fields keep their value');
 SELECT is(rust_admin_scope_set_member_add((SELECT user_id FROM adm3_acc WHERE kind='admin'),99999999,'user',1,'')->>'status','404','a missing set is 404');
 SELECT is(rust_admin_scope_set_member_add((SELECT user_id FROM adm3_acc WHERE kind='admin'),(SELECT id FROM adm3_set),'team',1,'')->>'status','400','an unknown member type is 400');

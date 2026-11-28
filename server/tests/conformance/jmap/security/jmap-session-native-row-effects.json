@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "case": "jmap-session-native-row-effects",
+  "effects": [
+    {
+      "change": "update",
+      "columns": {
+        "last_seen_at": {
+          "after": "<timestamp>",
+          "before": "<timestamp>"
+        }
+      },
+      "row": "<native-device>",
+      "table": "user_devices"
+    }
+  ]
+}

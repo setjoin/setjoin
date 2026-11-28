@@ -1,7 +1,7 @@
 -- Public seam for the F01 role transactions (#278): fence/lock order is Go's,
 -- every refusal is a status (no rows), BZ errors propagate, audit is atomic.
 BEGIN;
-SELECT plan(14);
+SELECT plan(19);
 CREATE TEMP TABLE adm2_acc(kind text,mailbox_id bigint,user_id bigint);
 INSERT INTO adm2_acc(kind,mailbox_id) VALUES('admin',mk_account('adm2-admin')),('target',mk_account('adm2-target'));
 UPDATE adm2_acc a SET user_id=m.user_id FROM mailboxes m WHERE m.id=a.mailbox_id;
@@ -22,5 +22,78 @@ SELECT is(rust_admin_role_assign((SELECT user_id FROM adm2_acc WHERE kind='admin
 SELECT is(rust_admin_role_remove((SELECT user_id FROM adm2_acc WHERE kind='admin'),0,(SELECT id FROM adm2_role),(SELECT user_id FROM adm2_acc WHERE kind='target'),NULL)->>'status','204','remove deletes it');
 SELECT is(rust_admin_role_remove((SELECT user_id FROM adm2_acc WHERE kind='admin'),0,(SELECT id FROM adm2_role),(SELECT user_id FROM adm2_acc WHERE kind='target'),NULL)->>'status','404','a second remove is 404');
 SELECT is(rust_admin_role_delete((SELECT user_id FROM adm2_acc WHERE kind='admin'),0,(SELECT id FROM adm2_new),NULL)->>'status','204','delete removes the role');
+-- #165: domain-scoped admin can assign own-domain role (and with matching domain_override),
+-- cannot assign outside domain, and rust_admin_role_remove takes the V172 authority fence.
+CREATE TEMP TABLE adm2_scoped_acc(kind text, mailbox_id bigint, user_id bigint, domain_id bigint);
+INSERT INTO adm2_scoped_acc(kind, mailbox_id) VALUES('sadmin', mk_account('adm2-sadmin')), ('starget', mk_account('adm2-starget'));
+UPDATE adm2_scoped_acc a SET user_id = m.user_id, domain_id = u.domain_id
+  FROM mailboxes m JOIN users u ON u.id = m.user_id WHERE m.id = a.mailbox_id;
+UPDATE users SET domain_id = (SELECT domain_id FROM adm2_scoped_acc WHERE kind = 'sadmin')
+  WHERE id = (SELECT user_id FROM adm2_scoped_acc WHERE kind = 'starget');
+UPDATE adm2_scoped_acc SET domain_id = (SELECT domain_id FROM adm2_scoped_acc WHERE kind = 'sadmin') WHERE kind = 'starget';
+CREATE TEMP TABLE adm2_srole AS WITH r AS (
+  INSERT INTO admin_role_groups(name, permissions, domain_scope)
+  VALUES('adm2-scoped-role', '{roles.manage,users.read}', (SELECT domain_id FROM adm2_scoped_acc WHERE kind = 'sadmin'))
+  RETURNING id
+) SELECT id FROM r;
+INSERT INTO admin_role_assignments(user_id, role_group_id, granted_by)
+  SELECT user_id, (SELECT id FROM adm2_srole), user_id FROM adm2_scoped_acc WHERE kind = 'sadmin';
+CREATE TEMP TABLE adm2_sgrant AS WITH r AS (
+  INSERT INTO admin_role_groups(name, permissions, domain_scope)
+  VALUES('adm2-scoped-grant', '{users.read}', (SELECT domain_id FROM adm2_scoped_acc WHERE kind = 'sadmin'))
+  RETURNING id
+) SELECT id FROM r;
+SELECT is(
+  rust_admin_role_assign(
+    (SELECT user_id FROM adm2_scoped_acc WHERE kind = 'sadmin'),
+    (SELECT domain_id FROM adm2_scoped_acc WHERE kind = 'sadmin'),
+    '{roles.manage,users.read}',
+    (SELECT id FROM adm2_sgrant),
+    (SELECT user_id FROM adm2_scoped_acc WHERE kind = 'starget'),
+    NULL, NULL, false, NULL, NULL, NULL, 0, '', NULL
+  )->>'status',
+  '201',
+  'scoped admin can assign own-domain role (#165)'
+);
+SELECT is(
+  rust_admin_role_assign(
+    (SELECT user_id FROM adm2_scoped_acc WHERE kind = 'sadmin'),
+    (SELECT domain_id FROM adm2_scoped_acc WHERE kind = 'sadmin'),
+    '{roles.manage,users.read}',
+    (SELECT id FROM adm2_sgrant),
+    (SELECT user_id FROM adm2_scoped_acc WHERE kind = 'starget'),
+    (SELECT domain_id FROM adm2_scoped_acc WHERE kind = 'sadmin'),
+    NULL, false, NULL, NULL, NULL, 0, '', NULL
+  )->>'status',
+  '201',
+  'scoped admin can assign own-domain role with matching domainOverride (#165)'
+);
+SELECT is(
+  rust_admin_role_assign(
+    (SELECT user_id FROM adm2_scoped_acc WHERE kind = 'sadmin'),
+    (SELECT domain_id FROM adm2_scoped_acc WHERE kind = 'sadmin'),
+    '{roles.manage,users.read}',
+    (SELECT id FROM adm2_role),
+    (SELECT user_id FROM adm2_scoped_acc WHERE kind = 'starget'),
+    NULL, NULL, false, NULL, NULL, NULL, 0, '', NULL
+  )->>'status',
+  '403',
+  'scoped admin still cannot assign a global role without domainOverride (#165)'
+);
+SELECT is(
+  rust_admin_role_remove(
+    (SELECT user_id FROM adm2_scoped_acc WHERE kind = 'sadmin'),
+    (SELECT domain_id FROM adm2_scoped_acc WHERE kind = 'sadmin'),
+    (SELECT id FROM adm2_sgrant),
+    (SELECT user_id FROM adm2_scoped_acc WHERE kind = 'starget'),
+    NULL
+  )->>'status',
+  '204',
+  'scoped admin can remove own-domain assignment (#165)'
+);
+SELECT ok(
+  pg_get_functiondef('public.rust_admin_role_remove(bigint,bigint,bigint,bigint,text)'::regprocedure) LIKE '%admin_authority_fence()%',
+  'rust_admin_role_remove enforces V172 admin_authority_fence (#165)'
+);
 SELECT * FROM finish();
 ROLLBACK;

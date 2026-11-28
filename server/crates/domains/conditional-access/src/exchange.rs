@@ -148,8 +148,17 @@ pub struct DocPolicy {
     pub actions: Option<String>,
 }
 
+/// Canonical JSON representation (sorted object keys, no insignificant whitespace)
+/// so key reordering in policy `conditions`/`actions` does not register as changed (#253).
+fn canonical_json(text: &str) -> String {
+    match serde_json::from_str::<Value>(text) {
+        Ok(value) => value.to_string(),
+        Err(_) => compact(text),
+    }
+}
+
 /// `POST .../diff`: `{added, changed, removed}` of names against the live rows; the
-/// fingerprint is the compacted conditions plus actions, so key order still counts.
+/// fingerprint canonicalizes JSON key order and whitespace.
 pub async fn diff(
     factory: &TxFactory,
     admin: &AdminPermissionProof,
@@ -159,7 +168,7 @@ pub async fn diff(
         .run_admin_read_contract(admin, &sql::DIFF_POLICIES, &[])
         .await?;
     let fingerprint = |conditions: Option<&str>, actions: Option<&str>| {
-        compact(conditions.unwrap_or("{}")) + &compact(actions.unwrap_or("{}"))
+        canonical_json(conditions.unwrap_or("{}")) + &canonical_json(actions.unwrap_or("{}"))
     };
     let mut live: BTreeMap<String, String> = BTreeMap::new();
     for r in &rows {
@@ -196,4 +205,21 @@ pub async fn diff(
         changed.join(","),
         removed.join(",")
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_json;
+
+    #[test]
+    fn canonical_json_ignores_key_order_and_whitespace() {
+        assert_eq!(
+            canonical_json(r#"{ "b" : 2 , "a" : { "y" : true , "x" : 1 } }"#),
+            canonical_json(r#"{"a":{"x":1,"y":true},"b":2}"#)
+        );
+        assert_ne!(
+            canonical_json(r#"{"a":1,"b":2}"#),
+            canonical_json(r#"{"a":1,"b":3}"#)
+        );
+    }
 }

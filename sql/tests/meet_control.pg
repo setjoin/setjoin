@@ -2,7 +2,7 @@
 -- kick(ban)/end control reducers.
 -- Spec: retired-docs:superpowers/plans/archive/2026-07-12-meet-B1-core.md Task 4.
 BEGIN;
-SELECT plan(23);
+SELECT plan(24);
 SELECT set_config('app.capture_notify', 'on', true);
 
 SELECT mk_auth_user('host2@meet-control.test') AS host_id \gset
@@ -103,6 +103,17 @@ SELECT is((SELECT count(*)::int FROM meeting_participants
   'every participant is stamped left_at on end');
 SELECT is((SELECT state FROM meeting_join_requests WHERE id = :pending_req_id), 'expired',
   'end expires pending join requests');
+-- #160: ended meeting with live host row (the meet_captions.pg genre — avoids
+-- masked BZ186 from meeting_end's mass left_at stamp) raises BZ190.
+INSERT INTO meetings (title, owner_user_id, state, ended_at)
+  VALUES ('Ended Role Test', :host_id, 'ended', now()) RETURNING id AS ended_role_id \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:ended_role_id, :host_id, 'u:' || :host_id, 'host', now()),
+         (:ended_role_id, :member_id, 'u:' || :member_id, 'member', now());
+SELECT throws_ok(
+  format($$ SELECT meeting_set_role(%s, %s, 'u:%s', 'cohost') $$, :host_id, :ended_role_id, :member_id),
+  'BZ190', NULL, 'host cannot edit participant roles after meeting has ended (#160)'
+);
 
 -- ── audit-chain coverage (pipeline review fix): kicking a member from a
 -- meeting whose bound chat channel it PROVISIONED writes a member.remove

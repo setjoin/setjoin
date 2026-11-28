@@ -13,6 +13,9 @@ CREATE OR REPLACE FUNCTION rust_admin_scope_set_update(
 ) RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY INVOKER AS $$
 DECLARE v_scope bigint := admin_domain_restriction(p_actor,ARRAY['scope_sets.manage']);
 BEGIN
+ IF p_name IS NOT NULL AND btrim(p_name) = '' THEN
+  RAISE EXCEPTION 'scope set name must not be empty' USING ERRCODE = '22023';
+ END IF;
  UPDATE admin_scope_sets SET name=COALESCE(p_name,name),
   description=COALESCE(p_description,description),updated_at=now() WHERE id=p_id AND (v_scope=0 OR domain_id=v_scope);
  IF NOT FOUND THEN RETURN false; END IF;

@@ -302,6 +302,8 @@ impl<K: KeySource + 'static> Intercept for AdminScopeSetsRoute<K> {
                                     &c,
                                     &id,
                                 )
+                            } else if code(&e).as_deref() == Some("23503") {
+                                full(400, "domain not found")
                             } else {
                                 failed(&e)
                             }
@@ -316,6 +318,9 @@ impl<K: KeySource + 'static> Intercept for AdminScopeSetsRoute<K> {
                     let Ok(body) = json_body::<UpdateBody>(&mut r).await else {
                         return full(400, "invalid JSON");
                     };
+                    if body.name.as_deref().is_some_and(|n| n.trim().is_empty()) {
+                        return full(400, "name must not be empty");
+                    }
                     match db::update(
                         &factory,
                         &admin_proof,
@@ -336,6 +341,8 @@ impl<K: KeySource + 'static> Intercept for AdminScopeSetsRoute<K> {
                                     &c,
                                     &id,
                                 )
+                            } else if code(&e).as_deref() == Some("22023") {
+                                full(400, "name must not be empty")
                             } else {
                                 failed(&e)
                             }
