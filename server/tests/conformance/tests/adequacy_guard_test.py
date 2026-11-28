@@ -1162,7 +1162,7 @@ echo "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
         tokens = printed.stdout.split()
         self.assertTrue(tokens and all(token in ("-p", "--test") or not token.startswith("-") for token in tokens))
         self.assertIn("setjoin-gateway", tokens)
-        self.assertIn("jmap_recorded", tokens)
+        self.assertIn("suite_serial_mailsec_jmap", tokens)
 
 
 class JmapFragments(unittest.TestCase):
