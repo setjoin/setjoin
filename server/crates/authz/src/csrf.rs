@@ -65,11 +65,17 @@ fn split_host_port<'a>(hostport: &'a str, scheme: &str) -> (&'a str, &'a str) {
     } else {
         "80"
     };
-    // Go's net.SplitHostPort: "[v6]:port", or "host:port" with one colon.
+    // Bracketed IPv6 literal: "[v6]:port" or portless "[v6]". Strip brackets
+    // in both forms so equivalent origins like "[::1]" and "[::1]:443" match.
     if let Some(stripped) = hostport.strip_prefix('[') {
         if let Some((h, p)) = stripped.split_once("]:") {
-            if !h.contains(['[', ']']) {
+            if !h.is_empty() && !h.contains(['[', ']']) {
                 return (h, p);
+            }
+        }
+        if let Some(h) = stripped.strip_suffix(']') {
+            if !h.is_empty() && !h.contains(['[', ']']) {
+                return (h, default);
             }
         }
         return (hostport, default);
@@ -133,6 +139,50 @@ mod tests {
             h(&[host, ("sec-fetch-site", "cross-site")]),
         ] {
             assert!(!allows(&headers, "https"), "{headers:?}");
+        }
+    }
+
+    #[test]
+    fn ipv6_origins_with_and_without_ports_normalize_consistently() {
+        for (scheme, host, origin) in [
+            ("https", "[::1]", "https://[::1]"),
+            ("https", "[::1]", "https://[::1]:443"),
+            ("https", "[::1]:443", "https://[::1]"),
+            ("https", "[::1]:443", "https://[::1]:443"),
+            ("http", "[::1]", "http://[::1]"),
+            ("http", "[::1]", "http://[::1]:80"),
+            ("http", "[::1]:80", "http://[::1]"),
+            ("http", "[::1]:80", "http://[::1]:80"),
+            ("https", "[::1]:8443", "https://[::1]:8443"),
+            ("https", "[2001:DB8::1]", "https://[2001:db8::1]:443"),
+            ("https", "[2001:db8::1]:443", "https://[2001:DB8::1]"),
+        ] {
+            assert!(
+                allows(&h(&[("host", host), ("origin", origin)]), scheme),
+                "expected allow: scheme={scheme} host={host} origin={origin}"
+            );
+            assert!(
+                allows(&h(&[("host", host), ("referer", origin)]), scheme),
+                "expected referer allow: scheme={scheme} host={host} referer={origin}"
+            );
+        }
+
+        for (scheme, host, origin) in [
+            ("https", "[::1]", "https://[::1]:8443"),
+            ("https", "[::1]:8443", "https://[::1]"),
+            ("https", "[::1]", "https://[::1]:80"),
+            ("http", "[::1]", "http://[::1]:443"),
+            ("https", "[::1]", "http://[::1]"),
+            ("https", "[::1]", "https://[::2]"),
+            ("https", "[::1]", "https://[::2]:443"),
+            ("https", "[::1]:443", "https://[::2]"),
+            ("https", "[::1]", "https://[::1]:"),
+            ("https", "[::1]", "https://[::1"),
+        ] {
+            assert!(
+                !allows(&h(&[("host", host), ("origin", origin)]), scheme),
+                "expected deny: scheme={scheme} host={host} origin={origin}"
+            );
         }
     }
 }

@@ -1679,6 +1679,10 @@ async fn failed_captcha_flood(ctx: &Ctx) -> Result<(), Err> {
 }
 native!(guest_upgrade_worker_without_bypassrls, without_bypassrls);
 native!(guest_other_methods_are_405, other_methods);
+native!(
+    guest_post_production_profiles_under_default_timeouts,
+    production_profiles_under_default_timeouts
+);
 
 async fn native_server(ctx: &Ctx) -> Result<Server, Err> {
     Ok(auth_server(Arc::new(load(ctx, false, false).await?), false).await)
@@ -2414,6 +2418,67 @@ async fn other_methods(ctx: &Ctx) -> Result<(), Err> {
         || reply.body != "Method Not Allowed\n"
     {
         return Err(format!("PUT: {} {}", reply.status, reply.body).into());
+    }
+    Ok(())
+}
+
+/// #383: Guest invite acceptance with production CryptoProfiles (`Standard` bcrypt
+/// cost 10, `Smx` / `Hybrid` PBKDF2-HMAC-SM3 100,000 rounds) and existing password
+/// history entries completes under the real 2 s `Timeouts::default()` SQL bound
+/// because CPU hashing runs under `guest_invite::PROOF_TIMEOUT`.
+async fn production_profiles_under_default_timeouts(ctx: &Ctx) -> Result<(), Err> {
+    use setjoin_config_secret::CryptoProfile;
+
+    let worker =
+        setjoin_pg::ScopedExecutor::from_dsn_with(&ctx.db.dsn, 2, setjoin_pg::Timeouts::default())
+            .unwrap();
+    let worker_db = setjoin_pg::AuthDb::from_executors(worker.clone(), worker);
+
+    for (idx, (profile, prefix)) in [
+        (CryptoProfile::Standard, "$2a$10$"),
+        (CryptoProfile::Smx, "$sm3$100000$"),
+        (CryptoProfile::Hybrid, "$sm3$100000$"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let fx = seed(ctx, "valid").await?;
+        let prior = setjoin_authz::password::hash("PriorGuestPass1!", profile)
+            .map_err(|e| format!("prior hash: {e}"))?;
+        ctx.c
+            .execute(
+                "INSERT INTO password_history(user_id, password_hash) VALUES($1, $2)",
+                &[&fx.guest, &prior],
+            )
+            .await?;
+        let op = setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes());
+        let outcome = setjoin_identity::guest_invite::accept(
+            &worker_db,
+            &fx.token,
+            PASSWORD,
+            profile,
+            Some(format!("127.0.0.{}", 191 + idx)),
+            op,
+        )
+        .await;
+        let accepted = match outcome {
+            setjoin_identity::guest_invite::Outcome::Done(a) => a,
+            other => {
+                return Err(format!("{profile:?}: expected Done, got {other:?}").into());
+            }
+        };
+        assert_eq!(accepted.invited_email, fx.guest_email);
+        let stored: String = ctx
+            .c
+            .query_one("SELECT password_hash FROM users WHERE id=$1", &[&fx.guest])
+            .await?
+            .get(0);
+        if !stored.starts_with(prefix) {
+            return Err(format!("{profile:?}: expected prefix {prefix}, got {stored}").into());
+        }
+        if !setjoin_authz::password::verify(&stored, PASSWORD) {
+            return Err(format!("{profile:?}: stored hash failed verification").into());
+        }
     }
     Ok(())
 }

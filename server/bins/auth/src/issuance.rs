@@ -29,11 +29,17 @@ impl AuthServer {
         }
         let query = req.uri().query().unwrap_or("").to_owned();
         let raw = if json {
-            req.into_body()
+            Limited::new(req.into_body(), 10 << 20)
                 .collect()
                 .await
                 .map(|b| b.to_bytes())
-                .map_err(|_| Self::failure(400, "token is required", &path))?
+                .map_err(|error| {
+                    if error.is::<http_body_util::LengthLimitError>() {
+                        Self::failure(413, "request body too large", &path)
+                    } else {
+                        Self::failure(400, "token is required", &path)
+                    }
+                })?
         } else {
             Limited::new(req.into_body(), 10 << 20)
                 .collect()
@@ -746,5 +752,72 @@ impl AuthServer {
             }
             _ => Self::failure(500, "internal error", &path),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn server_with_internal_key(key: &str) -> AuthServer {
+        let exec = setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1)
+            .expect("lazy pool");
+        let server = AuthServer::new(exec);
+        *server.internal_key.write().unwrap() = key.to_owned();
+        server
+    }
+
+    #[tokio::test]
+    async fn internal_key_json_token_request_caps_body_at_10_mib() {
+        let server = server_with_internal_key("test-internal-key-273");
+
+        // Valid JSON body succeeds.
+        let ok_req = Request::post("/auth/introspect")
+            .header("content-type", "application/json")
+            .header("authorization", "Bearer test-internal-key-273")
+            .body(super::body(r#"{"token":"sample-token-1"}"#))
+            .unwrap();
+        let (_, token) = server
+            .token_request(ok_req, true)
+            .await
+            .expect("valid JSON body accepted");
+        assert_eq!(token, "sample-token-1");
+
+        // Oversized (> 10 MiB) internal-key JSON body is rejected with 413.
+        let oversized = format!(r#"{{"token":"{}"}}"#, "x".repeat((10 << 20) + 1));
+        let big_req = Request::post("/auth/introspect")
+            .header("content-type", "application/json")
+            .header("authorization", "Bearer test-internal-key-273")
+            .body(super::body(oversized))
+            .unwrap();
+        let err = server
+            .token_request(big_req, true)
+            .await
+            .err()
+            .expect("oversized JSON body must be rejected");
+        assert_eq!(err.status().as_u16(), 413);
+        let err_body = String::from_utf8(
+            err.into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(err_body.contains("request body too large"), "{err_body}");
+
+        // Unauthorized caller is still rejected with 401 before body read.
+        let unauth_req = Request::post("/auth/introspect")
+            .header("content-type", "application/json")
+            .header("authorization", "Bearer wrong-key")
+            .body(super::body(r#"{"token":"sample-token-1"}"#))
+            .unwrap();
+        let err = server
+            .token_request(unauth_req, true)
+            .await
+            .err()
+            .expect("wrong internal key rejected");
+        assert_eq!(err.status().as_u16(), 401);
     }
 }

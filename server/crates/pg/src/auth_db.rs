@@ -401,6 +401,59 @@ impl AuthDb {
         .await
     }
 
+    /// Like [`Self::run_user_async_proof_command_contract_with_tail`], with a
+    /// dedicated bound for the CPU-heavy `prove` callback while SQL statements
+    /// remain under `Timeouts::statement` (#383).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_user_async_proof_command_contract_with_proof_timeout_and_tail<
+        T,
+        P,
+        PF,
+        D,
+        F,
+        Fut,
+    >(
+        &self,
+        user: ActorId,
+        operation: OperationId,
+        proof_contract: &'static SqlContract,
+        params: &[Param<'_>],
+        proof_timeout: std::time::Duration,
+        prove: P,
+        decode: D,
+        tail: F,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(&[Row]) -> PF,
+        PF: Future<Output = Result<ProvenContract, StatementFailure>>,
+        D: FnOnce(&[Row]) -> Result<T, StatementFailure>,
+        F: FnOnce(&T) -> Fut,
+        Fut: Future<Output = ()>,
+    {
+        if let Err(e) = validate_params(proof_contract, params) {
+            return CommandOutcome::RolledBack(Rejection::Statement(e));
+        }
+        let pool = match self.select_user_pool(proof_contract) {
+            Ok(p) => p,
+            Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
+        };
+        let parent_scope = proof_contract.scope;
+        pool.run_user_async_proof_command_with_proof_timeout_and_tail(
+            user,
+            operation,
+            proof_contract.sql,
+            params,
+            proof_timeout,
+            |rows| {
+                let fut = prove(rows);
+                async move { fut.await?.into_statement(parent_scope) }
+            },
+            decode,
+            tail,
+        )
+        .await
+    }
+
     /// Run an acknowledged anonymous protocol command (`WorkerBypass`).
     pub async fn run_protocol_command_contract<T, D>(
         &self,

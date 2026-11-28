@@ -272,10 +272,11 @@ canonicalizer. Legacy signed-email and Kelvin-sign reset HTTP goldens pin both
 contracts. mailparse was already in the workspace; ICU casemap is aligned with
 the existing ICU2.4 dependency set and must pass the ordinary licence guard.
 
-#332 preserves net.SplitHostPort's unbracketed IPv6 result for explicit ports;
-portless IPv6 keeps brackets. Frozen Go therefore rejects mixed port forms
-although their effective origins match. The HTTP csrf-ipv6 recording pins this
-residual denial alongside the direct-TLS/forwarded-host login carry-over.
+#272 fixes portless IPv6 CSRF origin normalization: `csrf::split_host_port`
+strips brackets from both explicit-port `[::1]:443` and portless `[::1]` so
+equivalent default-port IPv6 origins match (`csrf-ipv6.json` keeps the
+immutable frozen-Go recording while `bins/auth/tests/csrf.rs` asserts the fixed
+acceptance).
 
 ## Runtime gates (#405)
 
@@ -339,7 +340,8 @@ before route budgets. It also runs for injected local adapters without a limiter
 the recorder's empty proxy-only table remains a transparent transport.
 Authorization proof builders do not recheck Origin without an HTTP method;
 GET/HEAD/OPTIONS retain Go's bypass. The shared net/url parser admits Go's
-userinfo URL forms while retaining the recorded mixed-port IPv6 refusal.
+userinfo URL forms and normalizes bracketed IPv6 origins with or without
+default ports (#272).
 
 
 Trusted proxy prefixes (#414): mapped IPv6 addresses normalize both address

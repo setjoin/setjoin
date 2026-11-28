@@ -38,12 +38,22 @@ impl AuthServer {
         )
     }
 
-    fn guest_internal(operation: Option<setjoin_contracts::ids::OperationId>) -> Response<Body> {
+    fn guest_internal(
+        op: &str,
+        reason: Option<&str>,
+        operation: Option<setjoin_contracts::ids::OperationId>,
+    ) -> Response<Body> {
+        if let Some(reason) = reason {
+            eprintln!("guest_invite {op} failed: {reason}");
+        }
         let mut reply = Self::json_no_store(500, json!({ "error": "internal error" }));
-        if let Some(op) = operation {
+        if let Some(op_id) = operation {
             reply.headers_mut().insert(
                 "x-operation-id",
-                uuid::Uuid::from_bytes(op.0).to_string().parse().unwrap(),
+                uuid::Uuid::from_bytes(op_id.0)
+                    .to_string()
+                    .parse()
+                    .unwrap(),
             );
         }
         reply
@@ -86,12 +96,14 @@ impl AuthServer {
         } else {
             match (&self.guest_worker, token.is_empty()) {
                 (_, true) => Self::guest_reject().await,
-                (None, false) => Self::guest_internal(None),
+                (None, false) => {
+                    Self::guest_internal("disclosure", Some("guest worker pool unavailable"), None)
+                }
                 (Some(worker), false) => match guest::disclosure(worker, &token).await {
                     Outcome::Done(d) => Self::guest_disclosure(&language_header, d),
                     Outcome::Reject | Outcome::Invalid(_) => Self::guest_reject().await,
-                    Outcome::Unknown(op) => Self::guest_internal(Some(op)),
-                    Outcome::Failed => Self::guest_internal(None),
+                    Outcome::Unknown(op) => Self::guest_internal("disclosure", None, Some(op)),
+                    Outcome::Failed => Self::guest_internal("disclosure", None, None),
                 },
             }
         };
@@ -181,7 +193,7 @@ impl AuthServer {
             return Self::json_no_store(400, json!({ "error": "new password is required" }));
         }
         let Some(worker) = &self.guest_worker else {
-            return Self::guest_internal(None);
+            return Self::guest_internal("accept", Some("guest worker pool unavailable"), None);
         };
         let op = setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes());
         match guest::accept(
@@ -203,8 +215,8 @@ impl AuthServer {
             ),
             Outcome::Reject => Self::guest_reject().await,
             Outcome::Invalid(message) => Self::json_no_store(400, json!({ "error": message })),
-            Outcome::Unknown(op) => Self::guest_internal(Some(op)),
-            Outcome::Failed => Self::guest_internal(None),
+            Outcome::Unknown(op) => Self::guest_internal("accept", None, Some(op)),
+            Outcome::Failed => Self::guest_internal("accept", None, None),
         }
     }
 }
