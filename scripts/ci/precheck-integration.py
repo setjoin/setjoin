@@ -26,7 +26,10 @@ Rule (owner decision 2026-11-16):
                   the changed file's basename),
       matched     whose name holds a token of a changed path (or of a changed dependency crate) as
                   whole `_` words, e.g. src/chat_compliance.rs -> chat_compliance_recorded;
-    over HEAVY[pkg] units it keeps exact+referenced, then exact only, noted.
+    over HEAVY[pkg] expanded units (a whole consolidated suite counts as its submodule count) it
+    keeps exact+referenced, then exact only, then defers that package to the merge queue.
+  * Over MAX_TOTAL_UNITS expanded units across all selected packages -> nothing runs, noted: a
+    workspace-wide refactor is the merge queue's job (the 8-shard full lane).
   * Everything not selected stays the merge queue full lane's job.
 """
 import json
@@ -36,6 +39,7 @@ import subprocess
 import sys
 
 MAX_RDEPS = 5
+MAX_TOTAL_UNITS = 60
 HEAVY = {"setjoin-gateway": 30, "setjoin-auth": 20}
 WORKSPACE_WIDE = ("server/Cargo.toml", "server/Cargo.lock")
 GENERIC = {"src", "tests", "lib", "main", "mod", "common", "fixtures", "golden", "goldens", "testdata",
@@ -86,19 +90,24 @@ def load(meta, root):
 
 def expand_units(pkg_dir, tests, read):
     """Expand consolidated `suite_*` targets into (target, mod_stem, src_path) units;
-    standalone targets become (target, None, src_path)."""
+    standalone targets become (target, None, src_path). Also returns {suite_target: submodule_count}."""
     units = []
-    suite_targets = set()
+    suite_weights = {}
     for target, src in sorted(tests.items()):
         if target.startswith("suite_"):
             subs = SUITE_MOD.findall(read(src))
             if subs:
-                suite_targets.add(target)
+                suite_weights[target] = len(subs)
                 for rel_file, mod_stem in subs:
                     units.append((target, mod_stem, f"{pkg_dir}/tests/{rel_file}"))
                 continue
         units.append((target, None, src))
-    return units, suite_targets
+    return units, suite_weights
+
+
+def unit_weight(picked, suite_weights):
+    """Count expanded test-file units: a whole consolidated suite counts as its submodule count."""
+    return sum(suite_weights.get(t, 1) if m is None else 1 for t, m in picked)
 
 
 def normalize_units(picked):
@@ -108,9 +117,10 @@ def normalize_units(picked):
                   key=lambda item: (item[0], "" if item[1] is None else item[1]))
 
 
-def select(changed, pkgs, read, heavy=None):
+def select(changed, pkgs, read, heavy=None, max_total_units=None):
     """-> ({package: [(target, mod_stem_or_None)]}, [notes])"""
     heavy = HEAVY if heavy is None else heavy
+    max_total = MAX_TOTAL_UNITS if max_total_units is None else max_total_units
     code, note = code_files(changed)
     if note:
         return {}, [note]
@@ -142,15 +152,17 @@ def select(changed, pkgs, read, heavy=None):
         for r in seen:
             chosen.setdefault(r, set()).update(tok)
     sel = {}
+    pkg_weights = {}
     for n in sorted(chosen):
         tests = pkgs[n]["tests"]
         if not tests:
             continue
+        units, suite_weights = expand_units(pkgs[n]["dir"], tests, read)
+        pkg_weights[n] = suite_weights
         cap = heavy.get(n)
         if cap is None:
             sel[n] = [(t, None) for t in sorted(tests)]
             continue
-        units, suite_targets = expand_units(pkgs[n]["dir"], tests, read)
         by_name = {}
         for t, m, _ in units:
             by_name.setdefault(m or t, []).append((t, m))
@@ -162,7 +174,7 @@ def select(changed, pkgs, read, heavy=None):
                 continue
             stem = os.path.splitext(rel[1])[0]
             if len(rel) == 2 and rel[1].endswith(".rs"):
-                if stem in suite_targets:
+                if stem in suite_weights:
                     exact.add((stem, None))
                 elif stem in by_name:
                     exact.update(by_name[stem])
@@ -174,16 +186,30 @@ def select(changed, pkgs, read, heavy=None):
             referenced |= {(t, m) for t, m, src in units if pat.search(read(src))}
         matched = {(t, m) for t, m, _ in units if any(matches(m or t, k) for k in tok)}
         picked = normalize_units(exact | referenced | matched)
-        if len(picked) > cap:
-            notes.append(f"{n}: {len(picked)} targets selected (over {cap}): kept only changed or referencing test files")
+        w = unit_weight(picked, suite_weights)
+        if w > cap:
+            notes.append(f"{n}: {w} targets selected (over {cap}): kept only changed or referencing test files")
             picked = normalize_units(exact | referenced)
-            if len(picked) > cap:
-                notes.append(f"{n}: {len(picked)} test files reference the changed test helpers (over {cap}): kept only the changed test files")
+            w = unit_weight(picked, suite_weights)
+            if w > cap:
+                notes.append(f"{n}: {w} test files reference the changed test helpers (over {cap}): kept only the changed test files")
                 picked = normalize_units(exact)
+                w = unit_weight(picked, suite_weights)
+                if w > cap:
+                    notes.append(f"{n}: {w} changed test file(s) (over {cap}): deferred to the merge queue full lane")
+                    picked = []
         if picked:
             sel[n] = picked
-        else:
+        elif not any(note.startswith(f"{n}:") for note in notes):
             notes.append(f"{n}: the change names no integration test target; the merge queue covers it")
+    total_units = sum(unit_weight(units, pkg_weights[n]) for n, units in sel.items())
+    if sel and total_units > max_total:
+        pkg_count = len(sel)
+        sel = {}
+        notes.append(
+            f"workspace-wide selection ({total_units} expanded test unit(s) across {pkg_count} package(s), over {max_total}): "
+            "integration tests run in the merge queue only"
+        )
     return sel, notes
 
 
@@ -350,10 +376,19 @@ def selftest():
         ("no-target-named", [gw + "src/lib.rs"], {}, "names no integration test target"),
         ("shared-helper-cap", [gw + "tests/common/mod.rs", gw + "tests/startup.rs"],
          {"setjoin-gateway": [("suite_misc", "startup")]}, "kept only the changed test files"),
+        ("whole-suite-weight-cap", [gw + "tests/suite_chat.rs", gw + "tests/suite_static.rs"],
+         {}, "deferred to the merge queue full lane"),
+        ("total-units-cap", [gw + "tests/suite_chat.rs", "server/crates/domains/identity/src/login.rs"],
+         {}, "workspace-wide selection"),
     ]
     fails = 0
     for name, changed, want, note in cases:
-        got, notes = select(changed, pkgs, read, heavy={"setjoin-gateway": 3} if name == "shared-helper-cap" else None)
+        kw = {}
+        if name in ("shared-helper-cap", "whole-suite-weight-cap"):
+            kw["heavy"] = {"setjoin-gateway": 3}
+        if name == "total-units-cap":
+            kw["max_total_units"] = 3
+        got, notes = select(changed, pkgs, read, **kw)
         ok = got == want and (note is None or any(note in n for n in notes))
         print(("ok   " if ok else "FAIL ") + name + ("" if ok else f": got {got} notes {notes}"))
         fails += not ok
