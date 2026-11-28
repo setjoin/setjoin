@@ -56,7 +56,7 @@ while a head runs). A `gone` entry (its branch left the queue) runs nothing and 
 ejects the entry, which fails closed. Every waiter keeps `aggregate` pending until it ends, never green. Intermediate
 commits of a batch are not tested one by one: the batch tip's lane is their test. The nightly full lane is the backstop.
 Rollback and rollout: `server/DOX.md#parallel-full-lane-550`.
-A push to `main` only refreshes the caches (`build`, `coverage-build`; no tests, summary
+A push to `main` only refreshes the cache (`build`; no tests, summary
 "cache refresh only, no tests"), and a nightly `schedule` (02:30 UTC) runs the full lane plus coverage as the backstop,
 skipping cleanly when main has no commit in the last 26 hours. It never runs on `pull_request`; PRs get only `.github/workflows/pr-precheck.yml`
 (jobs `light` = `scripts/ci/quick-check.sh` and `integration` = the changed packages' integration tests selected by

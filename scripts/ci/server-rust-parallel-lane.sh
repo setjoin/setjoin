@@ -19,10 +19,12 @@
 #   LANE_ARTIFACT_DIR where the log, junit.xml and test lists land
 #   LANE_QUICK        1 = debug run: only `cargo nextest run -E "$LANE_NEXTEST_FILTER"` on the
 #                     workspace (no other check, skipped tests allowed); never a lane result
-#   LANE_COVERAGE     0 = the replays and mutants run but oracle coverage does not (hosted test
-#                     shards); unset = coverage runs, as on a dev host. The hosted workflow also
-#                     sets SERVER_RUST_STAGES, SERVER_RUST_NEXTEST_ARCHIVE/_EXTRACT_TO/_PARTITION/_SELECT,
-#                     LANE_ADEQUACY_SHARD/_BINARIES/_COVERAGE_ONLY (see check-server-rust.sh)
+#   LANE_COVERAGE     0 = the replays and mutants run but oracle coverage does not;
+#                     unset/1 = coverage runs (single-pass profile verification when
+#                     LANE_COVERAGE_PROF_DIR is set, else standalone measure_coverage). The hosted
+#                     workflow also sets SERVER_RUST_STAGES, SERVER_RUST_NEXTEST_ARCHIVE/_EXTRACT_TO/
+#                     _PARTITION/_FILTER_FILE/_SELECT, LANE_ADEQUACY_SHARD/_BINARIES/_COVERAGE_ONLY,
+#                     LANE_COVERAGE_MAP/_PROF_DIR/_SHARD_ENTRIES (see check-server-rust.sh)
 #   LANE_ADEQUACY_JOBS replays and mutants run side by side (default LANE_JOBS)
 #   LANE_SKIP_SCHEMA  1 = reuse an existing ${prefix}tpl (dev host iteration)
 #   LANE_LEAK_GUARD   0 = do not make the base database refuse connections during the nextest
