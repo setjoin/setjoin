@@ -11,8 +11,9 @@
 # Inputs (the workflow exports them; a dev host sets them by hand):
 #   LANE_PG_HOST/LANE_PG_PORT/LANE_PG_USER/PGPASSWORD   superuser of a throwaway cluster
 #   LANE_DB_PREFIX    database name prefix, must contain `_e2e_` (default gofree_e2e_lane_);
-#                     this script drops and recreates ONLY ${prefix}tpl and ${prefix}base
-#                     and sweeps ${prefix}<24 hex> clones — never any other database
+#                     this script drops and recreates ONLY ${prefix}tpl, ${prefix}base,
+#                     ${prefix}slot_<N> pool slots, and sweeps ${prefix}<24 hex> clones —
+#                     never any other database
 #   LANE_APP_PASSWORD    password for setjoin_app (DB_APP_DSN); random when unset
 #   LANE_WORKER_PASSWORD password for setjoin_worker (DB_WORKER_DSN); random when unset
 #   LANE_JOBS         concurrent tests (default 5)
@@ -27,6 +28,9 @@
 #                     LANE_COVERAGE_MAP/_PROF_DIR/_SHARD_ENTRIES (see check-server-rust.sh)
 #   LANE_ADEQUACY_JOBS replays and mutants run side by side (default LANE_JOBS)
 #   LANE_SKIP_SCHEMA  1 = reuse an existing ${prefix}tpl (dev host iteration)
+#   LANE_DB_POOL      1 = pre-create LANE_JOBS reusable slot DBs (${prefix}slot_0..N-1) with
+#                     fail-closed fast reset + automatic re-clone on failure/drift (default 1
+#                     when LANE_MODE=parallel and LANE_QUICK!=1; 0 disables pool)
 #   LANE_LEAK_GUARD   0 = do not make the base database refuse connections during the nextest
 #                     and adequacy phases (default 1: a test that bypasses its clone fails loudly)
 set -uo pipefail
@@ -113,6 +117,58 @@ fi
 cargo deny --version >/dev/null 2>&1 || { echo "✗ lane: cargo-deny not installed" >&2; exit 1; }
 docker image inspect setjoin-ci-linux-tc:local-amd64 >/dev/null 2>&1 || { echo "✗ lane: image setjoin-ci-linux-tc:local-amd64 missing" >&2; exit 1; }
 
+sweep_lane_dbs() {
+  local label="$1" pattern="^${PREFIX}([0-9a-f]{24}|slot_[0-9]+)\$" found db
+  found="$(psql -h "$HOST" -p "$PORT" -U "$PGU" -d postgres -X -At -c "SELECT datname FROM pg_database WHERE datname ~ '$pattern'" 2>/dev/null || true)"
+  if [[ -n "$found" ]]; then
+    echo "lane: $(wc -l <<<"$found" | tr -d ' ') clone/slot database(s) swept ($label)"
+    while read -r db; do
+      [[ -n "$db" ]] || continue
+      admin -c "DROP DATABASE IF EXISTS \"$db\" WITH (FORCE)" >/dev/null 2>&1 || true
+    done <<<"$found"
+  fi
+}
+
+POOL_DIR=""
+cleanup_lane_pool() {
+  if [[ -n "$POOL_DIR" && -d "$POOL_DIR" ]]; then
+    rm -rf "$POOL_DIR" 2>/dev/null || true
+    POOL_DIR=""
+  fi
+  sweep_lane_dbs "exit"
+}
+trap cleanup_lane_pool EXIT
+
+# Sweep any stale clones or pool slots left over from an interrupted previous run.
+sweep_lane_dbs "startup"
+
+# ── reusable N-slot DB reset pool (default ON for parallel non-quick workspace runs) ──
+if [[ -z "${LANE_DB_POOL:-}" ]]; then
+  if [[ "$MODE" == parallel && "${LANE_QUICK:-}" != 1 && ",${SERVER_RUST_STAGES:-static,workspace,roots,adequacy}," == *,workspace,* ]]; then
+    LANE_DB_POOL=1
+  else
+    LANE_DB_POOL=0
+  fi
+fi
+if [[ "$LANE_DB_POOL" == 1 && "$MODE" == parallel ]]; then
+  POOL_SIZE="$LANE_JOBS"
+  POOL_STRATEGY="${LANE_CLONE_STRATEGY:-file_copy}"
+  POOL_DIR="$(mktemp -d)"
+  LANE_POOL_META="$POOL_DIR/reset.sql"
+  stamp "pre-creating $POOL_SIZE pooled slot DBs (${PREFIX}slot_0..$((POOL_SIZE - 1))) from $TPL"
+  for ((i = 0; i < POOL_SIZE; i++)); do
+    slot_db="${PREFIX}slot_${i}"
+    admin -c "DROP DATABASE IF EXISTS \"$slot_db\" WITH (FORCE)" \
+      -c "CREATE DATABASE \"$slot_db\" TEMPLATE \"$TPL\" STRATEGY $POOL_STRATEGY" || exit 1
+  done
+  python3 "$ROOT/scripts/ci/lane-db-pool-meta.py" \
+    --dsn "$(dsn "$PGU" "$SUPER_PW" "${PREFIX}slot_0")" \
+    --out "$LANE_POOL_META" || exit 1
+  export LANE_DB_POOL_DIR="$POOL_DIR"
+  export LANE_DB_POOL_SIZE="$POOL_SIZE"
+  export LANE_DB_POOL_META="$LANE_POOL_META"
+fi
+
 # ── quick debug run ───────────────────────────────────────────────────────────────────
 if [[ "${LANE_QUICK:-}" == 1 ]]; then
   groups="$(mktemp)"
@@ -140,12 +196,9 @@ for JUNIT in "$ROOT/server/target/nextest/lane/junit.xml" "${CARGO_TARGET_DIR:-/
   [[ -f "$JUNIT" ]] && { cp "$JUNIT" "$ART/junit.xml"; break; }
 done
 
-# ── leak sweep: only this lane's clones ───────────────────────────────────────────────
-leaked="$(psql -h "$HOST" -p "$PORT" -U "$PGU" -d postgres -X -At -c "SELECT datname FROM pg_database WHERE datname ~ '^${PREFIX}[0-9a-f]{24}\$'")"
-if [[ -n "$leaked" ]]; then
-  echo "lane: $(wc -l <<<"$leaked") leaked clone database(s) swept"
-  while read -r db; do admin -c "DROP DATABASE IF EXISTS \"$db\" WITH (FORCE)"; done <<<"$leaked"
-fi
+# ── leak sweep: only this lane's clones and pool slots ───────────────────────────────
+cleanup_lane_pool
+trap - EXIT
 stamp "end rc=$rc"
 echo "rc=$rc" >"$ART/lane-complete.txt"
 exit "$rc"

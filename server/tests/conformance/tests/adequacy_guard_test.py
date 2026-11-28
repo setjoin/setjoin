@@ -1700,8 +1700,10 @@ class VerifyCoverageProfiles(unittest.TestCase):
         path.write_text(f"#!/bin/sh\nprintf '%s\\n' '{payload}'\n")
         path.chmod(0o755)
 
-    def run_verify(self, root, binaries, junit, prof_dir, shard_entries, fake_cov, extra=()):
+    def run_verify(self, root, binaries, junit, prof_dir, shard_entries, fake_cov, extra=(), *, fake_profdata=None):
         env = {**os.environ, "LANE_LLVM_COV": str(fake_cov)}
+        if fake_profdata is not None:
+            env["LANE_LLVM_PROFDATA"] = str(fake_profdata)
         return subprocess.run(
             [sys.executable, str(GUARD), "--skip-preflight", "--root", str(root),
              "--verify-nextest-junit", str(junit),
@@ -1713,6 +1715,32 @@ class VerifyCoverageProfiles(unittest.TestCase):
              *extra],
             env=env, capture_output=True, text=True, check=False,
         )
+
+    @staticmethod
+    def write_fake_profdata(path, log_path, *, fail_on_corrupt=False, always_fail=False):
+        script = [
+            "#!/bin/sh",
+            f"printf '%s\\n' \"$*\" >> '{log_path}'",
+        ]
+        if always_fail:
+            script.append("echo 'corrupted profile data' >&2; exit 1")
+        else:
+            script.extend([
+                "out=''",
+                "prev=''",
+                "for arg in \"$@\"; do",
+                "  if [ \"$prev\" = '-o' ]; then out=\"$arg\"; prev=''; continue; fi",
+                "  if [ \"$arg\" = '-o' ]; then prev='-o'; continue; fi",
+                "  if [ -f \"$arg\" ]; then",
+                "    if grep -q 'CORRUPT' \"$arg\" 2>/dev/null; then" if fail_on_corrupt else "    if false; then",
+                "      echo \"error: $arg: corrupted profile\" >&2; exit 1",
+                "    fi",
+                "  fi",
+                "done",
+                "printf 'merged-profdata' > \"$out\"",
+            ])
+        path.write_text("\n".join(script) + "\n")
+        path.chmod(0o755)
 
     def test_valid_profiles_pass_and_write_combined_receipt(self):
         with tempfile.TemporaryDirectory(prefix="gofree-prof-ok-") as d:
@@ -1770,6 +1798,165 @@ class VerifyCoverageProfiles(unittest.TestCase):
             res = self.run_verify(root, binaries, junit, prof_dir, shard_entries, fake_cov)
             self.assertNotEqual(res.returncode, 0)
             self.assertIn("no coverage mapping", res.stderr)
+
+    def test_batched_multi_case_merges_once_and_passes(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-prof-batch-ok-") as d:
+            root, _, binaries, junit, prof_dir, shard_entries, fake_cov, expected = self.scaffold(d)
+            (prof_dir / "0.profdata").unlink()
+            (prof_dir / "0.cases").unlink()
+            case_dir = prof_dir / "cases" / "0"
+            case_dir.mkdir(parents=True)
+            for idx, kind in enumerate(("success", "cross-tenant", "invalid-input", "repeat")):
+                (case_dir / f"case{idx:02d}.profdata").write_bytes(f"prof-{kind}".encode())
+                (case_dir / f"case{idx:02d}.case").write_text(f"fake-package::recorded\t{kind}\n")
+            merge_log = root / "profdata.log"
+            fake_profdata = root / "fake-llvm-profdata"
+            self.write_fake_profdata(fake_profdata, merge_log)
+            receipt = root / "receipt.json"
+            res = self.run_verify(
+                root, binaries, junit, prof_dir, shard_entries, fake_cov,
+                ["--receipt", str(receipt)], fake_profdata=fake_profdata,
+            )
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            self.assertIn("coverage summary: 1 entries measured", res.stdout)
+            calls = merge_log.read_text().splitlines()
+            self.assertEqual(len(calls), 1, f"expected 1 batched merge call, got {calls}")
+            self.assertIn("merge -sparse -o", calls[0])
+            for idx in range(4):
+                self.assertIn(f"case{idx:02d}.profdata", calls[0])
+            doc = json.loads(receipt.read_text())
+            self.assertEqual(doc["coverage"], ["POST /example"])
+            self.assertEqual(len(doc["replays"]), len(expected))
+
+    def test_batched_single_case_passes_directly_without_profdata_merge(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-prof-batch-one-") as d:
+            root = Path(d)
+            (root / "server").mkdir()
+            handler = root / "handler.rs"
+            handler.write_text("pub fn handle() -> u32 { 1 }\n")
+            fake_bin = root / "fake-bin"
+            fake_bin.write_text("#!/bin/sh\nexit 0\n")
+            fake_bin.chmod(0o755)
+            binaries = root / "binaries.json"
+            binaries.write_text(json.dumps({"fake-package::recorded": str(fake_bin)}))
+
+            # OFF route with 1 recorded case exercises the len(prof_files) == 1 direct path.
+            route = {"listener": "gateway", "method": "GET", "path": "/off-example", "family": "F12"}
+            case = {"kind": "success", "golden": "success.json",
+                    "replay": {"package": "fake-package", "target": "recorded", "test": "success"}}
+            (root / "inventory.json").write_text(json.dumps({"version": 1, "routes": [
+                {**route, "state": "OFF", "upstream": "local-rust"},
+            ]}))
+            (root / "catalog.json").write_text(json.dumps({"version": 1, "routes": [
+                {**route, "handler_sources": ["handler.rs"], "cases": [case]},
+            ]}))
+            (root / "success.json").write_text(json.dumps({
+                "format": 1, "route": "GET /off-example", "case": "success", "go_source": "a" * 40,
+                "observation": {"request": {"method": "GET", "path": "/off-example"},
+                                "response": {"status": 200}, "effects": [], "audit": [], "notify": []},
+            }))
+            junit = root / "junit.xml"
+            VerifyNextestJunit.write_junit(junit, [("success", "GOLDEN-REPLAY: GET /off-example :: success\n", None, None)])
+
+            printed = subprocess.run(
+                [sys.executable, str(GUARD), "--root", str(root), "--print-manifest",
+                 "--inventory", str(root / "inventory.json"), "--catalog", str(root / "catalog.json")],
+                capture_output=True, text=True, check=True,
+            )
+            manifest = json.loads(printed.stdout.strip().splitlines()[-1])
+
+            prof_dir = root / "profiles"
+            case_dir = prof_dir / "cases" / "0"
+            case_dir.mkdir(parents=True)
+            single_prof = case_dir / "only.profdata"
+            single_prof.write_bytes(b"single-profdata")
+            (case_dir / "only.case").write_text("fake-package::recorded\tsuccess\n")
+
+            shard_entries = root / "shard-coverage-entries.json"
+            shard_entries.write_text(json.dumps({
+                "version": 1,
+                "shard": "1/2",
+                "manifest_hash": manifest["hash"],
+                "entries": [{
+                    "entry_idx": 0,
+                    "route_name": "GET /off-example",
+                    "key": {"listener": "gateway", "method": "GET", "path": "/off-example", "family": "F12", "command": ""},
+                    "cases": [["fake-package::recorded", "success"]],
+                }],
+            }))
+            cov_log = root / "cov.log"
+            fake_cov = root / "fake-llvm-cov"
+            payload = json.dumps({"data": [{"files": [{
+                "filename": str(handler.resolve()),
+                "summary": {
+                    "lines": {"count": 10, "covered": 8, "percent": 80.0},
+                    "regions": {"count": 4, "covered": 3, "percent": 75.0},
+                },
+            }]}]})
+            fake_cov.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{cov_log}'\nprintf '%s\\n' '{payload}'\n")
+            fake_cov.chmod(0o755)
+            merge_log = root / "profdata.log"
+            fake_profdata = root / "fake-llvm-profdata"
+            self.write_fake_profdata(fake_profdata, merge_log, always_fail=True)
+
+            res = self.run_verify(
+                root, binaries, junit, prof_dir, shard_entries, fake_cov,
+                fake_profdata=fake_profdata,
+            )
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            self.assertFalse(merge_log.exists(), "single-case entry must not invoke llvm-profdata merge")
+            self.assertIn(f"--instr-profile={single_prof}", cov_log.read_text())
+
+    def test_batched_missing_case_file_fails_closed(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-prof-batch-nocase-") as d:
+            root, _, binaries, junit, prof_dir, shard_entries, fake_cov, _ = self.scaffold(d)
+            (prof_dir / "0.profdata").unlink()
+            (prof_dir / "0.cases").unlink()
+            case_dir = prof_dir / "cases" / "0"
+            case_dir.mkdir(parents=True)
+            # Write .profdata for all 4 cases, but omit the .case file for 'repeat'.
+            for idx, kind in enumerate(("success", "cross-tenant", "invalid-input", "repeat")):
+                (case_dir / f"case{idx:02d}.profdata").write_bytes(f"prof-{kind}".encode())
+                if kind != "repeat":
+                    (case_dir / f"case{idx:02d}.case").write_text(f"fake-package::recorded\t{kind}\n")
+            fake_profdata = root / "fake-llvm-profdata"
+            self.write_fake_profdata(fake_profdata, root / "profdata.log")
+            res = self.run_verify(
+                root, binaries, junit, prof_dir, shard_entries, fake_cov,
+                fake_profdata=fake_profdata,
+            )
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("missing non-empty profile proof", res.stderr)
+            self.assertIn("fake-package::recorded::repeat", res.stderr)
+
+    def test_batched_corrupted_or_empty_profdata_fails_closed(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-prof-batch-corrupt-") as d:
+            root, _, binaries, junit, prof_dir, shard_entries, fake_cov, _ = self.scaffold(d)
+            (prof_dir / "0.profdata").unlink()
+            (prof_dir / "0.cases").unlink()
+            case_dir = prof_dir / "cases" / "0"
+            case_dir.mkdir(parents=True)
+            for idx, kind in enumerate(("success", "cross-tenant", "invalid-input", "repeat")):
+                body = b"CORRUPT" if kind == "invalid-input" else f"prof-{kind}".encode()
+                (case_dir / f"case{idx:02d}.profdata").write_bytes(body)
+                (case_dir / f"case{idx:02d}.case").write_text(f"fake-package::recorded\t{kind}\n")
+            fake_profdata = root / "fake-llvm-profdata"
+            self.write_fake_profdata(fake_profdata, root / "profdata.log", fail_on_corrupt=True)
+            res = self.run_verify(
+                root, binaries, junit, prof_dir, shard_entries, fake_cov,
+                fake_profdata=fake_profdata,
+            )
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("llvm-profdata merge failed", res.stderr)
+
+            # Empty (0-byte) .profdata must fail before merge.
+            (case_dir / "case02.profdata").write_bytes(b"")
+            res = self.run_verify(
+                root, binaries, junit, prof_dir, shard_entries, fake_cov,
+                fake_profdata=fake_profdata,
+            )
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("missing or empty coverage profdata", res.stderr)
 
 
 if __name__ == "__main__":

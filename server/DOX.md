@@ -520,8 +520,8 @@ debug inputs `filter`/`adequacy_only`/`adequacy_entries`, which run one `debug` 
 lane result. Jobs: `queue` (merge-queue batching decision, head or gone; prints head on every run unless batching is on); `plan` (mode, shard list; debug or full); `build` (one instrumented `cargo nextest archive` of every
 workspace test binary plus the expected test list `nextest list`, saved under `shared-key: lane-coverage`); `roots` (static guards,
 cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read: `SERVER_RUST_STAGES=static,roots`);
-`shard 1..N` (route-aligned `scripts/ci/lane-shard-plan.py` filter file of the archive, capturing sparse `.profdata`
-in `scripts/nextest-db-wrapper.sh` and verifying JUnit replays/mutants plus local `llvm-cov export` coverage in one pass);
+`shard 1..N` (route-aligned `scripts/ci/lane-shard-plan.py` filter file of the archive, capturing lock-free per-case sparse `.profdata`
+in `scripts/nextest-db-wrapper.sh` under `cases/<eid>/` and verifying JUnit replays/mutants plus batched `llvm-profdata merge` + `llvm-cov export` coverage in one pass);
 `aggregate`, the required check. Each job is its own VM with its own
 Postgres, so host state cannot collide across shards; inside a shard the serial groups stay.
 `aggregate` runs `scripts/ci/merge-lane-shards.py`: red unless every job wrote `lane-complete.txt`
@@ -558,12 +558,23 @@ requests get a read-only token and no secrets (the lane needs none); caches are 
   gateway binaries serialise through an in-process `static SERIAL` mutex over shared database
   state and others seed once per process, so one shared database per binary would break
   them. `scripts/nextest-db-wrapper.sh` (nextest wrapper script, experimental
-  `wrapper-scripts`) runs `CREATE DATABASE <prefix><hash> TEMPLATE <tpl> STRATEGY file_copy`,
-  re-points every inherited DSN env var (`TEST_DB_DSN`, `DB_DSN`, `DB_DIRECT_DSN`,
-  `DB_APP_DSN`, `DB_WORKER_DSN`, ...) from the base database to the clone, runs the test and
-  drops the clone `WITH (FORCE)`. The template is loaded once by `scripts/load-test-schema.sh`
-  (`ALLOW_CONNECTIONS false`); roles are cluster-wide and provisioned once with it.
-  The lane sweeps leaked `<prefix><24 hex>` clones; it never touches other databases.
+  `wrapper-scripts`) re-points every inherited DSN env var (`TEST_DB_DSN`, `DB_DSN`, `DB_DIRECT_DSN`,
+  `DB_APP_DSN`, `DB_WORKER_DSN`, ...) from the base database to an isolated database for each test.
+  In parallel non-quick runs (`LANE_DB_POOL=1`, default), `scripts/ci/server-rust-parallel-lane.sh`
+  pre-creates `LANE_JOBS` reusable slot databases (`<prefix>slot_0..N-1`) from the template and
+  generates a self-contained SQL reset script (`scripts/ci/lane-db-pool-meta.py`, `$LANE_DB_POOL_META`)
+  from `slot_0`. Each nextest invocation acquires an exclusive slot lockdir (`slot_<i>.busy`), runs
+  against `<prefix>slot_<i>`, and before releasing the lock runs the single-round-trip reset script
+  (terminates lingering backends, verifies a strict catalog + ACL + `pg_db_role_setting` + matview +
+  prepared-xact + large-object fingerprint, truncates/clears dirty initially-empty tables and
+  throwaway `public.domains` rows, verifies exact row counts and sort-free `(bit_xor, sum)` content
+  checksums of every seed table, and restores any shifted sequences). Any non-zero exit, catalog/seed
+  drift, or reset error triggers a fail-safe `DROP DATABASE ... WITH (FORCE)` + `CREATE DATABASE ... TEMPLATE` re-clone
+  before releasing the slot lock; if all slots are busy or `LANE_DB_POOL=0`, the wrapper falls back
+  transparently to a fresh per-test clone (`<prefix><24 hex>`). The template is loaded once by
+  `scripts/load-test-schema.sh` (`ALLOW_CONNECTIONS false`); roles are cluster-wide and provisioned
+  once with it. The lane sweeps leaked `<prefix><24 hex>` clones and `<prefix>slot_<N>` slots at
+  startup and exit; it never touches other databases.
 - **Serial groups.** nextest cannot isolate host state, so `scripts/ci/server-rust-lane-groups.py`
   scans every test target (following `mod` files and the python/shell helpers a test names) for the
   host resources it uses: fixed TCP/UDP ports, fixed `/tmp` file names, fixed docker container names

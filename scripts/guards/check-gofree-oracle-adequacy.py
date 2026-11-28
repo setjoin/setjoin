@@ -650,13 +650,13 @@ def verify_nextest_junit(junit_path, replays, shard=None, failures=None, cases=N
     return [replay_label(*selected[i]) for i in range(len(selected)) if i not in errors]
 
 
-def find_llvm_cov():
-    """Locate llvm-cov: LANE_LLVM_COV override, then rustup sysroot llvm-tools, then PATH."""
-    override = os.environ.get("LANE_LLVM_COV")
+def find_llvm_tool(tool_name, env_var):
+    """Locate an LLVM binary: env override, then rustup sysroot llvm-tools, then PATH."""
+    override = os.environ.get(env_var)
     if override:
         path = Path(override)
         if not path.is_file():
-            raise ValueError(f"LANE_LLVM_COV is not a file: {override}")
+            raise ValueError(f"{env_var} is not a file: {override}")
         return path
     host = next(
         line.split(": ", 1)[1]
@@ -664,13 +664,23 @@ def find_llvm_cov():
         if line.startswith("host: ")
     )
     sysroot = subprocess.run(["rustc", "--print", "sysroot"], capture_output=True, text=True, check=True).stdout.strip()
-    cov = Path(sysroot) / "lib/rustlib" / host / "bin/llvm-cov"
-    if cov.is_file():
-        return cov
-    found = shutil.which("llvm-cov")
+    tool = Path(sysroot) / "lib/rustlib" / host / "bin" / tool_name
+    if tool.is_file():
+        return tool
+    found = shutil.which(tool_name)
     if found:
         return Path(found)
     raise ValueError("Rust llvm-tools component is required for coverage")
+
+
+def find_llvm_cov():
+    """Locate llvm-cov: LANE_LLVM_COV override, then rustup sysroot llvm-tools, then PATH."""
+    return find_llvm_tool("llvm-cov", "LANE_LLVM_COV")
+
+
+def find_llvm_profdata():
+    """Locate llvm-profdata: LANE_LLVM_PROFDATA override, then rustup sysroot llvm-tools, then PATH."""
+    return find_llvm_tool("llvm-profdata", "LANE_LLVM_PROFDATA")
 
 
 def verify_coverage_profiles(root, prof_dir, junit_cases, suites, prebuilt, *,
@@ -678,10 +688,16 @@ def verify_coverage_profiles(root, prof_dir, junit_cases, suites, prebuilt, *,
                              expected_shard=None, failures=None, workers=4):
     """Verify per-entry sparse profiles captured during the single-pass nextest run.
 
+    Supports both:
+      - Batched layout (`<PROF_DIR>/cases/<eid>/*.profdata` + `*.case`): merges all per-case
+        sparse `.profdata` files once via `llvm-profdata merge -sparse` (or passes directly
+        when there is only one file) without lock contention during nextest.
+      - Legacy flat layout (`<PROF_DIR>/<eid>.profdata` + `<PROF_DIR>/<eid>.cases`).
+
     For each coverage entry assigned to this shard:
       1. Every case passed in junit.xml with zero `*-SKIP (reason=` markers.
-      2. Every case appears in `<PROF_DIR>/<eid>.cases` (proving it emitted non-empty `.profraw`).
-      3. `llvm-cov export` against `<PROF_DIR>/<eid>.profdata` maps every `handler_source`
+      2. Every case has non-empty profile proof in the entry's case ledger.
+      3. `llvm-cov export` against the entry's profile maps every `handler_source`
          with `lines.count > 0`.
     """
     if prebuilt is None:
@@ -690,6 +706,14 @@ def verify_coverage_profiles(root, prof_dir, junit_cases, suites, prebuilt, *,
     if not prof_dir.is_dir():
         raise ValueError(f"coverage profile directory does not exist: {prof_dir}")
     cov_bin = find_llvm_cov()
+    profdata_bin_cache = []
+    profdata_bin_lock = threading.Lock()
+
+    def get_profdata_bin():
+        with profdata_bin_lock:
+            if not profdata_bin_cache:
+                profdata_bin_cache.append(find_llvm_profdata())
+            return profdata_bin_cache[0]
 
     if shard_entries is not None:
         if shard_entries.get("version") != 1:
@@ -756,27 +780,6 @@ def verify_coverage_profiles(root, prof_dir, junit_cases, suites, prebuilt, *,
                 if re.search(r"[A-Z][A-Z0-9-]*-SKIP \(reason=", output):
                     raise ValueError(f"coverage case {bin_id}::{test_name} emitted skip marker in JUnit XML:\n{output}")
 
-            cases_path = prof_dir / f"{eid}.cases"
-            if not cases_path.is_file():
-                raise ValueError(f"missing coverage profile case ledger: {cases_path}")
-            recorded_cases = set()
-            for raw_line in cases_path.read_text(errors="replace").splitlines():
-                if not raw_line.strip():
-                    continue
-                parts = raw_line.split("\t")
-                if len(parts) == 2:
-                    recorded_cases.add((parts[0], parts[1]))
-            missing_recorded = [f"{b}::{t}" for b, t in expected_cases if (b, t) not in recorded_cases]
-            if missing_recorded:
-                raise ValueError(
-                    f"coverage case(s) missing non-empty profile proof in {cases_path.name}: "
-                    + ", ".join(missing_recorded)
-                )
-
-            profdata = prof_dir / f"{eid}.profdata"
-            if not profdata.is_file() or profdata.stat().st_size == 0:
-                raise ValueError(f"missing or empty coverage profdata: {profdata}")
-
             command_binaries = []
             for target in suite_targets(suite):
                 binary_key = f"{target[0]}::{target[1]}"
@@ -787,15 +790,80 @@ def verify_coverage_profiles(root, prof_dir, junit_cases, suites, prebuilt, *,
             if not command_binaries:
                 raise ValueError("coverage entry has no test binaries")
 
-            command = [
-                str(cov_bin), "export", "--format=text", "--skip-functions", "--skip-expansions",
-                f"--instr-profile={profdata}", command_binaries[0],
-            ]
-            for extra in command_binaries[1:]:
-                command.extend(["--object", extra])
-            command.extend(["--sources", *(str(path) for _, path in resolved_sources)])
+            with contextlib.ExitStack() as stack:
+                cases_dir = prof_dir / "cases" / str(eid)
+                if cases_dir.is_dir():
+                    case_files = sorted(cases_dir.glob("*.case"))
+                    if not case_files:
+                        raise ValueError(f"missing coverage profile case ledger in {cases_dir}")
+                    recorded_cases = set()
+                    prof_files = []
+                    for case_file in case_files:
+                        matching_prof = case_file.with_suffix(".profdata")
+                        if not matching_prof.is_file() or matching_prof.stat().st_size == 0:
+                            raise ValueError(f"missing or empty coverage profdata: {matching_prof}")
+                        prof_files.append(matching_prof)
+                        for raw_line in case_file.read_text(errors="replace").splitlines():
+                            if not raw_line.strip():
+                                continue
+                            parts = raw_line.split("\t")
+                            if len(parts) == 2:
+                                recorded_cases.add((parts[0], parts[1]))
+                    missing_recorded = [f"{b}::{t}" for b, t in expected_cases if (b, t) not in recorded_cases]
+                    if missing_recorded:
+                        raise ValueError(
+                            f"coverage case(s) missing non-empty profile proof in cases/{eid}: "
+                            + ", ".join(missing_recorded)
+                        )
+                    all_prof_files = sorted(cases_dir.glob("*.profdata"))
+                    for pf in all_prof_files:
+                        if pf.stat().st_size == 0:
+                            raise ValueError(f"missing or empty coverage profdata: {pf}")
+                    if len(prof_files) == 1:
+                        profdata = prof_files[0]
+                    else:
+                        tmp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix=f"cov-merge-{eid}-")))
+                        merged = tmp_dir / f"{eid}.profdata"
+                        profdata_bin = get_profdata_bin()
+                        merge_cmd = [str(profdata_bin), "merge", "-sparse", "-o", str(merged),
+                                     *(str(p) for p in prof_files)]
+                        merge_res = subprocess.run(merge_cmd, cwd=root, capture_output=True, text=True, check=False)
+                        if merge_res.returncode or not merged.is_file() or merged.stat().st_size == 0:
+                            raise ValueError(
+                                f"llvm-profdata merge failed for entry {eid}:\n{merge_res.stdout}{merge_res.stderr}"
+                            )
+                        profdata = merged
+                else:
+                    cases_path = prof_dir / f"{eid}.cases"
+                    if not cases_path.is_file():
+                        raise ValueError(f"missing coverage profile case ledger: {cases_path}")
+                    recorded_cases = set()
+                    for raw_line in cases_path.read_text(errors="replace").splitlines():
+                        if not raw_line.strip():
+                            continue
+                        parts = raw_line.split("\t")
+                        if len(parts) == 2:
+                            recorded_cases.add((parts[0], parts[1]))
+                    missing_recorded = [f"{b}::{t}" for b, t in expected_cases if (b, t) not in recorded_cases]
+                    if missing_recorded:
+                        raise ValueError(
+                            f"coverage case(s) missing non-empty profile proof in {cases_path.name}: "
+                            + ", ".join(missing_recorded)
+                        )
 
-            result = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
+                    profdata = prof_dir / f"{eid}.profdata"
+                    if not profdata.is_file() or profdata.stat().st_size == 0:
+                        raise ValueError(f"missing or empty coverage profdata: {profdata}")
+
+                command = [
+                    str(cov_bin), "export", "--format=text", "--skip-functions", "--skip-expansions",
+                    f"--instr-profile={profdata}", command_binaries[0],
+                ]
+                for extra in command_binaries[1:]:
+                    command.extend(["--object", extra])
+                command.extend(["--sources", *(str(path) for _, path in resolved_sources)])
+
+                result = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
             if result.returncode:
                 raise ValueError(f"llvm-cov export failed:\n{result.stdout}{result.stderr}")
             try:
