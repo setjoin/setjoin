@@ -182,6 +182,11 @@ fn gateway(db: &Db, rust_on: &str, go_off: Option<&str>) -> std::io::Result<crat
         ("DB_DIRECT_DSN", db.app_dsn()),
         ("DB_WORKER_DSN", db.worker_dsn()),
         ("RUST_WORKERS_ON", rust_on),
+        // Preserve the conformance harness's widened DB deadlines across
+        // `env_clear()` so a CPU-starved CI runner does not trip the default
+        // 1 s `pool_wait` during `WorkerSupervisor::boot` or startup reads (#361).
+        ("SETJOIN_PG_DEADLINE_MS", "30000"),
+        ("SETJOIN_AUTHZ_PRECHECK_TIMEOUT_MS", "15000"),
     ] {
         command.env(k, v);
     }

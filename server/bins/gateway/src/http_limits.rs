@@ -210,6 +210,21 @@ pub(crate) struct ActiveRequest {
     activity: Arc<Activity>,
     id: u64,
 }
+impl ActiveRequest {
+    /// Extend this request's write deadline by `limits.write` from now.
+    /// Used by long-lived `text/event-stream` responses whenever a frame
+    /// (including `: keepalive\n\n`) is delivered so healthy idle SSE streams
+    /// survive past the 120 s per-write budget while stalled writers still abort (#390).
+    pub(crate) fn refresh_write(&self) {
+        self.activity.state.send_modify(|state| {
+            let next = Instant::now() + self.activity.limits.write;
+            state.last_write = Some(next);
+            if let Some(request) = state.requests.get_mut(&self.id) {
+                request.write = next;
+            }
+        });
+    }
+}
 impl Drop for ActiveRequest {
     fn drop(&mut self) {
         self.activity.state.send_modify(|state| {
@@ -357,6 +372,7 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HttpIo<S> {
 pub(crate) struct ResponseBody {
     inner: Body,
     active: Option<Arc<ActiveRequest>>,
+    refresh_on_frame: bool,
 }
 
 // Hyper may retain a final DATA frame in its HTTP/2 flow-control queue after
@@ -373,12 +389,24 @@ impl AsRef<[u8]> for OutputChunk {
 }
 impl ResponseBody {
     pub(crate) fn new(inner: Body, active: ActiveRequest) -> Self {
+        Self::build(inner, active, false)
+    }
+
+    pub(crate) fn new_streaming(inner: Body, active: ActiveRequest) -> Self {
+        Self::build(inner, active, true)
+    }
+
+    fn build(inner: Body, active: ActiveRequest, refresh_on_frame: bool) -> Self {
         let active = if inner.is_end_stream() {
             None
         } else {
             Some(Arc::new(active))
         };
-        Self { inner, active }
+        Self {
+            inner,
+            active,
+            refresh_on_frame,
+        }
     }
 }
 impl HttpBody for ResponseBody {
@@ -391,6 +419,11 @@ impl HttpBody for ResponseBody {
         let result = Pin::new(&mut self.inner).poll_frame(cx);
         let result = match result {
             Poll::Ready(Some(Ok(frame))) => {
+                if self.refresh_on_frame {
+                    if let Some(active) = &self.active {
+                        active.refresh_write();
+                    }
+                }
                 Poll::Ready(Some(Ok(frame.map_data(|data| match &self.active {
                     Some(active) => bytes::Bytes::from_owner(OutputChunk {
                         data,

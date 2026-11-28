@@ -14,6 +14,18 @@ use std::{
     time::Duration,
 };
 
+/// Default server-side minimum SSE keepalive interval (#390).
+/// Keeps idle streams alive across load-balancer/NAT idle timers (AWS ALB 60s,
+/// Azure LB 4m, NAT 350s) using SSE comment frames (`: keepalive\n\n`) when the
+/// client sends no `ping` query parameter or a larger interval.
+pub const DEFAULT_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Default per-write stall timeout for SSE frames (120 s).
+/// Applies per individual write so healthy idle streams survive past 120 s across
+/// 30 s keepalives and reach jittered periodic re-validation (`[240s, 360s]`),
+/// while genuinely stalled slow-client writes still abort (#390).
+pub const DEFAULT_WRITE_TIMEOUT: Duration = Duration::from_secs(120);
+
 pub struct EventSourceRoute<K: KeySource + 'static> {
     pub commands: Arc<JmapCommands<K>>,
     pub hub: Arc<super::hub::PushHub>,
@@ -26,6 +38,8 @@ pub struct EventSourceRoute<K: KeySource + 'static> {
     max_clients: usize,
     production: bool,
     allowed_host: String,
+    keepalive_interval: Option<Duration>,
+    stream_write_deadline: Option<Duration>,
 }
 impl<K: KeySource + 'static> EventSourceRoute<K> {
     pub fn new(ws: &WebSocketRoute<K>) -> Self {
@@ -41,7 +55,21 @@ impl<K: KeySource + 'static> EventSourceRoute<K> {
             max_clients: ws.max_clients,
             production: ws.production,
             allowed_host: ws.allowed_host.clone(),
+            keepalive_interval: Some(DEFAULT_KEEPALIVE_INTERVAL),
+            stream_write_deadline: None,
         }
+    }
+
+    pub fn with_keepalive_interval(mut self, interval: Option<Duration>) -> Self {
+        self.keepalive_interval = interval.filter(|d| !d.is_zero());
+        self
+    }
+
+    /// Optional whole-stream write deadline (used for frozen-Go `http.Server.WriteTimeout`
+    /// conformance replays). Production defaults to `None` (per-write `DEFAULT_WRITE_TIMEOUT`).
+    pub fn with_stream_write_deadline(mut self, deadline: Option<Duration>) -> Self {
+        self.stream_write_deadline = deadline.filter(|d| !d.is_zero());
+        self
     }
 
     pub fn with_sync_hub(mut self, sync_hub: Arc<super::sync_hub::SyncWakeupHub>) -> Self {
@@ -88,8 +116,11 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
         };
         let production = self.production;
         let allowed_host = self.allowed_host.clone();
+        let keepalive_interval = self.keepalive_interval;
+        let stream_write_deadline = self.stream_write_deadline;
         Box::pin(async move {
-            let write_deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+            let stream_deadline =
+                stream_write_deadline.map(|d| tokio::time::Instant::now() + d);
             let bearer = r
                 .headers()
                 .get("authorization")
@@ -277,7 +308,8 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
             let aborted = Arc::new(AtomicBool::new(false));
             let output = StreamOutput {
                 send,
-                deadline: write_deadline,
+                stream_deadline,
+                write_timeout: DEFAULT_WRITE_TIMEOUT,
                 aborted: aborted.clone(),
             };
             let task = tokio::spawn(async move {
@@ -321,20 +353,21 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
                         .await;
                     return;
                 }
-                let mut ping = if ping_secs > 0 {
-                    let duration = Duration::from_nanos(ping_nanos as u64);
+                let ping_duration = (ping_secs > 0).then(|| Duration::from_nanos(ping_nanos as u64));
+                let mut ping = ping_duration.map(|duration| {
                     let mut timer =
                         tokio::time::interval_at(tokio::time::Instant::now() + duration, duration);
                     timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                    Some(timer)
-                } else {
-                    None
-                };
-                let mut revalidate = tokio::time::interval_at(
-                    tokio::time::Instant::now() + Duration::from_secs(300),
-                    Duration::from_secs(300),
-                );
-                revalidate.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    timer
+                });
+                let mut keepalive = effective_keepalive(keepalive_interval, ping_duration).map(|duration| {
+                    let mut timer =
+                        tokio::time::interval_at(tokio::time::Instant::now() + duration, duration);
+                    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    timer
+                });
+                let mut revalidate_at =
+                    tokio::time::Instant::now() + super::push::jittered_revalidate_interval();
                 loop {
                     let event = tokio::select! {
                         biased;
@@ -400,7 +433,8 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
                             }
                             continue;
                         }
-                        _=revalidate.tick()=>{
+                        _=tokio::time::sleep_until(revalidate_at)=>{
+                            revalidate_at = tokio::time::Instant::now() + super::push::jittered_revalidate_interval();
                             if auth.expires_at().is_none_or(|exp|chrono::Utc::now().timestamp()>=exp){break}
                             let mut allowed=true;
                             if let Some(mb) = mailbox {
@@ -419,6 +453,7 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
                             }
                             continue
                         },
+                        _=async {match &mut keepalive {Some(timer)=>{timer.tick().await;},None=>std::future::pending().await}}=>{if !write(&output,&mut closed,": keepalive\n\n".to_owned()).await{break}continue},
                         _=async {match &mut ping {Some(timer)=>{timer.tick().await;},None=>std::future::pending().await}}=>{if !write(&output,&mut closed,format!("event: ping\ndata: {{\"interval\":{ping_secs}}}\n\n")).await{break}continue},
                         event=subscription.events.recv()=>match event {Some(e)=>e,None=>break},
                     };
@@ -560,12 +595,16 @@ impl Drop for StreamTask {
 type StreamFrame = Result<hyper::body::Frame<bytes::Bytes>, crate::BoxError>;
 struct StreamOutput {
     send: tokio::sync::mpsc::Sender<StreamFrame>,
-    deadline: tokio::time::Instant,
+    stream_deadline: Option<tokio::time::Instant>,
+    write_timeout: Duration,
     aborted: Arc<AtomicBool>,
 }
 impl Drop for StreamOutput {
     fn drop(&mut self) {
-        if tokio::time::Instant::now() >= self.deadline {
+        if self
+            .stream_deadline
+            .is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
+        {
             self.aborted.store(true, Ordering::SeqCst);
         }
     }
@@ -575,12 +614,24 @@ async fn write(
     closed: &mut tokio::sync::watch::Receiver<bool>,
     data: String,
 ) -> bool {
-    if *closed.borrow() || tokio::time::Instant::now() >= output.deadline {
+    if *closed.borrow() {
+        return false;
+    }
+    let now = tokio::time::Instant::now();
+    let per_write = now + output.write_timeout;
+    let deadline = output
+        .stream_deadline
+        .map_or(per_write, |stream| stream.min(per_write));
+    if now >= deadline {
+        output.aborted.store(true, Ordering::SeqCst);
         return false;
     }
     tokio::select! {
      biased;
-     _=tokio::time::sleep_until(output.deadline)=>false,
+     _=tokio::time::sleep_until(deadline)=>{
+         output.aborted.store(true, Ordering::SeqCst);
+         false
+     },
      _=closed.changed()=>false,
      result=output.send.send(Ok(hyper::body::Frame::data(bytes::Bytes::from(data))))=>result.is_ok(),
     }
@@ -662,4 +713,36 @@ fn state_event(frame: &str, filter: Option<&HashSet<String>>) -> Option<String> 
         }
     }
     Some(format!("event: state\ndata: {data}\n\n"))
+}
+
+fn effective_keepalive(
+    keepalive_interval: Option<Duration>,
+    ping_duration: Option<Duration>,
+) -> Option<Duration> {
+    keepalive_interval.filter(|min_interval| ping_duration.is_none_or(|d| d > *min_interval))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effective_keepalive_applies_only_when_ping_is_absent_or_larger() {
+        let min = Some(DEFAULT_KEEPALIVE_INTERVAL);
+        assert_eq!(effective_keepalive(min, None), min);
+        assert_eq!(effective_keepalive(min, Some(Duration::from_secs(1))), None);
+        assert_eq!(
+            effective_keepalive(min, Some(Duration::from_secs(30))),
+            None
+        );
+        assert_eq!(
+            effective_keepalive(min, Some(Duration::from_secs(31))),
+            min
+        );
+        assert_eq!(
+            effective_keepalive(min, Some(Duration::from_secs(60))),
+            min
+        );
+        assert_eq!(effective_keepalive(None, None), None);
+    }
 }

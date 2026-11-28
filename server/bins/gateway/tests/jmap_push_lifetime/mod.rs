@@ -46,6 +46,29 @@ async fn ready(socket: &mut Socket) -> Result<String, BoxError> {
         }
     }
 }
+async fn ready_or_close(socket: &mut Socket, strict: u16) -> Result<Option<String>, BoxError> {
+    let _ = socket
+        .send(Message::Text(r#"{"@type":"ready"}"#.into()))
+        .await;
+    loop {
+        match tokio::time::timeout(Duration::from_secs(10), socket.next()).await? {
+            Some(Ok(Message::Ping(_))) => {
+                let _ = socket.flush().await;
+            }
+            Some(Ok(Message::Text(_))) => return Ok(None),
+            Some(Ok(Message::Close(frame))) => {
+                let frame = frame.ok_or("missing close payload")?;
+                if u16::from(frame.code) != strict {
+                    return Err(format!("wrong close {frame:?}").into());
+                }
+                return Ok(Some(
+                    json!({"closed":true,"code":strict,"reason":frame.reason.as_str()}).to_string(),
+                ));
+            }
+            other => return Err(format!("unexpected probe frame {other:?}").into()),
+        }
+    }
+}
 async fn terminal(socket: &mut Socket, strict: Option<u16>) -> Result<String, BoxError> {
     loop {
         match tokio::time::timeout(Duration::from_secs(340), socket.next()).await? {
@@ -184,11 +207,24 @@ pub async fn run(case: &str) -> Result<(), BoxError> {
                     }
                     "expiry"=>{
                         if recording {frames.push(terminal(&mut socket,Some(1008)).await?);} else {
+                            // Account for the initial 11s wall sleep before the advance loop:
+                            // periodic revalidation is jittered in [240s, 360s] (300s ±20%, #390),
+                            // so `ready()` is only required while `11 + elapsed < 235` (at 231s,
+                            // safely below 240s), and Close(1008) must arrive by 411s (> 360s).
                             tokio::time::sleep(Duration::from_secs(11)).await;
-                            for step in 0..6 {
-                                tokio::time::pause();tokio::time::advance(Duration::from_secs(50)).await;tokio::time::resume();
-                                if step<5 {ready(&mut socket).await?;} else {frames.push(terminal(&mut socket,Some(1008)).await?);}
+                            let mut elapsed = 11_u64;
+                            let mut closed = None;
+                            for delta in [50_u64, 50, 50, 50, 20, 45, 45, 45, 45] {
+                                tokio::time::pause();tokio::time::advance(Duration::from_secs(delta)).await;tokio::time::resume();
+                                elapsed += delta;
+                                if elapsed < 235 {
+                                    ready(&mut socket).await?;
+                                } else if let Some(frame) = ready_or_close(&mut socket, 1008).await? {
+                                    closed = Some(frame);
+                                    break;
+                                }
                             }
+                            frames.push(closed.ok_or("expired WS did not close within [240s, 360s] jittered revalidation bound")?);
                         }
                     }
                     "limit"=>{

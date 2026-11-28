@@ -174,6 +174,7 @@ impl Fixture {
             fixture.server=Some(std::thread::Builder::new().name(format!("gofree-boot-s3-{id}")).spawn(move|| {
                 while !stop.load(Ordering::Acquire) {
                     let (mut stream,_)=match listener.accept() { Ok(value)=>value, Err(e) if e.kind()==io::ErrorKind::WouldBlock=>{std::thread::sleep(Duration::from_millis(5));continue;},Err(_)=>break };
+                    let _=stream.set_nonblocking(false);
                     let _=stream.set_read_timeout(Some(Duration::from_secs(2)));
                     let _=stream.set_write_timeout(Some(Duration::from_secs(2)));
                     let mut request=Vec::new();let mut buffer=[0u8;4096];
@@ -195,6 +196,17 @@ impl Fixture {
         }
         if !specified(command, "NETWORK_MODE") && !specified(command, "SETJOIN_CONFIG") {
             command.env("NETWORK_MODE", "airgap");
+        }
+        // Preserve conformance-widened PG/authz deadlines across child `env_clear()`
+        // unless the caller explicitly specified them (#361).
+        for var in ["SETJOIN_PG_DEADLINE_MS", "SETJOIN_AUTHZ_PRECHECK_TIMEOUT_MS"] {
+            if !specified(command, var) {
+                if let Ok(value) = std::env::var(var) {
+                    if !value.is_empty() {
+                        command.env(var, value);
+                    }
+                }
+            }
         }
         let prefix =
             std::env::var("GOFREE_RESOURCE_PREFIX").unwrap_or_else(|_| "gofree-boot".into());

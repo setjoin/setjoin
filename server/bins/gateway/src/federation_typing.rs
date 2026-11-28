@@ -8,32 +8,66 @@ use std::{
     time::{Duration, Instant},
 };
 
+const MAX_STAMPS: usize = 4096;
+const DEBOUNCE_WINDOW: Duration = Duration::from_secs(1);
+
+#[derive(Default)]
+struct DebounceMap {
+    stamps: HashMap<i64, Instant>,
+}
+
+impl DebounceMap {
+    fn debounced_at(&mut self, channel: i64, now: Instant) -> bool {
+        if self
+            .stamps
+            .get(&channel)
+            .is_some_and(|last| now.saturating_duration_since(*last) < DEBOUNCE_WINDOW)
+        {
+            return true;
+        }
+        if !self.stamps.contains_key(&channel) && self.stamps.len() >= MAX_STAMPS {
+            self.stamps
+                .retain(|_, last| now.saturating_duration_since(*last) < DEBOUNCE_WINDOW);
+            while self.stamps.len() >= MAX_STAMPS {
+                let Some(&oldest) = self
+                    .stamps
+                    .iter()
+                    .min_by_key(|(&ch, &ts)| (ts, ch))
+                    .map(|(ch, _)| ch)
+                else {
+                    break;
+                };
+                self.stamps.remove(&oldest);
+            }
+        }
+        self.stamps.insert(channel, now);
+        false
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.stamps.len()
+    }
+}
+
 pub struct Typing {
     service: Arc<Service>,
-    stamps: Mutex<HashMap<i64, Instant>>,
+    stamps: Mutex<DebounceMap>,
 }
 impl Typing {
     pub fn new(service: Arc<Service>) -> Self {
         Self {
             service,
-            stamps: Mutex::new(HashMap::new()),
+            stamps: Mutex::new(DebounceMap::default()),
         }
     }
-    /// Matches Go's per-channel stamp, including refused local signals.
+    /// Matches Go's per-channel stamp, including refused local signals, while
+    /// strictly enforcing the 4096-entry memory cap (#265).
     pub fn debounced(&self, channel: i64) -> bool {
-        let now = Instant::now();
-        let mut stamps = self.stamps.lock().unwrap();
-        if stamps
-            .get(&channel)
-            .is_some_and(|last| now.duration_since(*last) < Duration::from_secs(1))
-        {
-            return true;
-        }
-        if stamps.len() >= 4096 {
-            stamps.retain(|_, last| now.duration_since(*last) < Duration::from_secs(1));
-        }
-        stamps.insert(channel, now);
-        false
+        self.stamps
+            .lock()
+            .unwrap()
+            .debounced_at(channel, Instant::now())
     }
     pub fn send(
         self: Arc<Self>,
@@ -58,5 +92,70 @@ impl Typing {
                 Some(())
             }).await;
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debounce_map_never_exceeds_cap_with_5000_fresh_entries() {
+        let mut map = DebounceMap::default();
+        let now = Instant::now();
+        for ch in 1..=5000_i64 {
+            assert!(!map.debounced_at(ch, now), "first signal for channel {ch}");
+            assert!(
+                map.len() <= MAX_STAMPS,
+                "map exceeded cap after inserting channel {ch}: len={}",
+                map.len()
+            );
+        }
+        assert_eq!(map.len(), MAX_STAMPS);
+    }
+
+    #[test]
+    fn debounce_map_evicts_oldest_when_full_and_prunes_stale_entries_first() {
+        let mut map = DebounceMap::default();
+        let base = Instant::now();
+        assert!(!map.debounced_at(1, base));
+        assert!(map.debounced_at(1, base + Duration::from_millis(200)));
+
+        let newer = base + Duration::from_millis(500);
+        for ch in 2..=(MAX_STAMPS as i64) {
+            assert!(!map.debounced_at(ch, newer));
+        }
+        assert_eq!(map.len(), MAX_STAMPS);
+
+        // Still fresh (<1s old): inserting a new channel must evict the oldest
+        // entry (channel 1 at `base`), keeping len == MAX_STAMPS.
+        let at_600ms = base + Duration::from_millis(600);
+        assert!(!map.debounced_at(MAX_STAMPS as i64 + 1, at_600ms));
+        assert_eq!(map.len(), MAX_STAMPS);
+        // Channel 1 was evicted, so it is no longer debounced.
+        assert!(!map.debounced_at(1, at_600ms));
+        assert_eq!(map.len(), MAX_STAMPS);
+
+        // Updating an existing stale key when at cap must overwrite in place
+        // without evicting a fresh neighbor.
+        let mut stale_map = DebounceMap::default();
+        let t0 = Instant::now();
+        assert!(!stale_map.debounced_at(1, t0));
+        let t_fresh = t0 + Duration::from_millis(800);
+        for ch in 2..=(MAX_STAMPS as i64) {
+            assert!(!stale_map.debounced_at(ch, t_fresh));
+        }
+        assert_eq!(stale_map.len(), MAX_STAMPS);
+        let t_refresh = t0 + Duration::from_millis(1200);
+        // Channel 1 is stale (>=1s old) while channels 2..=4096 are still fresh (400ms old).
+        assert!(!stale_map.debounced_at(1, t_refresh));
+        assert_eq!(stale_map.len(), MAX_STAMPS);
+        // Neighbor channel 2 was NOT evicted and remains debounced.
+        assert!(stale_map.debounced_at(2, t_refresh));
+
+        // Once all entries are stale (>=1s old), retain prunes them cleanly.
+        let after_window = at_600ms + Duration::from_secs(2);
+        assert!(!map.debounced_at(99_999, after_window));
+        assert_eq!(map.len(), 1);
     }
 }
