@@ -208,7 +208,7 @@ jobs:
             echo "- **DEBUG run, not a lane result**: filter \`${LANE_NEXTEST_FILTER:0:300}\`, adequacy stages \`${LANE_ADEQUACY_ONLY}\`, entries \`${LANE_ADEQUACY_ENTRIES:0:300}\`"
             { grep -E '^(✓|✗)|^replay summary|^coverage summary|Summary \[' lane-artifacts/lane.log | tail -30 | sed 's/^/- `/; s/$/`/'; } || true
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: lane-result-debug
@@ -244,13 +244,13 @@ jobs:
           ls -la "$LANE_BUILD/lane-tests.tar.zst"
           # an ignored test is red, as in run_root (the shards cannot see it: filtered runs count as skipped)
           python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); bad=[f"{b}::{t}" for b,s in d["rust-suites"].items() for t,c in s["testcases"].items() if c.get("ignored")]; print("\n".join(bad)); sys.exit(f"{len(bad)} ignored test(s)" if bad else 0)' lane-artifacts/lane-list.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: lane-archive
           path: ${{ env.LANE_BUILD }}/lane-tests.tar.zst
           retention-days: 1
           compression-level: 0
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: lane-list
           path: lane-artifacts/lane-list.json
@@ -274,7 +274,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Static guards, cargo-deny, pilot, schema-simulation, bench-mark-read, doc tests, SAML ACS mutants
         run: bash scripts/ci/lane-container.sh bash scripts/ci/server-rust-parallel-lane.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: lane-result-roots
@@ -313,7 +313,7 @@ jobs:
           bash scripts/ci/run-pgtap-lane.sh scripts/pgtap-known-red.txt -h 127.0.0.1 -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME"
       - name: Verify named pgTAP evidence
         run: TEST_EVIDENCE_OUTPUT=test-results/pgtap/test-evidence.json bash scripts/guards/check-test-evidence-results.sh --verify tap
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: pgtap-result
@@ -475,7 +475,7 @@ jobs:
           LANE_COVERAGE_PROF_DIR="$PROF_DIR" \
           LANE_COVERAGE_SHARD_ENTRIES="$PLAN_DIR/shard-coverage-entries.json" \
             bash scripts/ci/lane-container.sh bash scripts/ci/server-rust-parallel-lane.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: lane-result-shard-${{ matrix.shard }}
@@ -535,7 +535,7 @@ jobs:
           set -o pipefail
           python3 scripts/ci/merge-lane-shards.py --list results/lane-list/lane-list.json --results results \
             --shards "$SHARDS" --coverage-shards 0 | tee -a "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full'
         with:
           name: lane-results-${{ github.sha }}
