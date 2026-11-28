@@ -61,6 +61,91 @@ no_selftest=()
 skipped=()
 ran=0
 
+JOBS="${RUN_GUARDS_JOBS:-1}"
+case "$JOBS" in
+  '' | *[!0-9]* | 0) echo "invalid RUN_GUARDS_JOBS: $JOBS (expected positive integer)" >&2; exit 2 ;;
+esac
+
+run_one_guard() { # <script-path> <status-file>
+  local g="$1" status_file="$2" tmp_status name st
+  tmp_status="${status_file}.tmp"
+  name="$(basename "$g" .sh)"
+  st="${g%.sh}-selftest.sh"
+  : > "$tmp_status"
+  echo "──[ guard: $name ]──"
+  if [ -f "$st" ]; then
+    if ! bash "$st"; then
+      echo "✗ SELF-TEST FAILED: $name (guard may no longer fire — do not trust it)"
+      if is_known_red "$name"; then
+        printf 'tolerated\t%s (self-test)\n' "$name" >> "$tmp_status"
+      else
+        printf 'fail\t%s (self-test)\n' "$name" >> "$tmp_status"
+      fi
+      mv "$tmp_status" "$status_file"
+      return 0
+    fi
+  elif grep -q -- '--self-test' "$g"; then
+    if ! bash "$g" --self-test; then
+      echo "✗ SELF-TEST FAILED: $name (guard may no longer fire — do not trust it)"
+      if is_known_red "$name"; then
+        printf 'tolerated\t%s (self-test)\n' "$name" >> "$tmp_status"
+      else
+        printf 'fail\t%s (self-test)\n' "$name" >> "$tmp_status"
+      fi
+      mv "$tmp_status" "$status_file"
+      return 0
+    fi
+  elif grep -q -- '"-selftest"' "$g"; then
+    # single-dash spelling (check-jit-coverage / check-reach-coverage)
+    if ! bash "$g" -selftest; then
+      echo "✗ SELF-TEST FAILED: $name (guard may no longer fire — do not trust it)"
+      if is_known_red "$name"; then
+        printf 'tolerated\t%s (self-test)\n' "$name" >> "$tmp_status"
+      else
+        printf 'fail\t%s (self-test)\n' "$name" >> "$tmp_status"
+      fi
+      mv "$tmp_status" "$status_file"
+      return 0
+    fi
+  else
+    echo "  (no self-test — verdict below is untested against a planted violation)"
+    printf 'no_selftest\t%s\n' "$name" >> "$tmp_status"
+  fi
+
+  if bash "$g"; then
+    printf 'pass\t%s\n' "$name" >> "$tmp_status"
+    ! is_known_red "$name" || printf 'stale_red\t%s\n' "$name" >> "$tmp_status"
+  else
+    echo "✗ GUARD FAILED: $name"
+    if is_known_red "$name"; then
+      printf 'tolerated\t%s\n' "$name" >> "$tmp_status"
+    else
+      printf 'fail\t%s\n' "$name" >> "$tmp_status"
+    fi
+  fi
+  mv "$tmp_status" "$status_file"
+}
+
+apply_guard_status() { # <status-file> <guard-name>
+  local kind val saw_terminal=0
+  while IFS=$'\t' read -r kind val; do
+    case "$kind" in
+      no_selftest) no_selftest+=("$val") ;;
+      pass) ran=$((ran + 1)); saw_terminal=1 ;;
+      stale_red) stale_red+=("$val") ;;
+      tolerated) tolerated+=("$val"); saw_terminal=1 ;;
+      fail) fail+=("$val"); saw_terminal=1 ;;
+    esac
+  done < "$1"
+  if [ "$saw_terminal" -ne 1 ]; then
+    fail+=("$2 (incomplete status)")
+  fi
+}
+
+all_guards=()
+non_db_guards=()
+db_guards=()
+
 for g in "$ROOT"/scripts/guards/check-*.sh; do
   case "$g" in *-selftest.sh) continue ;; esac
   name="$(basename "$g" .sh)"
@@ -68,45 +153,70 @@ for g in "$ROOT"/scripts/guards/check-*.sh; do
   # exercised by scripts/guards/test-check-server-release-build.sh, not a repo-tree guard).
   [[ "$name" == "check-server-release-build" ]] && continue
 
-  if [ "$NO_DB" = 1 ] && grep -q '^# guard-requires: db' "$g"; then
-    skipped+=("$name")
-    continue
-  fi
-
-  st="${g%.sh}-selftest.sh"
-  echo "──[ guard: $name ]──"
-  if [ -f "$st" ]; then
-    if ! bash "$st"; then
-      echo "✗ SELF-TEST FAILED: $name (guard may no longer fire — do not trust it)"
-      if is_known_red "$name"; then tolerated+=("$name (self-test)"); else fail+=("$name (self-test)"); fi
+  if grep -q '^# guard-requires: db' "$g"; then
+    if [ "$NO_DB" = 1 ]; then
+      skipped+=("$name")
       continue
     fi
-  elif grep -q -- '--self-test' "$g"; then
-    if ! bash "$g" --self-test; then
-      echo "✗ SELF-TEST FAILED: $name (guard may no longer fire — do not trust it)"
-      if is_known_red "$name"; then tolerated+=("$name (self-test)"); else fail+=("$name (self-test)"); fi
-      continue
-    fi
-  elif grep -q -- '"-selftest"' "$g"; then
-    # single-dash spelling (check-jit-coverage / check-reach-coverage)
-    if ! bash "$g" -selftest; then
-      echo "✗ SELF-TEST FAILED: $name (guard may no longer fire — do not trust it)"
-      if is_known_red "$name"; then tolerated+=("$name (self-test)"); else fail+=("$name (self-test)"); fi
-      continue
-    fi
+    idx="${#all_guards[@]}"
+    all_guards+=("$g")
+    db_guards+=("$idx")
   else
-    echo "  (no self-test — verdict below is untested against a planted violation)"
-    no_selftest+=("$name")
-  fi
-
-  if bash "$g"; then
-    ran=$((ran + 1))
-    ! is_known_red "$name" || stale_red+=("$name")
-  else
-    echo "✗ GUARD FAILED: $name"
-    if is_known_red "$name"; then tolerated+=("$name"); else fail+=("$name"); fi
+    idx="${#all_guards[@]}"
+    all_guards+=("$g")
+    non_db_guards+=("$idx")
   fi
 done
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+if [ "${#all_guards[@]}" -eq 0 ]; then
+  :
+elif [ "$JOBS" -le 1 ] || [ "${#all_guards[@]}" -le 1 ]; then
+  for idx in "${!all_guards[@]}"; do
+    name="$(basename "${all_guards[$idx]}" .sh)"
+    run_one_guard "${all_guards[$idx]}" "$WORK/$idx.status"
+    apply_guard_status "$WORK/$idx.status" "$name"
+  done
+else
+  worker_pids=()
+  if [ "${#db_guards[@]}" -gt 0 ]; then
+    (
+      for idx in "${db_guards[@]}"; do
+        run_one_guard "${all_guards[$idx]}" "$WORK/$idx.status" > "$WORK/$idx.log" 2>&1
+      done
+    ) &
+    worker_pids+=("$!")
+  fi
+  if [ "${#non_db_guards[@]}" -gt 0 ]; then
+    n_workers="$JOBS"
+    [ "${#non_db_guards[@]}" -lt "$n_workers" ] && n_workers="${#non_db_guards[@]}"
+    for ((w = 0; w < n_workers; w++)); do
+      (
+        for idx in "${non_db_guards[@]}"; do
+          mkdir "$WORK/claim.$idx" 2>/dev/null || continue
+          run_one_guard "${all_guards[$idx]}" "$WORK/$idx.status" > "$WORK/$idx.log" 2>&1
+        done
+      ) &
+      worker_pids+=("$!")
+    done
+  fi
+  for pid in "${worker_pids[@]}"; do
+    if ! wait "$pid"; then
+      fail+=("worker-pid-$pid (aborted)")
+    fi
+  done
+  for idx in "${!all_guards[@]}"; do
+    name="$(basename "${all_guards[$idx]}" .sh)"
+    [ -f "$WORK/$idx.log" ] && cat "$WORK/$idx.log"
+    if [ -f "$WORK/$idx.status" ]; then
+      apply_guard_status "$WORK/$idx.status" "$name"
+    else
+      fail+=("$name (missing status)")
+    fi
+  done
+fi
 
 echo
 echo "══ run-guards summary ══"

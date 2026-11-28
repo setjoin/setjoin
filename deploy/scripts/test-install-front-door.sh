@@ -201,8 +201,10 @@ grep -qx 'start setjoin-gateway' "$tmp/systemctl.log" || fail "setjoinctl restar
   "$(grep -n '^start setjoin-gateway$' "$tmp/systemctl.log" | cut -d: -f1)" ] || fail "server started before setjoin-auth"
 
 # ── 4. *.prev rollback covers Rust + pre-#142 cutover ────────────────────────
-bash "$ROOT/deploy/scripts/test-upgrade-rollback.sh" >/dev/null ||
-  fail "flat *.prev rollback failed"
+if [ "${SKIP_UPGRADE_ROLLBACK_TEST:-0}" != 1 ]; then
+  bash "$ROOT/deploy/scripts/test-upgrade-rollback.sh" >/dev/null ||
+    fail "flat *.prev rollback failed"
+fi
 bash "$ROOT/deploy/scripts/test-federation-upgrade.sh" >/dev/null ||
   fail "native federation upgrade/whole-release rollback failed"
 require_text 'upgrade keeps the previous Rust binary' 'setjoin-server.prev' "$UPGRADE"

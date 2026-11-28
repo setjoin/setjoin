@@ -385,11 +385,23 @@ jobs:
       - name: Build webmail (performance guard input)
         working-directory: webmail
         run: npm run build
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: server -> ../../../../lane-build/target
+          shared-key: guards-host
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install cargo-deny for the Rust workspace policy
         run: |
+          set -euo pipefail
           rustup component add llvm-tools # check-server-rust's coverage-report self-test needs llvm-profdata/llvm-cov
-          cargo install cargo-deny --locked --version 0.19.0
-          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH" # the license-policy test replaces CARGO_HOME
+          TOOLS="$HOME/.local/setjoin-ci-tools"
+          mkdir -p "$TOOLS"
+          cid="$(docker create "$LANE_IMAGE")"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid:/usr/local/bin/cargo-deny" "$TOOLS/cargo-deny"
+          chmod 0755 "$TOOLS/cargo-deny"
+          "$TOOLS/cargo-deny" --version | grep -Fq 'cargo-deny 0.19.0'
+          echo "$TOOLS" >> "$GITHUB_PATH" # the license-policy test replaces CARGO_HOME
       - name: Point the guards at the lane Postgres
         # lane-setup exported PGPASSWORD for the postgres superuser on LANE_PG_PORT.
         run: |
@@ -416,6 +428,7 @@ jobs:
         # workspace, roots and adequacy stages belong to the build, roots and shard jobs of this lane.
         env:
           SERVER_RUST_STAGES: static
+          RUN_GUARDS_JOBS: '4'
         run: |
           bash scripts/run-guards-selftest.sh
           bash scripts/run-guards.sh --known-red scripts/guards-known-red.txt
@@ -432,6 +445,7 @@ jobs:
     env:
       LANE_JOB_TAG: shard-${{ matrix.shard }}
       LANE_COVERAGE: '0'
+      LANE_ADEQUACY_VERIFY_JUNIT: '1'
       SERVER_RUST_STAGES: workspace,adequacy
       SERVER_RUST_NEXTEST_PARTITION: hash:${{ matrix.shard }}/${{ needs.plan.outputs.shard_count }}
       LANE_ADEQUACY_SHARD: ${{ matrix.shard }}/${{ needs.plan.outputs.shard_count }}
@@ -442,16 +456,10 @@ jobs:
         with:
           name: lane-archive
           path: ${{ runner.temp }}/archive
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: lane-list
-          path: ${{ runner.temp }}/list
-      - name: Shard ${{ matrix.shard }} (nextest partition and replay slice)
+      - name: Shard ${{ matrix.shard }} (nextest partition and JUnit replay verification)
         run: |
-          python3 scripts/ci/lane-binaries.py "$RUNNER_TEMP/list/lane-list.json" >"$LANE_ARTIFACT_DIR/binaries.json"
           SERVER_RUST_NEXTEST_ARCHIVE="$RUNNER_TEMP/archive/lane-tests.tar.zst" \
           SERVER_RUST_NEXTEST_EXTRACT_TO="$LANE_BUILD" \
-          LANE_ADEQUACY_BINARIES="$LANE_ARTIFACT_DIR/binaries.json" \
             bash scripts/ci/lane-container.sh bash scripts/ci/server-rust-parallel-lane.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()

@@ -1322,5 +1322,203 @@ class JmapFragments(unittest.TestCase):
             self.assertNotIn("no-tenant-filter", result.stderr.split("missing family mutants:")[-1].splitlines()[0])
 
 
+class VerifyNextestJunit(unittest.TestCase):
+    """Exercise --verify-nextest-junit against synthetic JUnit XMLs."""
+
+    def scaffold(self, directory):
+        root = Path(directory)
+        (root / "server").mkdir()
+        route = {"listener": "gateway", "method": "POST", "path": "/example", "family": "F12"}
+        cases = [{"kind": kind, "golden": f"{kind}.json", "row_golden": f"{kind}-rows.json",
+                  "replay": {"package": "fake-package", "target": "recorded", "test": kind}}
+                 for kind in ("success", "cross-tenant", "invalid-input", "repeat")]
+        (root / "inventory.json").write_text(json.dumps({"version": 1, "routes": [
+            {**route, "state": "ON", "upstream": "local-rust",
+             "oracle_commands": [""], "oracle_mutators": [""]},
+        ]}))
+        (root / "catalog.json").write_text(json.dumps({"version": 1, "routes": [
+            {**route, "mutator": True, "cases": cases,
+             "family_mutants": FAMILY_MUTANTS,
+             "mutant": {"package": "fake-package", "target": "recorded", "test": "mutant",
+                        "name": "changed-status"}},
+        ]}))
+        for case in cases:
+            (root / case["golden"]).write_text(json.dumps({
+                "format": 1, "route": "POST /example", "case": case["kind"], "go_source": "a" * 40,
+                "observation": {"request": {"method": "POST", "path": "/example"},
+                                "response": {"status": 200}, "effects": [{"state": 1}],
+                                "audit": [{"action": "write"}],
+                                "notify": [{"channel": "changes", "payload": "1"}]},
+            }))
+            (root / case["row_golden"]).write_text(json.dumps({
+                "format": 1, "route": "POST /example", "case": case["kind"] + "-row-effects",
+                "go_source": "a" * 40, "effects": [{"table": "example", "before": [], "after": [{"state": 1}]}],
+            }))
+        expected = [
+            ("success", "GOLDEN-REPLAY: POST /example :: success"),
+            ("cross-tenant", "GOLDEN-REPLAY: POST /example :: cross-tenant"),
+            ("invalid-input", "GOLDEN-REPLAY: POST /example :: invalid-input"),
+            ("repeat", "GOLDEN-REPLAY: POST /example :: repeat"),
+            ("mutant", "MUTANT-REJECTED: POST /example :: changed-status"),
+            ("double-bump", "MUTANT-REJECTED: POST /example :: double-bump"),
+            ("no-audit", "MUTANT-REJECTED: POST /example :: no-audit"),
+            ("no-notify", "MUTANT-REJECTED: POST /example :: no-notify"),
+            ("no-tenant-filter", "MUTANT-REJECTED: POST /example :: no-tenant-filter"),
+        ]
+        return root, expected
+
+    @staticmethod
+    def write_junit(path, items):
+        rows = []
+        for test_name, stdout, stderr, tag in items:
+            body = f"<{tag}/>" if tag else ""
+            if stdout is not None:
+                body += f"<system-out>{stdout}</system-out>"
+            if stderr is not None:
+                body += f"<system-err>{stderr}</system-err>"
+            rows.append(f'<testcase classname="fake-package::recorded" name="{test_name}">{body}</testcase>')
+        path.write_text("<testsuites><testsuite>" + "".join(rows) + "</testsuite></testsuites>")
+
+    def run_verify(self, root, junit_path, extra=()):
+        return subprocess.run(
+            [sys.executable, str(GUARD), "--skip-preflight", "--root", str(root),
+             "--verify-nextest-junit", str(junit_path),
+             "--inventory", str(root / "inventory.json"), "--catalog", str(root / "catalog.json"),
+             *extra],
+            capture_output=True, text=True, check=False,
+        )
+
+    def test_valid_junit_passes_unsharded_and_sharded_with_receipts(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-junit-ok-") as directory:
+            root, expected = self.scaffold(directory)
+            full_junit = root / "full.xml"
+            self.write_junit(full_junit, [(t, r + "\n", None, None) for t, r in expected])
+            res = self.run_verify(root, full_junit)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            self.assertIn(f"replay summary: {len(expected)} passed, 0 failed", res.stdout)
+
+            # Sharded split across two JUnit XMLs produces nextest:1/2 and nextest:2/2 receipts
+            s1_junit, s2_junit = root / "s1.xml", root / "s2.xml"
+            s1_rcpt, s2_rcpt = root / "s1.json", root / "s2.json"
+            self.write_junit(s1_junit, [(t, r + "\n", None, None) for t, r in expected[:4]])
+            self.write_junit(s2_junit, [(t, r + "\n", None, None) for t, r in expected[4:]])
+            r1 = self.run_verify(root, s1_junit, ["--shard", "1/2", "--receipt", str(s1_rcpt)])
+            r2 = self.run_verify(root, s2_junit, ["--shard", "2/2", "--receipt", str(s2_rcpt)])
+            self.assertEqual(r1.returncode, 0, r1.stdout + r1.stderr)
+            self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
+            d1, d2 = json.loads(s1_rcpt.read_text()), json.loads(s2_rcpt.read_text())
+            self.assertEqual(d1["shard"], "nextest:1/2")
+            self.assertEqual(d2["shard"], "nextest:2/2")
+            self.assertEqual(len(d1["replays"]) + len(d2["replays"]), len(expected))
+
+    def test_missing_receipt_fails_closed(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-junit-noreceipt-") as directory:
+            root, expected = self.scaffold(directory)
+            junit = root / "junit.xml"
+            items = [(t, "other output\n" if t == "no-notify" else r + "\n", None, None) for t, r in expected]
+            self.write_junit(junit, items)
+            res = self.run_verify(root, junit)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("did not emit receipt MUTANT-REJECTED: POST /example :: no-notify", res.stderr)
+
+    def test_skip_marker_fails_closed(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-junit-skip-") as directory:
+            root, expected = self.scaffold(directory)
+            junit = root / "junit.xml"
+            items = [(t, r + "\n", "SETJOIN-PG-DB-SKIP (reason=no-dsn) test=x\n" if t == "success" else None, None)
+                     for t, r in expected]
+            self.write_junit(junit, items)
+            res = self.run_verify(root, junit)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("emitted skip marker", res.stderr)
+
+    def test_failed_or_skipped_testcase_fails_closed(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-junit-fail-") as directory:
+            root, expected = self.scaffold(directory)
+            for tag in ("failure", "error", "skipped"):
+                junit = root / f"{tag}.xml"
+                items = [(t, r + "\n", None, tag if t == "mutant" else None) for t, r in expected]
+                self.write_junit(junit, items)
+                res = self.run_verify(root, junit)
+                self.assertNotEqual(res.returncode, 0)
+                self.assertIn("failed or skipped", res.stderr)
+
+    def test_unsharded_missing_manifest_entry_fails_closed(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-junit-missing-") as directory:
+            root, expected = self.scaffold(directory)
+            junit = root / "partial.xml"
+            self.write_junit(junit, [(t, r + "\n", None, None) for t, r in expected[:-1]])
+            res = self.run_verify(root, junit)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("did not run in", res.stderr)
+
+    def test_multi_receipt_single_test_passes_and_fails_if_one_missing(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-junit-multi-") as directory:
+            root, expected = self.scaffold(directory)
+            # Add a second route whose 'success' case shares the exact same Rust test selector
+            # as /example's 'success' case (mirroring multi-receipt tests in the real catalog).
+            inv = json.loads((root / "inventory.json").read_text())
+            route2 = {**inv["routes"][0], "path": "/example2"}
+            inv["routes"].append(route2)
+            (root / "inventory.json").write_text(json.dumps(inv))
+
+            catalog = json.loads((root / "catalog.json").read_text())
+            c2 = json.loads(json.dumps(catalog["routes"][0]))
+            c2["path"] = "/example2"
+            c2["mutant"]["test"] = "mutant2"
+            c2.pop("family_mutants", None)
+            for case in c2["cases"]:
+                kind = case["kind"]
+                case["golden"] = f"{kind}2.json"
+                case["row_golden"] = f"{kind}2-rows.json"
+                (root / case["golden"]).write_text(json.dumps({
+                    "format": 1, "route": "POST /example2", "case": kind, "go_source": "a" * 40,
+                    "observation": {"request": {"method": "POST", "path": "/example2"},
+                                    "response": {"status": 200}, "effects": [{"state": 1}],
+                                    "audit": [{"action": "write"}],
+                                    "notify": [{"channel": "changes", "payload": "1"}]},
+                }))
+                (root / case["row_golden"]).write_text(json.dumps({
+                    "format": 1, "route": "POST /example2", "case": kind + "-row-effects",
+                    "go_source": "a" * 40, "effects": [{"table": "example", "before": [], "after": [{"state": 1}]}],
+                }))
+                if kind != "success":
+                    case["replay"]["test"] = kind + "2"
+            catalog["routes"].append(c2)
+            (root / "catalog.json").write_text(json.dumps(catalog))
+
+            expected2 = [
+                ("success", "GOLDEN-REPLAY: POST /example2 :: success"),
+                ("cross-tenant2", "GOLDEN-REPLAY: POST /example2 :: cross-tenant"),
+                ("invalid-input2", "GOLDEN-REPLAY: POST /example2 :: invalid-input"),
+                ("repeat2", "GOLDEN-REPLAY: POST /example2 :: repeat"),
+                ("mutant2", "MUTANT-REJECTED: POST /example2 :: changed-status"),
+            ]
+            combined_out = (
+                "GOLDEN-REPLAY: POST /example :: success\n"
+                "GOLDEN-REPLAY: POST /example2 :: success\n"
+            )
+            others = [
+                (t, r + "\n", None, None)
+                for t, r in (expected + expected2)
+                if t != "success"
+            ]
+            junit_ok = root / "multi-ok.xml"
+            receipt_ok = root / "multi-ok.json"
+            self.write_junit(junit_ok, [("success", combined_out, None, None)] + others)
+            res = self.run_verify(root, junit_ok, ["--receipt", str(receipt_ok)])
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertEqual(len(json.loads(receipt_ok.read_text())["replays"]), len(expected) + len(expected2))
+
+            junit_bad = root / "multi-bad.xml"
+            self.write_junit(
+                junit_bad,
+                [("success", "GOLDEN-REPLAY: POST /example :: success\n", None, None)] + others,
+            )
+            res = self.run_verify(root, junit_bad)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("did not emit receipt GOLDEN-REPLAY: POST /example2 :: success", res.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

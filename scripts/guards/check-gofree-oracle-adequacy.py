@@ -16,6 +16,7 @@ import time
 import sys
 import tempfile
 import tomllib
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -573,6 +574,66 @@ def execute_replays(root, cargo, replays, failures=None, jobs=None, prebuilt=Non
         failures.append(("replay/mutant", label, errors[index]))
 
 
+def verify_nextest_junit(junit_path, replays, shard=None, failures=None):
+    """Verify replay and mutant receipts directly from a cargo nextest JUnit XML
+    (with store-success-output = true), avoiding duplicate execution of every
+    manifest replay/mutant already executed under REQUIRE_DB=1 + lane-db + leak_guard.
+    In sharded mode (`shard` is not None), verifies every manifest entry present in
+    this shard's junit.xml (merge-lane-shards.py enforces exact multiset equality
+    across all N shards). In unsharded mode (`shard` is None), every manifest entry
+    must be present in junit.xml."""
+    try:
+        root = ET.parse(junit_path).getroot()
+    except (OSError, ET.ParseError) as error:
+        raise ValueError(f"cannot parse nextest JUnit XML {junit_path}: {error}") from error
+    cases = {}
+    for case in root.iter("testcase"):
+        key = (case.get("classname"), case.get("name"))
+        if key in cases:
+            raise ValueError(f"duplicate testcase in {junit_path}: {key[0]}::{key[1]}")
+        skipped = case.find("skipped") is not None
+        failed = case.find("failure") is not None or case.find("error") is not None
+        stdout = "".join(el.text or "" for el in case.findall("system-out"))
+        stderr = "".join(el.text or "" for el in case.findall("system-err"))
+        output = stdout + ("\n" if stdout and stderr and not stdout.endswith("\n") else "") + stderr
+        cases[key] = (failed, skipped, output)
+    if not cases:
+        raise ValueError(f"nextest JUnit XML {junit_path} contains zero testcases")
+    if shard is None:
+        selected = list(replays)
+    else:
+        selected = [(replay, receipt) for replay, receipt in replays
+                    if (f"{replay['package']}::{replay['target']}", replay["test"]) in cases]
+    errors = {}
+    for index, (replay, receipt) in enumerate(selected):
+        label = replay_label(replay, receipt)
+        key = (f"{replay['package']}::{replay['target']}", replay["test"])
+        error = None
+        if key not in cases:
+            error = f"replay {replay} did not run in {junit_path}"
+        else:
+            failed, skipped, output = cases[key]
+            receipt_pattern = r"^(?:test [^\n]* \.\.\. )?" + re.escape(receipt) + r"$"
+            if failed or skipped:
+                error = f"replay {replay} failed or skipped in {junit_path}:\n{output}"
+            elif re.search(r"[A-Z][A-Z0-9-]*-SKIP \(reason=", output):
+                error = f"replay {replay} emitted skip marker in {junit_path}:\n{output}"
+            elif not re.search(receipt_pattern, output, re.MULTILINE):
+                error = f"replay or mutant {replay} did not emit receipt {receipt}"
+        print(f"replay {'PASS' if error is None else 'FAIL'} {label}", flush=True)
+        if error is None:
+            continue
+        if failures is None:
+            raise ValueError(f"{label}: {error}")
+        errors[index] = error
+    print(f"replay summary: {len(selected) - len(errors)} passed, {len(errors)} failed", flush=True)
+    for index in sorted(errors):
+        label = replay_label(*selected[index])
+        print(f"replay summary FAIL {label}", flush=True)
+        failures.append(("replay/mutant", label, errors[index]))
+    return [replay_label(*selected[i]) for i in range(len(selected)) if i not in errors]
+
+
 def measure_coverage(root, cargo, suites, failures=None, jobs=None, prebuilt=None):
     """Builds each distinct test binary once, then measures the entries `jobs` at a time.
 
@@ -957,6 +1018,9 @@ def main():
     parser.add_argument("--inventory", type=Path)
     parser.add_argument("--catalog", type=Path)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--verify-nextest-junit", type=Path, metavar="PATH",
+                        help="verify replay and mutant receipts from a cargo nextest JUnit XML "
+                             "(with store-success-output = true) instead of re-executing tests")
     parser.add_argument("--coverage", action="store_true")
     parser.add_argument("--coverage-output", type=Path)
     parser.add_argument("--coverage-jobs", type=int, default=None,
@@ -1000,12 +1064,14 @@ def main():
         unknown = sorted(set(stages) - set(STAGES))
         if not stages or unknown:
             parser.error(f"--only takes stages from {', '.join(STAGES)}; got {args.only!r}")
-        if args.execute or args.coverage:
-            parser.error("--only replaces --execute and --coverage")
+        if args.execute or args.coverage or args.verify_nextest_junit is not None:
+            parser.error("--only replaces --execute, --verify-nextest-junit, and --coverage")
         args.execute, args.coverage = "replays" in stages, "coverage" in stages
     elif args.entries is not None:
         parser.error("--entries needs --only")
-    elif args.coverage and not args.execute and args.shard is None:
+    elif args.verify_nextest_junit is not None and args.execute:
+        parser.error("--verify-nextest-junit cannot be combined with --execute")
+    elif args.coverage and not args.execute and args.verify_nextest_junit is None and args.shard is None:
         parser.error("--coverage requires --execute")
     entries = None
     if args.entries is not None:
@@ -1047,12 +1113,21 @@ def main():
         print(f"gofree-oracle-adequacy: SUBSET RUN (stages {args.only}) — not a lane result", flush=True)
     if args.shard is not None:
         shard = parse_shard(args.shard)
-        replays, suites = shard_items(replays, shard), shard_items(suites, shard)
-        print(f"gofree-oracle-adequacy: SHARD {args.shard} ({len(replays)} replays, {len(suites)} coverage entries)", flush=True)
+        if args.verify_nextest_junit is not None:
+            suites = shard_items(suites, shard)
+            print(f"gofree-oracle-adequacy: SHARD nextest:{args.shard} (JUnit {args.verify_nextest_junit}, "
+                  f"{len(suites)} coverage entries)", flush=True)
+        else:
+            replays, suites = shard_items(replays, shard), shard_items(suites, shard)
+            print(f"gofree-oracle-adequacy: SHARD {args.shard} ({len(replays)} replays, {len(suites)} coverage entries)", flush=True)
     prebuilt = json.loads(args.binaries.read_text()) if args.binaries else None
     failures = [] if args.keep_going else None
     ran_replays, ran_coverage = None, None
-    if args.execute:
+    if args.verify_nextest_junit is not None:
+        started = time.monotonic()
+        ran_replays = verify_nextest_junit(args.verify_nextest_junit, replays, args.shard, failures)
+        print(f"gofree-oracle-adequacy: JUnit replay verification took {time.monotonic() - started:.0f}s", flush=True)
+    elif args.execute:
         started = time.monotonic()
         execute_replays(args.root, args.cargo, replays, failures, args.replay_jobs, prebuilt)
         print(f"gofree-oracle-adequacy: replays and mutants took {time.monotonic() - started:.0f}s", flush=True)
@@ -1068,7 +1143,10 @@ def main():
         if args.coverage_output:
             args.coverage_output.write_text(json.dumps(reports, indent=2) + "\n")
     if args.receipt:
-        args.receipt.write_text(json.dumps({"shard": args.shard, "manifest_hash": manifest["hash"],
+        receipt_shard = (f"nextest:{args.shard}"
+                         if args.verify_nextest_junit is not None and args.shard is not None
+                         else args.shard)
+        args.receipt.write_text(json.dumps({"shard": receipt_shard, "manifest_hash": manifest["hash"],
                                             "replays": ran_replays or [], "coverage": ran_coverage or []}, indent=1) + "\n")
     if failures:
         report_failures(failures)

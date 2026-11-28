@@ -81,10 +81,18 @@ build() { # <db>
   return 0
 }
 
-echo "    build A ($DB_A) ..."
-build "$DB_A" || exit 1
-echo "    build B ($DB_B) ..."
-build "$DB_B" || exit 1
+echo "    build A ($DB_A) and build B ($DB_B) in parallel ..."
+build "$DB_A" &
+pid_a=$!
+build "$DB_B" &
+pid_b=$!
+wait "$pid_a"
+rc_a=$?
+wait "$pid_b"
+rc_b=$?
+if [ "$rc_a" -ne 0 ] || [ "$rc_b" -ne 0 ]; then
+  exit 1
+fi
 
 "$PG_DUMP" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" --schema-only "$DB_A" > "$TMP/a.sql" 2>"$TMP/a.err" || { echo "  pg_dump A failed:"; sed 's/^/      /' "$TMP/a.err"; exit 1; }
 "$PG_DUMP" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" --schema-only "$DB_B" > "$TMP/b.sql" 2>"$TMP/b.err" || { echo "  pg_dump B failed:"; sed 's/^/      /' "$TMP/b.err"; exit 1; }
