@@ -4,7 +4,7 @@
   "authority": "docs/architecture.md",
   "collisionBaselines": {
     "admin": {
-      "baseCommit": "23a99f0d93a378b25366f3680ac56c8090910834",
+      "baseCommit": "324b4012fb8efee9060af9da503b3b280cddb9f4",
       "releasedRef": "main",
       "candidatePaths": [
         "webmail/src/lib/admin/client.ts",
